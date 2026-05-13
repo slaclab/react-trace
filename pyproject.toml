@@ -1,0 +1,9 @@
+[project]
+name = "react-trace-docs"
+version = "0.1.0"
+description = "Documentation for react-trace"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "zensical>=0.0.41",
+]

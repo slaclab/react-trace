@@ -1,0 +1,16 @@
+# Dependencies
+node_modules
+
+# Production
+dist
+dist-ssr
+build
+
+# Misc
+.DS_Store
+*.log
+.vscode
+.idea
+
+# Generated files
+src/routeTree.gen.ts
