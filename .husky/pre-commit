@@ -1,0 +1,5 @@
+# Run TypeScript type checking
+pnpm exec tsc --noEmit
+
+# Run lint-staged (eslint + prettier on staged files)
+pnpm lint-staged
