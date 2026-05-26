@@ -1,6 +1,6 @@
 allowBuilds:
   '@carbon/colors': true
-  '@carbon/feature-flags': set this to true or false
+  '@carbon/feature-flags': true
   '@carbon/grid': true
   '@carbon/icon-helpers': true
   '@carbon/icons-react': true
@@ -11,13 +11,13 @@ allowBuilds:
   '@carbon/themes': true
   '@carbon/type': true
   '@carbon/utilities': true
-  '@ibm/plex': set this to true or false
-  '@ibm/plex-mono': set this to true or false
-  '@ibm/plex-sans': set this to true or false
-  '@ibm/plex-sans-arabic': set this to true or false
-  '@ibm/plex-sans-devanagari': set this to true or false
-  '@ibm/plex-sans-hebrew': set this to true or false
-  '@ibm/plex-sans-thai': set this to true or false
-  '@ibm/plex-sans-thai-looped': set this to true or false
-  '@ibm/plex-serif': set this to true or false
-  '@parcel/watcher': set this to true or false
+  '@ibm/plex': true
+  '@ibm/plex-mono': true
+  '@ibm/plex-sans': true
+  '@ibm/plex-sans-arabic': true
+  '@ibm/plex-sans-devanagari': true
+  '@ibm/plex-sans-hebrew': true
+  '@ibm/plex-sans-thai': true
+  '@ibm/plex-sans-thai-looped': true
+  '@ibm/plex-serif': true
+  '@parcel/watcher': true
