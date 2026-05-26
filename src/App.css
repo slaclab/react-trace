@@ -1,182 +1,515 @@
-.counter {
-  font-size: 16px;
-  padding: 5px 10px;
-  border-radius: 5px;
-  color: var(--accent);
-  background: var(--accent-bg);
-  border: 2px solid transparent;
-  transition: border-color 0.3s;
-  margin-bottom: 24px;
+/* Application-level layout overrides */
 
-  &:hover {
-    border-color: var(--accent-border);
-  }
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-}
-
-.hero {
-  position: relative;
-
-  .base,
-  .framework,
-  .vite {
-    inset-inline: 0;
-    margin: 0 auto;
-  }
-
-  .base {
-    width: 170px;
-    position: relative;
-    z-index: 0;
-  }
-
-  .framework,
-  .vite {
-    position: absolute;
-  }
-
-  .framework {
-    z-index: 1;
-    top: 34px;
-    height: 28px;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg) scale(1.4);
-  }
-
-  .vite {
-    z-index: 0;
-    top: 107px;
-    height: 26px;
-    width: auto;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg) scale(0.8);
-  }
-}
-
-#center {
+.trace-app {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 25px;
-  place-content: center;
-  place-items: center;
-  flex-grow: 1;
-
-  @media (max-width: 1024px) {
-    padding: 32px 20px 24px;
-    gap: 18px;
-  }
+  background-color: #161616;
+  color: #f4f4f4;
+  overflow: hidden;
 }
 
-#next-steps {
+.trace-panel-group {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
-  border-top: 1px solid var(--border);
-  text-align: left;
-
-  & > div {
-    flex: 1 1 0;
-    padding: 32px;
-    @media (max-width: 1024px) {
-      padding: 24px 20px;
-    }
-  }
-
-  .icon {
-    margin-bottom: 16px;
-    width: 22px;
-    height: 22px;
-  }
-
-  @media (max-width: 1024px) {
-    flex-direction: column;
-    text-align: center;
-  }
 }
 
-#docs {
-  border-right: 1px solid var(--border);
-
-  @media (max-width: 1024px) {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
+.trace-resize-handle {
+  width: 1px;
+  background-color: #393939;
+  transition: background-color 0.15s;
+  cursor: col-resize;
+  flex-shrink: 0;
 }
 
-#next-steps ul {
-  list-style: none;
+.trace-resize-handle:hover,
+.trace-resize-handle[data-resize-handle-active] {
+  background-color: #0f62fe;
+}
+
+/* Panel collapse/expand buttons */
+
+.panel-collapse-btn,
+.panel-expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 2px;
+  background: transparent;
+  color: #8d8d8d;
+  cursor: pointer;
   padding: 0;
+  flex-shrink: 0;
+}
+
+.panel-collapse-btn:hover,
+.panel-expand-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #f4f4f4;
+}
+
+/* Layer panel */
+.layers-panel {
+  height: 100%;
+  background-color: #262626;
+  border-right: 1px solid #393939;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.layers-panel__header {
+  height: 40px;
+  border-bottom: 1px solid #393939;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+
+.layers-panel__title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #c6c6c6;
+  text-transform: uppercase;
+}
+
+.layers-panel__scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.layers-panel__footer {
+  padding: 8px;
+  border-top: 1px solid #393939;
+  flex-shrink: 0;
+}
+
+/* Layer rows */
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+  user-select: none;
+  min-height: 32px;
+}
+
+.layer-row:hover {
+  background-color: #353535;
+}
+
+.layer-row--selected {
+  background-color: #393939;
+}
+
+.layer-row--dragging {
+  opacity: 0.4;
+}
+
+.layer-row__color-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.layer-row__name {
+  font-size: 12px;
+  color: #f4f4f4;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layer-row__indicators {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.layer-row__indicator {
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 2px;
+}
+
+.layer-row__indicator--live {
+  background-color: rgba(66, 190, 101, 0.2);
+  color: #42be65;
+}
+
+.layer-row__indicator--archive {
+  background-color: rgba(141, 141, 141, 0.2);
+  color: #8d8d8d;
+}
+
+.layer-row__delete {
+  transition: background-color 0.15s;
+}
+
+.axis-drop-zone {
+  border-radius: 2px;
+  transition: background-color 0.15s;
+}
+
+.axis-drop-zone--over {
+  background-color: rgba(15, 98, 254, 0.1);
+  outline: 1px dashed #0f62fe;
+}
+
+/* Plot area */
+.plot-area {
+  height: 100%;
+  background-color: #161616;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.plot-tab-bar {
+  height: 40px;
+  background-color: #262626;
+  border-bottom: 1px solid #393939;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  gap: 4px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.plot-tab-bar__tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.plot-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 2px 2px 0 0;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  height: 32px;
+}
+
+.plot-tab--active {
+  background-color: #161616;
+  color: #f4f4f4;
+}
+
+.plot-tab--inactive {
+  background-color: #353535;
+  color: #8d8d8d;
+}
+
+.plot-tab--inactive:hover {
+  background-color: #393939;
+}
+
+.plot-tab__action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.plot-tab__action-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.plot-tab__action-btn--close:hover {
+  background-color: #da1e28;
+}
+
+.plot-tab-bar__controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-left: 1px solid #393939;
+  padding-left: 8px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.view-mode-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 2px;
+  border: none;
+  background: transparent;
+  color: #8d8d8d;
+  cursor: pointer;
+  padding: 0;
+}
+
+.view-mode-btn:hover {
+  background-color: #353535;
+}
+
+.view-mode-btn--active {
+  background-color: #393939;
+  color: #f4f4f4;
+}
+
+.plot-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.plot-grid {
+  height: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+}
+
+.plot-grid__cell {
+  border: 1px solid #393939;
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+.plot-grid__cell-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 2px;
+  border: 1px solid #525252;
+  background-color: #262626;
+  color: #f4f4f4;
+  cursor: pointer;
+}
+
+.plot-grid__cell-btn:hover {
+  background-color: #393939;
+}
+
+.plot-grid__cell-btn--maximize {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 10;
+}
+
+.plot-grid__cell-btn--close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+}
+
+.plot-grid__cell-btn--close:hover {
+  background-color: #da1e28;
+}
+
+/* Properties panel */
+.properties-panel {
+  height: 100%;
+  background-color: #262626;
+  border-left: 1px solid #393939;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.properties-panel__header {
+  height: 40px;
+  border-bottom: 1px solid #393939;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+
+.properties-panel__title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #c6c6c6;
+  text-transform: uppercase;
+}
+
+.properties-panel__tabs {
+  flex-shrink: 0;
+}
+
+.properties-panel__content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.properties-panel__empty {
+  font-size: 12px;
+  color: #6f6f6f;
+  text-align: center;
+  margin-top: 32px;
+}
+
+/* Property form styles */
+.prop-section {
+  margin-bottom: 20px;
+}
+
+.prop-section__title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #c6c6c6;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 12px;
+}
+
+.prop-row {
+  margin-bottom: 12px;
+}
+
+.prop-row--inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.prop-subsection {
+  margin-left: 20px;
+  padding-left: 8px;
+  border-left: 1px solid #525252;
+  margin-bottom: 4px;
+}
+
+.prop-divider {
+  height: 1px;
+  background-color: #393939;
+  margin: 16px 0;
+}
+
+.prop-code-area {
+  width: 100%;
+  background-color: #161616;
+  border: 1px solid #525252;
+  border-radius: 2px;
+  color: #f4f4f4;
+  font-family: 'IBM Plex Mono', 'Courier New', monospace;
+  font-size: 11px;
+  padding: 8px;
+  resize: vertical;
+  outline: none;
+}
+
+.prop-code-area:focus {
+  border-color: #0f62fe;
+  outline: 2px solid #0f62fe;
+  outline-offset: -2px;
+}
+
+.prop-code-actions {
   display: flex;
   gap: 8px;
-  margin: 32px 0 0;
-
-  .logo {
-    height: 18px;
-  }
-
-  a {
-    color: var(--text-h);
-    font-size: 16px;
-    border-radius: 6px;
-    background: var(--social-bg);
-    display: flex;
-    padding: 6px 12px;
-    align-items: center;
-    gap: 8px;
-    text-decoration: none;
-    transition: box-shadow 0.3s;
-
-    &:hover {
-      box-shadow: var(--shadow);
-    }
-    .button-icon {
-      height: 18px;
-      width: 18px;
-    }
-  }
-
-  @media (max-width: 1024px) {
-    margin-top: 20px;
-    flex-wrap: wrap;
-    justify-content: center;
-
-    li {
-      flex: 1 1 calc(50% - 8px);
-    }
-
-    a {
-      width: 100%;
-      justify-content: center;
-      box-sizing: border-box;
-    }
-  }
+  margin-top: 8px;
 }
 
-#spacer {
-  height: 88px;
-  border-top: 1px solid var(--border);
-  @media (max-width: 1024px) {
-    height: 48px;
-  }
+/* Carbon overrides for dark panel */
+.layers-panel .cds--btn--ghost,
+.properties-panel .cds--btn--ghost {
+  color: #8d8d8d;
 }
 
-.ticks {
-  position: relative;
-  width: 100%;
+.layers-panel .cds--btn--ghost:hover,
+.properties-panel .cds--btn--ghost:hover {
+  background-color: #353535;
+  color: #f4f4f4;
+}
 
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    top: -4.5px;
-    border: 5px solid transparent;
-  }
+/* Carbon Tabs in properties panel */
+.properties-panel .cds--tabs__nav-item--selected .cds--tabs__nav-link {
+  border-bottom-color: #0f62fe;
+}
 
-  &::before {
-    left: 0;
-    border-left-color: var(--border);
-  }
-  &::after {
-    right: 0;
-    border-right-color: var(--border);
-  }
+.plot-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #f4f4f4;
+}
+
+.plot-settings-row:hover {
+  background-color: #353535;
+}
+
+.plot-settings-row--selected {
+  background-color: #393939;
+}
+
+.plot-settings-row__label {
+  flex: 1;
+  font-weight: 500;
+}
+
+.plot-settings-row__hint {
+  font-size: 11px;
+  color: #6f6f6f;
+}
+
+.axis-section__header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+  min-height: 32px;
+}
+
+.axis-section__header:hover {
+  background-color: #353535;
+}
+
+.axis-section__header--selected {
+  background-color: #393939;
+}
+
+.axis-section__traces {
+  margin-left: 24px;
+  margin-top: 2px;
+}
+
+.axis-add-trace-row {
+  padding: 2px 8px 2px 28px;
 }
