@@ -15,10 +15,12 @@ import {
 } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
 import type { SelectedItem } from './TraceApp';
+import { DEFAULT_OPTIMIZED_BINS, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 
 interface RightPanelProps {
   selectedItem: SelectedItem;
   activePlot: Plot;
+  archiveResults: Map<string, ArchiveSeriesResult>;
   onUpdateTrace: (traceId: string, updates: Partial<PVTrace>) => void;
   onUpdateAxis: (axisId: string, updates: Partial<Axis>) => void;
   onUpdatePlot: (updates: Partial<Plot>) => void;
@@ -28,6 +30,7 @@ interface RightPanelProps {
 export function RightPanel({
   selectedItem,
   activePlot,
+  archiveResults,
   onUpdateTrace,
   onUpdateAxis,
   onUpdatePlot,
@@ -35,6 +38,7 @@ export function RightPanel({
 }: RightPanelProps) {
   const selectedTrace =
     selectedItem?.type === 'trace' ? activePlot.traces.find((t) => t.id === selectedItem.id) : null;
+  const selectedTraceArchive = selectedTrace ? archiveResults.get(selectedTrace.id) : undefined;
   const selectedAxis =
     selectedItem?.type === 'axis' ? activePlot.axes.find((a) => a.id === selectedItem.id) : null;
   const isPlotSelected = selectedItem?.type === 'plot';
@@ -68,6 +72,7 @@ export function RightPanel({
                 <TraceGeneralTab
                   trace={selectedTrace}
                   axes={activePlot.axes}
+                  archiveResult={selectedTraceArchive}
                   onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)}
                 />
               )}
@@ -145,12 +150,33 @@ export function RightPanel({
 function TraceGeneralTab({
   trace,
   axes,
+  archiveResult,
   onUpdate,
 }: {
   trace: PVTrace;
   axes: Axis[];
+  archiveResult: ArchiveSeriesResult | undefined;
   onUpdate: (u: Partial<PVTrace>) => void;
 }) {
+  const archivePointCount = archiveResult?.mean.length ?? 0;
+  let archiveStatusLabel: string;
+  let archiveStatusColor: string;
+  if (!trace.useArchive) {
+    archiveStatusLabel = 'Disabled';
+    archiveStatusColor = '#6f6f6f';
+  } else if (!archiveResult || archiveResult.status === 'idle') {
+    archiveStatusLabel = 'Idle';
+    archiveStatusColor = '#8d8d8d';
+  } else if (archiveResult.status === 'loading') {
+    archiveStatusLabel = 'Loading…';
+    archiveStatusColor = '#0f62fe';
+  } else if (archiveResult.status === 'error') {
+    archiveStatusLabel = archiveResult.error?.code ?? 'Error';
+    archiveStatusColor = '#ff8389';
+  } else {
+    archiveStatusLabel = `Loaded${archiveResult.mode === 'binned' ? ' (binned)' : ' (raw)'}${archiveResult.decimated ? ' · decimated' : ''}`;
+    archiveStatusColor = '#42be65';
+  }
   return (
     <div>
       <div className="prop-section">
@@ -348,12 +374,33 @@ function TraceGeneralTab({
             </Select>
           </div>
         )}
+        {trace.useArchive && (
+          <div className="prop-row prop-subsection">
+            <NumberInput
+              id="optimized-bins"
+              label="Optimized bin count"
+              helperText={`Default ${DEFAULT_OPTIMIZED_BINS}`}
+              min={1}
+              max={100000}
+              step={100}
+              value={trace.optimizedDataBins ?? ''}
+              onChange={(_, { value }) => {
+                const next = value === '' || value === undefined ? undefined : Number(value);
+                onUpdate({ optimizedDataBins: next });
+              }}
+              size="sm"
+              allowEmpty
+            />
+          </div>
+        )}
 
         {/* Footer stats */}
         <div style={{ marginTop: 8, fontSize: 11, color: '#6f6f6f' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span>Data points:</span>
-            <span style={{ color: '#c6c6c6' }}>{trace.data.length}</span>
+            <span style={{ color: '#c6c6c6' }}>
+              {trace.useArchive ? archivePointCount : trace.data.length}
+            </span>
           </div>
           {trace.useLive && (
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
@@ -362,10 +409,21 @@ function TraceGeneralTab({
             </div>
           )}
           {trace.useArchive && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-              <span>Archive Status:</span>
-              <span style={{ color: '#0f62fe' }}>Loaded</span>
-            </div>
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                <span>Archive Status:</span>
+                <span style={{ color: archiveStatusColor }}>{archiveStatusLabel}</span>
+              </div>
+              {archiveResult?.archiver && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                  <span>Source:</span>
+                  <span style={{ color: '#c6c6c6' }}>{archiveResult.archiver}</span>
+                </div>
+              )}
+              {archiveResult?.status === 'error' && archiveResult.error?.detail && (
+                <div style={{ marginTop: 4, color: '#ff8389' }}>{archiveResult.error.detail}</div>
+              )}
+            </>
           )}
         </div>
       </div>

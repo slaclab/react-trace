@@ -25,10 +25,12 @@ import {
 import { Button, Tag } from '@carbon/react';
 import type { PVTrace, Axis } from '../types';
 import type { SelectedItem } from './TraceApp';
+import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 
 interface LeftPanelProps {
   traces: PVTrace[];
   axes: Axis[];
+  archiveResults: Map<string, ArchiveSeriesResult>;
   onCollapse: () => void;
   selectedItem: SelectedItem;
   onSelectItem: (item: SelectedItem) => void;
@@ -39,14 +41,52 @@ interface LeftPanelProps {
   onMoveTrace: (traceId: string, targetAxisId: string) => void;
 }
 
+const ERROR_LABELS: Record<string, { short: string; tone: 'red' | 'magenta' | 'warm-gray' }> = {
+  archiver_unavailable: { short: 'Archiver down', tone: 'red' },
+  archiver_timeout: { short: 'Timeout', tone: 'red' },
+  archiver_bad_response: { short: 'Bad response', tone: 'red' },
+  archiver_not_configured: { short: 'No archiver', tone: 'warm-gray' },
+  pv_not_found_in_archiver: { short: 'Unknown PV', tone: 'magenta' },
+  invalid_api_key: { short: 'Auth error', tone: 'red' },
+  insufficient_read_access: { short: 'Auth error', tone: 'red' },
+  network_error: { short: 'Offline', tone: 'red' },
+};
+
+function ArchiveStatusChip({ result }: { result: ArchiveSeriesResult | undefined }) {
+  if (!result) return null;
+  if (result.status === 'loading') {
+    return (
+      <Tag type="cool-gray" size="sm" style={{ minInlineSize: 'unset', padding: '0 6px' }}>
+        Loading
+      </Tag>
+    );
+  }
+  if (result.status === 'error') {
+    const code = result.error?.code ?? 'unknown_error';
+    const label = ERROR_LABELS[code] ?? { short: 'Error', tone: 'red' as const };
+    return (
+      <Tag
+        type={label.tone}
+        size="sm"
+        style={{ minInlineSize: 'unset', padding: '0 6px' }}
+        title={result.error?.detail}
+      >
+        {label.short}
+      </Tag>
+    );
+  }
+  return null;
+}
+
 interface TraceRowProps {
   trace: PVTrace;
+  archiveResult: ArchiveSeriesResult | undefined;
   isSelected: boolean;
   onSelect: () => void;
   onDelete: () => void;
 }
 
-function TraceRow({ trace, isSelected, onSelect, onDelete }: TraceRowProps) {
+function TraceRow({ trace, archiveResult, isSelected, onSelect, onDelete }: TraceRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: trace.id,
     data: { type: 'trace', axisId: trace.axisId },
@@ -81,6 +121,7 @@ function TraceRow({ trace, isSelected, onSelect, onDelete }: TraceRowProps) {
             <Archive size={12} />
           </div>
         )}
+        <ArchiveStatusChip result={archiveResult} />
       </div>
       <button
         className="layer-row__delete"
@@ -120,6 +161,7 @@ function TraceRow({ trace, isSelected, onSelect, onDelete }: TraceRowProps) {
 interface AxisSectionProps {
   axis: Axis;
   traces: PVTrace[];
+  archiveResults: Map<string, ArchiveSeriesResult>;
   isSelected: boolean;
   isExpanded: boolean;
   selectedItem: SelectedItem;
@@ -135,6 +177,7 @@ interface AxisSectionProps {
 function AxisSection({
   axis,
   traces,
+  archiveResults,
   isSelected,
   isExpanded,
   selectedItem,
@@ -243,6 +286,7 @@ function AxisSection({
               <TraceRow
                 key={trace.id}
                 trace={trace}
+                archiveResult={archiveResults.get(trace.id)}
                 isSelected={selectedItem?.type === 'trace' && selectedItem.id === trace.id}
                 onSelect={() => onSelectTrace(trace.id)}
                 onDelete={() => onDeleteTrace(trace.id)}
@@ -270,6 +314,7 @@ function AxisSection({
 export function LeftPanel({
   traces,
   axes,
+  archiveResults,
   selectedItem,
   onSelectItem,
   onAddTrace,
@@ -358,6 +403,7 @@ export function LeftPanel({
                 key={axis.id}
                 axis={axis}
                 traces={axisTraces}
+                archiveResults={archiveResults}
                 isSelected={selectedItem?.type === 'axis' && selectedItem.id === axis.id}
                 isExpanded={expandedAxes.has(axis.id)}
                 selectedItem={selectedItem}
