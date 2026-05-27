@@ -16,6 +16,7 @@ import {
 import type { Plot, PVTrace, Axis } from '../types';
 import type { SelectedItem } from './TraceApp';
 import { DEFAULT_OPTIMIZED_BINS, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
+import { ArchiverPicker } from './ArchiverPicker';
 
 interface RightPanelProps {
   selectedItem: SelectedItem;
@@ -372,6 +373,16 @@ function TraceGeneralTab({
               <SelectItem value="-1w" text="Last Week" />
               <SelectItem value="custom" text="Custom Range…" />
             </Select>
+          </div>
+        )}
+        {trace.useArchive && (
+          <div className="prop-row prop-subsection">
+            <ArchiverPicker
+              value={trace.archiver}
+              onChange={(next) => onUpdate({ archiver: next })}
+              includeGlobalOption
+              label="Archiver"
+            />
           </div>
         )}
         {trace.useArchive && (
