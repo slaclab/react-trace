@@ -180,14 +180,14 @@ export function TraceApp() {
     const traceCount = activePlot.traces.length;
     const newTrace: PVTrace = {
       id,
-      pvName: 'NEW:PV:NAME',
+      pvName: '',
       displayName: 'New Trace',
       color: colors[traceCount % colors.length],
       visible: true,
       axisId,
-      useLive: true,
+      useLive: false,
       updateRate: 'monitor',
-      useArchive: false,
+      useArchive: true,
       archiveTimeRange: '-1h',
       lineWidth: 2,
       lineStyle: 'solid',
@@ -392,6 +392,7 @@ export function TraceApp() {
               selectedItem={selectedItem}
               activePlot={activePlot}
               archiveResults={archiveResultsByPlot.get(activePlot.id) ?? new Map()}
+              globalArchiver={globalArchiver}
               onUpdateTrace={updateTrace}
               onUpdateAxis={updateAxis}
               onUpdatePlot={(updates) => updatePlot(activePlotId, updates)}
