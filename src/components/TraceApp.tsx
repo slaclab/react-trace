@@ -112,6 +112,9 @@ export function TraceApp() {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [globalArchiver, setGlobalArchiver] = useState<string | undefined>(undefined);
+  // Last viewport emitted by each plot's dataZoom. Drives the archive store's
+  // window per trace; the store decides whether the change requires a fetch
+  // based on its coverage check, so this map can be updated freely.
   const [viewWindowByPlot, setViewWindowByPlot] = useState<Map<string, TimeWindowNs>>(
     () => new Map()
   );
@@ -122,8 +125,6 @@ export function TraceApp() {
 
   const allTraces = plots.flatMap((p) => p.traces);
 
-  // Map each archive trace to the viewport window of the plot it belongs to,
-  // so panning/zooming the chart triggers an archive refetch for the new range.
   const windowByTrace = new Map<string, TimeWindowNs>();
   for (const plot of plots) {
     const win = viewWindowByPlot.get(plot.id);
@@ -137,16 +138,6 @@ export function TraceApp() {
 
   const handleViewWindowChange = (plotId: string, window: TimeWindowNs) => {
     setViewWindowByPlot((prev) => {
-      const cur = prev.get(plotId);
-      if (cur) {
-        // Ignore tiny drifts (< 1% of the new span) so micro-movements after a
-        // pan don't keep re-issuing fetches.
-        const span = Math.max(1, window.toNs - window.fromNs);
-        const tol = span * 0.01;
-        if (Math.abs(cur.fromNs - window.fromNs) < tol && Math.abs(cur.toNs - window.toNs) < tol) {
-          return prev;
-        }
-      }
       const next = new Map(prev);
       next.set(plotId, window);
       return next;
@@ -213,8 +204,9 @@ export function TraceApp() {
 
   const updatePlot = (plotId: string, updates: Partial<Plot>) => {
     setPlots((prev) => prev.map((p) => (p.id === plotId ? { ...p, ...updates } : p)));
-    // Picking a new x-axis time range is an explicit reset — drop any panned
-    // viewport for the plot so the new range actually drives the fetch + view.
+    // Picking a new x-axis time range is an explicit reset; drop the panned
+    // viewport so the next render uses the relative range, not the stale one.
+    // PlotArea also dispatches a dataZoom reset on the same trigger.
     if (updates.xAxis && 'timeRange' in updates.xAxis) clearViewWindow(plotId);
   };
 

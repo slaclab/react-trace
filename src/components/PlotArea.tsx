@@ -1,10 +1,17 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { Add, Close, ColumnDependency, Grid, Maximize } from '@carbon/icons-react';
 import type { Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import type { TimeWindowNs } from '../api/time';
 import { msToNs } from '../api/time';
+
+// Signature of the user-chosen ranges. Bumps when picking a new time range
+// for a plot or trace. dataZoom is reset to full extent on change so the new
+// range is actually visible instead of staying clipped to the previous zoom.
+function rangeKeyFor(plot: Plot): string {
+  return `${plot.xAxis.timeRange}|${plot.traces.map((t) => `${t.id}:${t.archiveTimeRange}`).join(',')}`;
+}
 
 interface PlotAreaProps {
   plots: Plot[];
@@ -37,8 +44,8 @@ function traceLineData(
   trace: PVTrace,
   archive: ArchiveSeriesResult | undefined
 ): [number, number][] {
-  // Keep showing the last loaded archive data while a new fetch is in
-  // flight, so panning/zooming doesn't flash back to the mock dataset.
+  // The store keeps the last good buffer around across refetches, so this is
+  // a single read with no anti-flicker shim.
   if (trace.useArchive && archive && archive.mean.length > 0) {
     return archive.mean.map((p) => [p.time, p.value]);
   }
@@ -51,6 +58,23 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
 
   const chartRef = useRef<ReactECharts>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reset the inside-zoom to full extent when the user picks a new range. This
+  // replaces the React-key remount we used to do — the chart instance survives,
+  // so dataZoom state on subsequent panning is the only thing affected. Skip
+  // the first mount: there's no zoom state to reset yet, and the chart instance
+  // may not be fully attached to the DOM.
+  const rangeKey = rangeKeyFor(plot);
+  const isFirstRangeRun = useRef(true);
+  useEffect(() => {
+    if (isFirstRangeRun.current) {
+      isFirstRangeRun.current = false;
+      return;
+    }
+    const inst = chartRef.current?.getEchartsInstance();
+    if (!inst || !inst.getDom()) return;
+    inst.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+  }, [rangeKey]);
 
   const handleDataZoom = useCallback(() => {
     if (!onViewWindowChange) return;
@@ -272,13 +296,6 @@ export function PlotArea({
 }: PlotAreaProps) {
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
 
-  // Derive a key per plot from the time-range fields. When any of these change
-  // (user picks a new range), bumping the key remounts the chart so its
-  // dataZoom resets to the full new range — otherwise replaceMerge would keep
-  // the user's previous zoom and the new range would be invisible.
-  const rangeKeyFor = (plot: Plot): string =>
-    `${plot.xAxis.timeRange}|${plot.traces.map((t) => `${t.id}:${t.archiveTimeRange}`).join(',')}`;
-
   const gridCols =
     plots.length === 1
       ? 'grid-cols-1'
@@ -364,7 +381,7 @@ export function PlotArea({
       <div className="plot-content">
         {viewMode === 'tabs' ? (
           <SinglePlot
-            key={`${activePlot.id}-${rangeKeyFor(activePlot)}`}
+            key={activePlot.id}
             plot={activePlot}
             archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
             onViewWindowChange={
@@ -380,7 +397,7 @@ export function PlotArea({
             }}
           >
             {plots.map((plot) => (
-              <div key={`${plot.id}-${rangeKeyFor(plot)}`} className="plot-grid__cell">
+              <div key={plot.id} className="plot-grid__cell">
                 <button
                   className="plot-grid__cell-btn plot-grid__cell-btn--maximize"
                   title="Fullscreen"
