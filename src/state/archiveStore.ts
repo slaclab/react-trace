@@ -95,11 +95,13 @@ function covers(entry: InternalEntry, win: TimeWindowNs): boolean {
   return entry.data.coverFromNs <= win.fromNs + tol && entry.data.coverToNs >= win.toNs - tol;
 }
 
-// True when an in-flight fetch is already covering the requested window. Used
-// to suppress duplicate requests across renders before any data has arrived
-// (covers() can't help here because the buffer is still empty).
-function inFlightMatches(entry: InternalEntry, win: TimeWindowNs): boolean {
-  if (!entry.controller || !entry.requestedWindow) return false;
+// True when we've already issued a request for this window (in-flight, errored,
+// or completed). Suppresses duplicate requests across renders even when the
+// previous attempt errored — otherwise a 404 on a missing PV would loop. The
+// user retries by changing PV / archiver / range, which moves the window or
+// hardKey out of tolerance.
+function recentlyRequested(entry: InternalEntry, win: TimeWindowNs): boolean {
+  if (!entry.requestedWindow) return false;
   const tol = coverageTolerance(win);
   return (
     Math.abs(entry.requestedWindow.fromNs - win.fromNs) <= tol &&
@@ -201,10 +203,10 @@ class ArchiveStore {
         }
         return;
       }
-      // Already fetching this window — let the in-flight call resolve. This is
-      // what stops the render → request → publish → render loop on first mount,
-      // before any samples have arrived.
-      if (inFlightMatches(existing, opts.window)) return;
+      // Already requested this window (in-flight, completed-but-not-covering,
+      // or errored). Don't refire — the render → publish → render loop would
+      // pile up requests, and an errored PV would 404 once per render.
+      if (recentlyRequested(existing, opts.window)) return;
     }
 
     if (existing) existing.controller?.abort();
