@@ -4,7 +4,7 @@ import { Add, Close, ColumnDependency, Grid, Maximize } from '@carbon/icons-reac
 import type { Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import type { TimeWindowNs } from '../api/time';
-import { msToNs } from '../api/time';
+import { msToNs, nsToMs, rangeToWindowNs } from '../api/time';
 
 // Signature of the user-chosen ranges. Bumps when picking a new time range
 // for a plot or trace. dataZoom is reset to full extent on change so the new
@@ -40,6 +40,18 @@ function formatTooltipValue(v: unknown): string {
   return v.toPrecision(7);
 }
 
+// Human-readable signed offset between the cursor and the sample we're showing.
+// "0s" when within ±0.5s; otherwise "−12s", "+3m", "+1.4h" etc.
+function formatTimeOffset(deltaMs: number): string {
+  const abs = Math.abs(deltaMs);
+  if (abs < 500) return '0s';
+  const sign = deltaMs < 0 ? '−' : '+';
+  if (abs < 60_000) return `${sign}${Math.round(abs / 1000)}s`;
+  if (abs < 3_600_000) return `${sign}${Math.round(abs / 60_000)}m`;
+  if (abs < 86_400_000) return `${sign}${(abs / 3_600_000).toFixed(1)}h`;
+  return `${sign}${(abs / 86_400_000).toFixed(1)}d`;
+}
+
 function traceLineData(
   trace: PVTrace,
   archive: ArchiveSeriesResult | undefined
@@ -50,6 +62,28 @@ function traceLineData(
     return archive.mean.map((p) => [p.time, p.value]);
   }
   return trace.data.map((p) => [p.time, p.value]);
+}
+
+// Binary search for the sample whose `time` is nearest to `tMs`. Series are
+// always sorted ascending by time (archive buffer + mock generator both honor
+// this), so we don't sort here.
+function nearestSample(
+  data: [number, number][],
+  tMs: number
+): { time: number; value: number } | undefined {
+  if (data.length === 0) return undefined;
+  let lo = 0;
+  let hi = data.length - 1;
+  if (tMs <= data[lo][0]) return { time: data[lo][0], value: data[lo][1] };
+  if (tMs >= data[hi][0]) return { time: data[hi][0], value: data[hi][1] };
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (data[mid][0] <= tMs) lo = mid;
+    else hi = mid;
+  }
+  const pickHi = data[hi][0] - tMs < tMs - data[lo][0];
+  const idx = pickHi ? hi : lo;
+  return { time: data[idx][0], value: data[idx][1] };
 }
 
 export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SinglePlotProps) {
@@ -105,6 +139,20 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
 
   const rightAxesCount = visibleAxes.filter((a) => a.orientation === 'right').length;
 
+  // Pin the x-axis extent to the requested time range so the axis spans the
+  // full window even when archive data is sparse and clusters in a sub-range.
+  // dataZoom inside the chart still sub-zooms within [min, max].
+  const requested = rangeToWindowNs(plot.xAxis.timeRange);
+  const xAxisMin = nsToMs(requested.fromNs);
+  const xAxisMax = nsToMs(requested.toNs);
+
+  // Pre-compute per-trace [time, value] arrays once; series rendering and the
+  // tooltip formatter both read from this map. Sorted ascending by time.
+  const traceData = new Map<string, [number, number][]>();
+  for (const trace of visibleTraces) {
+    traceData.set(trace.id, traceLineData(trace, archiveResults.get(trace.id)));
+  }
+
   const option = {
     backgroundColor: plot.backgroundColor,
     animation: false,
@@ -116,6 +164,8 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
     },
     xAxis: {
       type: 'time',
+      min: xAxisMin,
+      max: xAxisMax,
       axisLabel: { color: '#c6c6c6', fontSize: 11 },
       axisLine: { lineStyle: { color: '#525252' } },
       splitLine: {
@@ -210,7 +260,7 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
           name: trace.displayName,
           type: 'line',
           yAxisIndex,
-          data: traceLineData(trace, archive),
+          data: traceData.get(trace.id) ?? [],
           lineStyle: {
             color: trace.color,
             width: trace.lineWidth,
@@ -246,18 +296,30 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
       backgroundColor: '#262626',
       borderColor: '#393939',
       textStyle: { color: '#f4f4f4', fontSize: 11 },
-      formatter: (
-        params: { axisValueLabel: string; seriesName: string; value: [number, number] }[]
-      ) => {
-        if (!Array.isArray(params) || params.length === 0) return '';
-        const time = new Date(params[0].axisValueLabel).toLocaleTimeString();
-        const lines = params
-          .map(
-            (p) =>
-              `<span style="color:${(p as { color?: string }).color ?? '#f4f4f4'}">${p.seriesName}</span>: ${formatTooltipValue(p.value[1])}`
-          )
-          .join('<br/>');
-        return `<div style="font-size:11px"><div style="color:#8d8d8d;margin-bottom:4px">${time}</div>${lines}</div>`;
+      // Walk every visible trace ourselves rather than trusting `params`. With
+      // snap: false, ECharts only includes series that have a sample exactly
+      // under the cursor — sparse archive data leaves most traces out. The
+      // closure captures `traceData` and `visibleTraces` from the surrounding
+      // render so each line shows the trace's nearest sample plus the time
+      // offset between cursor and that sample.
+      formatter: (params: { axisValue: number }[] | { axisValue: number }) => {
+        const arr = Array.isArray(params) ? params : [params];
+        if (arr.length === 0) return '';
+        const cursorMs = arr[0]?.axisValue;
+        if (typeof cursorMs !== 'number' || !Number.isFinite(cursorMs)) return '';
+        const time = new Date(cursorMs).toLocaleTimeString();
+        const lines: string[] = [];
+        for (const trace of visibleTraces) {
+          const data = traceData.get(trace.id);
+          const sample = data ? nearestSample(data, cursorMs) : undefined;
+          const valueCell = sample
+            ? `${formatTooltipValue(sample.value)} <span style="color:#6f6f6f">(${formatTimeOffset(sample.time - cursorMs)})</span>`
+            : `<span style="color:#6f6f6f">no data</span>`;
+          lines.push(
+            `<span style="color:${trace.color}">${trace.displayName}</span>: ${valueCell}`
+          );
+        }
+        return `<div style="font-size:11px"><div style="color:#8d8d8d;margin-bottom:4px">${time}</div>${lines.join('<br/>')}</div>`;
       },
     },
     legend: {
