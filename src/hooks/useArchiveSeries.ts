@@ -3,6 +3,7 @@ import { fetchData } from '../api/mole';
 import { CanopyError } from '../api/client';
 import type { ArchiverDataDTO, BinnedPointDTO, SampleDTO } from '../api/types';
 import { rangeToWindowNs, nsToMs } from '../api/time';
+import type { TimeWindowNs } from '../api/time';
 import type { PVTrace } from '../types';
 
 export const DEFAULT_OPTIMIZED_BINS = 5000;
@@ -77,7 +78,8 @@ function dtoToResult(dto: ArchiverDataDTO): ArchiveSeriesResult {
 
 export function useArchiveSeries(
   traces: PVTrace[],
-  globalArchiver: string | undefined
+  globalArchiver: string | undefined,
+  windowOverrideByTrace?: Map<string, TimeWindowNs>
 ): Map<string, ArchiveSeriesResult> {
   const [results, setResults] = useState<Map<string, ArchiveSeriesResult>>(() => new Map());
 
@@ -88,7 +90,9 @@ export function useArchiveSeries(
       if (!t.useArchive) return `${t.id}:off`;
       const archiver = pickArchiver(t, globalArchiver);
       const bins = pickBins(t);
-      return `${t.id}:${keyOf(t, archiver, bins)}`;
+      const win = windowOverrideByTrace?.get(t.id);
+      const winKey = win ? `${win.fromNs}-${win.toNs}` : 'auto';
+      return `${t.id}:${keyOf(t, archiver, bins)}:${winKey}`;
     })
     .join('|');
 
@@ -125,7 +129,8 @@ export function useArchiveSeries(
     for (const trace of archiveTraces) {
       const archiver = pickArchiver(trace, globalArchiver);
       const bins = pickBins(trace);
-      const window = rangeToWindowNs(trace.archiveTimeRange);
+      const window =
+        windowOverrideByTrace?.get(trace.id) ?? rangeToWindowNs(trace.archiveTimeRange);
 
       void (async () => {
         try {

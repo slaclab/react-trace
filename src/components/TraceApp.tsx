@@ -12,6 +12,7 @@ import { PlotArea, SinglePlot } from './PlotArea';
 import { RightPanel } from './RightPanel';
 import { useArchiveSeries, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { ArchiverPicker } from './ArchiverPicker';
+import type { TimeWindowNs } from '../api/time';
 
 function generateMockData(
   points: number,
@@ -111,13 +112,46 @@ export function TraceApp() {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [globalArchiver, setGlobalArchiver] = useState<string | undefined>(undefined);
+  const [viewWindowByPlot, setViewWindowByPlot] = useState<Map<string, TimeWindowNs>>(
+    () => new Map()
+  );
   const leftPanelRef = usePanelRef();
   const rightPanelRef = usePanelRef();
 
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
 
   const allTraces = plots.flatMap((p) => p.traces);
-  const archiveResults = useArchiveSeries(allTraces, globalArchiver);
+
+  // Map each archive trace to the viewport window of the plot it belongs to,
+  // so panning/zooming the chart triggers an archive refetch for the new range.
+  const windowByTrace = new Map<string, TimeWindowNs>();
+  for (const plot of plots) {
+    const win = viewWindowByPlot.get(plot.id);
+    if (!win) continue;
+    for (const trace of plot.traces) {
+      if (trace.useArchive) windowByTrace.set(trace.id, win);
+    }
+  }
+
+  const archiveResults = useArchiveSeries(allTraces, globalArchiver, windowByTrace);
+
+  const handleViewWindowChange = (plotId: string, window: TimeWindowNs) => {
+    setViewWindowByPlot((prev) => {
+      const cur = prev.get(plotId);
+      if (cur) {
+        // Ignore tiny drifts (< 1% of the new span) so micro-movements after a
+        // pan don't keep re-issuing fetches.
+        const span = Math.max(1, window.toNs - window.fromNs);
+        const tol = span * 0.01;
+        if (Math.abs(cur.fromNs - window.fromNs) < tol && Math.abs(cur.toNs - window.toNs) < tol) {
+          return prev;
+        }
+      }
+      const next = new Map(prev);
+      next.set(plotId, window);
+      return next;
+    });
+  };
 
   const archiveResultsByPlot = new Map<string, Map<string, ArchiveSeriesResult>>();
   for (const plot of plots) {
@@ -168,8 +202,20 @@ export function TraceApp() {
     }
   };
 
+  const clearViewWindow = (plotId: string) => {
+    setViewWindowByPlot((prev) => {
+      if (!prev.has(plotId)) return prev;
+      const next = new Map(prev);
+      next.delete(plotId);
+      return next;
+    });
+  };
+
   const updatePlot = (plotId: string, updates: Partial<Plot>) => {
     setPlots((prev) => prev.map((p) => (p.id === plotId ? { ...p, ...updates } : p)));
+    // Picking a new x-axis time range is an explicit reset — drop any panned
+    // viewport for the plot so the new range actually drives the fetch + view.
+    if (updates.xAxis && 'timeRange' in updates.xAxis) clearViewWindow(plotId);
   };
 
   // ── Trace operations ─────────────────────────────────────────────────────────
@@ -219,6 +265,7 @@ export function TraceApp() {
           : p
       )
     );
+    if ('archiveTimeRange' in updates) clearViewWindow(activePlotId);
   };
 
   const moveTrace = (traceId: string, targetAxisId: string) => {
@@ -375,6 +422,7 @@ export function TraceApp() {
               onRemovePlot={removePlot}
               onSetViewMode={setViewMode}
               onPopOutPlot={setPoppedOutPlot}
+              onViewWindowChange={handleViewWindowChange}
             />
           </Panel>
 

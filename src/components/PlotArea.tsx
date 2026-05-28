@@ -1,7 +1,10 @@
+import { useCallback, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { Add, Close, ColumnDependency, Grid, Maximize } from '@carbon/icons-react';
 import type { Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
+import type { TimeWindowNs } from '../api/time';
+import { msToNs } from '../api/time';
 
 interface PlotAreaProps {
   plots: Plot[];
@@ -13,26 +16,62 @@ interface PlotAreaProps {
   onRemovePlot: (id: string) => void;
   onSetViewMode: (mode: 'tabs' | 'grid') => void;
   onPopOutPlot: (id: string) => void;
+  onViewWindowChange?: (plotId: string, window: TimeWindowNs) => void;
 }
 
 interface SinglePlotProps {
   plot: Plot;
   archiveResults: Map<string, ArchiveSeriesResult>;
+  onViewWindowChange?: (window: TimeWindowNs) => void;
+}
+
+function formatTooltipValue(v: unknown): string {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return String(v);
+  if (v === 0) return '0';
+  const abs = Math.abs(v);
+  if (abs < 1e-3 || abs >= 1e7) return v.toExponential(4);
+  return v.toPrecision(7);
 }
 
 function traceLineData(
   trace: PVTrace,
   archive: ArchiveSeriesResult | undefined
 ): [number, number][] {
-  if (trace.useArchive && archive && archive.status === 'ready') {
+  // Keep showing the last loaded archive data while a new fetch is in
+  // flight, so panning/zooming doesn't flash back to the mock dataset.
+  if (trace.useArchive && archive && archive.mean.length > 0) {
     return archive.mean.map((p) => [p.time, p.value]);
   }
   return trace.data.map((p) => [p.time, p.value]);
 }
 
-export function SinglePlot({ plot, archiveResults }: SinglePlotProps) {
+export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SinglePlotProps) {
   const visibleAxes = plot.axes.filter((a) => a.visible);
   const visibleTraces = plot.traces.filter((t) => t.visible);
+
+  const chartRef = useRef<ReactECharts>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleDataZoom = useCallback(() => {
+    if (!onViewWindowChange) return;
+    const inst = chartRef.current?.getEchartsInstance();
+    if (!inst) return;
+    // Read the current x-axis extent (in ms) directly from the model — this
+    // reflects the visible time range after the user has zoomed/panned.
+    type AxisModel = { axis: { scale: { getExtent: () => [number, number] } } };
+    const xModel = (
+      inst as unknown as { getModel: () => { getComponent: (n: string, i: number) => AxisModel } }
+    )
+      .getModel()
+      .getComponent('xAxis', 0);
+    const ext = xModel?.axis?.scale?.getExtent();
+    if (!ext) return;
+    const [fromMs, toMs] = ext;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      onViewWindowChange({ fromNs: msToNs(fromMs), toNs: msToNs(toMs) });
+    }, 400);
+  }, [onViewWindowChange]);
 
   // Build yAxis array; ECharts links series to axes by index, so we track index per axis id
   const axisIndexMap = new Map<string, number>();
@@ -76,81 +115,110 @@ export function SinglePlot({ plot, archiveResults }: SinglePlotProps) {
         lineStyle: { color: '#393939' },
       },
     })),
-    series: visibleTraces.flatMap((trace) => {
-      const yAxisIndex = axisIndexMap.get(trace.axisId) ?? 0;
-      const archive = archiveResults.get(trace.id);
-      const series: Record<string, unknown>[] = [];
-
-      // Min/max band, drawn as two stacked area series so ECharts fills between them.
-      if (
-        trace.useArchive &&
-        archive &&
-        archive.status === 'ready' &&
-        archive.mode === 'binned' &&
-        archive.band.length > 0
-      ) {
-        const stackId = `band-${trace.id}`;
-        series.push({
-          id: `${trace.id}-band-min`,
-          name: `${trace.displayName} (min)`,
-          type: 'line',
-          yAxisIndex,
-          data: archive.band.map((p) => [p.time, p.min]),
-          stack: stackId,
-          lineStyle: { opacity: 0 },
-          areaStyle: { opacity: 0 },
-          symbol: 'none',
-          showInLegend: false,
-          tooltip: { show: false },
-          silent: true,
-          animation: false,
-        });
-        series.push({
-          id: `${trace.id}-band-max`,
-          name: `${trace.displayName} (max)`,
-          type: 'line',
-          yAxisIndex,
-          data: archive.band.map((p) => [p.time, p.max - p.min]),
-          stack: stackId,
-          lineStyle: { opacity: 0 },
-          areaStyle: { color: trace.color, opacity: 0.18 },
-          symbol: 'none',
-          showInLegend: false,
-          tooltip: { show: false },
-          silent: true,
-          animation: false,
-        });
+    series: (() => {
+      // Order traces by axis (in panel order) then by their position within
+      // each axis. Earlier axis / earlier trace draws on top — assign higher
+      // `z` values to those, and pin the order with `emphasis.disabled` so
+      // hover doesn't shuffle the depth.
+      const orderedTraces: PVTrace[] = [];
+      for (const axis of visibleAxes) {
+        for (const trace of visibleTraces) {
+          if (trace.axisId === axis.id) orderedTraces.push(trace);
+        }
       }
 
-      series.push({
-        id: trace.id,
-        name: trace.displayName,
-        type: 'line',
-        yAxisIndex,
-        data: traceLineData(trace, archive),
-        lineStyle: {
-          color: trace.color,
-          width: trace.lineWidth,
-          type: trace.lineStyle,
-        },
-        itemStyle: { color: trace.color },
-        symbol: 'none',
-        sampling: 'lttb',
-        animation: false,
-      });
+      const total = orderedTraces.length;
+      return orderedTraces.flatMap((trace, i) => {
+        const yAxisIndex = axisIndexMap.get(trace.axisId) ?? 0;
+        const archive = archiveResults.get(trace.id);
+        const baseZ = (total - i) * 10;
+        const series: Record<string, unknown>[] = [];
 
-      return series;
-    }),
+        // Min/max band, drawn as two stacked area series so ECharts fills between them.
+        // Keep the previous band rendered while a fetch is in flight (status may
+        // be 'loading') so the band doesn't disappear during panning/zooming.
+        if (
+          trace.useArchive &&
+          trace.showArchiveBand !== false &&
+          archive &&
+          archive.mode === 'binned' &&
+          archive.band.length > 0
+        ) {
+          const stackId = `band-${trace.id}`;
+          series.push({
+            id: `${trace.id}-band-min`,
+            name: `${trace.displayName} (min)`,
+            type: 'line',
+            yAxisIndex,
+            data: archive.band.map((p) => [p.time, p.min]),
+            stack: stackId,
+            lineStyle: { opacity: 0 },
+            areaStyle: { opacity: 0 },
+            symbol: 'none',
+            showInLegend: false,
+            tooltip: { show: false },
+            silent: true,
+            animation: false,
+            z: baseZ,
+            emphasis: { disabled: true },
+          });
+          series.push({
+            id: `${trace.id}-band-max`,
+            name: `${trace.displayName} (max)`,
+            type: 'line',
+            yAxisIndex,
+            data: archive.band.map((p) => [p.time, p.max - p.min]),
+            stack: stackId,
+            lineStyle: { opacity: 0 },
+            areaStyle: { color: trace.color, opacity: 0.18 },
+            symbol: 'none',
+            showInLegend: false,
+            tooltip: { show: false },
+            silent: true,
+            animation: false,
+            z: baseZ,
+            emphasis: { disabled: true },
+          });
+        }
+
+        series.push({
+          id: trace.id,
+          name: trace.displayName,
+          type: 'line',
+          yAxisIndex,
+          data: traceLineData(trace, archive),
+          lineStyle: {
+            color: trace.color,
+            width: trace.lineWidth,
+            type: trace.lineStyle,
+          },
+          itemStyle: { color: trace.color },
+          symbol: 'none',
+          sampling: 'lttb',
+          animation: false,
+          z: baseZ + 1,
+          emphasis: { disabled: true },
+        });
+
+        return series;
+      });
+    })(),
     dataZoom: [
       {
         type: 'inside',
         zoomOnMouseWheel: true,
-        moveOnMouseMove: false,
+        moveOnMouseMove: true,
         moveOnMouseWheel: false,
       },
     ],
     tooltip: {
       trigger: 'axis',
+      axisPointer: {
+        type: 'line',
+        snap: false,
+        lineStyle: { color: '#8d8d8d', width: 1, type: 'dashed' },
+        label: { backgroundColor: '#393939' },
+      },
       backgroundColor: '#262626',
       borderColor: '#393939',
       textStyle: { color: '#f4f4f4', fontSize: 11 },
@@ -162,7 +230,7 @@ export function SinglePlot({ plot, archiveResults }: SinglePlotProps) {
         const lines = params
           .map(
             (p) =>
-              `<span style="color:${(p as { color?: string }).color ?? '#f4f4f4'}">${p.seriesName}</span>: ${typeof p.value[1] === 'number' ? p.value[1].toFixed(3) : p.value[1]}`
+              `<span style="color:${(p as { color?: string }).color ?? '#f4f4f4'}">${p.seriesName}</span>: ${formatTooltipValue(p.value[1])}`
           )
           .join('<br/>');
         return `<div style="font-size:11px"><div style="color:#8d8d8d;margin-bottom:4px">${time}</div>${lines}</div>`;
@@ -178,7 +246,10 @@ export function SinglePlot({ plot, archiveResults }: SinglePlotProps) {
 
   return (
     <ReactECharts
+      ref={chartRef}
       option={option}
+      replaceMerge={['series', 'yAxis']}
+      onEvents={{ datazoom: handleDataZoom }}
       style={{ height: '100%', width: '100%' }}
       opts={{ renderer: 'canvas' }}
     />
@@ -197,8 +268,16 @@ export function PlotArea({
   onRemovePlot,
   onSetViewMode,
   onPopOutPlot,
+  onViewWindowChange,
 }: PlotAreaProps) {
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
+
+  // Derive a key per plot from the time-range fields. When any of these change
+  // (user picks a new range), bumping the key remounts the chart so its
+  // dataZoom resets to the full new range — otherwise replaceMerge would keep
+  // the user's previous zoom and the new range would be invisible.
+  const rangeKeyFor = (plot: Plot): string =>
+    `${plot.xAxis.timeRange}|${plot.traces.map((t) => `${t.id}:${t.archiveTimeRange}`).join(',')}`;
 
   const gridCols =
     plots.length === 1
@@ -285,9 +364,12 @@ export function PlotArea({
       <div className="plot-content">
         {viewMode === 'tabs' ? (
           <SinglePlot
-            key={activePlotId}
+            key={`${activePlot.id}-${rangeKeyFor(activePlot)}`}
             plot={activePlot}
             archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
+            onViewWindowChange={
+              onViewWindowChange ? (w) => onViewWindowChange(activePlot.id, w) : undefined
+            }
           />
         ) : (
           <div
@@ -298,7 +380,7 @@ export function PlotArea({
             }}
           >
             {plots.map((plot) => (
-              <div key={plot.id} className="plot-grid__cell">
+              <div key={`${plot.id}-${rangeKeyFor(plot)}`} className="plot-grid__cell">
                 <button
                   className="plot-grid__cell-btn plot-grid__cell-btn--maximize"
                   title="Fullscreen"
@@ -318,6 +400,9 @@ export function PlotArea({
                 <SinglePlot
                   plot={plot}
                   archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
+                  onViewWindowChange={
+                    onViewWindowChange ? (w) => onViewWindowChange(plot.id, w) : undefined
+                  }
                 />
               </div>
             ))}

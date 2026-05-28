@@ -440,6 +440,19 @@ function TraceGeneralTab({
           </div>
         )}
         {trace.useArchive && (
+          <div className="prop-row prop-subsection prop-row--inline">
+            <Toggle
+              id="show-archive-band"
+              labelText="Show min/max band"
+              labelA="Off"
+              labelB="On"
+              toggled={trace.showArchiveBand !== false}
+              onToggle={(checked) => onUpdate({ showArchiveBand: checked })}
+              size="sm"
+            />
+          </div>
+        )}
+        {trace.useArchive && (
           <div className="prop-row prop-subsection">
             <NumberInput
               id="optimized-bins"
