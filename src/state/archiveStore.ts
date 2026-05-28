@@ -55,18 +55,26 @@ export interface ArchiveEntry {
   error?: { code: string; detail: string };
 }
 
-// Identity that, when changed, forces a wipe + full refetch. Mode is included
-// because crossing the raw/binned threshold means the cached samples are the
-// wrong shape for the new view.
-interface HardKey {
+// Identity of the data: changing pv or archiver means we're now talking about
+// a different signal entirely, so the buffer is wiped on transition. Bins and
+// mode are *fetch* parameters — different shapes of the same signal — so a
+// transition keeps the prior buffer on screen during the refetch and avoids
+// flashing back to the mock series.
+interface IdentityKey {
   pv: string;
   archiver: string | null; // null → backend default
+}
+
+// Full fetch signature: identity + how-we-asked + window. Used for dedup so
+// that re-issuing an in-flight or recently-completed request is a no-op.
+interface FetchSig extends IdentityKey {
   bins: number;
   mode: 'raw' | 'binned';
 }
 
 interface InternalEntry {
-  hardKey: HardKey;
+  identityKey: IdentityKey;
+  fetchSig: FetchSig;
   data: ArchiveEntry;
   // Most recently requested window. We only fetch when a new request lands
   // outside this (with tolerance). The in-flight promise covers `requestedWindow`.
@@ -109,11 +117,19 @@ function recentlyRequested(entry: InternalEntry, win: TimeWindowNs): boolean {
   );
 }
 
-function hardKeyEqual(a: HardKey, b: HardKey): boolean {
-  return a.pv === b.pv && a.archiver === b.archiver && a.bins === b.bins && a.mode === b.mode;
+function identityEqual(a: IdentityKey, b: IdentityKey): boolean {
+  return a.pv === b.pv && a.archiver === b.archiver;
 }
 
-function dtoToData(dto: ArchiverDataDTO, hardKey: HardKey, window: TimeWindowNs): ArchiveEntry {
+function fetchSigEqual(a: FetchSig, b: FetchSig): boolean {
+  return identityEqual(a, b) && a.bins === b.bins && a.mode === b.mode;
+}
+
+function dtoToData(
+  dto: ArchiverDataDTO,
+  mode: 'raw' | 'binned',
+  window: TimeWindowNs
+): ArchiveEntry {
   if (dto.mode === 'raw') {
     const mean: ArchivePlotPoint[] = [];
     for (const s of dto.samples as SampleDTO[]) {
@@ -143,7 +159,7 @@ function dtoToData(dto: ArchiverDataDTO, hardKey: HardKey, window: TimeWindowNs)
     band,
     coverFromNs: window.fromNs,
     coverToNs: window.toNs,
-    mode: hardKey.mode,
+    mode,
     archiver: dto.archiver,
     decimated: false,
   };
@@ -174,28 +190,34 @@ class ArchiveStore {
   }
 
   /**
-   * Ask for the buffer for `traceId` to cover `window` under `(pv, archiver, bins)`.
+   * Ask for the buffer for `traceId` to cover `window`.
    *
-   * - Hard key change (pv/archiver/bins/mode) wipes the buffer and refetches.
-   * - Otherwise, if the buffer already covers the window (with tolerance), no
-   *   fetch is issued.
-   * - Otherwise the buffer is kept on screen, status flips to 'loading', and
-   *   a fetch is issued for the new window. In-flight fetches for an older
-   *   window are aborted.
+   * - Identity change (pv/archiver) wipes the buffer — different signal, nothing
+   *   to keep showing.
+   * - Same identity, same fetch signature, buffer already covers the window:
+   *   free render, no fetch.
+   * - Same identity, fetch signature or window changed: keep the prior buffer
+   *   on screen, flip status to 'loading', fire a new fetch. Mode flips
+   *   (binned ↔ raw) live in this branch — they refetch but don't wipe, so
+   *   wheel-zooming across the threshold doesn't flash.
+   * - In-flight or recently-completed request for this exact (sig, window):
+   *   no-op (dedup).
    */
   request(traceId: string, opts: RequestOpts): void {
     const windowMs = (opts.window.toNs - opts.window.fromNs) / 1_000_000;
     const mode = pickFetchMode(windowMs, opts.bins);
-    const hardKey: HardKey = {
+    const identityKey: IdentityKey = {
       pv: opts.pv,
       archiver: opts.archiver ?? null,
+    };
+    const fetchSig: FetchSig = {
+      ...identityKey,
       bins: mode.maxPoints,
       mode: mode.binning === 'auto' ? 'binned' : 'raw',
     };
 
     const existing = this.entries.get(traceId);
-    if (existing && hardKeyEqual(existing.hardKey, hardKey)) {
-      // Already buffered: free render.
+    if (existing && fetchSigEqual(existing.fetchSig, fetchSig)) {
       if (covers(existing, opts.window)) {
         if (existing.data.status !== 'ready') {
           existing.data = { ...existing.data, status: 'ready', error: undefined };
@@ -203,29 +225,31 @@ class ArchiveStore {
         }
         return;
       }
-      // Already requested this window (in-flight, completed-but-not-covering,
-      // or errored). Don't refire — the render → publish → render loop would
-      // pile up requests, and an errored PV would 404 once per render.
+      // Already requested this window under the same fetch signature
+      // (in-flight, completed-but-not-covering, or errored). Don't refire —
+      // the render → publish → render loop would pile up requests, and an
+      // errored PV would 404 once per render.
       if (recentlyRequested(existing, opts.window)) return;
     }
 
     if (existing) existing.controller?.abort();
 
-    const hardChanged = !existing || !hardKeyEqual(existing.hardKey, hardKey);
-    const prevData = !hardChanged ? existing!.data : undefined;
+    const identityChanged = !existing || !identityEqual(existing.identityKey, identityKey);
+    const prevData = !identityChanged ? existing!.data : undefined;
 
     const controller = new AbortController();
     const entry: InternalEntry = {
-      hardKey,
+      identityKey,
+      fetchSig,
       data: {
         status: 'loading',
-        // Keep last good buffer on screen while we refetch a different window
-        // under the same hardKey. Hard-key changes wipe to empty.
+        // Keep last good buffer on screen while we refetch under the same
+        // identity. Identity changes (pv / archiver) wipe to empty.
         mean: prevData?.mean ?? [],
         band: prevData?.band ?? [],
         coverFromNs: prevData?.coverFromNs ?? opts.window.fromNs,
         coverToNs: prevData?.coverToNs ?? opts.window.toNs,
-        mode: hardKey.mode,
+        mode: fetchSig.mode,
         archiver: prevData?.archiver ?? '',
         decimated: prevData?.decimated ?? false,
       },
@@ -235,13 +259,13 @@ class ArchiveStore {
     this.entries.set(traceId, entry);
     this.publish();
 
-    void this.runFetch(traceId, opts, hardKey, mode, controller);
+    void this.runFetch(traceId, opts, fetchSig.mode, mode, controller);
   }
 
   private async runFetch(
     traceId: string,
     opts: RequestOpts,
-    hardKey: HardKey,
+    resolvedMode: 'raw' | 'binned',
     mode: FetchMode,
     controller: AbortController
   ): Promise<void> {
@@ -261,7 +285,7 @@ class ArchiveStore {
       const cur = this.entries.get(traceId);
       // Bail if the trace was released or superseded mid-flight.
       if (!cur || cur.controller !== controller) return;
-      cur.data = dtoToData(dto, hardKey, opts.window);
+      cur.data = dtoToData(dto, resolvedMode, opts.window);
       cur.controller = null;
       this.publish();
     } catch (err) {
