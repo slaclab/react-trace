@@ -311,6 +311,11 @@
   background-color: var(--cds-layer-accent-hover);
 }
 
+.plot-tab--detached {
+  opacity: 0.6;
+  font-style: italic;
+}
+
 .plot-tab__action-btn {
   display: flex;
   align-items: center;
@@ -409,11 +414,58 @@
   z-index: 10;
 }
 
+.plot-grid__cell-btn--detach {
+  position: absolute;
+  top: 8px;
+  left: 44px;
+  z-index: 10;
+}
+
 .plot-grid__cell-btn--close {
   position: absolute;
   top: 8px;
   right: 8px;
   z-index: 10;
+}
+
+.plot-detached-placeholder {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--cds-text-helper);
+  background-color: var(--cds-background);
+}
+
+.plot-detached-placeholder__title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--cds-text-primary);
+}
+
+.plot-detached-placeholder__hint {
+  font-size: 12px;
+  color: var(--cds-text-helper);
+}
+
+.plot-detached-placeholder__btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  border: 1px solid var(--cds-border-strong);
+  border-radius: 2px;
+  background-color: var(--cds-layer);
+  color: var(--cds-text-primary);
+  cursor: pointer;
+}
+
+.plot-detached-placeholder__btn:hover {
+  background-color: var(--cds-layer-hover);
 }
 
 .plot-grid__cell-btn--close:hover {

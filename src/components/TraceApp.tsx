@@ -5,10 +5,11 @@ import {
   Separator as PanelResizeHandle,
   usePanelRef,
 } from 'react-resizable-panels';
-import { Close } from '@carbon/icons-react';
+import { Close, Login } from '@carbon/icons-react';
 import { Header, HeaderName, HeaderGlobalBar, Theme } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
 import { LeftPanel } from './LeftPanel';
+import { DetachedWindow } from './DetachedWindow';
 import { PlotArea, SinglePlot } from './PlotArea';
 import { RightPanel } from './RightPanel';
 import { Toolbar } from './Toolbar';
@@ -128,6 +129,9 @@ export function TraceApp() {
   const [selectedItem, setSelectedItem] = useState<SelectedItem>({ type: 'trace', id: 'trace-1' });
   const [viewMode, setViewMode] = useState<'tabs' | 'grid'>('tabs');
   const [poppedOutPlot, setPoppedOutPlot] = useState<string | null>(null);
+  // Plots detached into their own browser windows. Their charts render there
+  // via a portal; the main window shows a reattach placeholder in their place.
+  const [detachedPlotIds, setDetachedPlotIds] = useState<string[]>([]);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [globalArchiver, setGlobalArchiver] = useState<string | undefined>(undefined);
@@ -210,10 +214,21 @@ export function TraceApp() {
     if (plots.length === 1) return;
     setPlots((prev) => prev.filter((p) => p.id !== plotId));
     if (poppedOutPlot === plotId) setPoppedOutPlot(null);
+    setDetachedPlotIds((prev) => prev.filter((id) => id !== plotId));
     if (activePlotId === plotId) {
       const remaining = plots.filter((p) => p.id !== plotId);
       setActivePlotId(remaining[0].id);
     }
+  };
+
+  const detachPlot = (plotId: string) => {
+    setDetachedPlotIds((prev) => (prev.includes(plotId) ? prev : [...prev, plotId]));
+    // A detached plot shouldn't also be in the fullscreen overlay.
+    if (poppedOutPlot === plotId) setPoppedOutPlot(null);
+  };
+
+  const reattachPlot = (plotId: string) => {
+    setDetachedPlotIds((prev) => prev.filter((id) => id !== plotId));
   };
 
   const clearViewWindow = (plotId: string) => {
@@ -494,6 +509,9 @@ export function TraceApp() {
               onRemovePlot={removePlot}
               onSetViewMode={setViewMode}
               onPopOutPlot={setPoppedOutPlot}
+              detachedPlotIds={detachedPlotIds}
+              onDetachPlot={detachPlot}
+              onReattachPlot={reattachPlot}
               onViewWindowChange={handleViewWindowChange}
             />
           </Panel>
@@ -603,6 +621,72 @@ export function TraceApp() {
             </div>
           );
         })()}
+
+      {/* Detached plots — each renders into its own browser window via portal. */}
+      {detachedPlotIds.map((id) => {
+        const plot = plots.find((p) => p.id === id);
+        if (!plot) return null;
+        return (
+          <DetachedWindow
+            key={id}
+            name={`trace-plot-${id}`}
+            title={`${plot.title} — Trace`}
+            onClose={() => reattachPlot(id)}
+          >
+            <Theme
+              theme={colorMode === 'dark' ? 'g90' : 'g10'}
+              style={{
+                height: '100vh',
+                background: 'var(--cds-background)',
+                color: 'var(--cds-text-primary)',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              <div
+                style={{
+                  height: 40,
+                  flexShrink: 0,
+                  background: 'var(--cds-layer)',
+                  borderBottom: '1px solid var(--cds-border-subtle)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0 12px',
+                }}
+              >
+                <span style={{ fontSize: 13, fontWeight: 500 }}>{plot.title}</span>
+                <button
+                  onClick={() => reattachPlot(id)}
+                  title="Reattach to main window"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    background: 'none',
+                    border: '1px solid var(--cds-border-subtle)',
+                    borderRadius: 2,
+                    color: 'var(--cds-text-primary)',
+                    cursor: 'pointer',
+                    padding: '4px 8px',
+                    fontSize: 12,
+                  }}
+                >
+                  <Login size={14} />
+                  Reattach
+                </button>
+              </div>
+              <div style={{ flex: 1, minHeight: 0 }}>
+                <SinglePlot
+                  plot={plot}
+                  archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
+                  onViewWindowChange={(w) => handleViewWindowChange(plot.id, w)}
+                />
+              </div>
+            </Theme>
+          </DetachedWindow>
+        );
+      })}
     </div>
   );
 }
