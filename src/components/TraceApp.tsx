@@ -14,7 +14,6 @@ import { PlotArea, SinglePlot } from './PlotArea';
 import { RightPanel } from './RightPanel';
 import { Toolbar } from './Toolbar';
 import { useArchiveSeries, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
-import { ArchiverPicker } from './ArchiverPicker';
 import type { TimeWindowNs } from '../api/time';
 import { rangeToWindowNs } from '../api/time';
 import { useColorMode } from '../state/themeStore';
@@ -134,7 +133,6 @@ export function TraceApp() {
   const [detachedPlotIds, setDetachedPlotIds] = useState<string[]>([]);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
-  const [globalArchiver, setGlobalArchiver] = useState<string | undefined>(undefined);
   const { colorMode, toggle: toggleTheme } = useColorMode();
   // Last viewport emitted by each plot's dataZoom. Drives the archive store's
   // window per trace; the store decides whether the change requires a fetch
@@ -154,14 +152,17 @@ export function TraceApp() {
   // resolve the plot's relative time range (e.g. "-1h"). The time range is
   // plot-level — traces don't carry their own.
   const windowByTrace = new Map<string, TimeWindowNs>();
+  // Each trace inherits its plot's default archiver unless it sets its own.
+  const plotArchiverByTrace = new Map<string, string | undefined>();
   for (const plot of plots) {
     const win = viewWindowByPlot.get(plot.id) ?? rangeToWindowNs(plot.xAxis.timeRange);
     for (const trace of plot.traces) {
       if (trace.useArchive) windowByTrace.set(trace.id, win);
+      plotArchiverByTrace.set(trace.id, plot.archiver);
     }
   }
 
-  const archiveResults = useArchiveSeries(allTraces, globalArchiver, windowByTrace);
+  const archiveResults = useArchiveSeries(allTraces, plotArchiverByTrace, windowByTrace);
 
   const handleViewWindowChange = (plotId: string, window: TimeWindowNs) => {
     setViewWindowByPlot((prev) => {
@@ -361,7 +362,7 @@ export function TraceApp() {
   // ── Toolbar handlers ────────────────────────────────────────────────────────
 
   const handleSave = () => {
-    const json = serializeWorkspace({ theme: colorMode, globalArchiver, plots });
+    const json = serializeWorkspace({ theme: colorMode, plots });
     const stamp = new Date()
       .toISOString()
       .replace(/[:.]/g, '-')
@@ -392,7 +393,6 @@ export function TraceApp() {
       // so go through the module API.
       void import('../state/themeStore').then((m) => m.setColorMode(result.theme!));
     }
-    if (result.globalArchiver !== undefined) setGlobalArchiver(result.globalArchiver);
     if (result.warnings.length > 0) {
       console.warn('Import warnings:', result.warnings);
       alert(`Imported with ${result.warnings.length} warning(s):\n\n${result.warnings.join('\n')}`);
@@ -433,12 +433,6 @@ export function TraceApp() {
             TRACE
           </HeaderName>
           <div className="trace-header__archiver">
-            <ArchiverPicker
-              value={globalArchiver}
-              onChange={setGlobalArchiver}
-              label=""
-              width={180}
-            />
             <span className="trace-header__counts">
               {liveCount} Live &bull; {archiveCount} Archive
             </span>
@@ -534,7 +528,6 @@ export function TraceApp() {
               selectedItem={selectedItem}
               activePlot={activePlot}
               archiveResults={archiveResultsByPlot.get(activePlot.id) ?? new Map()}
-              globalArchiver={globalArchiver}
               collapsed={rightCollapsed}
               onUpdateTrace={updateTrace}
               onUpdateAxis={updateAxis}

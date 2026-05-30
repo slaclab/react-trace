@@ -56,6 +56,9 @@ export interface Plot {
   axes: Axis[];
   backgroundColor: string;
   showGridlines: boolean;
+  // Per-plot default archiver for this plot's traces; undefined means "use the
+  // backend default". A trace's own `archiver` overrides this.
+  archiver?: string;
   xAxis: {
     timeRange: string;
     timeFrom?: string;

@@ -11,20 +11,14 @@ export interface TraceWorkspace {
   schemaVersion: number;
   savedAt: string; // ISO 8601
   theme: ColorMode;
-  globalArchiver: string | undefined;
   plots: Plot[];
 }
 
-export function serializeWorkspace(args: {
-  theme: ColorMode;
-  globalArchiver: string | undefined;
-  plots: Plot[];
-}): string {
+export function serializeWorkspace(args: { theme: ColorMode; plots: Plot[] }): string {
   const ws: TraceWorkspace = {
     schemaVersion: SCHEMA_VERSION,
     savedAt: new Date().toISOString(),
     theme: args.theme,
-    globalArchiver: args.globalArchiver,
     plots: args.plots.map(stripTraceData),
   };
   return JSON.stringify(ws, null, 2);
@@ -42,7 +36,6 @@ function stripTraceData(plot: Plot): Plot {
 export interface DeserializeResult {
   source: 'native' | 'legacy-trc';
   theme?: ColorMode;
-  globalArchiver?: string;
   plots: Plot[];
   warnings: string[];
 }
@@ -59,11 +52,16 @@ export function deserializeWorkspace(text: string): DeserializeResult {
         `File schema version ${obj.schemaVersion} is newer than the app understands (${SCHEMA_VERSION}). Update the app.`
       );
     }
-    const plots = Array.isArray(obj.plots) ? (obj.plots as Plot[]).map(rehydratePlot) : [];
+    let plots = Array.isArray(obj.plots) ? (obj.plots as Plot[]).map(rehydratePlot) : [];
+    // Migrate the old workspace-level default archiver onto each plot that
+    // doesn't already carry one (the default is now per-plot).
+    if (typeof obj.globalArchiver === 'string') {
+      const legacyDefault = obj.globalArchiver;
+      plots = plots.map((p) => (p.archiver === undefined ? { ...p, archiver: legacyDefault } : p));
+    }
     return {
       source: 'native',
       theme: typeof obj.theme === 'string' ? (obj.theme as ColorMode) : undefined,
-      globalArchiver: typeof obj.globalArchiver === 'string' ? obj.globalArchiver : undefined,
       plots,
       warnings: [],
     };
