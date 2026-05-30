@@ -1,6 +1,6 @@
 import type React from 'react';
 import { useState } from 'react';
-import { Settings, Radio, Archive, ChevronRight } from '@carbon/icons-react';
+import { Settings, Radio, Archive, ChevronRight, DataTable } from '@carbon/icons-react';
 import {
   Button,
   Tabs,
@@ -37,6 +37,7 @@ interface RightPanelProps {
   onUpdateTrace: (traceId: string, updates: Partial<PVTrace>) => void;
   onUpdateAxis: (axisId: string, updates: Partial<Axis>) => void;
   onUpdatePlot: (updates: Partial<Plot>) => void;
+  onInspectTrace: (traceId: string) => void;
   onCollapse: () => void;
   onExpand: () => void;
 }
@@ -49,6 +50,7 @@ export function RightPanel({
   onUpdateTrace,
   onUpdateAxis,
   onUpdatePlot,
+  onInspectTrace,
   onCollapse,
   onExpand,
 }: RightPanelProps) {
@@ -86,6 +88,7 @@ export function RightPanel({
           archiveResult={selectedTraceArchive}
           plotArchiver={activePlot.archiver}
           onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)}
+          onInspect={() => onInspectTrace(selectedTrace.id)}
         />
       ),
     });
@@ -184,12 +187,14 @@ function TraceGeneralTab({
   archiveResult,
   plotArchiver,
   onUpdate,
+  onInspect,
 }: {
   trace: PVTrace;
   axes: Axis[];
   archiveResult: ArchiveSeriesResult | undefined;
   plotArchiver: string | undefined;
   onUpdate: (u: Partial<PVTrace>) => void;
+  onInspect: () => void;
 }) {
   const [pvQuery, setPvQuery] = useState<string>(trace.pvName);
   const search = usePVSearch(pvQuery, trace.archiver ?? plotArchiver);
@@ -530,6 +535,16 @@ function TraceGeneralTab({
             </>
           )}
         </div>
+        <Button
+          kind="ghost"
+          size="sm"
+          renderIcon={DataTable}
+          onClick={onInspect}
+          disabled={!trace.pvName}
+          style={{ marginTop: 8 }}
+        >
+          Inspect data
+        </Button>
       </div>
     </div>
   );
