@@ -177,6 +177,17 @@
   flex-shrink: 0;
 }
 
+/* One block per plot in the layer panel (grid view shows several). */
+.layers-plot-group + .layers-plot-group {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--cds-border-strong);
+}
+
+.layers-plot-group__add-axis {
+  padding: 4px 0 2px;
+}
+
 /* Layer rows */
 .layer-row {
   display: flex;

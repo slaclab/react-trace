@@ -24,8 +24,10 @@ const DATETIME_FORMAT: Intl.DateTimeFormatOptions = {
 };
 
 interface DataInsightToolProps {
-  plot: Plot;
-  windowNs: TimeWindowNs;
+  /** Plots whose PVs can be inspected (all visible plots in grid view). */
+  plots: Plot[];
+  /** Each plot's current time window, keyed by plot id. */
+  windowByPlotId: Map<string, TimeWindowNs>;
   /** Trace id of the selected PV. */
   selectedPv: string;
   onSelectPv: (traceId: string) => void;
@@ -41,8 +43,8 @@ function safeName(s: string): string {
 }
 
 export function DataInsightTool({
-  plot,
-  windowNs,
+  plots,
+  windowByPlotId,
   selectedPv,
   onSelectPv,
   detached = false,
@@ -51,10 +53,16 @@ export function DataInsightTool({
   onDetach,
   onReattach,
 }: DataInsightToolProps) {
-  const inspectable = plot.traces.filter((t) => t.pvName);
-  const selectedTrace = plot.traces.find((t) => t.id === selectedPv) ?? inspectable[0];
-  const pv = selectedTrace?.pvName;
-  const archiver = selectedTrace?.archiver ?? plot.archiver;
+  // Inspectable PVs across every provided plot, each tagged with its plot so we
+  // can resolve the right archiver and time window when it's selected.
+  const inspectable = plots.flatMap((p) =>
+    p.traces.filter((t) => t.pvName).map((trace) => ({ trace, plot: p }))
+  );
+  const multiPlot = plots.length > 1;
+  const selected = inspectable.find((x) => x.trace.id === selectedPv) ?? inspectable[0];
+  const pv = selected?.trace.pvName;
+  const archiver = selected?.trace.archiver ?? selected?.plot.archiver;
+  const windowNs = selected ? windowByPlotId.get(selected.plot.id) : undefined;
 
   const { rows, meta, status, error, decimated, refetch } = useInsightData(pv, archiver, windowNs);
 
@@ -94,13 +102,17 @@ export function DataInsightTool({
           labelText=""
           hideLabel
           size="sm"
-          value={selectedTrace?.id ?? ''}
+          value={selected?.trace.id ?? ''}
           onChange={(e) => onSelectPv(e.target.value)}
           className="insight-tool__pv"
         >
           {inspectable.length === 0 && <SelectItem value="" text="No PVs on plot" />}
-          {inspectable.map((t) => (
-            <SelectItem key={t.id} value={t.id} text={t.pvName} />
+          {inspectable.map(({ trace, plot }) => (
+            <SelectItem
+              key={trace.id}
+              value={trace.id}
+              text={multiPlot ? `${plot.title} · ${trace.pvName}` : trace.pvName}
+            />
           ))}
         </Select>
 

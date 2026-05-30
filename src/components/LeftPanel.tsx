@@ -5,12 +5,12 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  useDroppable,
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useDroppable } from '@dnd-kit/core';
 import {
   Add,
   ChevronDown,
@@ -24,25 +24,42 @@ import {
   TrashCan,
 } from '@carbon/icons-react';
 import { Button, Tag } from '@carbon/react';
-import type { PVTrace, Axis } from '../types';
+import type { Plot, PVTrace, Axis } from '../types';
 import type { SelectedItem } from './TraceApp';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { PanelRail } from './PanelRail';
 
+const EMPTY_RESULTS: Map<string, ArchiveSeriesResult> = new Map();
+
+// dnd-kit ids must be unique across the single DndContext, so trace draggables
+// and axis droppables are namespaced by plot. The `data` payload carries the
+// resolved plot/axis/trace so the move handler doesn't have to re-parse ids.
+interface DragData {
+  plotId: string;
+  axisId: string;
+  traceId?: string;
+}
+
 interface LeftPanelProps {
-  traces: PVTrace[];
-  axes: Axis[];
-  archiveResults: Map<string, ArchiveSeriesResult>;
+  plots: Plot[];
+  activePlotId: string;
+  viewMode: 'tabs' | 'grid';
+  archiveResultsByPlot: Map<string, Map<string, ArchiveSeriesResult>>;
   collapsed: boolean;
   onCollapse: () => void;
   onExpand: () => void;
   selectedItem: SelectedItem;
   onSelectItem: (item: SelectedItem) => void;
-  onAddTrace: (axisId: string) => void;
-  onDeleteTrace: (traceId: string) => void;
-  onAddAxis: () => void;
-  onDeleteAxis: (axisId: string) => void;
-  onMoveTrace: (traceId: string, targetAxisId: string) => void;
+  onAddTrace: (plotId: string, axisId: string) => void;
+  onDeleteTrace: (plotId: string, traceId: string) => void;
+  onAddAxis: (plotId: string) => void;
+  onDeleteAxis: (plotId: string, axisId: string) => void;
+  onMoveTrace: (
+    sourcePlotId: string,
+    traceId: string,
+    targetPlotId: string,
+    targetAxisId: string
+  ) => void;
 }
 
 const ERROR_LABELS: Record<string, { short: string; tone: 'red' | 'magenta' | 'warm-gray' }> = {
@@ -84,16 +101,18 @@ function ArchiveStatusChip({ result }: { result: ArchiveSeriesResult | undefined
 
 interface TraceRowProps {
   trace: PVTrace;
+  plotId: string;
   archiveResult: ArchiveSeriesResult | undefined;
   isSelected: boolean;
   onSelect: () => void;
   onDelete: () => void;
 }
 
-function TraceRow({ trace, archiveResult, isSelected, onSelect, onDelete }: TraceRowProps) {
+function TraceRow({ trace, plotId, archiveResult, isSelected, onSelect, onDelete }: TraceRowProps) {
+  const data: DragData = { plotId, axisId: trace.axisId, traceId: trace.id };
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: trace.id,
-    data: { type: 'trace', axisId: trace.axisId },
+    id: `${plotId}::${trace.id}`,
+    data,
   });
 
   const style = {
@@ -164,6 +183,7 @@ function TraceRow({ trace, archiveResult, isSelected, onSelect, onDelete }: Trac
 
 interface AxisSectionProps {
   axis: Axis;
+  plotId: string;
   traces: PVTrace[];
   archiveResults: Map<string, ArchiveSeriesResult>;
   isSelected: boolean;
@@ -180,6 +200,7 @@ interface AxisSectionProps {
 
 function AxisSection({
   axis,
+  plotId,
   traces,
   archiveResults,
   isSelected,
@@ -193,10 +214,8 @@ function AxisSection({
   onDeleteTrace,
   onAddTrace,
 }: AxisSectionProps) {
-  const { setNodeRef, isOver } = useDroppable({
-    id: `droppable-${axis.id}`,
-    data: { type: 'axis', axisId: axis.id },
-  });
+  const data: DragData = { plotId, axisId: axis.id };
+  const { setNodeRef, isOver } = useDroppable({ id: `axis::${plotId}::${axis.id}`, data });
 
   return (
     <div ref={setNodeRef} className={`axis-drop-zone${isOver ? ' axis-drop-zone--over' : ''}`}>
@@ -285,13 +304,21 @@ function AxisSection({
       {/* Traces under this axis */}
       {isExpanded && (
         <div className="axis-section__traces">
-          <SortableContext items={traces.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+          <SortableContext
+            items={traces.map((t) => `${plotId}::${t.id}`)}
+            strategy={verticalListSortingStrategy}
+          >
             {traces.map((trace) => (
               <TraceRow
                 key={trace.id}
                 trace={trace}
+                plotId={plotId}
                 archiveResult={archiveResults.get(trace.id)}
-                isSelected={selectedItem?.type === 'trace' && selectedItem.id === trace.id}
+                isSelected={
+                  selectedItem?.type === 'trace' &&
+                  selectedItem.id === trace.id &&
+                  selectedItem.plotId === plotId
+                }
                 onSelect={() => onSelectTrace(trace.id)}
                 onDelete={() => onDeleteTrace(trace.id)}
               />
@@ -320,10 +347,68 @@ function AxisSection({
   );
 }
 
-export function LeftPanel({
-  traces,
-  axes,
+interface PlotAxesProps {
+  plot: Plot;
+  archiveResults: Map<string, ArchiveSeriesResult>;
+  selectedItem: SelectedItem;
+  expandedAxes: Set<string>;
+  onToggleAxis: (axisId: string) => void;
+  onSelectItem: (item: SelectedItem) => void;
+  onAddTrace: (plotId: string, axisId: string) => void;
+  onDeleteTrace: (plotId: string, traceId: string) => void;
+  onDeleteAxis: (plotId: string, axisId: string) => void;
+}
+
+// Presentational: one plot's axes + traces. Drag-and-drop is owned by the single
+// DndContext in LeftPanel so traces can move between plots.
+function PlotAxes({
+  plot,
   archiveResults,
+  selectedItem,
+  expandedAxes,
+  onToggleAxis,
+  onSelectItem,
+  onAddTrace,
+  onDeleteTrace,
+  onDeleteAxis,
+}: PlotAxesProps) {
+  return (
+    <>
+      {plot.axes.map((axis) => {
+        const axisTraces = plot.traces.filter((t) => t.axisId === axis.id);
+        return (
+          <AxisSection
+            key={axis.id}
+            axis={axis}
+            plotId={plot.id}
+            traces={axisTraces}
+            archiveResults={archiveResults}
+            isSelected={
+              selectedItem?.type === 'axis' &&
+              selectedItem.id === axis.id &&
+              selectedItem.plotId === plot.id
+            }
+            isExpanded={expandedAxes.has(axis.id)}
+            selectedItem={selectedItem}
+            canDelete={plot.axes.length > 1}
+            onSelectAxis={() => onSelectItem({ type: 'axis', id: axis.id, plotId: plot.id })}
+            onToggleExpanded={() => onToggleAxis(axis.id)}
+            onDeleteAxis={() => onDeleteAxis(plot.id, axis.id)}
+            onSelectTrace={(id) => onSelectItem({ type: 'trace', id, plotId: plot.id })}
+            onDeleteTrace={(id) => onDeleteTrace(plot.id, id)}
+            onAddTrace={() => onAddTrace(plot.id, axis.id)}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+export function LeftPanel({
+  plots,
+  activePlotId,
+  viewMode,
+  archiveResultsByPlot,
   collapsed,
   selectedItem,
   onSelectItem,
@@ -335,9 +420,10 @@ export function LeftPanel({
   onCollapse,
   onExpand,
 }: LeftPanelProps) {
-  const [expandedAxes, setExpandedAxes] = useState<Set<string>>(new Set(axes.map((a) => a.id)));
-  const [activeTraceId, setActiveTraceId] = useState<string | null>(null);
-
+  const [expandedAxes, setExpandedAxes] = useState<Set<string>>(
+    () => new Set(plots.flatMap((p) => p.axes.map((a) => a.id)))
+  );
+  const [activeDrag, setActiveDrag] = useState<DragData | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   if (collapsed) {
@@ -347,46 +433,35 @@ export function LeftPanel({
   const toggleAxisExpanded = (axisId: string) => {
     setExpandedAxes((prev) => {
       const next = new Set(prev);
-      if (next.has(axisId)) {
-        next.delete(axisId);
-      } else {
-        next.add(axisId);
-      }
+      if (next.has(axisId)) next.delete(axisId);
+      else next.add(axisId);
       return next;
     });
   };
 
   const handleDragStart = (event: DragStartEvent) => {
-    setActiveTraceId(event.active.id as string);
+    setActiveDrag((event.active.data.current as DragData) ?? null);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    setActiveTraceId(null);
+    setActiveDrag(null);
     const { active, over } = event;
     if (!over) return;
-
-    const overId = over.id as string;
-    const activeTraceId = active.id as string;
-    const activeTrace = traces.find((t) => t.id === activeTraceId);
-    if (!activeTrace) return;
-
-    // Dropped on a droppable axis zone
-    if (overId.startsWith('droppable-')) {
-      const targetAxisId = overId.replace('droppable-', '');
-      if (targetAxisId !== activeTrace.axisId) {
-        onMoveTrace(activeTraceId, targetAxisId);
-      }
-      return;
-    }
-
-    // Dropped on another trace — move to that trace's axis
-    const targetTrace = traces.find((t) => t.id === overId);
-    if (targetTrace && targetTrace.axisId !== activeTrace.axisId) {
-      onMoveTrace(activeTraceId, targetTrace.axisId);
-    }
+    const from = active.data.current as DragData | undefined;
+    const to = over.data.current as DragData | undefined;
+    if (!from?.traceId || !to) return;
+    // No-op if dropped back onto the same axis.
+    if (from.plotId === to.plotId && from.axisId === to.axisId) return;
+    onMoveTrace(from.plotId, from.traceId, to.plotId, to.axisId);
   };
 
-  const activeTrace = activeTraceId ? traces.find((t) => t.id === activeTraceId) : null;
+  // Grid view shows every plot so all of them are editable; tab view shows only
+  // the active plot (the others aren't visible in the chart area).
+  const plotsToShow = viewMode === 'grid' ? plots : plots.filter((p) => p.id === activePlotId);
+
+  const activeTrace = activeDrag?.traceId
+    ? plots.flatMap((p) => p.traces).find((t) => t.id === activeDrag.traceId)
+    : null;
 
   return (
     <div className="layers-panel">
@@ -398,42 +473,59 @@ export function LeftPanel({
       </div>
 
       <div className="layers-panel__scroll">
-        {/* Plot Settings row */}
-        <div
-          className={`plot-settings-row${selectedItem?.type === 'plot' ? ' plot-settings-row--selected' : ''}`}
-          onClick={() => onSelectItem({ type: 'plot', id: 'plot' })}
-        >
-          <ChartLine size={16} style={{ color: 'var(--cds-text-helper)', flexShrink: 0 }} />
-          <span className="plot-settings-row__label">Plot Settings</span>
-          <span className="plot-settings-row__hint">X-Axis</span>
-        </div>
-
-        <div
-          style={{ height: 1, backgroundColor: 'var(--cds-border-subtle)', margin: '4px 0 8px' }}
-        />
-
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          {axes.map((axis) => {
-            const axisTraces = traces.filter((t) => t.axisId === axis.id);
-            return (
-              <AxisSection
-                key={axis.id}
-                axis={axis}
-                traces={axisTraces}
-                archiveResults={archiveResults}
-                isSelected={selectedItem?.type === 'axis' && selectedItem.id === axis.id}
-                isExpanded={expandedAxes.has(axis.id)}
-                selectedItem={selectedItem}
-                canDelete={axes.length > 1}
-                onSelectAxis={() => onSelectItem({ type: 'axis', id: axis.id })}
-                onToggleExpanded={() => toggleAxisExpanded(axis.id)}
-                onDeleteAxis={() => onDeleteAxis(axis.id)}
-                onSelectTrace={(id) => onSelectItem({ type: 'trace', id })}
-                onDeleteTrace={onDeleteTrace}
-                onAddTrace={() => onAddTrace(axis.id)}
+          {plotsToShow.map((plot) => (
+            <div key={plot.id} className="layers-plot-group">
+              {/* Plot settings / group header */}
+              <div
+                className={`plot-settings-row${
+                  selectedItem?.type === 'plot' && selectedItem.plotId === plot.id
+                    ? ' plot-settings-row--selected'
+                    : ''
+                }`}
+                onClick={() => onSelectItem({ type: 'plot', id: plot.id, plotId: plot.id })}
+              >
+                <ChartLine size={16} style={{ color: 'var(--cds-text-helper)', flexShrink: 0 }} />
+                <span className="plot-settings-row__label">
+                  {viewMode === 'grid' ? plot.title : 'Plot Settings'}
+                </span>
+                <span className="plot-settings-row__hint">X-Axis</span>
+              </div>
+
+              <div
+                style={{
+                  height: 1,
+                  backgroundColor: 'var(--cds-border-subtle)',
+                  margin: '4px 0 8px',
+                }}
               />
-            );
-          })}
+
+              <PlotAxes
+                plot={plot}
+                archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
+                selectedItem={selectedItem}
+                expandedAxes={expandedAxes}
+                onToggleAxis={toggleAxisExpanded}
+                onSelectItem={onSelectItem}
+                onAddTrace={onAddTrace}
+                onDeleteTrace={onDeleteTrace}
+                onDeleteAxis={onDeleteAxis}
+              />
+
+              <div className="layers-plot-group__add-axis">
+                <Button
+                  kind="ghost"
+                  size="sm"
+                  renderIcon={Add}
+                  iconDescription="Add axis"
+                  onClick={() => onAddAxis(plot.id)}
+                  style={{ width: '100%', fontSize: 12, maxInlineSize: 'unset' }}
+                >
+                  Add Axis
+                </Button>
+              </div>
+            </div>
+          ))}
 
           <DragOverlay>
             {activeTrace && (
@@ -450,19 +542,6 @@ export function LeftPanel({
             )}
           </DragOverlay>
         </DndContext>
-      </div>
-
-      <div className="layers-panel__footer">
-        <Button
-          kind="ghost"
-          size="sm"
-          renderIcon={Add}
-          iconDescription="Add axis"
-          onClick={onAddAxis}
-          style={{ width: '100%', fontSize: 12, maxInlineSize: 'unset' }}
-        >
-          Add Axis
-        </Button>
       </div>
     </div>
   );

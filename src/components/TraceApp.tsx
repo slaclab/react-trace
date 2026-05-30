@@ -121,12 +121,22 @@ const INITIAL_PLOTS: Plot[] = [
   },
 ];
 
-export type SelectedItem = { type: 'trace' | 'axis' | 'plot'; id: string } | null;
+// `plotId` scopes the selection to a specific plot so the layer panel can edit
+// any plot in grid view (trace/axis ids aren't globally unique across plots).
+export type SelectedItem = {
+  type: 'trace' | 'axis' | 'plot';
+  id: string;
+  plotId: string;
+} | null;
 
 export function TraceApp() {
   const [plots, setPlots] = useState<Plot[]>(INITIAL_PLOTS);
   const [activePlotId, setActivePlotId] = useState<string>('plot-1');
-  const [selectedItem, setSelectedItem] = useState<SelectedItem>({ type: 'trace', id: 'trace-1' });
+  const [selectedItem, setSelectedItem] = useState<SelectedItem>({
+    type: 'trace',
+    id: 'trace-1',
+    plotId: 'plot-1',
+  });
   const [viewMode, setViewMode] = useState<'tabs' | 'grid'>('tabs');
   const [poppedOutPlot, setPoppedOutPlot] = useState<string | null>(null);
   // Plots detached into their own browser windows. Their charts render there
@@ -190,6 +200,13 @@ export function TraceApp() {
     }
     archiveResultsByPlot.set(plot.id, m);
   }
+
+  // Selecting an item also focuses its plot, so RightPanel / Data Insight (which
+  // read `activePlot`) stay correct even when selecting across plots in grid view.
+  const selectItem = (item: SelectedItem) => {
+    setSelectedItem(item);
+    if (item) setActivePlotId(item.plotId);
+  };
 
   // ── Plot operations ─────────────────────────────────────────────────────────
 
@@ -260,10 +277,10 @@ export function TraceApp() {
 
   // ── Trace operations ─────────────────────────────────────────────────────────
 
-  const addTrace = (axisId: string) => {
+  const addTrace = (plotId: string, axisId: string) => {
     const id = `trace-${Date.now()}`;
     const colors = ['#0f62fe', '#ee5396', '#42be65', '#ff832b', '#a56eff', '#08bdba'];
-    const traceCount = activePlot.traces.length;
+    const traceCount = plots.find((p) => p.id === plotId)?.traces.length ?? 0;
     const newTrace: PVTrace = {
       id,
       pvName: '',
@@ -283,18 +300,18 @@ export function TraceApp() {
       data: generateMockData(50, 10, 2),
     };
     setPlots((prev) =>
-      prev.map((p) => (p.id === activePlotId ? { ...p, traces: [...p.traces, newTrace] } : p))
+      prev.map((p) => (p.id === plotId ? { ...p, traces: [...p.traces, newTrace] } : p))
     );
-    setSelectedItem({ type: 'trace', id });
+    selectItem({ type: 'trace', id, plotId });
   };
 
-  const deleteTrace = (traceId: string) => {
+  const deleteTrace = (plotId: string, traceId: string) => {
     setPlots((prev) =>
       prev.map((p) =>
-        p.id === activePlotId ? { ...p, traces: p.traces.filter((t) => t.id !== traceId) } : p
+        p.id === plotId ? { ...p, traces: p.traces.filter((t) => t.id !== traceId) } : p
       )
     );
-    if (selectedItem?.id === traceId) setSelectedItem(null);
+    if (selectedItem?.id === traceId && selectedItem.plotId === plotId) setSelectedItem(null);
   };
 
   const updateTrace = (traceId: string, updates: Partial<PVTrace>) => {
@@ -310,15 +327,42 @@ export function TraceApp() {
     );
   };
 
-  const moveTrace = (traceId: string, targetAxisId: string) => {
-    updateTrace(traceId, { axisId: targetAxisId });
+  const moveTrace = (
+    sourcePlotId: string,
+    traceId: string,
+    targetPlotId: string,
+    targetAxisId: string
+  ) => {
+    setPlots((prev) => {
+      const trace = prev.find((p) => p.id === sourcePlotId)?.traces.find((t) => t.id === traceId);
+      if (!trace) return prev;
+      const moved: PVTrace = { ...trace, axisId: targetAxisId };
+      return prev.map((p) => {
+        if (sourcePlotId === targetPlotId && p.id === sourcePlotId) {
+          // Same plot, different axis — just retarget in place.
+          return { ...p, traces: p.traces.map((t) => (t.id === traceId ? moved : t)) };
+        }
+        if (p.id === sourcePlotId) {
+          return { ...p, traces: p.traces.filter((t) => t.id !== traceId) };
+        }
+        if (p.id === targetPlotId) {
+          return { ...p, traces: [...p.traces, moved] };
+        }
+        return p;
+      });
+    });
+    // Follow the trace if it was the selected item so the properties panel
+    // keeps editing it after a cross-plot move.
+    if (selectedItem?.type === 'trace' && selectedItem.id === traceId) {
+      selectItem({ type: 'trace', id: traceId, plotId: targetPlotId });
+    }
   };
 
   // ── Axis operations ──────────────────────────────────────────────────────────
 
-  const addAxis = () => {
+  const addAxis = (plotId: string) => {
     const id = `axis-${Date.now()}`;
-    const axisNum = activePlot.axes.length + 1;
+    const axisNum = (plots.find((p) => p.id === plotId)?.axes.length ?? 0) + 1;
     const newAxis: Axis = {
       id,
       name: `Y-Axis ${axisNum}`,
@@ -328,17 +372,18 @@ export function TraceApp() {
       visible: true,
     };
     setPlots((prev) =>
-      prev.map((p) => (p.id === activePlotId ? { ...p, axes: [...p.axes, newAxis] } : p))
+      prev.map((p) => (p.id === plotId ? { ...p, axes: [...p.axes, newAxis] } : p))
     );
-    setSelectedItem({ type: 'axis', id });
+    selectItem({ type: 'axis', id, plotId });
   };
 
-  const deleteAxis = (axisId: string) => {
-    if (activePlot.axes.length === 1) return;
-    const fallbackAxisId = activePlot.axes.find((a) => a.id !== axisId)!.id;
+  const deleteAxis = (plotId: string, axisId: string) => {
+    const plot = plots.find((p) => p.id === plotId);
+    if (!plot || plot.axes.length === 1) return;
+    const fallbackAxisId = plot.axes.find((a) => a.id !== axisId)!.id;
     setPlots((prev) =>
       prev.map((p) =>
-        p.id === activePlotId
+        p.id === plotId
           ? {
               ...p,
               axes: p.axes.filter((a) => a.id !== axisId),
@@ -349,7 +394,7 @@ export function TraceApp() {
           : p
       )
     );
-    if (selectedItem?.id === axisId) setSelectedItem(null);
+    if (selectedItem?.id === axisId && selectedItem.plotId === plotId) setSelectedItem(null);
   };
 
   const updateAxis = (axisId: string, updates: Partial<Axis>) => {
@@ -440,15 +485,20 @@ export function TraceApp() {
     setInsight((prev) => ({ ...prev, open: true, minimized: false, pv: pv ?? prev.pv }));
   };
 
-  // Window the DIT inspects: the active plot's current view (pan/zoom) or its
-  // resolved relative range.
-  const insightWindow =
-    viewWindowByPlot.get(activePlotId) ?? rangeToWindowNs(activePlot.xAxis.timeRange);
-  // Keep the selected PV valid for the active plot; fall back to its first PV.
+  // The DIT inspects every visible plot in grid view (so any plot's PVs are
+  // reachable), or just the active plot in tab view.
+  const insightPlots = viewMode === 'grid' ? plots : [activePlot];
+  // Each plot's current view window (pan/zoom) or its resolved relative range.
+  const windowByPlotId = new Map<string, TimeWindowNs>();
+  for (const p of plots) {
+    windowByPlotId.set(p.id, viewWindowByPlot.get(p.id) ?? rangeToWindowNs(p.xAxis.timeRange));
+  }
+  // Keep the selected PV valid for the inspectable set; fall back to its first PV.
+  const insightTraces = insightPlots.flatMap((p) => p.traces);
   const insightPv =
-    (insight.pv && activePlot.traces.some((t) => t.id === insight.pv)
+    (insight.pv && insightTraces.some((t) => t.id === insight.pv)
       ? insight.pv
-      : activePlot.traces.find((t) => t.pvName)?.id) ?? '';
+      : insightTraces.find((t) => t.pvName)?.id) ?? '';
 
   return (
     <div className="trace-app">
@@ -495,12 +545,13 @@ export function TraceApp() {
             }}
           >
             <LeftPanel
-              traces={activePlot.traces}
-              axes={activePlot.axes}
-              archiveResults={archiveResultsByPlot.get(activePlot.id) ?? new Map()}
+              plots={plots}
+              activePlotId={activePlotId}
+              viewMode={viewMode}
+              archiveResultsByPlot={archiveResultsByPlot}
               collapsed={leftCollapsed}
               selectedItem={selectedItem}
-              onSelectItem={setSelectedItem}
+              onSelectItem={selectItem}
               onAddTrace={addTrace}
               onDeleteTrace={deleteTrace}
               onAddAxis={addAxis}
@@ -560,8 +611,8 @@ export function TraceApp() {
               {insight.open && !insight.detached && !insight.minimized && (
                 <div className="insight-dock">
                   <DataInsightTool
-                    plot={activePlot}
-                    windowNs={insightWindow}
+                    plots={insightPlots}
+                    windowByPlotId={windowByPlotId}
                     selectedPv={insightPv}
                     onSelectPv={(id) => setInsight((p) => ({ ...p, pv: id }))}
                     onClose={() => setInsight((p) => ({ ...p, open: false }))}
@@ -763,8 +814,8 @@ export function TraceApp() {
             }}
           >
             <DataInsightTool
-              plot={activePlot}
-              windowNs={insightWindow}
+              plots={insightPlots}
+              windowByPlotId={windowByPlotId}
               selectedPv={insightPv}
               detached
               onSelectPv={(id) => setInsight((p) => ({ ...p, pv: id }))}
