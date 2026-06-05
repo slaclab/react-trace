@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
-import { Add, Close, ColumnDependency, Grid, Maximize } from '@carbon/icons-react';
+import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
 import type { Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import type { TimeWindowNs } from '../api/time';
@@ -80,7 +80,26 @@ interface PlotAreaProps {
   onRemovePlot: (id: string) => void;
   onSetViewMode: (mode: 'tabs' | 'grid') => void;
   onPopOutPlot: (id: string) => void;
+  /** Plot IDs currently detached into their own windows. */
+  detachedPlotIds: string[];
+  onDetachPlot: (id: string) => void;
+  onReattachPlot: (id: string) => void;
   onViewWindowChange?: (plotId: string, window: TimeWindowNs) => void;
+}
+
+// Shown in the main window where a detached plot's chart would otherwise be.
+function DetachedPlaceholder({ title, onReattach }: { title: string; onReattach: () => void }) {
+  return (
+    <div className="plot-detached-placeholder">
+      <Launch size={24} />
+      <span className="plot-detached-placeholder__title">{title} is detached</span>
+      <span className="plot-detached-placeholder__hint">Open in its own window</span>
+      <button className="plot-detached-placeholder__btn" onClick={onReattach}>
+        <Login size={16} />
+        Reattach
+      </button>
+    </div>
+  );
 }
 
 interface SinglePlotProps {
@@ -417,9 +436,13 @@ export function PlotArea({
   onRemovePlot,
   onSetViewMode,
   onPopOutPlot,
+  detachedPlotIds,
+  onDetachPlot,
+  onReattachPlot,
   onViewWindowChange,
 }: PlotAreaProps) {
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
+  const isDetached = (id: string) => detachedPlotIds.includes(id);
 
   const gridCols =
     plots.length === 1
@@ -441,7 +464,7 @@ export function PlotArea({
             plots.map((plot) => (
               <div
                 key={plot.id}
-                className={`plot-tab ${plot.id === activePlotId ? 'plot-tab--active' : 'plot-tab--inactive'}`}
+                className={`plot-tab ${plot.id === activePlotId ? 'plot-tab--active' : 'plot-tab--inactive'}${isDetached(plot.id) ? ' plot-tab--detached' : ''}`}
                 onClick={() => onSetActivePlot(plot.id)}
               >
                 <span>{plot.title}</span>
@@ -454,6 +477,17 @@ export function PlotArea({
                   }}
                 >
                   <Maximize size={12} />
+                </button>
+                <button
+                  className="plot-tab__action-btn"
+                  title={isDetached(plot.id) ? 'Reattach' : 'Detach to window'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isDetached(plot.id)) onReattachPlot(plot.id);
+                    else onDetachPlot(plot.id);
+                  }}
+                >
+                  {isDetached(plot.id) ? <Login size={12} /> : <Launch size={12} />}
                 </button>
                 {plots.length > 1 && (
                   <button
@@ -505,14 +539,21 @@ export function PlotArea({
       {/* Plot content */}
       <div className="plot-content">
         {viewMode === 'tabs' ? (
-          <SinglePlot
-            key={activePlot.id}
-            plot={activePlot}
-            archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
-            onViewWindowChange={
-              onViewWindowChange ? (w) => onViewWindowChange(activePlot.id, w) : undefined
-            }
-          />
+          isDetached(activePlot.id) ? (
+            <DetachedPlaceholder
+              title={activePlot.title}
+              onReattach={() => onReattachPlot(activePlot.id)}
+            />
+          ) : (
+            <SinglePlot
+              key={activePlot.id}
+              plot={activePlot}
+              archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
+              onViewWindowChange={
+                onViewWindowChange ? (w) => onViewWindowChange(activePlot.id, w) : undefined
+              }
+            />
+          )
         ) : (
           <div
             className={`plot-grid ${gridCols} ${gridRows}`}
@@ -530,6 +571,15 @@ export function PlotArea({
                 >
                   <Maximize size={14} />
                 </button>
+                <button
+                  className="plot-grid__cell-btn plot-grid__cell-btn--detach"
+                  title={isDetached(plot.id) ? 'Reattach' : 'Detach to window'}
+                  onClick={() =>
+                    isDetached(plot.id) ? onReattachPlot(plot.id) : onDetachPlot(plot.id)
+                  }
+                >
+                  {isDetached(plot.id) ? <Login size={14} /> : <Launch size={14} />}
+                </button>
                 {plots.length > 1 && (
                   <button
                     className="plot-grid__cell-btn plot-grid__cell-btn--close"
@@ -539,13 +589,20 @@ export function PlotArea({
                     <Close size={14} />
                   </button>
                 )}
-                <SinglePlot
-                  plot={plot}
-                  archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
-                  onViewWindowChange={
-                    onViewWindowChange ? (w) => onViewWindowChange(plot.id, w) : undefined
-                  }
-                />
+                {isDetached(plot.id) ? (
+                  <DetachedPlaceholder
+                    title={plot.title}
+                    onReattach={() => onReattachPlot(plot.id)}
+                  />
+                ) : (
+                  <SinglePlot
+                    plot={plot}
+                    archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
+                    onViewWindowChange={
+                      onViewWindowChange ? (w) => onViewWindowChange(plot.id, w) : undefined
+                    }
+                  />
+                )}
               </div>
             ))}
           </div>
