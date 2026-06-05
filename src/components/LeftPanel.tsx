@@ -18,6 +18,7 @@ import {
   ChevronRight,
   ChartLine,
   ChartLineData,
+  Layers,
   Radio,
   Archive,
   TrashCan,
@@ -26,12 +27,15 @@ import { Button, Tag } from '@carbon/react';
 import type { PVTrace, Axis } from '../types';
 import type { SelectedItem } from './TraceApp';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
+import { PanelRail } from './PanelRail';
 
 interface LeftPanelProps {
   traces: PVTrace[];
   axes: Axis[];
   archiveResults: Map<string, ArchiveSeriesResult>;
+  collapsed: boolean;
   onCollapse: () => void;
+  onExpand: () => void;
   selectedItem: SelectedItem;
   onSelectItem: (item: SelectedItem) => void;
   onAddTrace: (axisId: string) => void;
@@ -138,7 +142,7 @@ function TraceRow({ trace, archiveResult, isSelected, onSelect, onDelete }: Trac
           height: 20,
           border: 'none',
           background: 'transparent',
-          color: '#8d8d8d',
+          color: 'var(--cds-text-helper)',
           cursor: 'pointer',
           padding: 0,
           borderRadius: 2,
@@ -149,7 +153,7 @@ function TraceRow({ trace, archiveResult, isSelected, onSelect, onDelete }: Trac
         }}
         onMouseLeave={(e) => {
           (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent';
-          (e.currentTarget as HTMLButtonElement).style.color = '#8d8d8d';
+          (e.currentTarget as HTMLButtonElement).style.color = 'var(--cds-text-helper)';
         }}
       >
         <TrashCan size={12} />
@@ -207,7 +211,7 @@ function AxisSection({
             alignItems: 'center',
             border: 'none',
             background: 'transparent',
-            color: '#c6c6c6',
+            color: 'var(--cds-text-secondary)',
             cursor: 'pointer',
             padding: 2,
             borderRadius: 2,
@@ -222,7 +226,7 @@ function AxisSection({
           {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         </button>
 
-        <ChartLineData size={16} style={{ color: '#8d8d8d', flexShrink: 0 }} />
+        <ChartLineData size={16} style={{ color: 'var(--cds-text-helper)', flexShrink: 0 }} />
 
         <Tag
           type="gray"
@@ -235,7 +239,7 @@ function AxisSection({
         <span
           style={{
             fontSize: 12,
-            color: '#f4f4f4',
+            color: 'var(--cds-text-primary)',
             flex: 1,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -259,7 +263,7 @@ function AxisSection({
               alignItems: 'center',
               border: 'none',
               background: 'transparent',
-              color: '#8d8d8d',
+              color: 'var(--cds-text-helper)',
               cursor: 'pointer',
               padding: 2,
               borderRadius: 2,
@@ -270,7 +274,7 @@ function AxisSection({
             }}
             onMouseLeave={(e) => {
               (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent';
-              (e.currentTarget as HTMLButtonElement).style.color = '#8d8d8d';
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--cds-text-helper)';
             }}
           >
             <TrashCan size={12} />
@@ -300,7 +304,12 @@ function AxisSection({
               renderIcon={Add}
               iconDescription="Add trace"
               onClick={onAddTrace}
-              style={{ fontSize: 11, color: '#6f6f6f', minHeight: 'unset', padding: '2px 8px' }}
+              style={{
+                fontSize: 11,
+                color: 'var(--cds-text-helper)',
+                minHeight: 'unset',
+                padding: '2px 8px',
+              }}
             >
               Add Trace
             </Button>
@@ -315,6 +324,7 @@ export function LeftPanel({
   traces,
   axes,
   archiveResults,
+  collapsed,
   selectedItem,
   onSelectItem,
   onAddTrace,
@@ -323,11 +333,16 @@ export function LeftPanel({
   onDeleteAxis,
   onMoveTrace,
   onCollapse,
+  onExpand,
 }: LeftPanelProps) {
   const [expandedAxes, setExpandedAxes] = useState<Set<string>>(new Set(axes.map((a) => a.id)));
   const [activeTraceId, setActiveTraceId] = useState<string | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  if (collapsed) {
+    return <PanelRail side="left" label="Layers" icon={<Layers size={16} />} onExpand={onExpand} />;
+  }
 
   const toggleAxisExpanded = (axisId: string) => {
     setExpandedAxes((prev) => {
@@ -388,12 +403,14 @@ export function LeftPanel({
           className={`plot-settings-row${selectedItem?.type === 'plot' ? ' plot-settings-row--selected' : ''}`}
           onClick={() => onSelectItem({ type: 'plot', id: 'plot' })}
         >
-          <ChartLine size={16} style={{ color: '#8d8d8d', flexShrink: 0 }} />
+          <ChartLine size={16} style={{ color: 'var(--cds-text-helper)', flexShrink: 0 }} />
           <span className="plot-settings-row__label">Plot Settings</span>
           <span className="plot-settings-row__hint">X-Axis</span>
         </div>
 
-        <div style={{ height: 1, backgroundColor: '#393939', margin: '4px 0 8px' }} />
+        <div
+          style={{ height: 1, backgroundColor: 'var(--cds-border-subtle)', margin: '4px 0 8px' }}
+        />
 
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           {axes.map((axis) => {

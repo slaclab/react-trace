@@ -8,7 +8,6 @@ export interface PVTrace {
   useLive: boolean;
   updateRate: string;
   useArchive: boolean;
-  archiveTimeRange: string;
   // Per-curve override for the binned-mode `maxPoints` (Mole `optimized_<N>`).
   // Falls back to the plot's default when undefined.
   optimizedDataBins?: number;
@@ -18,7 +17,24 @@ export interface PVTrace {
   // Per-curve archiver override; undefined means "use the global selection".
   archiver?: string;
   lineWidth: number;
-  lineStyle: 'solid' | 'dashed' | 'dotted';
+  // Connect points directly ('direct') or as a step function ('step', the
+  // default — ECharts `step: 'end'`, matching the Python trace's stepMode="right").
+  lineType: 'direct' | 'step';
+  lineStyle: 'none' | 'solid' | 'dashed' | 'dotted' | 'dashDot' | 'dashDotDot';
+  // Symbol (data-point marker) appearance.
+  showSymbol: boolean;
+  symbolShape:
+    | 'none'
+    | 'circle'
+    | 'square'
+    | 'triangle'
+    | 'star'
+    | 'pentagon'
+    | 'hexagon'
+    | 'x'
+    | 'diamond'
+    | 'plus';
+  symbolSize: number;
   data: { time: number; value: number }[];
 }
 

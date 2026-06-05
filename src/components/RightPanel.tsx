@@ -1,3 +1,4 @@
+import type React from 'react';
 import { useState } from 'react';
 import { Settings, Radio, Archive, ChevronRight } from '@carbon/icons-react';
 import {
@@ -15,20 +16,30 @@ import {
   ComboBox,
 } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
+import {
+  LINE_TYPE_OPTIONS,
+  LINE_STYLE_OPTIONS,
+  SYMBOL_OPTIONS,
+  echartsLineType,
+  echartsSymbol,
+} from '../curveStyle';
 import type { SelectedItem } from './TraceApp';
 import { DEFAULT_OPTIMIZED_BINS, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { ArchiverPicker } from './ArchiverPicker';
 import { usePVSearch } from '../hooks/usePVSearch';
+import { PanelRail } from './PanelRail';
 
 interface RightPanelProps {
   selectedItem: SelectedItem;
   activePlot: Plot;
   archiveResults: Map<string, ArchiveSeriesResult>;
   globalArchiver: string | undefined;
+  collapsed: boolean;
   onUpdateTrace: (traceId: string, updates: Partial<PVTrace>) => void;
   onUpdateAxis: (axisId: string, updates: Partial<Axis>) => void;
   onUpdatePlot: (updates: Partial<Plot>) => void;
   onCollapse: () => void;
+  onExpand: () => void;
 }
 
 export function RightPanel({
@@ -36,17 +47,95 @@ export function RightPanel({
   activePlot,
   archiveResults,
   globalArchiver,
+  collapsed,
   onUpdateTrace,
   onUpdateAxis,
   onUpdatePlot,
   onCollapse,
+  onExpand,
 }: RightPanelProps) {
+  if (collapsed) {
+    return (
+      <PanelRail
+        side="right"
+        label="Properties"
+        icon={<Settings size={16} />}
+        onExpand={onExpand}
+      />
+    );
+  }
   const selectedTrace =
     selectedItem?.type === 'trace' ? activePlot.traces.find((t) => t.id === selectedItem.id) : null;
   const selectedTraceArchive = selectedTrace ? archiveResults.get(selectedTrace.id) : undefined;
   const selectedAxis =
     selectedItem?.type === 'axis' ? activePlot.axes.find((a) => a.id === selectedItem.id) : null;
   const isPlotSelected = selectedItem?.type === 'plot';
+
+  // Build the tab set based on what's selected. Plot has only General; axis
+  // adds Line + Code; trace adds Symbol on top of those. Carbon Tabs needs
+  // matching Tab/TabPanel counts, so we keyed the wrapper on selection type
+  // — the component fully resets when the selection changes, which dodges
+  // mismatched-index warnings.
+  const tabs: { label: string; render: () => React.ReactNode }[] = [];
+
+  if (selectedTrace) {
+    tabs.push({
+      label: 'General',
+      render: () => (
+        <TraceGeneralTab
+          trace={selectedTrace}
+          axes={activePlot.axes}
+          archiveResult={selectedTraceArchive}
+          globalArchiver={globalArchiver}
+          onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)}
+        />
+      ),
+    });
+    tabs.push({
+      label: 'Line',
+      render: () => (
+        <TraceLineTab trace={selectedTrace} onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)} />
+      ),
+    });
+    tabs.push({
+      label: 'Symbol',
+      render: () => (
+        <TraceSymbolTab
+          trace={selectedTrace}
+          onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)}
+        />
+      ),
+    });
+    tabs.push({ label: 'Code', render: () => <TraceCodeTab trace={selectedTrace} /> });
+  } else if (selectedAxis) {
+    tabs.push({
+      label: 'General',
+      render: () => (
+        <AxisGeneralTab axis={selectedAxis} onUpdate={(u) => onUpdateAxis(selectedAxis.id, u)} />
+      ),
+    });
+    tabs.push({
+      label: 'Line',
+      render: () => (
+        <AxisLineTab axis={selectedAxis} onUpdate={(u) => onUpdateAxis(selectedAxis.id, u)} />
+      ),
+    });
+    tabs.push({ label: 'Code', render: () => <AxisCodeTab axis={selectedAxis} /> });
+  } else if (isPlotSelected) {
+    tabs.push({
+      label: 'General',
+      render: () => <PlotGeneralTab plot={activePlot} onUpdate={onUpdatePlot} />,
+    });
+    tabs.push({ label: 'Code', render: () => <PlotCodeTab plot={activePlot} /> });
+  }
+
+  const tabsKey = selectedTrace
+    ? 'trace'
+    : selectedAxis
+      ? 'axis'
+      : isPlotSelected
+        ? 'plot'
+        : 'empty';
 
   return (
     <div className="properties-panel">
@@ -63,90 +152,28 @@ export function RightPanel({
         </button>
       </div>
 
-      <Tabs>
-        <TabList aria-label="Properties tabs" className="properties-panel__tabs">
-          <Tab>General</Tab>
-          <Tab>Line</Tab>
-          <Tab>Symbol</Tab>
-          <Tab>Code</Tab>
-        </TabList>
-        <TabPanels>
-          <TabPanel>
-            <div className="properties-panel__content">
-              {selectedTrace && (
-                <TraceGeneralTab
-                  trace={selectedTrace}
-                  axes={activePlot.axes}
-                  archiveResult={selectedTraceArchive}
-                  globalArchiver={globalArchiver}
-                  onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)}
-                />
-              )}
-              {selectedAxis && !selectedTrace && (
-                <AxisGeneralTab
-                  axis={selectedAxis}
-                  onUpdate={(u) => onUpdateAxis(selectedAxis.id, u)}
-                />
-              )}
-              {isPlotSelected && !selectedTrace && !selectedAxis && (
-                <PlotGeneralTab plot={activePlot} onUpdate={onUpdatePlot} />
-              )}
-              {!selectedTrace && !selectedAxis && !isPlotSelected && (
-                <p className="properties-panel__empty">
-                  Select a trace, axis, or plot to view properties.
-                </p>
-              )}
-            </div>
-          </TabPanel>
-
-          <TabPanel>
-            <div className="properties-panel__content">
-              {selectedTrace && (
-                <TraceLineTab
-                  trace={selectedTrace}
-                  onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)}
-                />
-              )}
-              {selectedAxis && !selectedTrace && (
-                <AxisLineTab
-                  axis={selectedAxis}
-                  onUpdate={(u) => onUpdateAxis(selectedAxis.id, u)}
-                />
-              )}
-              {isPlotSelected && !selectedTrace && !selectedAxis && (
-                <PlotLineTab plot={activePlot} onUpdate={onUpdatePlot} />
-              )}
-              {!selectedTrace && !selectedAxis && !isPlotSelected && (
-                <p className="properties-panel__empty">Select an item to edit line settings.</p>
-              )}
-            </div>
-          </TabPanel>
-
-          <TabPanel>
-            <div className="properties-panel__content">
-              {selectedTrace && (
-                <TraceSymbolTab
-                  trace={selectedTrace}
-                  onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)}
-                />
-              )}
-              {!selectedTrace && (
-                <p className="properties-panel__empty">Select a trace to edit symbol settings.</p>
-              )}
-            </div>
-          </TabPanel>
-
-          <TabPanel>
-            <div className="properties-panel__content">
-              {selectedTrace && <TraceCodeTab trace={selectedTrace} />}
-              {selectedAxis && !selectedTrace && <AxisCodeTab axis={selectedAxis} />}
-              {!selectedTrace && !selectedAxis && (
-                <p className="properties-panel__empty">Select a trace or axis to view config.</p>
-              )}
-            </div>
-          </TabPanel>
-        </TabPanels>
-      </Tabs>
+      {tabs.length === 0 ? (
+        <div className="properties-panel__content">
+          <p className="properties-panel__empty">
+            Select a trace, axis, or plot to view properties.
+          </p>
+        </div>
+      ) : (
+        <Tabs key={tabsKey}>
+          <TabList aria-label="Properties tabs" className="properties-panel__tabs">
+            {tabs.map((t) => (
+              <Tab key={t.label}>{t.label}</Tab>
+            ))}
+          </TabList>
+          <TabPanels>
+            {tabs.map((t) => (
+              <TabPanel key={t.label}>
+                <div className="properties-panel__content">{t.render()}</div>
+              </TabPanel>
+            ))}
+          </TabPanels>
+        </Tabs>
+      )}
     </div>
   );
 }
@@ -188,19 +215,19 @@ function TraceGeneralTab({
   let archiveStatusColor: string;
   if (!trace.useArchive) {
     archiveStatusLabel = 'Disabled';
-    archiveStatusColor = '#6f6f6f';
+    archiveStatusColor = 'var(--cds-text-helper)';
   } else if (!archiveResult || archiveResult.status === 'idle') {
     archiveStatusLabel = 'Idle';
-    archiveStatusColor = '#8d8d8d';
+    archiveStatusColor = 'var(--cds-text-helper)';
   } else if (archiveResult.status === 'loading') {
     archiveStatusLabel = 'Loading…';
-    archiveStatusColor = '#0f62fe';
+    archiveStatusColor = 'var(--cds-link-primary)';
   } else if (archiveResult.status === 'error') {
     archiveStatusLabel = archiveResult.error?.code ?? 'Error';
-    archiveStatusColor = '#ff8389';
+    archiveStatusColor = 'var(--cds-text-error)';
   } else {
     archiveStatusLabel = `Loaded${archiveResult.mode === 'binned' ? ' (binned)' : ' (raw)'}${archiveResult.decimated ? ' · decimated' : ''}`;
-    archiveStatusColor = '#42be65';
+    archiveStatusColor = 'var(--cds-support-success)';
   }
   return (
     <div>
@@ -284,11 +311,18 @@ function TraceGeneralTab({
 
       <div className="prop-section">
         <div className="prop-section__title">Formula / Transform</div>
-        <p style={{ fontSize: 11, color: '#8d8d8d', marginBottom: 10 }}>
+        <p style={{ fontSize: 11, color: 'var(--cds-text-helper)', marginBottom: 10 }}>
           Apply a mathematical transformation to trace data.
         </p>
         <div style={{ marginBottom: 8 }}>
-          <label style={{ display: 'block', fontSize: 11, color: '#8d8d8d', marginBottom: 4 }}>
+          <label
+            style={{
+              display: 'block',
+              fontSize: 11,
+              color: 'var(--cds-text-helper)',
+              marginBottom: 4,
+            }}
+          >
             Formula
           </label>
           <textarea
@@ -299,10 +333,17 @@ function TraceGeneralTab({
           />
         </div>
         <div style={{ marginBottom: 12 }}>
-          <p style={{ fontSize: 11, fontWeight: 600, color: '#c6c6c6', marginBottom: 6 }}>
+          <p
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: 'var(--cds-text-secondary)',
+              marginBottom: 6,
+            }}
+          >
             Available variables:
           </p>
-          <div style={{ fontSize: 11, color: '#8d8d8d', lineHeight: 1.8 }}>
+          <div style={{ fontSize: 11, color: 'var(--cds-text-helper)', lineHeight: 1.8 }}>
             <div>
               <code style={{ color: '#78a9ff', fontSize: 12 }}>y</code>
               {' — '}Current value
@@ -331,7 +372,7 @@ function TraceGeneralTab({
               alignItems: 'center',
               gap: 6,
               fontSize: 12,
-              color: '#c6c6c6',
+              color: 'var(--cds-text-secondary)',
             }}
           >
             <span
@@ -341,7 +382,7 @@ function TraceGeneralTab({
                 padding: 2,
                 borderRadius: 2,
                 backgroundColor: 'rgba(66,190,101,0.2)',
-                color: '#42be65',
+                color: 'var(--cds-support-success)',
               }}
             >
               <Radio size={12} />
@@ -384,7 +425,7 @@ function TraceGeneralTab({
               alignItems: 'center',
               gap: 6,
               fontSize: 12,
-              color: '#c6c6c6',
+              color: 'var(--cds-text-secondary)',
             }}
           >
             <span
@@ -394,7 +435,7 @@ function TraceGeneralTab({
                 padding: 2,
                 borderRadius: 2,
                 backgroundColor: 'rgba(141,141,141,0.2)',
-                color: '#8d8d8d',
+                color: 'var(--cds-text-helper)',
               }}
             >
               <Archive size={12} />
@@ -412,23 +453,6 @@ function TraceGeneralTab({
             hideLabel
           />
         </div>
-        {trace.useArchive && (
-          <div className="prop-row prop-subsection">
-            <Select
-              id="archive-time-range"
-              labelText="Time Range"
-              value={trace.archiveTimeRange}
-              onChange={(e) => onUpdate({ archiveTimeRange: e.target.value })}
-              size="sm"
-            >
-              <SelectItem value="-1h" text="Last Hour" />
-              <SelectItem value="-4h" text="Last 4 Hours" />
-              <SelectItem value="-1d" text="Last 24 Hours" />
-              <SelectItem value="-1w" text="Last Week" />
-              <SelectItem value="custom" text="Custom Range…" />
-            </Select>
-          </div>
-        )}
         {trace.useArchive && (
           <div className="prop-row prop-subsection">
             <ArchiverPicker
@@ -473,17 +497,17 @@ function TraceGeneralTab({
         )}
 
         {/* Footer stats */}
-        <div style={{ marginTop: 8, fontSize: 11, color: '#6f6f6f' }}>
+        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--cds-text-helper)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span>Data points:</span>
-            <span style={{ color: '#c6c6c6' }}>
+            <span style={{ color: 'var(--cds-text-secondary)' }}>
               {trace.useArchive ? archivePointCount : trace.data.length}
             </span>
           </div>
           {trace.useLive && (
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
               <span>Live Status:</span>
-              <span style={{ color: '#42be65' }}>Connected</span>
+              <span style={{ color: 'var(--cds-support-success)' }}>Connected</span>
             </div>
           )}
           {trace.useArchive && (
@@ -495,11 +519,15 @@ function TraceGeneralTab({
               {archiveResult?.archiver && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
                   <span>Source:</span>
-                  <span style={{ color: '#c6c6c6' }}>{archiveResult.archiver}</span>
+                  <span style={{ color: 'var(--cds-text-secondary)' }}>
+                    {archiveResult.archiver}
+                  </span>
                 </div>
               )}
               {archiveResult?.status === 'error' && archiveResult.error?.detail && (
-                <div style={{ marginTop: 4, color: '#ff8389' }}>{archiveResult.error.detail}</div>
+                <div style={{ marginTop: 4, color: 'var(--cds-text-error)' }}>
+                  {archiveResult.error.detail}
+                </div>
               )}
             </>
           )}
@@ -521,7 +549,14 @@ function TraceLineTab({
       <div className="prop-section">
         <div className="prop-section__title">Line Style</div>
         <div className="prop-row">
-          <label style={{ display: 'block', fontSize: 12, color: '#c6c6c6', marginBottom: 6 }}>
+          <label
+            style={{
+              display: 'block',
+              fontSize: 12,
+              color: 'var(--cds-text-secondary)',
+              marginBottom: 6,
+            }}
+          >
             Color
           </label>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -535,7 +570,7 @@ function TraceLineTab({
                 padding: 2,
                 border: '1px solid #525252',
                 borderRadius: 2,
-                backgroundColor: '#393939',
+                backgroundColor: 'var(--cds-field)',
                 cursor: 'pointer',
               }}
             />
@@ -551,12 +586,25 @@ function TraceLineTab({
           </div>
         </div>
         <div className="prop-row">
+          <Select
+            id="line-type"
+            labelText="Type"
+            value={trace.lineType}
+            onChange={(e) => onUpdate({ lineType: e.target.value as PVTrace['lineType'] })}
+            size="sm"
+          >
+            {LINE_TYPE_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value} text={o.label} />
+            ))}
+          </Select>
+        </div>
+        <div className="prop-row">
           <NumberInput
             id="line-width"
             label="Line Width"
             value={trace.lineWidth}
             min={1}
-            max={10}
+            max={5}
             onChange={(_e, { value }) => {
               if (typeof value === 'number') onUpdate({ lineWidth: value });
             }}
@@ -566,14 +614,14 @@ function TraceLineTab({
         <div className="prop-row">
           <Select
             id="line-style"
-            labelText="Line Style"
+            labelText="Style"
             value={trace.lineStyle}
             onChange={(e) => onUpdate({ lineStyle: e.target.value as PVTrace['lineStyle'] })}
             size="sm"
           >
-            <SelectItem value="solid" text="Solid" />
-            <SelectItem value="dashed" text="Dashed" />
-            <SelectItem value="dotted" text="Dotted" />
+            {LINE_STYLE_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value} text={o.label} />
+            ))}
           </Select>
         </div>
       </div>
@@ -581,12 +629,13 @@ function TraceLineTab({
   );
 }
 
-function TraceSymbolTab({ trace }: { trace: PVTrace; onUpdate: (u: Partial<PVTrace>) => void }) {
-  const [showSymbols, setShowSymbols] = useState(false);
-  const [symbolType, setSymbolType] = useState('circle');
-  const [symbolSize, setSymbolSize] = useState(4);
-  const [fillColor, setFillColor] = useState(trace.color);
-
+function TraceSymbolTab({
+  trace,
+  onUpdate,
+}: {
+  trace: PVTrace;
+  onUpdate: (u: Partial<PVTrace>) => void;
+}) {
   return (
     <div>
       <div className="prop-section">
@@ -597,70 +646,40 @@ function TraceSymbolTab({ trace }: { trace: PVTrace; onUpdate: (u: Partial<PVTra
             labelText="Show Symbols"
             labelA="Off"
             labelB="On"
-            toggled={showSymbols}
-            onToggle={setShowSymbols}
+            toggled={trace.showSymbol}
+            onToggle={(checked) => onUpdate({ showSymbol: checked })}
             size="sm"
           />
         </div>
-        {showSymbols && (
+        {trace.showSymbol && (
           <>
             <div className="prop-row">
               <Select
-                id="symbol-type"
-                labelText="Symbol Type"
-                value={symbolType}
-                onChange={(e) => setSymbolType(e.target.value)}
+                id="symbol-shape"
+                labelText="Shape"
+                value={trace.symbolShape}
+                onChange={(e) =>
+                  onUpdate({ symbolShape: e.target.value as PVTrace['symbolShape'] })
+                }
                 size="sm"
               >
-                <SelectItem value="circle" text="Circle" />
-                <SelectItem value="rect" text="Square" />
-                <SelectItem value="diamond" text="Diamond" />
-                <SelectItem value="triangle" text="Triangle" />
-                <SelectItem value="pin" text="Pin" />
+                {SYMBOL_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value} text={o.label} />
+                ))}
               </Select>
             </div>
             <div className="prop-row">
               <NumberInput
                 id="symbol-size"
-                label="Symbol Size"
-                value={symbolSize}
+                label="Size"
+                value={trace.symbolSize}
                 min={1}
-                max={20}
+                max={25}
                 onChange={(_e, { value }) => {
-                  if (typeof value === 'number') setSymbolSize(value);
+                  if (typeof value === 'number') onUpdate({ symbolSize: value });
                 }}
                 size="sm"
               />
-            </div>
-            <div className="prop-row">
-              <label style={{ display: 'block', fontSize: 12, color: '#c6c6c6', marginBottom: 6 }}>
-                Fill Color
-              </label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="color"
-                  value={fillColor}
-                  onChange={(e) => setFillColor(e.target.value)}
-                  style={{
-                    width: 36,
-                    height: 32,
-                    padding: 2,
-                    border: '1px solid #525252',
-                    borderRadius: 2,
-                    backgroundColor: '#393939',
-                    cursor: 'pointer',
-                  }}
-                />
-                <TextInput
-                  id="symbol-fill-color-hex"
-                  labelText=""
-                  hideLabel
-                  value={fillColor}
-                  onChange={(e) => setFillColor(e.target.value)}
-                  size="sm"
-                  style={{ flex: 1 }}
-                />
-              </div>
             </div>
           </>
         )}
@@ -673,18 +692,20 @@ function TraceCodeTab({ trace }: { trace: PVTrace }) {
   const config = `{
   name: '${trace.displayName}',
   type: 'line',
+  step: ${trace.lineType === 'step' ? "'end'" : 'false'},
 
   // Line Style
   lineStyle: {
     color: '${trace.color}',
     width: ${trace.lineWidth},
-    type: '${trace.lineStyle}'
+    type: ${JSON.stringify(echartsLineType(trace.lineStyle))},
+    opacity: ${trace.lineStyle === 'none' ? 0 : 1}
   },
 
   // Symbol
-  symbol: 'none',
-  symbolSize: 4,
-  showSymbol: false,
+  symbol: '${trace.showSymbol ? echartsSymbol(trace.symbolShape) : 'none'}',
+  symbolSize: ${trace.symbolSize},
+  showSymbol: ${trace.showSymbol},
 
   // Sampling
   sampling: 'lttb',
@@ -697,7 +718,7 @@ function TraceCodeTab({ trace }: { trace: PVTrace }) {
     <div>
       <div className="prop-section">
         <div className="prop-section__title">ECharts Series Config</div>
-        <p style={{ fontSize: 11, color: '#6f6f6f', marginBottom: 8 }}>
+        <p style={{ fontSize: 11, color: 'var(--cds-text-helper)', marginBottom: 8 }}>
           Direct ECharts series configuration for this trace.
         </p>
         <textarea className="prop-code-area" defaultValue={config} rows={20} spellCheck={false} />
@@ -707,8 +728,8 @@ function TraceCodeTab({ trace }: { trace: PVTrace }) {
               flex: 1,
               padding: '6px 12px',
               fontSize: 12,
-              backgroundColor: '#0f62fe',
-              color: '#ffffff',
+              backgroundColor: 'var(--cds-button-primary)',
+              color: 'var(--cds-text-on-color)',
               border: 'none',
               borderRadius: 2,
               cursor: 'pointer',
@@ -721,8 +742,8 @@ function TraceCodeTab({ trace }: { trace: PVTrace }) {
             style={{
               padding: '6px 12px',
               fontSize: 12,
-              backgroundColor: '#393939',
-              color: '#f4f4f4',
+              backgroundColor: 'var(--cds-button-secondary)',
+              color: 'var(--cds-text-on-color)',
               border: 'none',
               borderRadius: 2,
               cursor: 'pointer',
@@ -889,7 +910,7 @@ function AxisCodeTab({ axis }: { axis: Axis }) {
 
   // Labels
   axisLabel: {
-    color: '#c6c6c6',
+    color: 'var(--cds-text-secondary)',
     fontSize: 11
   }
 }`;
@@ -905,8 +926,8 @@ function AxisCodeTab({ axis }: { axis: Axis }) {
               flex: 1,
               padding: '6px 12px',
               fontSize: 12,
-              backgroundColor: '#0f62fe',
-              color: '#ffffff',
+              backgroundColor: 'var(--cds-button-primary)',
+              color: 'var(--cds-text-on-color)',
               border: 'none',
               borderRadius: 2,
               cursor: 'pointer',
@@ -938,7 +959,14 @@ function PlotGeneralTab({ plot, onUpdate }: { plot: Plot; onUpdate: (u: Partial<
           />
         </div>
         <div className="prop-row">
-          <label style={{ display: 'block', fontSize: 12, color: '#c6c6c6', marginBottom: 6 }}>
+          <label
+            style={{
+              display: 'block',
+              fontSize: 12,
+              color: 'var(--cds-text-secondary)',
+              marginBottom: 6,
+            }}
+          >
             Background Color
           </label>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -952,7 +980,7 @@ function PlotGeneralTab({ plot, onUpdate }: { plot: Plot; onUpdate: (u: Partial<
                 padding: 2,
                 border: '1px solid #525252',
                 borderRadius: 2,
-                backgroundColor: '#393939',
+                backgroundColor: 'var(--cds-field)',
                 cursor: 'pointer',
               }}
             />
@@ -1030,21 +1058,52 @@ function PlotGeneralTab({ plot, onUpdate }: { plot: Plot; onUpdate: (u: Partial<
   );
 }
 
-function PlotLineTab({ plot, onUpdate }: { plot: Plot; onUpdate: (u: Partial<Plot>) => void }) {
+function PlotCodeTab({ plot }: { plot: Plot }) {
+  const config = `{
+  // Plot
+  title: '${plot.title}',
+  backgroundColor: '${plot.backgroundColor}',
+
+  // X-axis (time)
+  xAxis: {
+    type: 'time',
+    timeRange: '${plot.xAxis.timeRange}'${plot.xAxis.timeFrom ? `,\n    timeFrom: '${plot.xAxis.timeFrom}'` : ''}${plot.xAxis.timeTo ? `,\n    timeTo: '${plot.xAxis.timeTo}'` : ''}
+  },
+
+  // Grid
+  splitLine: {
+    show: ${plot.showGridlines}
+  },
+
+  // Composition
+  axes: ${plot.axes.length},
+  traces: ${plot.traces.length}
+}`;
+
   return (
     <div>
       <div className="prop-section">
-        <div className="prop-section__title">Grid Settings</div>
-        <div className="prop-row prop-row--inline">
-          <Toggle
-            id="plot-gridlines"
-            labelText="Show Grid Lines"
-            labelA="Off"
-            labelB="On"
-            toggled={plot.showGridlines}
-            onToggle={(checked) => onUpdate({ showGridlines: checked })}
-            size="sm"
-          />
+        <div className="prop-section__title">ECharts Plot Config</div>
+        <p style={{ fontSize: 11, color: 'var(--cds-text-helper)', marginBottom: 8 }}>
+          Top-level ECharts option for this plot.
+        </p>
+        <textarea className="prop-code-area" defaultValue={config} rows={20} spellCheck={false} />
+        <div className="prop-code-actions">
+          <button
+            style={{
+              flex: 1,
+              padding: '6px 12px',
+              fontSize: 12,
+              backgroundColor: 'var(--cds-button-primary)',
+              color: 'var(--cds-text-on-color)',
+              border: 'none',
+              borderRadius: 2,
+              cursor: 'pointer',
+              fontWeight: 500,
+            }}
+          >
+            Apply Changes
+          </button>
         </div>
       </div>
     </div>
