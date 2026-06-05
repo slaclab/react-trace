@@ -12,6 +12,7 @@ import { PlotArea, SinglePlot } from './PlotArea';
 import { RightPanel } from './RightPanel';
 import { useArchiveSeries, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { ArchiverPicker } from './ArchiverPicker';
+import type { TimeWindowNs } from '../api/time';
 
 function generateMockData(
   points: number,
@@ -53,14 +54,14 @@ const INITIAL_PLOTS: Plot[] = [
     traces: [
       {
         id: 'trace-1',
-        pvName: 'TEST:SINE_A',
-        displayName: 'TEST:SINE_A',
+        pvName: 'TEST:SINE',
+        displayName: 'TEST:SINE',
         color: '#0f62fe',
         visible: true,
         axisId: 'y-axis-1',
-        useLive: true,
+        useLive: false,
         updateRate: 'monitor',
-        useArchive: false,
+        useArchive: true,
         archiveTimeRange: '-1h',
         lineWidth: 2,
         lineStyle: 'solid',
@@ -68,8 +69,8 @@ const INITIAL_PLOTS: Plot[] = [
       },
       {
         id: 'trace-2',
-        pvName: 'TEST:SINE_B',
-        displayName: 'TEST:SINE_B',
+        pvName: 'TEST:COUNTER',
+        displayName: 'TEST:COUNTER',
         color: '#ee5396',
         visible: true,
         axisId: 'y-axis-1',
@@ -83,12 +84,12 @@ const INITIAL_PLOTS: Plot[] = [
       },
       {
         id: 'trace-3',
-        pvName: 'TEST:TEMP',
-        displayName: 'TEST:TEMP',
+        pvName: 'TEST:RAMP',
+        displayName: 'TEST:RAMP',
         color: '#42be65',
         visible: true,
         axisId: 'y-axis-2',
-        useLive: true,
+        useLive: false,
         updateRate: 'monitor',
         useArchive: true,
         archiveTimeRange: '-1h',
@@ -111,13 +112,37 @@ export function TraceApp() {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [globalArchiver, setGlobalArchiver] = useState<string | undefined>(undefined);
+  // Last viewport emitted by each plot's dataZoom. Drives the archive store's
+  // window per trace; the store decides whether the change requires a fetch
+  // based on its coverage check, so this map can be updated freely.
+  const [viewWindowByPlot, setViewWindowByPlot] = useState<Map<string, TimeWindowNs>>(
+    () => new Map()
+  );
   const leftPanelRef = usePanelRef();
   const rightPanelRef = usePanelRef();
 
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
 
   const allTraces = plots.flatMap((p) => p.traces);
-  const archiveResults = useArchiveSeries(allTraces, globalArchiver);
+
+  const windowByTrace = new Map<string, TimeWindowNs>();
+  for (const plot of plots) {
+    const win = viewWindowByPlot.get(plot.id);
+    if (!win) continue;
+    for (const trace of plot.traces) {
+      if (trace.useArchive) windowByTrace.set(trace.id, win);
+    }
+  }
+
+  const archiveResults = useArchiveSeries(allTraces, globalArchiver, windowByTrace);
+
+  const handleViewWindowChange = (plotId: string, window: TimeWindowNs) => {
+    setViewWindowByPlot((prev) => {
+      const next = new Map(prev);
+      next.set(plotId, window);
+      return next;
+    });
+  };
 
   const archiveResultsByPlot = new Map<string, Map<string, ArchiveSeriesResult>>();
   for (const plot of plots) {
@@ -168,8 +193,21 @@ export function TraceApp() {
     }
   };
 
+  const clearViewWindow = (plotId: string) => {
+    setViewWindowByPlot((prev) => {
+      if (!prev.has(plotId)) return prev;
+      const next = new Map(prev);
+      next.delete(plotId);
+      return next;
+    });
+  };
+
   const updatePlot = (plotId: string, updates: Partial<Plot>) => {
     setPlots((prev) => prev.map((p) => (p.id === plotId ? { ...p, ...updates } : p)));
+    // Picking a new x-axis time range is an explicit reset; drop the panned
+    // viewport so the next render uses the relative range, not the stale one.
+    // PlotArea also dispatches a dataZoom reset on the same trigger.
+    if (updates.xAxis && 'timeRange' in updates.xAxis) clearViewWindow(plotId);
   };
 
   // ── Trace operations ─────────────────────────────────────────────────────────
@@ -219,6 +257,7 @@ export function TraceApp() {
           : p
       )
     );
+    if ('archiveTimeRange' in updates) clearViewWindow(activePlotId);
   };
 
   const moveTrace = (traceId: string, targetAxisId: string) => {
@@ -375,6 +414,7 @@ export function TraceApp() {
               onRemovePlot={removePlot}
               onSetViewMode={setViewMode}
               onPopOutPlot={setPoppedOutPlot}
+              onViewWindowChange={handleViewWindowChange}
             />
           </Panel>
 

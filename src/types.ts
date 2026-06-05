@@ -12,6 +12,9 @@ export interface PVTrace {
   // Per-curve override for the binned-mode `maxPoints` (Mole `optimized_<N>`).
   // Falls back to the plot's default when undefined.
   optimizedDataBins?: number;
+  // When binned archive data is loaded, also draw the min/max band behind the
+  // mean line. Defaults to true when undefined.
+  showArchiveBand?: boolean;
   // Per-curve archiver override; undefined means "use the global selection".
   archiver?: string;
   lineWidth: number;

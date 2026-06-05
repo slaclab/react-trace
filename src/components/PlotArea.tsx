@@ -1,7 +1,17 @@
+import { useCallback, useEffect, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { Add, Close, ColumnDependency, Grid, Maximize } from '@carbon/icons-react';
 import type { Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
+import type { TimeWindowNs } from '../api/time';
+import { msToNs, nsToMs, rangeToWindowNs } from '../api/time';
+
+// Signature of the user-chosen ranges. Bumps when picking a new time range
+// for a plot or trace. dataZoom is reset to full extent on change so the new
+// range is actually visible instead of staying clipped to the previous zoom.
+function rangeKeyFor(plot: Plot): string {
+  return `${plot.xAxis.timeRange}|${plot.traces.map((t) => `${t.id}:${t.archiveTimeRange}`).join(',')}`;
+}
 
 interface PlotAreaProps {
   plots: Plot[];
@@ -13,26 +23,113 @@ interface PlotAreaProps {
   onRemovePlot: (id: string) => void;
   onSetViewMode: (mode: 'tabs' | 'grid') => void;
   onPopOutPlot: (id: string) => void;
+  onViewWindowChange?: (plotId: string, window: TimeWindowNs) => void;
 }
 
 interface SinglePlotProps {
   plot: Plot;
   archiveResults: Map<string, ArchiveSeriesResult>;
+  onViewWindowChange?: (window: TimeWindowNs) => void;
+}
+
+function formatTooltipValue(v: unknown): string {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return String(v);
+  if (v === 0) return '0';
+  const abs = Math.abs(v);
+  if (abs < 1e-3 || abs >= 1e7) return v.toExponential(4);
+  return v.toPrecision(7);
+}
+
+// Human-readable signed offset between the cursor and the sample we're showing.
+// "0s" when within ±0.5s; otherwise "−12s", "+3m", "+1.4h" etc.
+function formatTimeOffset(deltaMs: number): string {
+  const abs = Math.abs(deltaMs);
+  if (abs < 500) return '0s';
+  const sign = deltaMs < 0 ? '−' : '+';
+  if (abs < 60_000) return `${sign}${Math.round(abs / 1000)}s`;
+  if (abs < 3_600_000) return `${sign}${Math.round(abs / 60_000)}m`;
+  if (abs < 86_400_000) return `${sign}${(abs / 3_600_000).toFixed(1)}h`;
+  return `${sign}${(abs / 86_400_000).toFixed(1)}d`;
 }
 
 function traceLineData(
   trace: PVTrace,
   archive: ArchiveSeriesResult | undefined
 ): [number, number][] {
-  if (trace.useArchive && archive && archive.status === 'ready') {
+  // The store keeps the last good buffer around across refetches, so this is
+  // a single read with no anti-flicker shim.
+  if (trace.useArchive && archive && archive.mean.length > 0) {
     return archive.mean.map((p) => [p.time, p.value]);
   }
   return trace.data.map((p) => [p.time, p.value]);
 }
 
-export function SinglePlot({ plot, archiveResults }: SinglePlotProps) {
+// Binary search for the sample whose `time` is nearest to `tMs`. Series are
+// always sorted ascending by time (archive buffer + mock generator both honor
+// this), so we don't sort here.
+function nearestSample(
+  data: [number, number][],
+  tMs: number
+): { time: number; value: number } | undefined {
+  if (data.length === 0) return undefined;
+  let lo = 0;
+  let hi = data.length - 1;
+  if (tMs <= data[lo][0]) return { time: data[lo][0], value: data[lo][1] };
+  if (tMs >= data[hi][0]) return { time: data[hi][0], value: data[hi][1] };
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (data[mid][0] <= tMs) lo = mid;
+    else hi = mid;
+  }
+  const pickHi = data[hi][0] - tMs < tMs - data[lo][0];
+  const idx = pickHi ? hi : lo;
+  return { time: data[idx][0], value: data[idx][1] };
+}
+
+export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SinglePlotProps) {
   const visibleAxes = plot.axes.filter((a) => a.visible);
   const visibleTraces = plot.traces.filter((t) => t.visible);
+
+  const chartRef = useRef<ReactECharts>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reset the inside-zoom to full extent when the user picks a new range. This
+  // replaces the React-key remount we used to do — the chart instance survives,
+  // so dataZoom state on subsequent panning is the only thing affected. Skip
+  // the first mount: there's no zoom state to reset yet, and the chart instance
+  // may not be fully attached to the DOM.
+  const rangeKey = rangeKeyFor(plot);
+  const isFirstRangeRun = useRef(true);
+  useEffect(() => {
+    if (isFirstRangeRun.current) {
+      isFirstRangeRun.current = false;
+      return;
+    }
+    const inst = chartRef.current?.getEchartsInstance();
+    if (!inst || !inst.getDom()) return;
+    inst.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+  }, [rangeKey]);
+
+  const handleDataZoom = useCallback(() => {
+    if (!onViewWindowChange) return;
+    const inst = chartRef.current?.getEchartsInstance();
+    if (!inst) return;
+    // Read the current x-axis extent (in ms) directly from the model — this
+    // reflects the visible time range after the user has zoomed/panned.
+    type AxisModel = { axis: { scale: { getExtent: () => [number, number] } } };
+    const xModel = (
+      inst as unknown as { getModel: () => { getComponent: (n: string, i: number) => AxisModel } }
+    )
+      .getModel()
+      .getComponent('xAxis', 0);
+    const ext = xModel?.axis?.scale?.getExtent();
+    if (!ext) return;
+    const [fromMs, toMs] = ext;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      onViewWindowChange({ fromNs: msToNs(fromMs), toNs: msToNs(toMs) });
+    }, 400);
+  }, [onViewWindowChange]);
 
   // Build yAxis array; ECharts links series to axes by index, so we track index per axis id
   const axisIndexMap = new Map<string, number>();
@@ -41,6 +138,20 @@ export function SinglePlot({ plot, archiveResults }: SinglePlotProps) {
   });
 
   const rightAxesCount = visibleAxes.filter((a) => a.orientation === 'right').length;
+
+  // Pin the x-axis extent to the requested time range so the axis spans the
+  // full window even when archive data is sparse and clusters in a sub-range.
+  // dataZoom inside the chart still sub-zooms within [min, max].
+  const requested = rangeToWindowNs(plot.xAxis.timeRange);
+  const xAxisMin = nsToMs(requested.fromNs);
+  const xAxisMax = nsToMs(requested.toNs);
+
+  // Pre-compute per-trace [time, value] arrays once; series rendering and the
+  // tooltip formatter both read from this map. Sorted ascending by time.
+  const traceData = new Map<string, [number, number][]>();
+  for (const trace of visibleTraces) {
+    traceData.set(trace.id, traceLineData(trace, archiveResults.get(trace.id)));
+  }
 
   const option = {
     backgroundColor: plot.backgroundColor,
@@ -53,6 +164,8 @@ export function SinglePlot({ plot, archiveResults }: SinglePlotProps) {
     },
     xAxis: {
       type: 'time',
+      min: xAxisMin,
+      max: xAxisMax,
       axisLabel: { color: '#c6c6c6', fontSize: 11 },
       axisLine: { lineStyle: { color: '#525252' } },
       splitLine: {
@@ -76,96 +189,137 @@ export function SinglePlot({ plot, archiveResults }: SinglePlotProps) {
         lineStyle: { color: '#393939' },
       },
     })),
-    series: visibleTraces.flatMap((trace) => {
-      const yAxisIndex = axisIndexMap.get(trace.axisId) ?? 0;
-      const archive = archiveResults.get(trace.id);
-      const series: Record<string, unknown>[] = [];
-
-      // Min/max band, drawn as two stacked area series so ECharts fills between them.
-      if (
-        trace.useArchive &&
-        archive &&
-        archive.status === 'ready' &&
-        archive.mode === 'binned' &&
-        archive.band.length > 0
-      ) {
-        const stackId = `band-${trace.id}`;
-        series.push({
-          id: `${trace.id}-band-min`,
-          name: `${trace.displayName} (min)`,
-          type: 'line',
-          yAxisIndex,
-          data: archive.band.map((p) => [p.time, p.min]),
-          stack: stackId,
-          lineStyle: { opacity: 0 },
-          areaStyle: { opacity: 0 },
-          symbol: 'none',
-          showInLegend: false,
-          tooltip: { show: false },
-          silent: true,
-          animation: false,
-        });
-        series.push({
-          id: `${trace.id}-band-max`,
-          name: `${trace.displayName} (max)`,
-          type: 'line',
-          yAxisIndex,
-          data: archive.band.map((p) => [p.time, p.max - p.min]),
-          stack: stackId,
-          lineStyle: { opacity: 0 },
-          areaStyle: { color: trace.color, opacity: 0.18 },
-          symbol: 'none',
-          showInLegend: false,
-          tooltip: { show: false },
-          silent: true,
-          animation: false,
-        });
+    series: (() => {
+      // Order traces by axis (in panel order) then by their position within
+      // each axis. Earlier axis / earlier trace draws on top — assign higher
+      // `z` values to those, and pin the order with `emphasis.disabled` so
+      // hover doesn't shuffle the depth.
+      const orderedTraces: PVTrace[] = [];
+      for (const axis of visibleAxes) {
+        for (const trace of visibleTraces) {
+          if (trace.axisId === axis.id) orderedTraces.push(trace);
+        }
       }
 
-      series.push({
-        id: trace.id,
-        name: trace.displayName,
-        type: 'line',
-        yAxisIndex,
-        data: traceLineData(trace, archive),
-        lineStyle: {
-          color: trace.color,
-          width: trace.lineWidth,
-          type: trace.lineStyle,
-        },
-        itemStyle: { color: trace.color },
-        symbol: 'none',
-        sampling: 'lttb',
-        animation: false,
-      });
+      const total = orderedTraces.length;
+      return orderedTraces.flatMap((trace, i) => {
+        const yAxisIndex = axisIndexMap.get(trace.axisId) ?? 0;
+        const archive = archiveResults.get(trace.id);
+        const baseZ = (total - i) * 10;
+        const series: Record<string, unknown>[] = [];
 
-      return series;
-    }),
+        // Min/max band, drawn as two stacked area series so ECharts fills between them.
+        // Keep the previous band rendered while a fetch is in flight (status may
+        // be 'loading') so the band doesn't disappear during panning/zooming.
+        if (
+          trace.useArchive &&
+          trace.showArchiveBand !== false &&
+          archive &&
+          archive.mode === 'binned' &&
+          archive.band.length > 0
+        ) {
+          const stackId = `band-${trace.id}`;
+          series.push({
+            id: `${trace.id}-band-min`,
+            name: `${trace.displayName} (min)`,
+            type: 'line',
+            yAxisIndex,
+            data: archive.band.map((p) => [p.time, p.min]),
+            stack: stackId,
+            lineStyle: { opacity: 0 },
+            areaStyle: { opacity: 0 },
+            symbol: 'none',
+            showInLegend: false,
+            tooltip: { show: false },
+            silent: true,
+            animation: false,
+            z: baseZ,
+            emphasis: { disabled: true },
+          });
+          series.push({
+            id: `${trace.id}-band-max`,
+            name: `${trace.displayName} (max)`,
+            type: 'line',
+            yAxisIndex,
+            data: archive.band.map((p) => [p.time, p.max - p.min]),
+            stack: stackId,
+            lineStyle: { opacity: 0 },
+            areaStyle: { color: trace.color, opacity: 0.18 },
+            symbol: 'none',
+            showInLegend: false,
+            tooltip: { show: false },
+            silent: true,
+            animation: false,
+            z: baseZ,
+            emphasis: { disabled: true },
+          });
+        }
+
+        series.push({
+          id: trace.id,
+          name: trace.displayName,
+          type: 'line',
+          yAxisIndex,
+          data: traceData.get(trace.id) ?? [],
+          lineStyle: {
+            color: trace.color,
+            width: trace.lineWidth,
+            type: trace.lineStyle,
+          },
+          itemStyle: { color: trace.color },
+          symbol: 'none',
+          sampling: 'lttb',
+          animation: false,
+          z: baseZ + 1,
+          emphasis: { disabled: true },
+        });
+
+        return series;
+      });
+    })(),
     dataZoom: [
       {
         type: 'inside',
         zoomOnMouseWheel: true,
-        moveOnMouseMove: false,
+        moveOnMouseMove: true,
         moveOnMouseWheel: false,
       },
     ],
     tooltip: {
       trigger: 'axis',
+      axisPointer: {
+        type: 'line',
+        snap: false,
+        lineStyle: { color: '#8d8d8d', width: 1, type: 'dashed' },
+        label: { backgroundColor: '#393939' },
+      },
       backgroundColor: '#262626',
       borderColor: '#393939',
       textStyle: { color: '#f4f4f4', fontSize: 11 },
-      formatter: (
-        params: { axisValueLabel: string; seriesName: string; value: [number, number] }[]
-      ) => {
-        if (!Array.isArray(params) || params.length === 0) return '';
-        const time = new Date(params[0].axisValueLabel).toLocaleTimeString();
-        const lines = params
-          .map(
-            (p) =>
-              `<span style="color:${(p as { color?: string }).color ?? '#f4f4f4'}">${p.seriesName}</span>: ${typeof p.value[1] === 'number' ? p.value[1].toFixed(3) : p.value[1]}`
-          )
-          .join('<br/>');
-        return `<div style="font-size:11px"><div style="color:#8d8d8d;margin-bottom:4px">${time}</div>${lines}</div>`;
+      // Walk every visible trace ourselves rather than trusting `params`. With
+      // snap: false, ECharts only includes series that have a sample exactly
+      // under the cursor — sparse archive data leaves most traces out. The
+      // closure captures `traceData` and `visibleTraces` from the surrounding
+      // render so each line shows the trace's nearest sample plus the time
+      // offset between cursor and that sample.
+      formatter: (params: { axisValue: number }[] | { axisValue: number }) => {
+        const arr = Array.isArray(params) ? params : [params];
+        if (arr.length === 0) return '';
+        const cursorMs = arr[0]?.axisValue;
+        if (typeof cursorMs !== 'number' || !Number.isFinite(cursorMs)) return '';
+        const time = new Date(cursorMs).toLocaleTimeString();
+        const lines: string[] = [];
+        for (const trace of visibleTraces) {
+          const data = traceData.get(trace.id);
+          const sample = data ? nearestSample(data, cursorMs) : undefined;
+          const valueCell = sample
+            ? `${formatTooltipValue(sample.value)} <span style="color:#6f6f6f">(${formatTimeOffset(sample.time - cursorMs)})</span>`
+            : `<span style="color:#6f6f6f">no data</span>`;
+          lines.push(
+            `<span style="color:${trace.color}">${trace.displayName}</span>: ${valueCell}`
+          );
+        }
+        return `<div style="font-size:11px"><div style="color:#8d8d8d;margin-bottom:4px">${time}</div>${lines.join('<br/>')}</div>`;
       },
     },
     legend: {
@@ -178,7 +332,10 @@ export function SinglePlot({ plot, archiveResults }: SinglePlotProps) {
 
   return (
     <ReactECharts
+      ref={chartRef}
       option={option}
+      replaceMerge={['series', 'yAxis']}
+      onEvents={{ datazoom: handleDataZoom }}
       style={{ height: '100%', width: '100%' }}
       opts={{ renderer: 'canvas' }}
     />
@@ -197,6 +354,7 @@ export function PlotArea({
   onRemovePlot,
   onSetViewMode,
   onPopOutPlot,
+  onViewWindowChange,
 }: PlotAreaProps) {
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
 
@@ -285,9 +443,12 @@ export function PlotArea({
       <div className="plot-content">
         {viewMode === 'tabs' ? (
           <SinglePlot
-            key={activePlotId}
+            key={activePlot.id}
             plot={activePlot}
             archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
+            onViewWindowChange={
+              onViewWindowChange ? (w) => onViewWindowChange(activePlot.id, w) : undefined
+            }
           />
         ) : (
           <div
@@ -318,6 +479,9 @@ export function PlotArea({
                 <SinglePlot
                   plot={plot}
                   archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
+                  onViewWindowChange={
+                    onViewWindowChange ? (w) => onViewWindowChange(plot.id, w) : undefined
+                  }
                 />
               </div>
             ))}

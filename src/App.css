@@ -338,9 +338,8 @@
   height: 100%;
   background-color: #262626;
   border-left: 1px solid #393939;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .properties-panel__header {
@@ -350,7 +349,10 @@
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  background-color: #262626;
+  z-index: 2;
 }
 
 .properties-panel__title {
@@ -362,12 +364,17 @@
 }
 
 .properties-panel__tabs {
-  flex-shrink: 0;
+  position: sticky;
+  top: 40px;
+  background-color: #262626;
+  z-index: 1;
+}
+
+.properties-panel .cds--tab-content {
+  padding: 0;
 }
 
 .properties-panel__content {
-  flex: 1;
-  overflow-y: auto;
   padding: 12px;
 }
 
