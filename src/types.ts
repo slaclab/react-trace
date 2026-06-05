@@ -7,6 +7,9 @@ export interface PVTrace {
   axisId: string;
   useLive: boolean;
   updateRate: string;
+  // Retention window for the live ring buffer in ms. Falls back to
+  // `LIVE_RETENTION_DEFAULT_MS` (see useLiveSeries) when undefined.
+  liveRetentionMs?: number;
   useArchive: boolean;
   // Per-curve override for the binned-mode `maxPoints` (Mole `optimized_<N>`).
   // Falls back to the plot's default when undefined.
