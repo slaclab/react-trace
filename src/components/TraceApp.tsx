@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   Panel,
   Group as PanelGroup,
@@ -22,7 +22,7 @@ import { downloadBlob, pickFile } from '../io/download';
 import { serializeWorkspace, deserializeWorkspace } from '../io/serialize';
 import { buildCsvFiles } from '../io/exportCsv';
 
-const BUG_REPORT_URL = 'https://github.com/slaclab/react-trace/issues/new';
+const BUG_REPORT_URL = 'https://forms.office.com/r/qV7BmK2xi9';
 const DOCS_URL = 'https://github.com/slaclab/react-trace#readme';
 
 function generateMockData(
@@ -43,6 +43,7 @@ const INITIAL_PLOTS: Plot[] = [
     title: 'Plot 1',
     backgroundColor: '#161616',
     showGridlines: true,
+    gridStyle: 'solid',
     xAxis: { timeRange: '-1h' },
     axes: [
       {
@@ -208,6 +209,22 @@ export function TraceApp() {
     if (item) setActivePlotId(item.plotId);
   };
 
+  // Per-plot, per-axis computed [min, max] published by ECharts after each
+  // render. A ref so PlotArea can update without re-rendering TraceApp; the
+  // value is read lazily by RightPanel when the user toggles auto-scale off.
+  const axisRangesRef = useRef(new Map<string, Map<string, [number, number]>>());
+  const handleAxisRangesChange = useCallback(
+    (plotId: string, ranges: Map<string, [number, number]>) => {
+      axisRangesRef.current.set(plotId, ranges);
+    },
+    []
+  );
+  const getAxisRange = useCallback(
+    (axisId: string): [number, number] | undefined =>
+      axisRangesRef.current.get(activePlotId)?.get(axisId),
+    [activePlotId]
+  );
+
   // ── Plot operations ─────────────────────────────────────────────────────────
 
   const addPlot = () => {
@@ -220,6 +237,7 @@ export function TraceApp() {
         title: `Plot ${plotNum}`,
         backgroundColor: '#161616',
         showGridlines: true,
+        gridStyle: 'solid',
         xAxis: { timeRange: '-1h' },
         axes: [
           {
@@ -587,6 +605,8 @@ export function TraceApp() {
                   onDetachPlot={detachPlot}
                   onReattachPlot={reattachPlot}
                   onViewWindowChange={handleViewWindowChange}
+                  viewWindowByPlot={viewWindowByPlot}
+                  onAxisRangesChange={handleAxisRangesChange}
                 />
               </div>
               {insight.open && !insight.detached && insight.minimized && (
@@ -646,6 +666,7 @@ export function TraceApp() {
               onUpdateTrace={updateTrace}
               onUpdateAxis={updateAxis}
               onUpdatePlot={(updates) => updatePlot(activePlotId, updates)}
+              getAxisRange={getAxisRange}
               onInspectTrace={(id) => openInsight(id)}
               onCollapse={() => {
                 rightPanelRef.current?.collapse();
@@ -723,6 +744,8 @@ export function TraceApp() {
                   <SinglePlot
                     plot={plot}
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
+                    // eslint-disable-next-line react-hooks/refs -- ref is written from ECharts' finished event, not during render
+                    onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
                   />
                 </div>
               </div>
@@ -789,6 +812,8 @@ export function TraceApp() {
                   plot={plot}
                   archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
                   onViewWindowChange={(w) => handleViewWindowChange(plot.id, w)}
+                  initialViewWindowNs={viewWindowByPlot.get(plot.id)}
+                  onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
                 />
               </div>
             </Theme>

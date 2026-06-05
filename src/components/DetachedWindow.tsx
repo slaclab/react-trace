@@ -19,11 +19,25 @@ interface DetachedWindowProps {
 
 // Clone the host document's stylesheets into the popup so Carbon components and
 // our own CSS render identically. Covers both dev (<style> injected by Vite)
-// and prod (<link rel="stylesheet">).
-function cloneStyles(dest: Document): void {
+// and prod (<link rel="stylesheet">). Returns a promise that resolves once the
+// cloned <link> stylesheets have loaded — mounting the portal before then lets
+// ECharts measure against an unstyled container, causing a slow re-layout.
+function cloneStyles(dest: Document): Promise<void> {
+  const linkLoads: Promise<void>[] = [];
   document.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => {
-    dest.head.appendChild(node.cloneNode(true));
+    const clone = node.cloneNode(true) as HTMLElement;
+    if (clone.tagName === 'LINK') {
+      linkLoads.push(
+        new Promise<void>((resolve) => {
+          const done = () => resolve();
+          clone.addEventListener('load', done, { once: true });
+          clone.addEventListener('error', done, { once: true });
+        })
+      );
+    }
+    dest.head.appendChild(clone);
   });
+  return Promise.all(linkLoads).then(() => undefined);
 }
 
 /**
@@ -53,16 +67,19 @@ export function DetachedWindow({
     popup.document.title = title;
     popup.document.body.style.margin = '0';
     popup.document.documentElement.dataset.theme = document.documentElement.dataset.theme ?? 'dark';
-    cloneStyles(popup.document);
 
     const mount = popup.document.createElement('div');
     mount.style.height = '100vh';
     popup.document.body.appendChild(mount);
     winRef.current = popup;
-    // The portal target only exists after window.open, so it must be set from
-    // this effect — there's no render-time value to derive it from.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setContainer(mount);
+
+    let cancelled = false;
+    cloneStyles(popup.document).then(() => {
+      // The user may have closed the popup or reattached before stylesheets
+      // resolved — don't mount into a torn-down window.
+      if (cancelled) return;
+      setContainer(mount);
+    });
 
     // The user closing the OS window reattaches the plot. We remove this
     // listener before our own cleanup-driven close() so a parent-initiated
@@ -71,6 +88,7 @@ export function DetachedWindow({
     popup.addEventListener('pagehide', handleUnload);
 
     return () => {
+      cancelled = true;
       popup.removeEventListener('pagehide', handleUnload);
       winRef.current = null;
       popup.close();

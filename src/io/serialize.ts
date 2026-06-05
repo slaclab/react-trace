@@ -186,6 +186,7 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
     backgroundColor:
       typeof legacyPlot.backgroundColor === 'string' ? legacyPlot.backgroundColor : '#161616',
     showGridlines: legacyPlot.xGrid === true && legacyPlot.yGrid === true,
+    gridStyle: 'solid',
     xAxis: { timeRange },
     axes,
     traces,
