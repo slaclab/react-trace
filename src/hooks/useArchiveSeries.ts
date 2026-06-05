@@ -36,13 +36,15 @@ function entryToResult(entry: ArchiveEntry): ArchiveSeriesResult {
   };
 }
 
-function pickArchiver(trace: PVTrace, globalArchiver: string | undefined): string | undefined {
-  return trace.archiver ?? globalArchiver;
+function pickArchiver(trace: PVTrace, plotArchiver: string | undefined): string | undefined {
+  return trace.archiver ?? plotArchiver;
 }
 
 export function useArchiveSeries(
   traces: PVTrace[],
-  globalArchiver: string | undefined,
+  // Per-trace plot default archiver (keyed by trace id). A trace's own
+  // `archiver` overrides it; both undefined means "use the backend default".
+  plotArchiverByTrace: Map<string, string | undefined>,
   windowByTrace: Map<string, TimeWindowNs>
 ): Map<string, ArchiveSeriesResult> {
   // Stable signature of the inputs that should drive a store update. Callers
@@ -55,7 +57,7 @@ export function useArchiveSeries(
   const signature = traces
     .map((t) => {
       if (!t.useArchive || !t.pvName) return `${t.id}:off`;
-      const archiver = pickArchiver(t, globalArchiver) ?? '';
+      const archiver = pickArchiver(t, plotArchiverByTrace.get(t.id)) ?? '';
       const bins = t.optimizedDataBins ?? '';
       const win = windowByTrace.get(t.id);
       const winKey = win ? `${win.fromNs}-${win.toNs}` : 'none';
@@ -66,7 +68,7 @@ export function useArchiveSeries(
   // Drive the store from the current set of traces. The store dedupes
   // requests with matching (pv, archiver, bins) and a covering window, so
   // calling `request` every render is safe and cheap when nothing changed.
-  // Time range is plot-level — TraceApp resolves it per-trace and feeds the
+  // Time range is plot-level. TraceApp resolves it per-trace and feeds the
   // map; a missing entry means "skip this trace."
   useEffect(() => {
     const wanted = new Set<string>();
@@ -77,7 +79,7 @@ export function useArchiveSeries(
       wanted.add(trace.id);
       archiveStore.request(trace.id, {
         pv: trace.pvName,
-        archiver: pickArchiver(trace, globalArchiver),
+        archiver: pickArchiver(trace, plotArchiverByTrace.get(trace.id)),
         bins: trace.optimizedDataBins,
         window,
       });
@@ -85,9 +87,9 @@ export function useArchiveSeries(
     for (const id of archiveStore.getSnapshot().keys()) {
       if (!wanted.has(id)) archiveStore.release(id);
     }
-    // The effect closes over `traces`, `globalArchiver`, and `windowByTrace`,
-    // but those references churn every render — the signature captures the
-    // meaningful subset.
+    // The effect closes over `traces`, `plotArchiverByTrace`, and
+    // `windowByTrace`, but those references churn every render; the signature
+    // captures the meaningful subset.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
 

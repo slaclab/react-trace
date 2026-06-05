@@ -10,8 +10,8 @@ export const GLOBAL_OPTION = '__global__';
 interface ArchiverPickerProps {
   value: string | undefined;
   onChange: (next: string | undefined) => void;
-  // When true, includes a "Use global default" option that maps to undefined.
-  // Used by per-trace overrides; the header picker omits it.
+  // When true, includes a "Use plot default" option that maps to undefined.
+  // Used by per-trace overrides; the plot's own picker omits it.
   includeGlobalOption?: boolean;
   size?: 'sm' | 'md';
   label?: string;
@@ -55,7 +55,7 @@ export function ArchiverPicker({
 
   const items: ArchiverItem[] = [];
   if (includeGlobalOption) {
-    items.push({ id: GLOBAL_OPTION, label: 'Use global default' });
+    items.push({ id: GLOBAL_OPTION, label: 'Use plot default' });
   } else {
     items.push({
       id: GLOBAL_DEFAULT_OPTION,

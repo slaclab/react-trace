@@ -33,7 +33,6 @@ interface RightPanelProps {
   selectedItem: SelectedItem;
   activePlot: Plot;
   archiveResults: Map<string, ArchiveSeriesResult>;
-  globalArchiver: string | undefined;
   collapsed: boolean;
   onUpdateTrace: (traceId: string, updates: Partial<PVTrace>) => void;
   onUpdateAxis: (axisId: string, updates: Partial<Axis>) => void;
@@ -46,7 +45,6 @@ export function RightPanel({
   selectedItem,
   activePlot,
   archiveResults,
-  globalArchiver,
   collapsed,
   onUpdateTrace,
   onUpdateAxis,
@@ -86,7 +84,7 @@ export function RightPanel({
           trace={selectedTrace}
           axes={activePlot.axes}
           archiveResult={selectedTraceArchive}
-          globalArchiver={globalArchiver}
+          plotArchiver={activePlot.archiver}
           onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)}
         />
       ),
@@ -184,17 +182,17 @@ function TraceGeneralTab({
   trace,
   axes,
   archiveResult,
-  globalArchiver,
+  plotArchiver,
   onUpdate,
 }: {
   trace: PVTrace;
   axes: Axis[];
   archiveResult: ArchiveSeriesResult | undefined;
-  globalArchiver: string | undefined;
+  plotArchiver: string | undefined;
   onUpdate: (u: Partial<PVTrace>) => void;
 }) {
   const [pvQuery, setPvQuery] = useState<string>(trace.pvName);
-  const search = usePVSearch(pvQuery, trace.archiver ?? globalArchiver);
+  const search = usePVSearch(pvQuery, trace.archiver ?? plotArchiver);
   const items: string[] = (() => {
     const seen = new Set<string>();
     const out: string[] = [];
@@ -1006,6 +1004,14 @@ function PlotGeneralTab({ plot, onUpdate }: { plot: Plot; onUpdate: (u: Partial<
             size="sm"
           />
         </div>
+        <div className="prop-row">
+          <ArchiverPicker
+            value={plot.archiver}
+            onChange={(next) => onUpdate({ archiver: next })}
+            label="Default Archiver"
+            width="100%"
+          />
+        </div>
       </div>
 
       <div className="prop-divider" />
@@ -1063,6 +1069,7 @@ function PlotCodeTab({ plot }: { plot: Plot }) {
   // Plot
   title: '${plot.title}',
   backgroundColor: '${plot.backgroundColor}',
+  defaultArchiver: ${plot.archiver ? `'${plot.archiver}'` : 'backend default'},
 
   // X-axis (time)
   xAxis: {
