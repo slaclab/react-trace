@@ -15,6 +15,7 @@ import { PlotArea, SinglePlot } from './PlotArea';
 import { RightPanel } from './RightPanel';
 import { Toolbar } from './Toolbar';
 import { useArchiveSeries, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
+import { useLiveSeries, type LiveSeriesResult } from '../hooks/useLiveSeries';
 import type { TimeWindowNs } from '../api/time';
 import { rangeToWindowNs } from '../api/time';
 import { useColorMode } from '../state/themeStore';
@@ -183,6 +184,10 @@ export function TraceApp() {
   }
 
   const archiveResults = useArchiveSeries(allTraces, plotArchiverByTrace, windowByTrace);
+  // Live data subscriptions are owned at the app level so detached / popped-out
+  // / grid views all share one WebSocket. The hook handles add/remove of
+  // subscriptions when traces toggle their `useLive` flag.
+  const liveResults = useLiveSeries(allTraces);
 
   const handleViewWindowChange = (plotId: string, window: TimeWindowNs) => {
     setViewWindowByPlot((prev) => {
@@ -193,13 +198,18 @@ export function TraceApp() {
   };
 
   const archiveResultsByPlot = new Map<string, Map<string, ArchiveSeriesResult>>();
+  const liveResultsByPlot = new Map<string, Map<string, LiveSeriesResult>>();
   for (const plot of plots) {
-    const m = new Map<string, ArchiveSeriesResult>();
+    const a = new Map<string, ArchiveSeriesResult>();
+    const l = new Map<string, LiveSeriesResult>();
     for (const trace of plot.traces) {
-      const r = archiveResults.get(trace.id);
-      if (r) m.set(trace.id, r);
+      const ar = archiveResults.get(trace.id);
+      if (ar) a.set(trace.id, ar);
+      const lr = liveResults.get(trace.id);
+      if (lr) l.set(trace.id, lr);
     }
-    archiveResultsByPlot.set(plot.id, m);
+    archiveResultsByPlot.set(plot.id, a);
+    liveResultsByPlot.set(plot.id, l);
   }
 
   // Selecting an item also focuses its plot, so RightPanel / Data Insight (which
@@ -306,7 +316,9 @@ export function TraceApp() {
       color: colors[traceCount % colors.length],
       visible: true,
       axisId,
-      useLive: false,
+      // New traces default to both sources on. Live is the headline; archive
+      // backfills the past until live samples arrive.
+      useLive: true,
       updateRate: 'monitor',
       useArchive: true,
       lineWidth: 2,
@@ -596,6 +608,7 @@ export function TraceApp() {
                   activePlotId={activePlotId}
                   viewMode={viewMode}
                   archiveResultsByPlot={archiveResultsByPlot}
+                  liveResultsByPlot={liveResultsByPlot}
                   onSetActivePlot={setActivePlotId}
                   onAddPlot={addPlot}
                   onRemovePlot={removePlot}
@@ -662,6 +675,7 @@ export function TraceApp() {
               selectedItem={selectedItem}
               activePlot={activePlot}
               archiveResults={archiveResultsByPlot.get(activePlot.id) ?? new Map()}
+              liveResults={liveResultsByPlot.get(activePlot.id) ?? new Map()}
               collapsed={rightCollapsed}
               onUpdateTrace={updateTrace}
               onUpdateAxis={updateAxis}
@@ -744,6 +758,7 @@ export function TraceApp() {
                   <SinglePlot
                     plot={plot}
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
+                    liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
                     // eslint-disable-next-line react-hooks/refs -- ref is written from ECharts' finished event, not during render
                     onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
                   />
@@ -811,6 +826,7 @@ export function TraceApp() {
                 <SinglePlot
                   plot={plot}
                   archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
+                  liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
                   onViewWindowChange={(w) => handleViewWindowChange(plot.id, w)}
                   initialViewWindowNs={viewWindowByPlot.get(plot.id)}
                   onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}

@@ -25,6 +25,7 @@ import {
 } from '../curveStyle';
 import type { SelectedItem } from './TraceApp';
 import { DEFAULT_OPTIMIZED_BINS, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
+import { LIVE_RETENTION_DEFAULT_MS, type LiveSeriesResult } from '../hooks/useLiveSeries';
 import { ArchiverPicker } from './ArchiverPicker';
 import { usePVSearch } from '../hooks/usePVSearch';
 import { PanelRail } from './PanelRail';
@@ -33,6 +34,7 @@ interface RightPanelProps {
   selectedItem: SelectedItem;
   activePlot: Plot;
   archiveResults: Map<string, ArchiveSeriesResult>;
+  liveResults: Map<string, LiveSeriesResult>;
   collapsed: boolean;
   onUpdateTrace: (traceId: string, updates: Partial<PVTrace>) => void;
   onUpdateAxis: (axisId: string, updates: Partial<Axis>) => void;
@@ -47,6 +49,7 @@ export function RightPanel({
   selectedItem,
   activePlot,
   archiveResults,
+  liveResults,
   collapsed,
   onUpdateTrace,
   onUpdateAxis,
@@ -69,6 +72,7 @@ export function RightPanel({
   const selectedTrace =
     selectedItem?.type === 'trace' ? activePlot.traces.find((t) => t.id === selectedItem.id) : null;
   const selectedTraceArchive = selectedTrace ? archiveResults.get(selectedTrace.id) : undefined;
+  const selectedTraceLive = selectedTrace ? liveResults.get(selectedTrace.id) : undefined;
   const selectedAxis =
     selectedItem?.type === 'axis' ? activePlot.axes.find((a) => a.id === selectedItem.id) : null;
   const isPlotSelected = selectedItem?.type === 'plot';
@@ -88,6 +92,7 @@ export function RightPanel({
           trace={selectedTrace}
           axes={activePlot.axes}
           archiveResult={selectedTraceArchive}
+          liveResult={selectedTraceLive}
           plotArchiver={activePlot.archiver}
           onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)}
           onInspect={() => onInspectTrace(selectedTrace.id)}
@@ -185,6 +190,7 @@ function TraceGeneralTab({
   trace,
   axes,
   archiveResult,
+  liveResult,
   plotArchiver,
   onUpdate,
   onInspect,
@@ -192,6 +198,7 @@ function TraceGeneralTab({
   trace: PVTrace;
   axes: Axis[];
   archiveResult: ArchiveSeriesResult | undefined;
+  liveResult: LiveSeriesResult | undefined;
   plotArchiver: string | undefined;
   onUpdate: (u: Partial<PVTrace>) => void;
   onInspect: () => void;
@@ -214,6 +221,40 @@ function TraceGeneralTab({
     return out;
   })();
   const archivePointCount = archiveResult?.mean.length ?? 0;
+  const livePointCount = liveResult?.points.length ?? 0;
+  const liveStatus = liveResult?.status ?? 'idle';
+  const liveConnected = liveResult?.connected ?? false;
+  const liveSeverity = liveResult?.severity ?? null;
+  const liveStatusLabel = !trace.useLive
+    ? 'Disabled'
+    : liveStatus === 'connecting'
+      ? 'Connecting…'
+      : liveStatus === 'connected' && liveConnected
+        ? 'Connected'
+        : liveStatus === 'connected'
+          ? 'Waiting for value'
+          : 'Disconnected';
+  const liveStatusColor = !trace.useLive
+    ? 'var(--cds-text-helper)'
+    : liveStatus === 'connected' && liveConnected
+      ? 'var(--cds-support-success)'
+      : liveStatus === 'connecting'
+        ? 'var(--cds-link-primary)'
+        : 'var(--cds-text-error)';
+  const severityColor = (s: typeof liveSeverity): string => {
+    switch (s) {
+      case 'NO_ALARM':
+        return 'var(--cds-support-success)';
+      case 'MINOR':
+        return 'var(--cds-support-warning)';
+      case 'MAJOR':
+        return 'var(--cds-support-error)';
+      case 'INVALID':
+        return 'var(--cds-support-info)';
+      default:
+        return 'var(--cds-text-helper)';
+    }
+  };
   let archiveStatusLabel: string;
   let archiveStatusColor: string;
   if (!trace.useArchive) {
@@ -410,6 +451,9 @@ function TraceGeneralTab({
               labelText="Update Rate"
               value={trace.updateRate}
               onChange={(e) => onUpdate({ updateRate: e.target.value })}
+              disabled
+              helperText="Server-batched monitor stream; per-trace rate selection is planned."
+              title="Server-batched monitor stream; per-trace rate selection is planned."
               size="sm"
             >
               <SelectItem value="monitor" text="Monitor (fastest)" />
@@ -417,6 +461,28 @@ function TraceGeneralTab({
               <SelectItem value="10hz" text="10 Hz" />
               <SelectItem value="on-change" text="On Change" />
             </Select>
+          </div>
+        )}
+        {trace.useLive && (
+          <div className="prop-row prop-subsection">
+            <NumberInput
+              id="live-retention"
+              label="Live retention (s)"
+              helperText={`How long live samples are kept (default ${LIVE_RETENTION_DEFAULT_MS / 1000}s)`}
+              min={5}
+              max={1800}
+              step={5}
+              value={(trace.liveRetentionMs ?? LIVE_RETENTION_DEFAULT_MS) / 1000}
+              onChange={(_, { value }) => {
+                if (value === '' || value === undefined) {
+                  onUpdate({ liveRetentionMs: undefined });
+                  return;
+                }
+                onUpdate({ liveRetentionMs: Math.round(Number(value) * 1000) });
+              }}
+              size="sm"
+              allowEmpty
+            />
           </div>
         )}
 
@@ -504,14 +570,26 @@ function TraceGeneralTab({
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span>Data points:</span>
             <span style={{ color: 'var(--cds-text-secondary)' }}>
-              {trace.useArchive ? archivePointCount : trace.data.length}
+              {trace.useArchive
+                ? archivePointCount
+                : trace.useLive
+                  ? livePointCount
+                  : trace.data.length}
             </span>
           </div>
           {trace.useLive && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-              <span>Live Status:</span>
-              <span style={{ color: 'var(--cds-support-success)' }}>Connected</span>
-            </div>
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                <span>Live Status:</span>
+                <span style={{ color: liveStatusColor }}>{liveStatusLabel}</span>
+              </div>
+              {liveSeverity && liveConnected && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                  <span>Severity:</span>
+                  <span style={{ color: severityColor(liveSeverity) }}>{liveSeverity}</span>
+                </div>
+              )}
+            </>
           )}
           {trace.useArchive && (
             <>
