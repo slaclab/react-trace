@@ -10,6 +10,7 @@ import type { Plot, PVTrace, Axis } from '../types';
 import { LeftPanel } from './LeftPanel';
 import { PlotArea, SinglePlot } from './PlotArea';
 import { RightPanel } from './RightPanel';
+import { useArchiveSeries, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 
 function generateMockData(
   points: number,
@@ -108,10 +109,26 @@ export function TraceApp() {
   const [poppedOutPlot, setPoppedOutPlot] = useState<string | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [globalArchiver, setGlobalArchiver] = useState<string | undefined>(undefined);
+  // Suppress unused-setter warning until the header picker (commit 3) wires it up.
+  void setGlobalArchiver;
   const leftPanelRef = usePanelRef();
   const rightPanelRef = usePanelRef();
 
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
+
+  const allTraces = plots.flatMap((p) => p.traces);
+  const archiveResults = useArchiveSeries(allTraces, globalArchiver);
+
+  const archiveResultsByPlot = new Map<string, Map<string, ArchiveSeriesResult>>();
+  for (const plot of plots) {
+    const m = new Map<string, ArchiveSeriesResult>();
+    for (const trace of plot.traces) {
+      const r = archiveResults.get(trace.id);
+      if (r) m.set(trace.id, r);
+    }
+    archiveResultsByPlot.set(plot.id, m);
+  }
 
   // ── Plot operations ─────────────────────────────────────────────────────────
 
@@ -323,6 +340,7 @@ export function TraceApp() {
             <LeftPanel
               traces={activePlot.traces}
               axes={activePlot.axes}
+              archiveResults={archiveResultsByPlot.get(activePlot.id) ?? new Map()}
               selectedItem={selectedItem}
               onSelectItem={setSelectedItem}
               onAddTrace={addTrace}
@@ -344,6 +362,7 @@ export function TraceApp() {
               plots={plots}
               activePlotId={activePlotId}
               viewMode={viewMode}
+              archiveResultsByPlot={archiveResultsByPlot}
               onSetActivePlot={setActivePlotId}
               onAddPlot={addPlot}
               onRemovePlot={removePlot}
@@ -365,6 +384,7 @@ export function TraceApp() {
             <RightPanel
               selectedItem={selectedItem}
               activePlot={activePlot}
+              archiveResults={archiveResultsByPlot.get(activePlot.id) ?? new Map()}
               onUpdateTrace={updateTrace}
               onUpdateAxis={updateAxis}
               onUpdatePlot={(updates) => updatePlot(activePlotId, updates)}
@@ -436,7 +456,10 @@ export function TraceApp() {
                   </button>
                 </div>
                 <div style={{ flex: 1, overflow: 'hidden' }}>
-                  <SinglePlot plot={plot} />
+                  <SinglePlot
+                    plot={plot}
+                    archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
+                  />
                 </div>
               </div>
             </div>

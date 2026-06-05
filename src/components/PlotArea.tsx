@@ -1,11 +1,13 @@
 import ReactECharts from 'echarts-for-react';
 import { Add, Close, ColumnDependency, Grid, Maximize } from '@carbon/icons-react';
-import type { Plot } from '../types';
+import type { Plot, PVTrace } from '../types';
+import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 
 interface PlotAreaProps {
   plots: Plot[];
   activePlotId: string;
   viewMode: 'tabs' | 'grid';
+  archiveResultsByPlot: Map<string, Map<string, ArchiveSeriesResult>>;
   onSetActivePlot: (id: string) => void;
   onAddPlot: () => void;
   onRemovePlot: (id: string) => void;
@@ -15,9 +17,20 @@ interface PlotAreaProps {
 
 interface SinglePlotProps {
   plot: Plot;
+  archiveResults: Map<string, ArchiveSeriesResult>;
 }
 
-export function SinglePlot({ plot }: SinglePlotProps) {
+function traceLineData(
+  trace: PVTrace,
+  archive: ArchiveSeriesResult | undefined
+): [number, number][] {
+  if (trace.useArchive && archive && archive.status === 'ready') {
+    return archive.mean.map((p) => [p.time, p.value]);
+  }
+  return trace.data.map((p) => [p.time, p.value]);
+}
+
+export function SinglePlot({ plot, archiveResults }: SinglePlotProps) {
   const visibleAxes = plot.axes.filter((a) => a.visible);
   const visibleTraces = plot.traces.filter((t) => t.visible);
 
@@ -63,14 +76,58 @@ export function SinglePlot({ plot }: SinglePlotProps) {
         lineStyle: { color: '#393939' },
       },
     })),
-    series: visibleTraces.map((trace) => {
+    series: visibleTraces.flatMap((trace) => {
       const yAxisIndex = axisIndexMap.get(trace.axisId) ?? 0;
-      return {
+      const archive = archiveResults.get(trace.id);
+      const series: Record<string, unknown>[] = [];
+
+      // Min/max band, drawn as two stacked area series so ECharts fills between them.
+      if (
+        trace.useArchive &&
+        archive &&
+        archive.status === 'ready' &&
+        archive.mode === 'binned' &&
+        archive.band.length > 0
+      ) {
+        const stackId = `band-${trace.id}`;
+        series.push({
+          id: `${trace.id}-band-min`,
+          name: `${trace.displayName} (min)`,
+          type: 'line',
+          yAxisIndex,
+          data: archive.band.map((p) => [p.time, p.min]),
+          stack: stackId,
+          lineStyle: { opacity: 0 },
+          areaStyle: { opacity: 0 },
+          symbol: 'none',
+          showInLegend: false,
+          tooltip: { show: false },
+          silent: true,
+          animation: false,
+        });
+        series.push({
+          id: `${trace.id}-band-max`,
+          name: `${trace.displayName} (max)`,
+          type: 'line',
+          yAxisIndex,
+          data: archive.band.map((p) => [p.time, p.max - p.min]),
+          stack: stackId,
+          lineStyle: { opacity: 0 },
+          areaStyle: { color: trace.color, opacity: 0.18 },
+          symbol: 'none',
+          showInLegend: false,
+          tooltip: { show: false },
+          silent: true,
+          animation: false,
+        });
+      }
+
+      series.push({
         id: trace.id,
         name: trace.displayName,
         type: 'line',
         yAxisIndex,
-        data: trace.data.map((p) => [p.time, p.value]),
+        data: traceLineData(trace, archive),
         lineStyle: {
           color: trace.color,
           width: trace.lineWidth,
@@ -80,7 +137,9 @@ export function SinglePlot({ plot }: SinglePlotProps) {
         symbol: 'none',
         sampling: 'lttb',
         animation: false,
-      };
+      });
+
+      return series;
     }),
     dataZoom: [
       {
@@ -113,6 +172,7 @@ export function SinglePlot({ plot }: SinglePlotProps) {
       bottom: 8,
       textStyle: { color: '#c6c6c6', fontSize: 11 },
       inactiveColor: '#6f6f6f',
+      data: visibleTraces.map((t) => t.displayName),
     },
   };
 
@@ -125,10 +185,13 @@ export function SinglePlot({ plot }: SinglePlotProps) {
   );
 }
 
+const EMPTY_RESULTS: Map<string, ArchiveSeriesResult> = new Map();
+
 export function PlotArea({
   plots,
   activePlotId,
   viewMode,
+  archiveResultsByPlot,
   onSetActivePlot,
   onAddPlot,
   onRemovePlot,
@@ -221,7 +284,11 @@ export function PlotArea({
       {/* Plot content */}
       <div className="plot-content">
         {viewMode === 'tabs' ? (
-          <SinglePlot key={activePlotId} plot={activePlot} />
+          <SinglePlot
+            key={activePlotId}
+            plot={activePlot}
+            archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
+          />
         ) : (
           <div
             className={`plot-grid ${gridCols} ${gridRows}`}
@@ -248,7 +315,10 @@ export function PlotArea({
                     <Close size={14} />
                   </button>
                 )}
-                <SinglePlot plot={plot} />
+                <SinglePlot
+                  plot={plot}
+                  archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
+                />
               </div>
             ))}
           </div>

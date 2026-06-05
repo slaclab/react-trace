@@ -9,6 +9,11 @@ export interface PVTrace {
   updateRate: string;
   useArchive: boolean;
   archiveTimeRange: string;
+  // Per-curve override for the binned-mode `maxPoints` (Mole `optimized_<N>`).
+  // Falls back to the plot's default when undefined.
+  optimizedDataBins?: number;
+  // Per-curve archiver override; undefined means "use the global selection".
+  archiver?: string;
   lineWidth: number;
   lineStyle: 'solid' | 'dashed' | 'dotted';
   data: { time: number; value: number }[];
