@@ -637,6 +637,17 @@ function TraceLineTab({
             ))}
           </Select>
         </div>
+        <div className="prop-row prop-row--inline">
+          <Toggle
+            id="extend-to-now"
+            labelText="Extend to current time"
+            labelA="Off"
+            labelB="On"
+            toggled={trace.showExtensionLine !== false}
+            onToggle={(checked) => onUpdate({ showExtensionLine: checked })}
+            size="sm"
+          />
+        </div>
       </div>
     </div>
   );

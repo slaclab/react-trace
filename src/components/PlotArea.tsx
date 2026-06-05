@@ -425,12 +425,13 @@ export function SinglePlot({
           });
         }
 
+        const tracePoints = traceData.get(trace.id) ?? [];
         series.push({
           id: trace.id,
           name: trace.displayName,
           type: 'line',
           yAxisIndex,
-          data: traceData.get(trace.id) ?? [],
+          data: tracePoints,
           step: trace.lineType === 'step' ? 'end' : false,
           lineStyle: {
             color: trace.color,
@@ -448,6 +449,47 @@ export function SinglePlot({
           emphasis: { disabled: true },
         });
 
+        if (trace.showExtensionLine !== false && trace.lineStyle !== 'none') {
+          const last = tracePoints.at(-1);
+          if (last && last[0] < xAxisMax) {
+            const startTime = Math.max(last[0], xAxisMin);
+            // Sample the horizontal extension at many points so dataZoom's
+            // 'weakFilter' finds anchors inside the visible window directly
+            // rather than relying on the cross-window keep-rule for flanking
+            // pairs (which echarts 6 doesn't honor consistently). 2048 gives
+            // ~21 min spacing on a 1-month range, ~42 s on 1-day — comfortably
+            // below typical wheel-zoom depths. Cost is trivial: constant-y
+            // points render as a single line segment.
+            const ANCHORS = 2048;
+            const data = Array.from({ length: ANCHORS }, (_, k): [number, number] => [
+              startTime + ((xAxisMax - startTime) * k) / (ANCHORS - 1),
+              last[1],
+            ]);
+            series.push({
+              id: `${trace.id}-extension`,
+              name: `${trace.displayName} (extension)`,
+              type: 'line',
+              yAxisIndex,
+              data,
+              lineStyle: {
+                color: trace.color,
+                width: trace.lineWidth,
+                type: 'dashed',
+                opacity: 0.7,
+              },
+              itemStyle: { color: trace.color },
+              symbol: 'none',
+              showSymbol: false,
+              showInLegend: false,
+              tooltip: { show: false },
+              silent: true,
+              animation: false,
+              z: baseZ + 1,
+              emphasis: { disabled: true },
+            });
+          }
+        }
+
         return series;
       });
     })(),
@@ -457,6 +499,13 @@ export function SinglePlot({
         zoomOnMouseWheel: true,
         moveOnMouseMove: true,
         moveOnMouseWheel: false,
+        // 'weakFilter' keeps a segment whose ENDPOINTS straddle the window —
+        // only segments with both endpoints outside on the same side are
+        // dropped. The trace extension's 2-point segment survives any zoom
+        // that intersects it. Heavier series (main trace, archive band) still
+        // get pruned point-by-point, unlike 'none' which kept every point in
+        // the render pipeline and pegged interaction at wide ranges.
+        filterMode: 'weakFilter',
         ...(seedZoom ?? {}),
       },
     ],
