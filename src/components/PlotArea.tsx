@@ -5,12 +5,69 @@ import type { Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs, rangeToWindowNs } from '../api/time';
+import { echartsLineType, echartsSymbol } from '../curveStyle';
+import { useColorMode } from '../state/themeStore';
 
-// Signature of the user-chosen ranges. Bumps when picking a new time range
-// for a plot or trace. dataZoom is reset to full extent on change so the new
-// range is actually visible instead of staying clipped to the previous zoom.
+interface ChartTheme {
+  bg: string;
+  axisLabel: string;
+  axisLine: string;
+  splitLine: string;
+  axisName: string;
+  tooltipBg: string;
+  tooltipBorder: string;
+  tooltipText: string;
+  tooltipMuted: string;
+  crosshair: string;
+  legend: string;
+}
+
+const DARK_CHART_THEME: ChartTheme = {
+  bg: '#161616',
+  axisLabel: '#c6c6c6',
+  axisLine: '#525252',
+  splitLine: '#393939',
+  axisName: '#8d8d8d',
+  tooltipBg: '#262626',
+  tooltipBorder: '#393939',
+  tooltipText: '#f4f4f4',
+  tooltipMuted: '#8d8d8d',
+  crosshair: '#8d8d8d',
+  legend: '#c6c6c6',
+};
+
+const LIGHT_CHART_THEME: ChartTheme = {
+  bg: '#ffffff',
+  axisLabel: '#393939',
+  axisLine: '#a8a8a8',
+  splitLine: '#e0e0e0',
+  axisName: '#525252',
+  tooltipBg: '#ffffff',
+  tooltipBorder: '#c6c6c6',
+  tooltipText: '#161616',
+  tooltipMuted: '#525252',
+  crosshair: '#525252',
+  legend: '#393939',
+};
+
+// Defaults from `addPlot` / INITIAL_PLOTS so we know which `plot.backgroundColor`
+// values are "the theme default" vs. an explicit user override. When toggling
+// themes, only the defaults follow.
+const DARK_DEFAULT_BG = '#161616';
+const LIGHT_DEFAULT_BG = '#ffffff';
+
+function effectiveBackground(plotBg: string, theme: ChartTheme): string {
+  // If plotBg matches either theme's default bg, snap to current theme's bg.
+  // User-customized backgrounds (anything else) stay put.
+  if (plotBg === DARK_DEFAULT_BG || plotBg === LIGHT_DEFAULT_BG) return theme.bg;
+  return plotBg;
+}
+
+// Signature of the user-chosen range. Bumps when picking a new time range so
+// dataZoom resets to full extent — otherwise the previous zoom stays clipped
+// over the new range.
 function rangeKeyFor(plot: Plot): string {
-  return `${plot.xAxis.timeRange}|${plot.traces.map((t) => `${t.id}:${t.archiveTimeRange}`).join(',')}`;
+  return plot.xAxis.timeRange;
 }
 
 interface PlotAreaProps {
@@ -87,6 +144,8 @@ function nearestSample(
 }
 
 export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SinglePlotProps) {
+  const { colorMode } = useColorMode();
+  const theme = colorMode === 'dark' ? DARK_CHART_THEME : LIGHT_CHART_THEME;
   const visibleAxes = plot.axes.filter((a) => a.visible);
   const visibleTraces = plot.traces.filter((t) => t.visible);
 
@@ -154,7 +213,7 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
   }
 
   const option = {
-    backgroundColor: plot.backgroundColor,
+    backgroundColor: effectiveBackground(plot.backgroundColor, theme),
     animation: false,
     grid: {
       top: 40,
@@ -166,27 +225,27 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
       type: 'time',
       min: xAxisMin,
       max: xAxisMax,
-      axisLabel: { color: '#c6c6c6', fontSize: 11 },
-      axisLine: { lineStyle: { color: '#525252' } },
+      axisLabel: { color: theme.axisLabel, fontSize: 11 },
+      axisLine: { lineStyle: { color: theme.axisLine } },
       splitLine: {
         show: plot.showGridlines,
-        lineStyle: { color: '#393939' },
+        lineStyle: { color: theme.splitLine },
       },
     },
     yAxis: visibleAxes.map((axis) => ({
       id: axis.id,
       type: axis.logScale ? 'log' : 'value',
       name: axis.name,
-      nameTextStyle: { color: '#8d8d8d', fontSize: 11 },
+      nameTextStyle: { color: theme.axisName, fontSize: 11 },
       position: axis.orientation,
       min: axis.autoScale ? undefined : axis.min,
       max: axis.autoScale ? undefined : axis.max,
       scale: axis.autoScale,
-      axisLabel: { color: '#c6c6c6', fontSize: 11 },
-      axisLine: { lineStyle: { color: '#525252' } },
+      axisLabel: { color: theme.axisLabel, fontSize: 11 },
+      axisLine: { lineStyle: { color: theme.axisLine } },
       splitLine: {
         show: plot.showGridlines,
-        lineStyle: { color: '#393939' },
+        lineStyle: { color: theme.splitLine },
       },
     })),
     series: (() => {
@@ -261,13 +320,17 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
           type: 'line',
           yAxisIndex,
           data: traceData.get(trace.id) ?? [],
+          step: trace.lineType === 'step' ? 'end' : false,
           lineStyle: {
             color: trace.color,
             width: trace.lineWidth,
-            type: trace.lineStyle,
+            type: echartsLineType(trace.lineStyle),
+            opacity: trace.lineStyle === 'none' ? 0 : 1,
           },
           itemStyle: { color: trace.color },
-          symbol: 'none',
+          symbol: trace.showSymbol ? echartsSymbol(trace.symbolShape) : 'none',
+          symbolSize: trace.symbolSize,
+          showSymbol: trace.showSymbol,
           sampling: 'lttb',
           animation: false,
           z: baseZ + 1,
@@ -290,12 +353,12 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
       axisPointer: {
         type: 'line',
         snap: false,
-        lineStyle: { color: '#8d8d8d', width: 1, type: 'dashed' },
-        label: { backgroundColor: '#393939' },
+        lineStyle: { color: theme.crosshair, width: 1, type: 'dashed' },
+        label: { backgroundColor: theme.tooltipBorder },
       },
-      backgroundColor: '#262626',
-      borderColor: '#393939',
-      textStyle: { color: '#f4f4f4', fontSize: 11 },
+      backgroundColor: theme.tooltipBg,
+      borderColor: theme.tooltipBorder,
+      textStyle: { color: theme.tooltipText, fontSize: 11 },
       // Walk every visible trace ourselves rather than trusting `params`. With
       // snap: false, ECharts only includes series that have a sample exactly
       // under the cursor — sparse archive data leaves most traces out. The
@@ -313,19 +376,19 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
           const data = traceData.get(trace.id);
           const sample = data ? nearestSample(data, cursorMs) : undefined;
           const valueCell = sample
-            ? `${formatTooltipValue(sample.value)} <span style="color:#6f6f6f">(${formatTimeOffset(sample.time - cursorMs)})</span>`
-            : `<span style="color:#6f6f6f">no data</span>`;
+            ? `${formatTooltipValue(sample.value)} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
+            : `<span style="color:${theme.tooltipMuted}">no data</span>`;
           lines.push(
             `<span style="color:${trace.color}">${trace.displayName}</span>: ${valueCell}`
           );
         }
-        return `<div style="font-size:11px"><div style="color:#8d8d8d;margin-bottom:4px">${time}</div>${lines.join('<br/>')}</div>`;
+        return `<div style="font-size:11px"><div style="color:${theme.tooltipMuted};margin-bottom:4px">${time}</div>${lines.join('<br/>')}</div>`;
       },
     },
     legend: {
       bottom: 8,
-      textStyle: { color: '#c6c6c6', fontSize: 11 },
-      inactiveColor: '#6f6f6f',
+      textStyle: { color: theme.legend, fontSize: 11 },
+      inactiveColor: theme.tooltipMuted,
       data: visibleTraces.map((t) => t.displayName),
     },
   };

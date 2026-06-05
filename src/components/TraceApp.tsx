@@ -5,14 +5,24 @@ import {
   Separator as PanelResizeHandle,
   usePanelRef,
 } from 'react-resizable-panels';
-import { ChartLine, Close, Layers, Settings } from '@carbon/icons-react';
+import { Close } from '@carbon/icons-react';
+import { Header, HeaderName, HeaderGlobalBar, Theme } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
 import { LeftPanel } from './LeftPanel';
 import { PlotArea, SinglePlot } from './PlotArea';
 import { RightPanel } from './RightPanel';
+import { Toolbar } from './Toolbar';
 import { useArchiveSeries, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { ArchiverPicker } from './ArchiverPicker';
 import type { TimeWindowNs } from '../api/time';
+import { rangeToWindowNs } from '../api/time';
+import { useColorMode } from '../state/themeStore';
+import { downloadBlob, pickFile } from '../io/download';
+import { serializeWorkspace, deserializeWorkspace } from '../io/serialize';
+import { buildCsvFiles } from '../io/exportCsv';
+
+const BUG_REPORT_URL = 'https://github.com/slaclab/react-trace/issues/new';
+const DOCS_URL = 'https://github.com/slaclab/react-trace#readme';
 
 function generateMockData(
   points: number,
@@ -62,9 +72,12 @@ const INITIAL_PLOTS: Plot[] = [
         useLive: false,
         updateRate: 'monitor',
         useArchive: true,
-        archiveTimeRange: '-1h',
         lineWidth: 2,
+        lineType: 'step',
         lineStyle: 'solid',
+        showSymbol: false,
+        symbolShape: 'circle',
+        symbolSize: 10,
         data: generateMockData(100, 45, 5),
       },
       {
@@ -77,9 +90,12 @@ const INITIAL_PLOTS: Plot[] = [
         useLive: false,
         updateRate: 'monitor',
         useArchive: true,
-        archiveTimeRange: '-1h',
         lineWidth: 2,
+        lineType: 'step',
         lineStyle: 'solid',
+        showSymbol: false,
+        symbolShape: 'circle',
+        symbolSize: 10,
         data: generateMockData(100, 48, 3),
       },
       {
@@ -92,9 +108,12 @@ const INITIAL_PLOTS: Plot[] = [
         useLive: false,
         updateRate: 'monitor',
         useArchive: true,
-        archiveTimeRange: '-1h',
         lineWidth: 2,
+        lineType: 'step',
         lineStyle: 'solid',
+        showSymbol: false,
+        symbolShape: 'circle',
+        symbolSize: 10,
         data: generateMockData(100, 25, 2),
       },
     ],
@@ -112,6 +131,7 @@ export function TraceApp() {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [globalArchiver, setGlobalArchiver] = useState<string | undefined>(undefined);
+  const { colorMode, toggle: toggleTheme } = useColorMode();
   // Last viewport emitted by each plot's dataZoom. Drives the archive store's
   // window per trace; the store decides whether the change requires a fetch
   // based on its coverage check, so this map can be updated freely.
@@ -125,10 +145,13 @@ export function TraceApp() {
 
   const allTraces = plots.flatMap((p) => p.traces);
 
+  // Compute the visible window per trace from its plot. Pan/zoom of the chart
+  // updates `viewWindowByPlot[plotId]`, which takes precedence; otherwise we
+  // resolve the plot's relative time range (e.g. "-1h"). The time range is
+  // plot-level — traces don't carry their own.
   const windowByTrace = new Map<string, TimeWindowNs>();
   for (const plot of plots) {
-    const win = viewWindowByPlot.get(plot.id);
-    if (!win) continue;
+    const win = viewWindowByPlot.get(plot.id) ?? rangeToWindowNs(plot.xAxis.timeRange);
     for (const trace of plot.traces) {
       if (trace.useArchive) windowByTrace.set(trace.id, win);
     }
@@ -226,9 +249,12 @@ export function TraceApp() {
       useLive: false,
       updateRate: 'monitor',
       useArchive: true,
-      archiveTimeRange: '-1h',
       lineWidth: 2,
+      lineType: 'step',
       lineStyle: 'solid',
+      showSymbol: false,
+      symbolShape: 'circle',
+      symbolSize: 10,
       data: generateMockData(50, 10, 2),
     };
     setPlots((prev) =>
@@ -257,7 +283,6 @@ export function TraceApp() {
           : p
       )
     );
-    if ('archiveTimeRange' in updates) clearViewWindow(activePlotId);
   };
 
   const moveTrace = (traceId: string, targetAxisId: string) => {
@@ -318,59 +343,105 @@ export function TraceApp() {
   const liveCount = activePlot.traces.filter((t) => t.useLive).length;
   const archiveCount = activePlot.traces.filter((t) => t.useArchive).length;
 
+  // ── Toolbar handlers ────────────────────────────────────────────────────────
+
+  const handleSave = () => {
+    const json = serializeWorkspace({ theme: colorMode, globalArchiver, plots });
+    const stamp = new Date()
+      .toISOString()
+      .replace(/[:.]/g, '-')
+      .replace(/T.*/, (m) => m.replace(/^T/, '_').slice(0, 7));
+    downloadBlob(`trace-${stamp}.trc.json`, 'application/json', json);
+  };
+
+  const handleImport = async () => {
+    const file = await pickFile('.trc,.trc.json,.json,.xml,.stp');
+    if (!file) return;
+    const lower = file.name.toLowerCase();
+    if (lower.endsWith('.xml') || lower.endsWith('.stp')) {
+      alert(`Import: ${lower.split('.').pop()?.toUpperCase()} files are not supported yet.`);
+      return;
+    }
+    const text = await file.text();
+    let result;
+    try {
+      result = deserializeWorkspace(text);
+    } catch (err) {
+      alert(`Failed to import: ${(err as Error).message}`);
+      return;
+    }
+    setPlots(result.plots);
+    if (result.plots.length > 0) setActivePlotId(result.plots[0].id);
+    if (result.theme) {
+      // setColorMode lives on the store; the hook surface only exposes toggle,
+      // so go through the module API.
+      void import('../state/themeStore').then((m) => m.setColorMode(result.theme!));
+    }
+    if (result.globalArchiver !== undefined) setGlobalArchiver(result.globalArchiver);
+    if (result.warnings.length > 0) {
+      console.warn('Import warnings:', result.warnings);
+      alert(`Imported with ${result.warnings.length} warning(s):\n\n${result.warnings.join('\n')}`);
+    }
+  };
+
+  const handleExport = () => {
+    const files = buildCsvFiles(plots, archiveResultsByPlot);
+    if (files.length === 0) {
+      alert('No archive data to export. Toggle archive on a trace and wait for data to load.');
+      return;
+    }
+    for (const f of files) {
+      downloadBlob(f.filename, 'text/csv', f.csv);
+    }
+  };
+
+  const handlePrint = () => {
+    // TODO: render only the chart canvas. window.print() prints the full page
+    // for now, which is enough to validate the wiring.
+    window.print();
+  };
+
+  const handleReportBug = () => {
+    window.open(BUG_REPORT_URL, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleOpenDocs = () => {
+    window.open(DOCS_URL, '_blank', 'noopener,noreferrer');
+  };
+
   return (
     <div className="trace-app">
-      {/* Header */}
-      <header
-        style={{
-          height: 48,
-          backgroundColor: '#262626',
-          borderBottom: '1px solid #393939',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 16px',
-          gap: 12,
-          flexShrink: 0,
-        }}
-      >
-        {leftCollapsed && (
-          <button
-            className="panel-expand-btn"
-            title="Expand Layers panel"
-            onClick={() => {
-              leftPanelRef.current?.expand();
-              setLeftCollapsed(false);
-            }}
-          >
-            <Layers size={16} />
-          </button>
-        )}
-        <ChartLine size={20} />
-        <span style={{ fontSize: 14, fontWeight: 500 }}>EPICS Trace</span>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <ArchiverPicker
-            value={globalArchiver}
-            onChange={setGlobalArchiver}
-            label=""
-            width={180}
-          />
-          <span style={{ fontSize: 12, color: '#6f6f6f' }}>
-            {liveCount} Live &bull; {archiveCount} Archive
-          </span>
-        </div>
-        {rightCollapsed && (
-          <button
-            className="panel-expand-btn"
-            title="Expand Properties panel"
-            onClick={() => {
-              rightPanelRef.current?.expand();
-              setRightCollapsed(false);
-            }}
-          >
-            <Settings size={16} />
-          </button>
-        )}
-      </header>
+      {/* Header — wrapped in g100 so it stays a dark brand bar in light mode. */}
+      <Theme theme="g100">
+        <Header aria-label="Trace" className="trace-header">
+          <HeaderName href="#" prefix="" className="trace-header__name">
+            TRACE
+          </HeaderName>
+          <div className="trace-header__archiver">
+            <ArchiverPicker
+              value={globalArchiver}
+              onChange={setGlobalArchiver}
+              label=""
+              width={180}
+            />
+            <span className="trace-header__counts">
+              {liveCount} Live &bull; {archiveCount} Archive
+            </span>
+          </div>
+          <HeaderGlobalBar>
+            <Toolbar
+              colorMode={colorMode}
+              onSave={handleSave}
+              onPrint={handlePrint}
+              onImport={() => void handleImport()}
+              onExport={handleExport}
+              onToggleTheme={toggleTheme}
+              onReportBug={handleReportBug}
+              onOpenDocs={handleOpenDocs}
+            />
+          </HeaderGlobalBar>
+        </Header>
+      </Theme>
 
       {/* 3-panel layout */}
       <div className="trace-panel-group">
@@ -380,13 +451,18 @@ export function TraceApp() {
             minSize="15%"
             maxSize="35%"
             collapsible
-            collapsedSize="0%"
+            collapsedSize="3%"
             panelRef={leftPanelRef}
+            onResize={(size) => {
+              const next = leftPanelRef.current?.isCollapsed() ?? size.asPercentage <= 5;
+              if (next !== leftCollapsed) setLeftCollapsed(next);
+            }}
           >
             <LeftPanel
               traces={activePlot.traces}
               axes={activePlot.axes}
               archiveResults={archiveResultsByPlot.get(activePlot.id) ?? new Map()}
+              collapsed={leftCollapsed}
               selectedItem={selectedItem}
               onSelectItem={setSelectedItem}
               onAddTrace={addTrace}
@@ -397,6 +473,10 @@ export function TraceApp() {
               onCollapse={() => {
                 leftPanelRef.current?.collapse();
                 setLeftCollapsed(true);
+              }}
+              onExpand={() => {
+                leftPanelRef.current?.expand();
+                setLeftCollapsed(false);
               }}
             />
           </Panel>
@@ -425,20 +505,29 @@ export function TraceApp() {
             minSize="15%"
             maxSize="35%"
             collapsible
-            collapsedSize="0%"
+            collapsedSize="3%"
             panelRef={rightPanelRef}
+            onResize={(size) => {
+              const next = rightPanelRef.current?.isCollapsed() ?? size.asPercentage <= 5;
+              if (next !== rightCollapsed) setRightCollapsed(next);
+            }}
           >
             <RightPanel
               selectedItem={selectedItem}
               activePlot={activePlot}
               archiveResults={archiveResultsByPlot.get(activePlot.id) ?? new Map()}
               globalArchiver={globalArchiver}
+              collapsed={rightCollapsed}
               onUpdateTrace={updateTrace}
               onUpdateAxis={updateAxis}
               onUpdatePlot={(updates) => updatePlot(activePlotId, updates)}
               onCollapse={() => {
                 rightPanelRef.current?.collapse();
                 setRightCollapsed(true);
+              }}
+              onExpand={() => {
+                rightPanelRef.current?.expand();
+                setRightCollapsed(false);
               }}
             />
           </Panel>
@@ -465,20 +554,21 @@ export function TraceApp() {
             >
               <div
                 style={{
-                  background: '#161616',
-                  border: '1px solid #393939',
+                  background: 'var(--cds-background)',
+                  border: '1px solid var(--cds-border-subtle)',
                   borderRadius: 8,
                   width: '100%',
                   height: '100%',
                   display: 'flex',
                   flexDirection: 'column',
+                  color: 'var(--cds-text-primary)',
                 }}
               >
                 <div
                   style={{
                     height: 48,
-                    background: '#262626',
-                    borderBottom: '1px solid #393939',
+                    background: 'var(--cds-layer)',
+                    borderBottom: '1px solid var(--cds-border-subtle)',
                     borderRadius: '8px 8px 0 0',
                     display: 'flex',
                     alignItems: 'center',
@@ -493,7 +583,7 @@ export function TraceApp() {
                     style={{
                       background: 'none',
                       border: 'none',
-                      color: '#c6c6c6',
+                      color: 'var(--cds-text-secondary)',
                       cursor: 'pointer',
                       padding: 4,
                       display: 'flex',
