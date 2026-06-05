@@ -46,9 +46,22 @@ export function useArchiveSeries(
   globalArchiver: string | undefined,
   windowOverrideByTrace?: Map<string, TimeWindowNs>
 ): Map<string, ArchiveSeriesResult> {
-  // Drive the store from the current set of traces. The store dedupes
-  // requests with matching (pv, archiver, bins) and a covering window, so
-  // calling `request` every render is safe and cheap when nothing changed.
+  // Stable signature of the inputs that should drive a store update. Callers
+  // (TraceApp) rebuild `traces` and `windowOverrideByTrace` every render, so
+  // depending on them directly would re-fire the effect on every render. The
+  // signature collapses identical input shapes into a string so the effect
+  // only runs when something archive-relevant actually changed.
+  const signature = traces
+    .map((t) => {
+      if (!t.useArchive || !t.pvName) return `${t.id}:off`;
+      const archiver = pickArchiver(t, globalArchiver) ?? '';
+      const bins = t.optimizedDataBins ?? '';
+      const win = windowOverrideByTrace?.get(t.id);
+      const winKey = win ? `${win.fromNs}-${win.toNs}` : `r:${t.archiveTimeRange}`;
+      return `${t.id}:${t.pvName}|${archiver}|${bins}|${winKey}`;
+    })
+    .join('||');
+
   useEffect(() => {
     const wanted = new Set<string>();
     for (const trace of traces) {
@@ -66,7 +79,11 @@ export function useArchiveSeries(
     for (const id of archiveStore.getSnapshot().keys()) {
       if (!wanted.has(id)) archiveStore.release(id);
     }
-  });
+    // The effect closes over `traces`, `globalArchiver`, and
+    // `windowOverrideByTrace`, but those references churn every render — the
+    // signature captures the meaningful subset.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature]);
 
   const snapshot = useSyncExternalStore(archiveStore.subscribe, archiveStore.getSnapshot);
 
