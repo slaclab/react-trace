@@ -12,15 +12,19 @@ import {
   SelectItem,
   Toggle,
   NumberInput,
+  ComboBox,
 } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
 import type { SelectedItem } from './TraceApp';
 import { DEFAULT_OPTIMIZED_BINS, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
+import { ArchiverPicker } from './ArchiverPicker';
+import { usePVSearch } from '../hooks/usePVSearch';
 
 interface RightPanelProps {
   selectedItem: SelectedItem;
   activePlot: Plot;
   archiveResults: Map<string, ArchiveSeriesResult>;
+  globalArchiver: string | undefined;
   onUpdateTrace: (traceId: string, updates: Partial<PVTrace>) => void;
   onUpdateAxis: (axisId: string, updates: Partial<Axis>) => void;
   onUpdatePlot: (updates: Partial<Plot>) => void;
@@ -31,6 +35,7 @@ export function RightPanel({
   selectedItem,
   activePlot,
   archiveResults,
+  globalArchiver,
   onUpdateTrace,
   onUpdateAxis,
   onUpdatePlot,
@@ -73,6 +78,7 @@ export function RightPanel({
                   trace={selectedTrace}
                   axes={activePlot.axes}
                   archiveResult={selectedTraceArchive}
+                  globalArchiver={globalArchiver}
                   onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)}
                 />
               )}
@@ -151,13 +157,32 @@ function TraceGeneralTab({
   trace,
   axes,
   archiveResult,
+  globalArchiver,
   onUpdate,
 }: {
   trace: PVTrace;
   axes: Axis[];
   archiveResult: ArchiveSeriesResult | undefined;
+  globalArchiver: string | undefined;
   onUpdate: (u: Partial<PVTrace>) => void;
 }) {
+  const [pvQuery, setPvQuery] = useState<string>(trace.pvName);
+  const search = usePVSearch(pvQuery, trace.archiver ?? globalArchiver);
+  const items: string[] = (() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    if (trace.pvName) {
+      seen.add(trace.pvName);
+      out.push(trace.pvName);
+    }
+    for (const pv of search.pvs) {
+      if (!seen.has(pv)) {
+        seen.add(pv);
+        out.push(pv);
+      }
+    }
+    return out;
+  })();
   const archivePointCount = archiveResult?.mean.length ?? 0;
   let archiveStatusLabel: string;
   let archiveStatusColor: string;
@@ -182,11 +207,41 @@ function TraceGeneralTab({
       <div className="prop-section">
         <div className="prop-section__title">Identity</div>
         <div className="prop-row">
-          <TextInput
+          <ComboBox
             id="pv-name"
-            labelText="PV Name"
-            value={trace.pvName}
-            onChange={(e) => onUpdate({ pvName: e.target.value })}
+            titleText="PV Name"
+            placeholder="Type to search PVs"
+            items={items}
+            itemToString={(item: string | null | undefined) => item ?? ''}
+            selectedItem={trace.pvName || null}
+            onInputChange={(text: string) => {
+              setPvQuery(text);
+              if (text) onUpdate({ pvName: text });
+            }}
+            onChange={({ selectedItem }: { selectedItem?: string | null }) => {
+              if (selectedItem) {
+                setPvQuery(selectedItem);
+                onUpdate({
+                  pvName: selectedItem,
+                  displayName:
+                    !trace.displayName ||
+                    trace.displayName === trace.pvName ||
+                    trace.displayName === 'New Trace'
+                      ? selectedItem
+                      : trace.displayName,
+                });
+              }
+            }}
+            allowCustomValue
+            helperText={
+              search.status === 'loading'
+                ? 'Searching…'
+                : search.status === 'error'
+                  ? `Search failed: ${search.error?.code ?? 'unknown'}`
+                  : search.status === 'ready' && pvQuery
+                    ? `${search.pvs.length} match${search.pvs.length === 1 ? '' : 'es'}`
+                    : ''
+            }
             size="sm"
           />
         </div>
@@ -372,6 +427,16 @@ function TraceGeneralTab({
               <SelectItem value="-1w" text="Last Week" />
               <SelectItem value="custom" text="Custom Range…" />
             </Select>
+          </div>
+        )}
+        {trace.useArchive && (
+          <div className="prop-row prop-subsection">
+            <ArchiverPicker
+              value={trace.archiver}
+              onChange={(next) => onUpdate({ archiver: next })}
+              includeGlobalOption
+              label="Archiver"
+            />
           </div>
         )}
         {trace.useArchive && (

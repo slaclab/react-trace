@@ -11,6 +11,7 @@ import { LeftPanel } from './LeftPanel';
 import { PlotArea, SinglePlot } from './PlotArea';
 import { RightPanel } from './RightPanel';
 import { useArchiveSeries, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
+import { ArchiverPicker } from './ArchiverPicker';
 
 function generateMockData(
   points: number,
@@ -110,8 +111,6 @@ export function TraceApp() {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [globalArchiver, setGlobalArchiver] = useState<string | undefined>(undefined);
-  // Suppress unused-setter warning until the header picker (commit 3) wires it up.
-  void setGlobalArchiver;
   const leftPanelRef = usePanelRef();
   const rightPanelRef = usePanelRef();
 
@@ -181,14 +180,14 @@ export function TraceApp() {
     const traceCount = activePlot.traces.length;
     const newTrace: PVTrace = {
       id,
-      pvName: 'NEW:PV:NAME',
+      pvName: '',
       displayName: 'New Trace',
       color: colors[traceCount % colors.length],
       visible: true,
       axisId,
-      useLive: true,
+      useLive: false,
       updateRate: 'monitor',
-      useArchive: false,
+      useArchive: true,
       archiveTimeRange: '-1h',
       lineWidth: 2,
       lineStyle: 'solid',
@@ -309,9 +308,17 @@ export function TraceApp() {
         )}
         <ChartLine size={20} />
         <span style={{ fontSize: 14, fontWeight: 500 }}>EPICS Trace</span>
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: '#6f6f6f' }}>
-          {liveCount} Live &bull; {archiveCount} Archive
-        </span>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <ArchiverPicker
+            value={globalArchiver}
+            onChange={setGlobalArchiver}
+            label=""
+            width={180}
+          />
+          <span style={{ fontSize: 12, color: '#6f6f6f' }}>
+            {liveCount} Live &bull; {archiveCount} Archive
+          </span>
+        </div>
         {rightCollapsed && (
           <button
             className="panel-expand-btn"
@@ -385,6 +392,7 @@ export function TraceApp() {
               selectedItem={selectedItem}
               activePlot={activePlot}
               archiveResults={archiveResultsByPlot.get(activePlot.id) ?? new Map()}
+              globalArchiver={globalArchiver}
               onUpdateTrace={updateTrace}
               onUpdateAxis={updateAxis}
               onUpdatePlot={(updates) => updatePlot(activePlotId, updates)}
