@@ -1,4 +1,14 @@
-import { Save, Printer, Upload, Download, Asleep, Light, Debug, Help } from '@carbon/icons-react';
+import {
+  Save,
+  Printer,
+  Upload,
+  Download,
+  Asleep,
+  Light,
+  Debug,
+  Help,
+  DataTable,
+} from '@carbon/icons-react';
 import { HeaderGlobalAction } from '@carbon/react';
 import type { ColorMode } from '../state/themeStore';
 
@@ -11,6 +21,7 @@ interface ToolbarProps {
   onToggleTheme: () => void;
   onReportBug: () => void;
   onOpenDocs: () => void;
+  onOpenDataInsight: () => void;
 }
 
 // Carbon HeaderGlobalAction gives us hover/tooltip/keyboard handling for free
@@ -26,9 +37,17 @@ export function Toolbar({
   onToggleTheme,
   onReportBug,
   onOpenDocs,
+  onOpenDataInsight,
 }: ToolbarProps) {
   return (
     <>
+      <HeaderGlobalAction
+        aria-label="Data Insight"
+        tooltipAlignment="end"
+        onClick={onOpenDataInsight}
+      >
+        <DataTable size={20} />
+      </HeaderGlobalAction>
       <HeaderGlobalAction aria-label="Save" tooltipAlignment="end" onClick={onSave}>
         <Save size={20} />
       </HeaderGlobalAction>

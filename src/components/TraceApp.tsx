@@ -5,11 +5,12 @@ import {
   Separator as PanelResizeHandle,
   usePanelRef,
 } from 'react-resizable-panels';
-import { Close, Login } from '@carbon/icons-react';
+import { Close, Login, ChevronUp } from '@carbon/icons-react';
 import { Header, HeaderName, HeaderGlobalBar, Theme } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
 import { LeftPanel } from './LeftPanel';
 import { DetachedWindow } from './DetachedWindow';
+import { DataInsightTool } from './DataInsightTool';
 import { PlotArea, SinglePlot } from './PlotArea';
 import { RightPanel } from './RightPanel';
 import { Toolbar } from './Toolbar';
@@ -133,6 +134,14 @@ export function TraceApp() {
   const [detachedPlotIds, setDetachedPlotIds] = useState<string[]>([]);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  // Data Insight Tool: a dockable panel that can be minimized or popped out into
+  // its own window. `pv` is the trace id whose PV is being inspected.
+  const [insight, setInsight] = useState<{
+    open: boolean;
+    minimized: boolean;
+    detached: boolean;
+    pv?: string;
+  }>({ open: false, minimized: false, detached: false });
   const { colorMode, toggle: toggleTheme } = useColorMode();
   // Last viewport emitted by each plot's dataZoom. Drives the archive store's
   // window per trace; the store decides whether the change requires a fetch
@@ -424,6 +433,23 @@ export function TraceApp() {
     window.open(DOCS_URL, '_blank', 'noopener,noreferrer');
   };
 
+  // ── Data Insight Tool ─────────────────────────────────────────────────────────
+
+  const openInsight = (traceId?: string) => {
+    const pv = traceId ?? activePlot.traces.find((t) => t.pvName)?.id;
+    setInsight((prev) => ({ ...prev, open: true, minimized: false, pv: pv ?? prev.pv }));
+  };
+
+  // Window the DIT inspects: the active plot's current view (pan/zoom) or its
+  // resolved relative range.
+  const insightWindow =
+    viewWindowByPlot.get(activePlotId) ?? rangeToWindowNs(activePlot.xAxis.timeRange);
+  // Keep the selected PV valid for the active plot; fall back to its first PV.
+  const insightPv =
+    (insight.pv && activePlot.traces.some((t) => t.id === insight.pv)
+      ? insight.pv
+      : activePlot.traces.find((t) => t.pvName)?.id) ?? '';
+
   return (
     <div className="trace-app">
       {/* Header — wrapped in g100 so it stays a dark brand bar in light mode. */}
@@ -447,6 +473,7 @@ export function TraceApp() {
               onToggleTheme={toggleTheme}
               onReportBug={handleReportBug}
               onOpenDocs={handleOpenDocs}
+              onOpenDataInsight={() => openInsight()}
             />
           </HeaderGlobalBar>
         </Header>
@@ -493,21 +520,57 @@ export function TraceApp() {
           <PanelResizeHandle className="trace-resize-handle" />
 
           <Panel defaultSize="60%" minSize="30%">
-            <PlotArea
-              plots={plots}
-              activePlotId={activePlotId}
-              viewMode={viewMode}
-              archiveResultsByPlot={archiveResultsByPlot}
-              onSetActivePlot={setActivePlotId}
-              onAddPlot={addPlot}
-              onRemovePlot={removePlot}
-              onSetViewMode={setViewMode}
-              onPopOutPlot={setPoppedOutPlot}
-              detachedPlotIds={detachedPlotIds}
-              onDetachPlot={detachPlot}
-              onReattachPlot={reattachPlot}
-              onViewWindowChange={handleViewWindowChange}
-            />
+            <div className="plot-and-insight">
+              <div className="plot-and-insight__plot">
+                <PlotArea
+                  plots={plots}
+                  activePlotId={activePlotId}
+                  viewMode={viewMode}
+                  archiveResultsByPlot={archiveResultsByPlot}
+                  onSetActivePlot={setActivePlotId}
+                  onAddPlot={addPlot}
+                  onRemovePlot={removePlot}
+                  onSetViewMode={setViewMode}
+                  onPopOutPlot={setPoppedOutPlot}
+                  detachedPlotIds={detachedPlotIds}
+                  onDetachPlot={detachPlot}
+                  onReattachPlot={reattachPlot}
+                  onViewWindowChange={handleViewWindowChange}
+                />
+              </div>
+              {insight.open && !insight.detached && insight.minimized && (
+                <div className="insight-minbar">
+                  <span className="insight-minbar__title">Data Insight</span>
+                  <button
+                    className="insight-tool__btn"
+                    title="Restore"
+                    onClick={() => setInsight((p) => ({ ...p, minimized: false }))}
+                  >
+                    <ChevronUp size={16} />
+                  </button>
+                  <button
+                    className="insight-tool__btn"
+                    title="Close"
+                    onClick={() => setInsight((p) => ({ ...p, open: false }))}
+                  >
+                    <Close size={16} />
+                  </button>
+                </div>
+              )}
+              {insight.open && !insight.detached && !insight.minimized && (
+                <div className="insight-dock">
+                  <DataInsightTool
+                    plot={activePlot}
+                    windowNs={insightWindow}
+                    selectedPv={insightPv}
+                    onSelectPv={(id) => setInsight((p) => ({ ...p, pv: id }))}
+                    onClose={() => setInsight((p) => ({ ...p, open: false }))}
+                    onMinimize={() => setInsight((p) => ({ ...p, minimized: true }))}
+                    onDetach={() => setInsight((p) => ({ ...p, detached: true }))}
+                  />
+                </div>
+              )}
+            </div>
           </Panel>
 
           <PanelResizeHandle className="trace-resize-handle" />
@@ -532,6 +595,7 @@ export function TraceApp() {
               onUpdateTrace={updateTrace}
               onUpdateAxis={updateAxis}
               onUpdatePlot={(updates) => updatePlot(activePlotId, updates)}
+              onInspectTrace={(id) => openInsight(id)}
               onCollapse={() => {
                 rightPanelRef.current?.collapse();
                 setRightCollapsed(true);
@@ -680,6 +744,36 @@ export function TraceApp() {
           </DetachedWindow>
         );
       })}
+
+      {/* Data Insight Tool detached into its own window */}
+      {insight.open && insight.detached && (
+        <DetachedWindow
+          name="data-insight"
+          title="Data Insight Tool"
+          width={720}
+          height={560}
+          onClose={() => setInsight((p) => ({ ...p, detached: false }))}
+        >
+          <Theme
+            theme={colorMode === 'dark' ? 'g90' : 'g10'}
+            style={{
+              height: '100vh',
+              background: 'var(--cds-background)',
+              color: 'var(--cds-text-primary)',
+            }}
+          >
+            <DataInsightTool
+              plot={activePlot}
+              windowNs={insightWindow}
+              selectedPv={insightPv}
+              detached
+              onSelectPv={(id) => setInsight((p) => ({ ...p, pv: id }))}
+              onClose={() => setInsight((p) => ({ ...p, open: false, detached: false }))}
+              onReattach={() => setInsight((p) => ({ ...p, detached: false }))}
+            />
+          </Theme>
+        </DetachedWindow>
+      )}
     </div>
   );
 }
