@@ -40,6 +40,7 @@ interface RightPanelProps {
   onInspectTrace: (traceId: string) => void;
   onCollapse: () => void;
   onExpand: () => void;
+  getAxisRange: (axisId: string) => [number, number] | undefined;
 }
 
 export function RightPanel({
@@ -53,6 +54,7 @@ export function RightPanel({
   onInspectTrace,
   onCollapse,
   onExpand,
+  getAxisRange,
 }: RightPanelProps) {
   if (collapsed) {
     return (
@@ -112,13 +114,11 @@ export function RightPanel({
     tabs.push({
       label: 'General',
       render: () => (
-        <AxisGeneralTab axis={selectedAxis} onUpdate={(u) => onUpdateAxis(selectedAxis.id, u)} />
-      ),
-    });
-    tabs.push({
-      label: 'Line',
-      render: () => (
-        <AxisLineTab axis={selectedAxis} onUpdate={(u) => onUpdateAxis(selectedAxis.id, u)} />
+        <AxisGeneralTab
+          axis={selectedAxis}
+          getAxisRange={getAxisRange}
+          onUpdate={(u) => onUpdateAxis(selectedAxis.id, u)}
+        />
       ),
     });
     tabs.push({ label: 'Code', render: () => <AxisCodeTab axis={selectedAxis} /> });
@@ -488,7 +488,7 @@ function TraceGeneralTab({
               min={1}
               max={100000}
               step={100}
-              value={trace.optimizedDataBins ?? ''}
+              value={trace.optimizedDataBins ?? DEFAULT_OPTIMIZED_BINS}
               onChange={(_, { value }) => {
                 const next = value === '' || value === undefined ? undefined : Number(value);
                 onUpdate({ optimizedDataBins: next });
@@ -772,7 +772,28 @@ function TraceCodeTab({ trace }: { trace: PVTrace }) {
 
 // ── Axis tabs ─────────────────────────────────────────────────────────────────
 
-function AxisGeneralTab({ axis, onUpdate }: { axis: Axis; onUpdate: (u: Partial<Axis>) => void }) {
+function AxisGeneralTab({
+  axis,
+  getAxisRange,
+  onUpdate,
+}: {
+  axis: Axis;
+  getAxisRange: (axisId: string) => [number, number] | undefined;
+  onUpdate: (u: Partial<Axis>) => void;
+}) {
+  // Toggling auto-scale off should leave the user on the same range they were
+  // already seeing. Seed min/max from the displayed range only when the axis
+  // has none yet, so re-toggling later doesn't clobber edited values.
+  const handleAutoScaleToggle = (checked: boolean) => {
+    if (!checked && axis.min === undefined && axis.max === undefined) {
+      const range = getAxisRange(axis.id);
+      if (range) {
+        onUpdate({ autoScale: false, min: range[0], max: range[1] });
+        return;
+      }
+    }
+    onUpdate({ autoScale: checked });
+  };
   return (
     <div>
       <div className="prop-section">
@@ -816,7 +837,7 @@ function AxisGeneralTab({ axis, onUpdate }: { axis: Axis; onUpdate: (u: Partial<
             labelA="Manual"
             labelB="Auto"
             toggled={axis.autoScale}
-            onToggle={(checked) => onUpdate({ autoScale: checked })}
+            onToggle={handleAutoScaleToggle}
             size="sm"
           />
         </div>
@@ -862,45 +883,6 @@ function AxisGeneralTab({ axis, onUpdate }: { axis: Axis; onUpdate: (u: Partial<
   );
 }
 
-function AxisLineTab({ axis }: { axis: Axis; onUpdate: (u: Partial<Axis>) => void }) {
-  const [showGrid, setShowGrid] = useState(axis.visible);
-  const [gridStyle, setGridStyle] = useState('solid');
-
-  return (
-    <div>
-      <div className="prop-section">
-        <div className="prop-section__title">Grid Lines</div>
-        <div className="prop-row prop-row--inline">
-          <Toggle
-            id="show-grid"
-            labelText="Show Grid Lines"
-            labelA="Off"
-            labelB="On"
-            toggled={showGrid}
-            onToggle={setShowGrid}
-            size="sm"
-          />
-        </div>
-        {showGrid && (
-          <div className="prop-row">
-            <Select
-              id="grid-style"
-              labelText="Grid Style"
-              value={gridStyle}
-              onChange={(e) => setGridStyle(e.target.value)}
-              size="sm"
-            >
-              <SelectItem value="solid" text="Solid" />
-              <SelectItem value="dashed" text="Dashed" />
-              <SelectItem value="dotted" text="Dotted" />
-            </Select>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function AxisCodeTab({ axis }: { axis: Axis }) {
   const config = `{
   type: '${axis.logScale ? 'log' : 'value'}',
@@ -911,15 +893,6 @@ function AxisCodeTab({ axis }: { axis: Axis }) {
   min: ${axis.autoScale ? 'null' : (axis.min ?? 0)},
   max: ${axis.autoScale ? 'null' : (axis.max ?? 100)},
   scale: ${axis.autoScale},
-
-  // Grid
-  splitLine: {
-    show: true,
-    lineStyle: {
-      color: '#393939',
-      type: 'solid'
-    }
-  },
 
   // Labels
   axisLabel: {
@@ -1019,6 +992,21 @@ function PlotGeneralTab({ plot, onUpdate }: { plot: Plot; onUpdate: (u: Partial<
             size="sm"
           />
         </div>
+        {plot.showGridlines && (
+          <div className="prop-row">
+            <Select
+              id="grid-style"
+              labelText="Grid Style"
+              value={plot.gridStyle}
+              onChange={(e) => onUpdate({ gridStyle: e.target.value as Plot['gridStyle'] })}
+              size="sm"
+            >
+              <SelectItem value="solid" text="Solid" />
+              <SelectItem value="dashed" text="Dashed" />
+              <SelectItem value="dotted" text="Dotted" />
+            </Select>
+          </div>
+        )}
         <div className="prop-row">
           <ArchiverPicker
             value={plot.archiver}
@@ -1094,7 +1082,8 @@ function PlotCodeTab({ plot }: { plot: Plot }) {
 
   // Grid
   splitLine: {
-    show: ${plot.showGridlines}
+    show: ${plot.showGridlines},
+    lineStyle: { type: '${plot.gridStyle}' }
   },
 
   // Composition

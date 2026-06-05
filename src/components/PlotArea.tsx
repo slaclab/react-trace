@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
 import type { Plot, PVTrace } from '../types';
@@ -56,6 +56,16 @@ const LIGHT_CHART_THEME: ChartTheme = {
 const DARK_DEFAULT_BG = '#161616';
 const LIGHT_DEFAULT_BG = '#ffffff';
 
+// Numbers like 0.000000018 produce extremely wide tick labels that spill past
+// neighboring stacked axes. Switch to exponential at the same magnitudes the
+// browser's default Number.toString stops being compact.
+function formatAxisTick(value: number): string {
+  if (value === 0) return '0';
+  const abs = Math.abs(value);
+  if (abs < 1e-3 || abs >= 1e6) return value.toExponential(1);
+  return String(value);
+}
+
 function effectiveBackground(plotBg: string, theme: ChartTheme): string {
   // If plotBg matches either theme's default bg, snap to current theme's bg.
   // User-customized backgrounds (anything else) stay put.
@@ -85,6 +95,9 @@ interface PlotAreaProps {
   onDetachPlot: (id: string) => void;
   onReattachPlot: (id: string) => void;
   onViewWindowChange?: (plotId: string, window: TimeWindowNs) => void;
+  /** Saved per-plot view window; seeds dataZoom across remounts (e.g. popout). */
+  viewWindowByPlot: Map<string, TimeWindowNs>;
+  onAxisRangesChange?: (plotId: string, ranges: Map<string, [number, number]>) => void;
 }
 
 // Shown in the main window where a detached plot's chart would otherwise be.
@@ -106,6 +119,19 @@ interface SinglePlotProps {
   plot: Plot;
   archiveResults: Map<string, ArchiveSeriesResult>;
   onViewWindowChange?: (window: TimeWindowNs) => void;
+  /**
+   * Last known visible window from a prior mount of this plot. Seeds the inside
+   * dataZoom on first render so popping a plot out (or reattaching) preserves
+   * whatever sub-range the user had wheel-zoomed into. Only consulted on mount.
+   */
+  initialViewWindowNs?: TimeWindowNs;
+  onAxisRangesChange?: (ranges: Map<string, [number, number]>) => void;
+}
+
+function formatCrosshairTime(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function formatTooltipValue(v: unknown): string {
@@ -162,7 +188,13 @@ function nearestSample(
   return { time: data[idx][0], value: data[idx][1] };
 }
 
-export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SinglePlotProps) {
+export function SinglePlot({
+  plot,
+  archiveResults,
+  onViewWindowChange,
+  initialViewWindowNs,
+  onAxisRangesChange,
+}: SinglePlotProps) {
   const { colorMode } = useColorMode();
   const theme = colorMode === 'dark' ? DARK_CHART_THEME : LIGHT_CHART_THEME;
   const visibleAxes = plot.axes.filter((a) => a.visible);
@@ -187,6 +219,45 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
     if (!inst || !inst.getDom()) return;
     inst.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
   }, [rangeKey]);
+
+  // Seed the saved sub-range directly into the inside-dataZoom on first render
+  // so popping a plot out (or reattaching) preserves the user's wheel-zoom.
+  // The flag flips after mount so subsequent setOption calls don't fight the
+  // live zoom — ECharts' partial merge keeps the chart's current start/end
+  // when these fields are omitted.
+  const [seedApplied, setSeedApplied] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional first-render gate
+    setSeedApplied(true);
+  }, []);
+  const seedZoom =
+    !seedApplied && initialViewWindowNs
+      ? {
+          startValue: nsToMs(initialViewWindowNs.fromNs),
+          endValue: nsToMs(initialViewWindowNs.toNs),
+        }
+      : null;
+
+  const handleFinished = useCallback(() => {
+    if (!onAxisRangesChange) return;
+    const inst = chartRef.current?.getEchartsInstance();
+    // `finished` can fire mid-mount or after disposal when the DOM and model
+    // aren't both ready; bail in those cases instead of crashing.
+    if (!inst || !inst.getDom()) return;
+    type AxisModel = { axis: { scale: { getExtent: () => [number, number] } } };
+    const model = (
+      inst as unknown as {
+        getModel: () => { getComponent: (n: string, i: number) => AxisModel } | undefined;
+      }
+    ).getModel();
+    if (!model) return;
+    const next = new Map<string, [number, number]>();
+    visibleAxes.forEach((axis, idx) => {
+      const ext = model.getComponent('yAxis', idx)?.axis?.scale?.getExtent();
+      if (ext) next.set(axis.id, [ext[0], ext[1]]);
+    });
+    onAxisRangesChange(next);
+  }, [onAxisRangesChange, visibleAxes]);
 
   const handleDataZoom = useCallback(() => {
     if (!onViewWindowChange) return;
@@ -218,7 +289,7 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
   // Axes sharing a side (left/right) would otherwise stack at the same spot and
   // overlap, so we offset each one outward by its position within that side.
   // Pixels each stacked axis is pushed past the previous one on the same side.
-  const AXIS_OFFSET = 60;
+  const AXIS_OFFSET = 80;
   const sideIndexMap = new Map<string, number>();
   let leftAxesCount = 0;
   let rightAxesCount = 0;
@@ -258,11 +329,14 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
       axisLine: { lineStyle: { color: theme.axisLine } },
       splitLine: {
         show: plot.showGridlines,
-        lineStyle: { color: theme.splitLine },
+        lineStyle: { color: theme.splitLine, type: plot.gridStyle },
       },
     },
     yAxis: visibleAxes.map((axis) => ({
-      id: axis.id,
+      // Intentionally no `id`: with replaceMerge, ECharts matches by id and
+      // would pin a surviving axis back to its old slot index, leaving a
+      // hole at the deleted slot. Series then point to that hole and ECharts
+      // throws "yAxis 0 not found". Index-based mapping fills slots cleanly.
       type: axis.logScale ? 'log' : 'value',
       name: axis.name,
       nameTextStyle: { color: theme.axisName, fontSize: 11 },
@@ -270,17 +344,19 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
       // collide when multiple axes share a side. nameGap clears the labels.
       nameLocation: 'middle',
       nameRotate: 90,
-      nameGap: 50,
+      nameGap: 65,
       position: axis.orientation,
       offset: (sideIndexMap.get(axis.id) ?? 0) * AXIS_OFFSET,
       min: axis.autoScale ? undefined : axis.min,
       max: axis.autoScale ? undefined : axis.max,
       scale: axis.autoScale,
-      axisLabel: { color: theme.axisLabel, fontSize: 11 },
-      axisLine: { lineStyle: { color: theme.axisLine } },
+      axisLabel: { color: theme.axisLabel, fontSize: 11, formatter: formatAxisTick },
+      // ECharts hides axisLine on secondary y-axes by default; force it on so
+      // every stacked axis shows its own vertical line next to its labels.
+      axisLine: { show: true, lineStyle: { color: theme.axisLine } },
       splitLine: {
         show: plot.showGridlines,
-        lineStyle: { color: theme.splitLine },
+        lineStyle: { color: theme.splitLine, type: plot.gridStyle },
       },
     })),
     series: (() => {
@@ -381,6 +457,7 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
         zoomOnMouseWheel: true,
         moveOnMouseMove: true,
         moveOnMouseWheel: false,
+        ...(seedZoom ?? {}),
       },
     ],
     tooltip: {
@@ -389,7 +466,10 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
         type: 'line',
         snap: false,
         lineStyle: { color: theme.crosshair, width: 1, type: 'dashed' },
-        label: { backgroundColor: theme.tooltipBorder },
+        label: {
+          backgroundColor: theme.tooltipBorder,
+          formatter: (p: { value: number }) => formatCrosshairTime(p.value),
+        },
       },
       backgroundColor: theme.tooltipBg,
       borderColor: theme.tooltipBorder,
@@ -405,7 +485,7 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
         if (arr.length === 0) return '';
         const cursorMs = arr[0]?.axisValue;
         if (typeof cursorMs !== 'number' || !Number.isFinite(cursorMs)) return '';
-        const time = new Date(cursorMs).toLocaleTimeString();
+        const time = formatCrosshairTime(cursorMs);
         const lines: string[] = [];
         for (const trace of visibleTraces) {
           const data = traceData.get(trace.id);
@@ -433,7 +513,7 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
       ref={chartRef}
       option={option}
       replaceMerge={['series', 'yAxis']}
-      onEvents={{ datazoom: handleDataZoom }}
+      onEvents={{ datazoom: handleDataZoom, finished: handleFinished }}
       style={{ height: '100%', width: '100%' }}
       opts={{ renderer: 'canvas' }}
     />
@@ -456,6 +536,8 @@ export function PlotArea({
   onDetachPlot,
   onReattachPlot,
   onViewWindowChange,
+  viewWindowByPlot,
+  onAxisRangesChange,
 }: PlotAreaProps) {
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
   const isDetached = (id: string) => detachedPlotIds.includes(id);
@@ -568,6 +650,10 @@ export function PlotArea({
               onViewWindowChange={
                 onViewWindowChange ? (w) => onViewWindowChange(activePlot.id, w) : undefined
               }
+              initialViewWindowNs={viewWindowByPlot.get(activePlot.id)}
+              onAxisRangesChange={
+                onAxisRangesChange ? (r) => onAxisRangesChange(activePlot.id, r) : undefined
+              }
             />
           )
         ) : (
@@ -616,6 +702,10 @@ export function PlotArea({
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
                     onViewWindowChange={
                       onViewWindowChange ? (w) => onViewWindowChange(plot.id, w) : undefined
+                    }
+                    initialViewWindowNs={viewWindowByPlot.get(plot.id)}
+                    onAxisRangesChange={
+                      onAxisRangesChange ? (r) => onAxisRangesChange(plot.id, r) : undefined
                     }
                   />
                 )}

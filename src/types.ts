@@ -56,6 +56,7 @@ export interface Plot {
   axes: Axis[];
   backgroundColor: string;
   showGridlines: boolean;
+  gridStyle: 'solid' | 'dashed' | 'dotted';
   // Per-plot default archiver for this plot's traces; undefined means "use the
   // backend default". A trace's own `archiver` overrides this.
   archiver?: string;

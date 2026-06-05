@@ -19,7 +19,9 @@ const RANGE_TO_MS: Record<string, number> = {
   '-1h': 60 * 60 * 1000,
   '-4h': 4 * 60 * 60 * 1000,
   '-1d': 24 * 60 * 60 * 1000,
+  '-2d': 2 * 24 * 60 * 60 * 1000,
   '-1w': 7 * 24 * 60 * 60 * 1000,
+  '-1m': 30 * 24 * 60 * 60 * 1000,
 };
 
 export interface TimeWindowNs {
