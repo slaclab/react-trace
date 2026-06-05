@@ -215,7 +215,17 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
     axisIndexMap.set(axis.id, idx);
   });
 
-  const rightAxesCount = visibleAxes.filter((a) => a.orientation === 'right').length;
+  // Axes sharing a side (left/right) would otherwise stack at the same spot and
+  // overlap, so we offset each one outward by its position within that side.
+  // Pixels each stacked axis is pushed past the previous one on the same side.
+  const AXIS_OFFSET = 60;
+  const sideIndexMap = new Map<string, number>();
+  let leftAxesCount = 0;
+  let rightAxesCount = 0;
+  for (const axis of visibleAxes) {
+    if (axis.orientation === 'right') sideIndexMap.set(axis.id, rightAxesCount++);
+    else sideIndexMap.set(axis.id, leftAxesCount++);
+  }
 
   // Pin the x-axis extent to the requested time range so the axis spans the
   // full window even when archive data is sparse and clusters in a sub-range.
@@ -236,9 +246,9 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
     animation: false,
     grid: {
       top: 40,
-      right: rightAxesCount > 0 ? 70 : 20,
       bottom: 60,
-      left: 70,
+      left: 70 + Math.max(0, leftAxesCount - 1) * AXIS_OFFSET,
+      right: (rightAxesCount > 0 ? 70 : 20) + Math.max(0, rightAxesCount - 1) * AXIS_OFFSET,
     },
     xAxis: {
       type: 'time',
@@ -256,7 +266,13 @@ export function SinglePlot({ plot, archiveResults, onViewWindowChange }: SingleP
       type: axis.logScale ? 'log' : 'value',
       name: axis.name,
       nameTextStyle: { color: theme.axisName, fontSize: 11 },
+      // Run the title vertically alongside its own axis line so titles never
+      // collide when multiple axes share a side. nameGap clears the labels.
+      nameLocation: 'middle',
+      nameRotate: 90,
+      nameGap: 50,
       position: axis.orientation,
+      offset: (sideIndexMap.get(axis.id) ?? 0) * AXIS_OFFSET,
       min: axis.autoScale ? undefined : axis.min,
       max: axis.autoScale ? undefined : axis.max,
       scale: axis.autoScale,
