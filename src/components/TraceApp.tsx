@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Panel,
   Group as PanelGroup,
@@ -12,6 +13,7 @@ import { LeftPanel } from './LeftPanel';
 import { DetachedWindow } from './DetachedWindow';
 import { DataInsightTool } from './DataInsightTool';
 import { PlotArea, SinglePlot } from './PlotArea';
+import { capturePlotPng } from '../capturePlot';
 import { RightPanel } from './RightPanel';
 import { Toolbar } from './Toolbar';
 import { useArchiveSeries, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
@@ -526,11 +528,54 @@ export function TraceApp() {
     }
   };
 
+  // Plot snapshots staged for printing. Non-null while the print sheet is
+  // rendered; the effect below opens the print dialog and clears it after.
+  const [printShots, setPrintShots] = useState<
+    { plotId: string; title: string; dataUrl: string }[] | null
+  >(null);
+
   const handlePrint = () => {
-    // TODO: render only the chart canvas. window.print() prints the full page
-    // for now, which is enough to validate the wiring.
-    window.print();
+    // Print what's on screen: the fullscreen plot if one is popped out, the
+    // active plot in tab view, or every plot in grid view. Detached plots
+    // render in other windows, so capture returns null for them.
+    const targets = poppedOutPlot
+      ? plots.filter((p) => p.id === poppedOutPlot)
+      : viewMode === 'tabs'
+        ? [activePlot]
+        : plots;
+    const shots = targets.flatMap((p) => {
+      const dataUrl = capturePlotPng(p, colorMode);
+      return dataUrl ? [{ plotId: p.id, title: p.title, dataUrl }] : [];
+    });
+    if (shots.length === 0) {
+      // Nothing capturable (e.g. everything detached): fall back to the
+      // browser's default full-page print.
+      window.print();
+      return;
+    }
+    setPrintShots(shots);
   };
+
+  useEffect(() => {
+    if (!printShots) return;
+    document.body.classList.add('printing-chart');
+    let cancelled = false;
+    // Give the sheet's images a chance to decode before the blocking print
+    // dialog opens. Both decode() and rAF can stall on hidden pages, so race
+    // against a short timer to guarantee print fires regardless.
+    const imgs = Array.from(document.querySelectorAll<HTMLImageElement>('.print-sheet img'));
+    const decoded = Promise.allSettled(imgs.map((img) => img.decode()));
+    const timeout = new Promise((resolve) => setTimeout(resolve, 500));
+    Promise.race([decoded, timeout]).then(() => {
+      if (cancelled) return;
+      window.print();
+      setPrintShots(null);
+    });
+    return () => {
+      cancelled = true;
+      document.body.classList.remove('printing-chart');
+    };
+  }, [printShots]);
 
   const handleReportBug = () => {
     window.open(BUG_REPORT_URL, '_blank', 'noopener,noreferrer');
@@ -899,6 +944,23 @@ export function TraceApp() {
           </Theme>
         </DetachedWindow>
       )}
+
+      {/* Sheet shown only by the @media print rules while printing-chart is
+          set on <body>; see handlePrint. Portaled under <body> so it escapes
+          the app shell's fixed-height/overflow layout and can flow across
+          printed pages. */}
+      {printShots &&
+        createPortal(
+          <div className="print-sheet">
+            {printShots.map((shot) => (
+              <figure key={shot.plotId} className="print-sheet__plot">
+                <figcaption>{shot.title}</figcaption>
+                <img src={shot.dataUrl} alt={shot.title} />
+              </figure>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
