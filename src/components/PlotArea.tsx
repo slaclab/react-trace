@@ -505,6 +505,11 @@ export function SinglePlot({
       textStyle: { color: theme.legend, fontSize: 11 },
       inactiveColor: theme.tooltipMuted,
       data: visibleTraces.map((t) => t.displayName),
+      // Visibility is owned by the trace's "Visible" toggle (settings panel +
+      // layers list). Clicking the legend would flip ECharts' own select state,
+      // which isn't wired back to trace.visible, so the two would drift out of
+      // sync. Disable legend toggling so there's a single source of truth.
+      selectedMode: false,
     },
   };
 
