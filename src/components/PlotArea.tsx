@@ -567,6 +567,7 @@ export function SinglePlot({
       },
     },
     legend: {
+      show: plot.showLegend,
       bottom: 8,
       textStyle: { color: theme.legend, fontSize: 11 },
       inactiveColor: theme.tooltipMuted,
