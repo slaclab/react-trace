@@ -948,10 +948,14 @@ export function TraceApp() {
       {/* Sheet shown only by the @media print rules while printing-chart is
           set on <body>; see handlePrint. Portaled under <body> so it escapes
           the app shell's fixed-height/overflow layout and can flow across
-          printed pages. */}
+          printed pages. Tiled into columns matching the on-screen grid
+          (--print-cols from the plot count). */}
       {printShots &&
         createPortal(
-          <div className="print-sheet">
+          <div
+            className="print-sheet"
+            style={{ ['--print-cols' as string]: Math.ceil(Math.sqrt(printShots.length)) }}
+          >
             {printShots.map((shot) => (
               <figure key={shot.plotId} className="print-sheet__plot">
                 <figcaption>{shot.title}</figcaption>

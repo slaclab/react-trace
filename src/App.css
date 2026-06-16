@@ -686,14 +686,18 @@
     display: none !important;
   }
 
+  /* Tiled: reflow figures into columns matching the on-screen grid (--print-cols
+     set inline from the plot count), background baked white for paper. */
   body.printing-chart .print-sheet {
-    display: block;
+    display: grid;
+    grid-template-columns: repeat(var(--print-cols, 1), 1fr);
+    gap: 16px;
     background: #ffffff;
   }
 
   .print-sheet__plot {
     break-inside: avoid;
-    margin: 0 0 16px;
+    margin: 0;
   }
 
   .print-sheet__plot figcaption {

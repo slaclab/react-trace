@@ -569,16 +569,11 @@ export function PlotArea({
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
   const isDetached = (id: string) => detachedPlotIds.includes(id);
 
-  const gridCols =
-    plots.length === 1
-      ? 'grid-cols-1'
-      : plots.length === 2
-        ? 'grid-cols-2'
-        : plots.length === 3
-          ? 'grid-cols-3'
-          : 'grid-cols-2';
-
-  const gridRows = plots.length >= 4 ? 'grid-rows-2' : 'grid-rows-1';
+  // Near-square tiling: columns = ceil(sqrt(n)), rows = ceil(n / columns). This
+  // keeps every cell a real, evenly-sized tile so no plot collapses to a sliver
+  // (the old fixed 2-col/1-row logic left a 3rd plot with no row to fill).
+  const gridColCount = Math.ceil(Math.sqrt(plots.length));
+  const gridRowCount = Math.ceil(plots.length / gridColCount);
 
   return (
     <div className="plot-area">
@@ -686,10 +681,10 @@ export function PlotArea({
           )
         ) : (
           <div
-            className={`plot-grid ${gridCols} ${gridRows}`}
+            className="plot-grid"
             style={{
-              gridTemplateColumns: `repeat(${plots.length <= 2 ? plots.length : 2}, 1fr)`,
-              gridTemplateRows: plots.length >= 4 ? '1fr 1fr' : '1fr',
+              gridTemplateColumns: `repeat(${gridColCount}, 1fr)`,
+              gridTemplateRows: `repeat(${gridRowCount}, 1fr)`,
             }}
           >
             {plots.map((plot) => (
