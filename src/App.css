@@ -698,6 +698,7 @@
   .print-sheet__plot {
     break-inside: avoid;
     margin: 0;
+    text-align: center;
   }
 
   .print-sheet__plot figcaption {
@@ -706,10 +707,22 @@
     font-weight: 600;
     color: #161616;
     margin-bottom: 6px;
+    text-align: left;
   }
 
   .print-sheet__plot img {
-    width: 100%;
+    /* Bound the snapshot by BOTH page width and height so a near-square chart
+       doesn't scale to full width and overflow the page bottom (which clipped
+       the legend and x-axis labels). auto sizing keeps the aspect ratio; the
+       browser picks whichever constraint binds first.
+
+       The whole grid prints on one page, so the height budget is split across
+       the rows (--print-rows). Subtract a per-row allowance for the caption and
+       grid gap so the bottom row's legend/axis labels aren't clipped. */
+    max-width: 100%;
+    max-height: calc((100vh / var(--print-rows, 1)) - 36px);
+    width: auto;
+    height: auto;
   }
 }
 

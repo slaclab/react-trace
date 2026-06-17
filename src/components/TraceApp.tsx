@@ -954,7 +954,14 @@ export function TraceApp() {
         createPortal(
           <div
             className="print-sheet"
-            style={{ ['--print-cols' as string]: Math.ceil(Math.sqrt(printShots.length)) }}
+            style={{
+              ['--print-cols' as string]: Math.ceil(Math.sqrt(printShots.length)),
+              // Rows the grid wraps to; image height is capped at a per-row
+              // share of the page so a multi-row grid fits on one page.
+              ['--print-rows' as string]: Math.ceil(
+                printShots.length / Math.ceil(Math.sqrt(printShots.length))
+              ),
+            }}
           >
             {printShots.map((shot) => (
               <figure key={shot.plotId} className="print-sheet__plot">
