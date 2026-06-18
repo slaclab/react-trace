@@ -52,6 +52,9 @@ export interface Axis {
   autoScale: boolean;
   logScale: boolean;
   visible: boolean;
+  // Per-axis Y gridlines (horizontal splitLines for this axis). Independent of
+  // the plot-level X gridline toggle. Defaults to shown when undefined.
+  showGridlines?: boolean;
 }
 
 export interface Plot {
@@ -61,9 +64,14 @@ export interface Plot {
   axes: Axis[];
   backgroundColor: string;
   showLegend: boolean;
-  showGridlines: boolean;
+  // X (vertical, time) gridlines. Per-axis Y gridlines live on each Axis.
+  showXGridlines: boolean;
   showCrosshair: boolean;
   gridStyle: 'solid' | 'dashed' | 'dotted';
+  // Opacity applied to all gridlines (X and Y), 0..1. Defaults to 1.
+  gridOpacity: number;
+  // Axis tick label font size in px. Defaults to 11.
+  tickFontSize: number;
   // Per-plot default archiver for this plot's traces; undefined means "use the
   // backend default". A trace's own `archiver` overrides this.
   archiver?: string;

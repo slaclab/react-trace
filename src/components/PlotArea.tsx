@@ -354,11 +354,11 @@ export function SinglePlot({
       type: 'time',
       min: xAxisMin,
       max: xAxisMax,
-      axisLabel: { color: theme.axisLabel, fontSize: 11 },
+      axisLabel: { color: theme.axisLabel, fontSize: plot.tickFontSize },
       axisLine: { lineStyle: { color: theme.axisLine } },
       splitLine: {
-        show: plot.showGridlines,
-        lineStyle: { color: theme.splitLine, type: plot.gridStyle },
+        show: plot.showXGridlines,
+        lineStyle: { color: theme.splitLine, type: plot.gridStyle, opacity: plot.gridOpacity },
       },
     },
     yAxis: visibleAxes.map((axis) => ({
@@ -379,13 +379,13 @@ export function SinglePlot({
       min: axis.autoScale ? undefined : axis.min,
       max: axis.autoScale ? undefined : axis.max,
       scale: axis.autoScale,
-      axisLabel: { color: theme.axisLabel, fontSize: 11, formatter: formatAxisTick },
+      axisLabel: { color: theme.axisLabel, fontSize: plot.tickFontSize, formatter: formatAxisTick },
       // ECharts hides axisLine on secondary y-axes by default; force it on so
       // every stacked axis shows its own vertical line next to its labels.
       axisLine: { show: true, lineStyle: { color: theme.axisLine } },
       splitLine: {
-        show: plot.showGridlines,
-        lineStyle: { color: theme.splitLine, type: plot.gridStyle },
+        show: axis.showGridlines ?? true,
+        lineStyle: { color: theme.splitLine, type: plot.gridStyle, opacity: plot.gridOpacity },
       },
     })),
     series: (() => {

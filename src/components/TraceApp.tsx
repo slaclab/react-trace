@@ -46,9 +46,11 @@ const INITIAL_PLOTS: Plot[] = [
     title: 'Plot 1',
     backgroundColor: '#161616',
     showLegend: true,
-    showGridlines: true,
+    showXGridlines: true,
     showCrosshair: true,
     gridStyle: 'solid',
+    gridOpacity: 1,
+    tickFontSize: 11,
     xAxis: { timeRange: '-1h' },
     axes: [
       {
@@ -261,9 +263,11 @@ export function TraceApp() {
         title: `Plot ${plotNum}`,
         backgroundColor: '#161616',
         showLegend: true,
-        showGridlines: true,
+        showXGridlines: true,
         showCrosshair: true,
         gridStyle: 'solid',
+        gridOpacity: 1,
+        tickFontSize: 11,
         xAxis: { timeRange: '-1h' },
         axes: [
           {
@@ -432,6 +436,7 @@ export function TraceApp() {
       autoScale: true,
       logScale: false,
       visible: true,
+      showGridlines: true,
     };
     setPlots((prev) =>
       prev.map((p) => (p.id === plotId ? { ...p, axes: [...p.axes, newAxis] } : p))
