@@ -31,6 +31,18 @@ cp .env.example .env
 `/mole/*` to `CANOPY_BASE_URL` and injects the `X-API-Key` header, so the key never reaches
 the browser bundle.
 
+#### E-Log posting (optional)
+
+Set `ELOG_BASE_URL` to an [elog-plus](https://github.com/eed-web-application/elog-plus)
+instance and `ELOG_API_KEY` to an application token. The dev server proxies `/elog/*` to
+that service (stripping the `/elog` prefix) and injects the `x-vouch-idp-accesstoken` header,
+so the token never reaches the browser bundle. Leave `ELOG_BASE_URL` unset to disable the
+feature (the "Post to E-Log" toolbar button hides). `VITE_ELOG_DEFAULT_LOGBOOKS` is an
+optional comma-separated list of logbook names to preselect in the dialog.
+
+In production a reverse proxy must own the same `/elog` to elog-plus rewrite and header
+injection (same responsibility as `/mole` and `/hare`).
+
 ### 3. Run the dev server
 
 ```bash

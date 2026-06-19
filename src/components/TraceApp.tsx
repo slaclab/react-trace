@@ -34,6 +34,9 @@ import { safeFilename, timestamp } from '../io/filename';
 import { makeId } from '../id';
 import { resolveFormulaSpec } from '../formula';
 import type { FormulaSpecDTO } from '../api/types';
+import { capturePlots, type PngSource, type CapturedPlot } from '../io/exportPlotImage';
+import { PostToElogModal } from './PostToElogModal';
+import { useElogConfig } from '../hooks/useElogConfig';
 
 const BUG_REPORT_URL = 'https://forms.office.com/r/qV7BmK2xi9';
 const DOCS_URL = 'https://github.com/slaclab/react-trace#readme';
@@ -173,6 +176,13 @@ export function TraceApp() {
   }>({ open: false, minimized: false, detached: false });
   const { colorMode, toggle: toggleTheme } = useColorMode();
   const { paletteId } = usePaletteId();
+  const elogConfig = useElogConfig();
+  // E-Log post dialog. `captured` holds the plot PNGs snapshotted at open time
+  // (data URLs), so editing in the dialog works against a stable image set.
+  const [elogModal, setElogModal] = useState<{ open: boolean; captured: CapturedPlot[] }>({
+    open: false,
+    captured: [],
+  });
   // Last viewport emitted by each plot's dataZoom. Drives the archive store's
   // window per trace; the store decides whether the change requires a fetch
   // based on its coverage check, so this map can be updated freely.
@@ -286,6 +296,23 @@ export function TraceApp() {
     (axisId: string): [number, number] | undefined =>
       axisRangesRef.current.get(activePlotId)?.get(axisId),
     [activePlotId]
+  );
+
+  // Live ECharts instances per plot, for capturing PNGs to post to the e-log.
+  // A plot can be mounted twice (e.g. grid cell + fullscreen overlay); we keep
+  // whichever instance most recently registered and only clear on a matching
+  // unregister so a stale unmount can't wipe a live instance.
+  const chartInstancesRef = useRef(new Map<string, PngSource>());
+  const handleChartInstance = useCallback(
+    (plotId: string, instance: PngSource, active: boolean) => {
+      const map = chartInstancesRef.current;
+      if (active) {
+        map.set(plotId, instance);
+      } else if (map.get(plotId) === instance) {
+        map.delete(plotId);
+      }
+    },
+    []
   );
 
   // ── Plot operations ─────────────────────────────────────────────────────────
@@ -803,6 +830,47 @@ export function TraceApp() {
     window.open(BUG_REPORT_URL, '_blank', 'noopener,noreferrer');
   };
 
+  // Capture context-aware plots (active plot in tabs view, all plots in grid)
+  // and open the e-log post dialog. Background matches the current chart theme.
+  const openElogPost = useCallback(() => {
+    if (!elogConfig?.enabled) return;
+    const targetPlots = viewMode === 'grid' ? plots : [activePlot];
+    const bg = colorMode === 'dark' ? '#161616' : '#ffffff';
+    const captured = capturePlots(
+      targetPlots.map((p) => ({
+        id: p.id,
+        title: p.title,
+        instance: chartInstancesRef.current.get(p.id),
+      })),
+      bg
+    );
+    setElogModal({ open: true, captured });
+  }, [elogConfig?.enabled, viewMode, plots, activePlot, colorMode]);
+
+  // Ctrl/Cmd+E opens the post dialog (matches the Python Trace shortcut). Ignore
+  // when typing in an input or when e-log is unconfigured.
+  useEffect(() => {
+    if (!elogConfig?.enabled) return undefined;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'e') return;
+      const el = document.activeElement;
+      const typing =
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        (el instanceof HTMLElement && el.isContentEditable);
+      if (typing) return;
+      e.preventDefault();
+      openElogPost();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [elogConfig?.enabled, openElogPost]);
+
+  const buildElogConfigFile = useCallback((): File => {
+    const json = serializeWorkspace({ theme: colorMode, plots });
+    return new File([json], 'trace_config.json', { type: 'application/json' });
+  }, [colorMode, plots]);
+
   const handleOpenDocs = () => {
     window.open(DOCS_URL, '_blank', 'noopener,noreferrer');
   };
@@ -859,6 +927,7 @@ export function TraceApp() {
               onOpenDocs={handleOpenDocs}
               onOpenDataInsight={() => openInsight()}
               onRefreshArchive={handleRefreshArchive}
+              onPostElog={elogConfig?.enabled ? openElogPost : undefined}
             />
           </HeaderGlobalBar>
         </Header>
@@ -927,6 +996,7 @@ export function TraceApp() {
                   onViewWindowChange={handleViewWindowChange}
                   viewWindowByPlot={viewWindowByPlot}
                   onAxisRangesChange={handleAxisRangesChange}
+                  onChartInstance={handleChartInstance}
                 />
               </div>
               {insight.open && !insight.detached && insight.minimized && (
@@ -1073,6 +1143,8 @@ export function TraceApp() {
                     formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
                     // eslint-disable-next-line react-hooks/refs -- ref is written from ECharts' finished event, not during render
                     onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
+                    // eslint-disable-next-line react-hooks/refs -- ref is written on mount/unmount, not during render
+                    onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
                   />
                 </div>
               </div>
@@ -1143,6 +1215,7 @@ export function TraceApp() {
                   onViewWindowChange={(w) => handleViewWindowChange(plot.id, w)}
                   initialViewWindowNs={viewWindowByPlot.get(plot.id)}
                   onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
+                  onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
                 />
               </div>
             </Theme>
@@ -1207,6 +1280,18 @@ export function TraceApp() {
           </div>,
           document.body
         )}
+
+      {elogConfig?.enabled && (
+        <PostToElogModal
+          open={elogModal.open}
+          captured={elogModal.captured}
+          logbooks={elogConfig.logbooks}
+          defaultLogbooks={elogConfig.defaultLogbooks}
+          backgroundColor={colorMode === 'dark' ? '#161616' : '#ffffff'}
+          buildConfigFile={buildElogConfigFile}
+          onClose={() => setElogModal((p) => ({ ...p, open: false }))}
+        />
+      )}
     </div>
   );
 }

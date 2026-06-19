@@ -11,6 +11,7 @@ import { msToNs, nsToMs, resolveTimeWindow } from '../api/time';
 import { echartsLineType, echartsSymbol } from '../curveStyle';
 import { traceLabel } from '../traceLabel';
 import { useColorMode } from '../state/themeStore';
+import type { PngSource } from '../io/exportPlotImage';
 
 // Numbers like 0.000000018 produce extremely wide tick labels that spill past
 // neighboring stacked axes. Switch to exponential at the same magnitudes the
@@ -49,6 +50,8 @@ interface PlotAreaProps {
   /** Saved per-plot view window; seeds dataZoom across remounts (e.g. popout). */
   viewWindowByPlot: Map<string, TimeWindowNs>;
   onAxisRangesChange?: (plotId: string, ranges: Map<string, [number, number]>) => void;
+  /** Publishes each plot's ECharts instance for PNG capture (active=false on unmount). */
+  onChartInstance?: (plotId: string, instance: PngSource, active: boolean) => void;
 }
 
 // Shown in the main window where a detached plot's chart would otherwise be.
@@ -85,6 +88,13 @@ interface SinglePlotProps {
    * this marks which one a print snapshot should capture; see capturePlotPng.
    */
   fullscreen?: boolean;
+  /**
+   * Publishes this plot's live ECharts instance so the app can capture it as a
+   * PNG for e-log posting. Called with active=true after mount, active=false on
+   * unmount; the same instance object is passed both times so a registry can
+   * match by identity (a plot can be mounted twice, e.g. grid + fullscreen).
+   */
+  onChartInstance?: (instance: PngSource, active: boolean) => void;
 }
 
 function formatCrosshairTime(ms: number): string {
@@ -182,6 +192,7 @@ export function SinglePlot({
   initialViewWindowNs,
   onAxisRangesChange,
   fullscreen,
+  onChartInstance,
 }: SinglePlotProps) {
   const { colorMode } = useColorMode();
   const theme = colorMode === 'dark' ? DARK_CHART_THEME : LIGHT_CHART_THEME;
@@ -195,6 +206,16 @@ export function SinglePlot({
   // resulting datazoom event isn't mistaken for a manual pan (which would
   // disable autoscroll right after the range re-select re-enabled it).
   const programmaticZoomRef = useRef(false);
+
+  // Publish the ECharts instance up to the app for PNG capture; clear on unmount
+  // so a captured-but-gone plot (closed tab, reattached window) isn't stale.
+  useEffect(() => {
+    const inst = chartRef.current?.getEchartsInstance();
+    if (!inst) return undefined;
+    onChartInstance?.(inst, true);
+    return () => onChartInstance?.(inst, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- register once per mount; the callback is stable
+  }, []);
 
   // Reset the inside-zoom to full extent when the user picks a new range. This
   // replaces the React-key remount we used to do — the chart instance survives,
@@ -619,6 +640,7 @@ export function PlotArea({
   onViewWindowChange,
   viewWindowByPlot,
   onAxisRangesChange,
+  onChartInstance,
 }: PlotAreaProps) {
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
   const isDetached = (id: string) => detachedPlotIds.includes(id);
@@ -732,6 +754,11 @@ export function PlotArea({
               onAxisRangesChange={
                 onAxisRangesChange ? (r) => onAxisRangesChange(activePlot.id, r) : undefined
               }
+              onChartInstance={
+                onChartInstance
+                  ? (inst, active) => onChartInstance(activePlot.id, inst, active)
+                  : undefined
+              }
             />
           )
         ) : (
@@ -786,6 +813,11 @@ export function PlotArea({
                     initialViewWindowNs={viewWindowByPlot.get(plot.id)}
                     onAxisRangesChange={
                       onAxisRangesChange ? (r) => onAxisRangesChange(plot.id, r) : undefined
+                    }
+                    onChartInstance={
+                      onChartInstance
+                        ? (inst, active) => onChartInstance(plot.id, inst, active)
+                        : undefined
                     }
                   />
                 )}
