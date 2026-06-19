@@ -21,6 +21,7 @@ import { useLiveSeries, type LiveSeriesResult } from '../hooks/useLiveSeries';
 import { archiveStore } from '../state/archiveStore';
 import type { TimeWindowNs } from '../api/time';
 import { rangeToWindowNs } from '../api/time';
+import { fetchMetadata } from '../api/mole';
 import { useColorMode } from '../state/themeStore';
 import { usePaletteId } from '../state/paletteStore';
 import { getPalette, colorForIndex } from '../palettes';
@@ -398,6 +399,66 @@ export function TraceApp() {
     );
   };
 
+  // When a PV is chosen for a trace, look up its engineering units and move the
+  // trace to the axis representing those units, creating one if none exists.
+  // This is a best-effort default the user can override with the axis dropdown
+  // or drag-and-drop; failures (no units, fetch error) leave the trace put.
+  const assignTraceToUnitAxis = async (plotId: string, traceId: string, pvName: string) => {
+    const plot = plots.find((p) => p.id === plotId);
+    const trace = plot?.traces.find((t) => t.id === traceId);
+    if (!plot || !trace) return;
+    let unit: string | undefined;
+    try {
+      const meta = await fetchMetadata(pvName, trace.archiver ?? plot.archiver);
+      unit = meta.units?.trim() || undefined;
+    } catch {
+      return; // metadata unavailable — keep the trace on its current axis
+    }
+    if (!unit) return;
+
+    const unitLower = unit.toLowerCase();
+    setPlots((prev) =>
+      prev.map((p) => {
+        if (p.id !== plotId) return p;
+        const norm = (s: string | undefined) => (s ?? '').trim().toLowerCase();
+        // Match an axis by recorded units, or by name as a fallback for axes
+        // that predate unit tracking. The name fallback matches the unit only
+        // when it appears parenthesized (e.g. "Vacuum (kV)") so a short unit
+        // like "V" doesn't loosely match an unrelated "kV" axis.
+        const match = p.axes.find(
+          (a) => norm(a.units) === unitLower || norm(a.name).includes(`(${unitLower})`)
+        );
+        if (match) {
+          // Stamp units on the matched axis if it didn't have them yet.
+          const axes = match.units
+            ? p.axes
+            : p.axes.map((a) => (a.id === match.id ? { ...a, units: unit } : a));
+          return {
+            ...p,
+            axes,
+            traces: p.traces.map((t) => (t.id === traceId ? { ...t, axisId: match.id } : t)),
+          };
+        }
+        // No match: create a new axis labeled with the unit, alternating sides.
+        const newAxisId = `axis-${Date.now()}`;
+        const newAxis: Axis = {
+          id: newAxisId,
+          name: unit,
+          units: unit,
+          orientation: p.axes.length % 2 === 0 ? 'left' : 'right',
+          autoScale: true,
+          logScale: false,
+          visible: true,
+        };
+        return {
+          ...p,
+          axes: [...p.axes, newAxis],
+          traces: p.traces.map((t) => (t.id === traceId ? { ...t, axisId: newAxisId } : t)),
+        };
+      })
+    );
+  };
+
   const moveTrace = (
     sourcePlotId: string,
     traceId: string,
@@ -769,6 +830,7 @@ export function TraceApp() {
               liveResults={liveResultsByPlot.get(activePlot.id) ?? new Map()}
               collapsed={rightCollapsed}
               onUpdateTrace={updateTrace}
+              onSelectPv={(traceId, pvName) => assignTraceToUnitAxis(activePlotId, traceId, pvName)}
               onUpdateAxis={updateAxis}
               onUpdatePlot={(updates) => updatePlot(activePlotId, updates)}
               onApplyPalette={applyPalette}

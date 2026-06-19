@@ -52,6 +52,10 @@ export interface Axis {
   autoScale: boolean;
   logScale: boolean;
   visible: boolean;
+  // Engineering units (EGU) this axis represents, used to auto-assign new
+  // curves to a matching axis. Undefined for axes created before units were
+  // tracked or for manually named axes with no unit.
+  units?: string;
 }
 
 export interface Plot {
