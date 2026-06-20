@@ -4,7 +4,7 @@ import { Renew, Download, Launch, Subtract, Close } from '@carbon/icons-react';
 import type { Plot } from '../types';
 import type { TimeWindowNs } from '../api/time';
 import { useInsightData } from '../hooks/useInsightData';
-import { buildInsightCsv, buildInsightJson } from '../io/exportInsight';
+import { buildInsightCsv, buildInsightJson, buildInsightMat } from '../io/exportInsight';
 import { downloadBlob } from '../io/download';
 
 // Page size for the interactive table; export still writes everything.
@@ -82,13 +82,15 @@ export function DataInsightTool({
   const endIdx = Math.min(startIdx + ROWS_PER_PAGE, rows.length);
   const shown = rows.slice(startIdx, endIdx);
 
-  const handleExport = (fmt: 'csv' | 'json') => {
+  const handleExport = (fmt: 'csv' | 'json' | 'mat') => {
     if (!meta || rows.length === 0) return;
     const base = safeName(meta.pv);
     if (fmt === 'csv') {
       downloadBlob(`${base}.csv`, 'text/csv', buildInsightCsv(meta, rows));
-    } else {
+    } else if (fmt === 'json') {
       downloadBlob(`${base}.json`, 'application/json', buildInsightJson(meta, rows));
+    } else {
+      downloadBlob(`${base}.mat`, 'application/octet-stream', buildInsightMat(meta, rows));
     }
   };
 
@@ -168,6 +170,7 @@ export function DataInsightTool({
           >
             <OverflowMenuItem itemText="Export CSV" onClick={() => handleExport('csv')} />
             <OverflowMenuItem itemText="Export JSON" onClick={() => handleExport('json')} />
+            <OverflowMenuItem itemText="Export MAT" onClick={() => handleExport('mat')} />
           </OverflowMenu>
           {!detached && onDetach && (
             <button className="insight-tool__btn" title="Pop out to window" onClick={onDetach}>
