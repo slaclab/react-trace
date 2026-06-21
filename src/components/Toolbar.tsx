@@ -3,6 +3,7 @@ import {
   Printer,
   Upload,
   Download,
+  Image,
   Asleep,
   Light,
   Debug,
@@ -19,6 +20,7 @@ interface ToolbarProps {
   onPrint: () => void;
   onImport: () => void;
   onExport: () => void;
+  onExportImage: () => void;
   onToggleTheme: () => void;
   onReportBug: () => void;
   onOpenDocs: () => void;
@@ -36,6 +38,7 @@ export function Toolbar({
   onPrint,
   onImport,
   onExport,
+  onExportImage,
   onToggleTheme,
   onReportBug,
   onOpenDocs,
@@ -69,6 +72,9 @@ export function Toolbar({
       </HeaderGlobalAction>
       <HeaderGlobalAction aria-label="Export CSV" tooltipAlignment="end" onClick={onExport}>
         <Download size={20} />
+      </HeaderGlobalAction>
+      <HeaderGlobalAction aria-label="Export PNG" tooltipAlignment="end" onClick={onExportImage}>
+        <Image size={20} />
       </HeaderGlobalAction>
       <HeaderGlobalAction
         aria-label={colorMode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}

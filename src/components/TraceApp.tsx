@@ -25,9 +25,10 @@ import { fetchMetadata } from '../api/mole';
 import { useColorMode } from '../state/themeStore';
 import { usePaletteId } from '../state/paletteStore';
 import { getPalette, colorForIndex } from '../palettes';
-import { downloadBlob, pickFile } from '../io/download';
+import { downloadBlob, downloadDataUrl, pickFile } from '../io/download';
 import { serializeWorkspace, deserializeWorkspace } from '../io/serialize';
 import { buildCsvFiles } from '../io/exportCsv';
+import { safeFilename, timestamp } from '../io/filename';
 import { makeId } from '../id';
 
 const BUG_REPORT_URL = 'https://forms.office.com/r/qV7BmK2xi9';
@@ -625,6 +626,34 @@ export function TraceApp() {
     { plotId: string; title: string; dataUrl: string }[] | null
   >(null);
 
+  // Export plots as PNG (one file each, mirroring the CSV export). Reuses the
+  // same DOM-based capturePlotPng as print, so it captures exactly what's on
+  // screen: the fullscreen copy if a plot is popped out, the active plot in tab
+  // view, or every plot in grid view. Detached plots live in another window, so
+  // capture returns null and they're skipped. Filenames share one timestamp so
+  // a grid export reads as a single batch.
+  const handleExportImage = () => {
+    const targets = poppedOutPlot
+      ? plots.filter((p) => p.id === poppedOutPlot)
+      : viewMode === 'tabs'
+        ? [activePlot]
+        : plots;
+    const stamp = timestamp();
+    const shots = targets.flatMap((p) => {
+      const dataUrl = capturePlotPng(p, colorMode, p.id === poppedOutPlot);
+      return dataUrl ? [{ title: p.title, dataUrl }] : [];
+    });
+    if (shots.length === 0) {
+      alert('No plot is ready to export yet. Wait for the chart to render and try again.');
+      return;
+    }
+    for (const s of shots) {
+      void downloadDataUrl(`${safeFilename(s.title)}_${stamp}.png`, s.dataUrl).catch(() => {
+        alert(`Failed to export "${s.title}".`);
+      });
+    }
+  };
+
   const handlePrint = () => {
     // Print what's on screen: the fullscreen plot if one is popped out, the
     // active plot in tab view, or every plot in grid view. Detached plots
@@ -724,6 +753,7 @@ export function TraceApp() {
               onPrint={handlePrint}
               onImport={() => void handleImport()}
               onExport={handleExport}
+              onExportImage={handleExportImage}
               onToggleTheme={toggleTheme}
               onReportBug={handleReportBug}
               onOpenDocs={handleOpenDocs}
