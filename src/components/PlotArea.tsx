@@ -453,13 +453,7 @@ export function SinglePlot({
           const last = tracePoints.at(-1);
           if (last && last[0] < xAxisMax) {
             const startTime = Math.max(last[0], xAxisMin);
-            // Sample the horizontal extension at many points so dataZoom's
-            // 'weakFilter' finds anchors inside the visible window directly
-            // rather than relying on the cross-window keep-rule for flanking
-            // pairs (which echarts 6 doesn't honor consistently). 2048 gives
-            // ~21 min spacing on a 1-month range, ~42 s on 1-day — comfortably
-            // below typical wheel-zoom depths. Cost is trivial: constant-y
-            // points render as a single line segment.
+            // 2048 anchors so weakFilter always finds in-window points at any zoom depth.
             const ANCHORS = 2048;
             const data = Array.from({ length: ANCHORS }, (_, k): [number, number] => [
               startTime + ((xAxisMax - startTime) * k) / (ANCHORS - 1),
