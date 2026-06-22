@@ -116,17 +116,26 @@ interface LegacyCurve {
   liveData?: boolean;
 }
 
+interface LegacyFormula {
+  // f://-prefixed expression with {var} placeholders, e.g. "f://{x1}+{x2}".
+  formula?: string;
+  // Variable name -> PV channel name of a base curve on the same plot.
+  curveDict?: Record<string, string>;
+  name?: string;
+  color?: string;
+  lineWidth?: number;
+  lineStyle?: number;
+  yAxisName?: string;
+}
+
 function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
   const warnings: string[] = [];
 
   const legacyPlot = (obj.plot ?? {}) as Record<string, unknown>;
   const legacyAxes = (obj['y-axes'] ?? []) as LegacyAxis[];
   const legacyCurves = (obj.curves ?? []) as LegacyCurve[];
+  const legacyFormulas = (obj.formula ?? []) as LegacyFormula[];
   const legacyTime = (obj.time_axis ?? {}) as { start?: string; end?: string };
-
-  if (Array.isArray(obj.formula) && (obj.formula as unknown[]).length > 0) {
-    warnings.push("Legacy 'formula' definitions ignored (Fox not implemented yet)");
-  }
 
   // Map y-axes; remember the axis name → id mapping so curves can resolve.
   const axes: Axis[] = legacyAxes.map((a, i) => ({
@@ -177,6 +186,53 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
       symbolSize: 10,
       data: [],
     };
+  });
+
+  // Formula curves: strip the f:// prefix to get the Fox expression, and resolve
+  // each {var} via the legacy curveDict (variable -> PV channel name) against the
+  // base curves above, so a binding points at a curve on the plot.
+  const traceIdByPv = new Map<string, string>();
+  for (const t of traces) {
+    if (t.pvName) traceIdByPv.set(t.pvName, t.id);
+  }
+  legacyFormulas.forEach((f, i) => {
+    const expression = (f.formula ?? '').replace(/^f:\/\//, '').trim();
+    if (!expression) return;
+    const axisId = (f.yAxisName && axisIdByName.get(f.yAxisName)) ?? axes[0].id;
+    const bindings: Record<string, string> = {};
+    const unresolved: string[] = [];
+    for (const [variable, pv] of Object.entries(f.curveDict ?? {})) {
+      const targetId = traceIdByPv.get(pv);
+      if (targetId) bindings[variable] = targetId;
+      else unresolved.push(`${variable} → ${pv}`);
+    }
+    if (unresolved.length > 0) {
+      warnings.push(
+        `Formula '${f.name ?? expression}': could not bind ${unresolved.join(', ')} (not a curve on the plot) — rebind in the editor.`
+      );
+    }
+    const name = f.name ?? expression;
+    traces.push({
+      id: `formula-${i + 1}`,
+      kind: 'formula',
+      pvName: '',
+      displayName: name.startsWith('f://') ? name.slice(4) : name,
+      color: f.color ?? colorForIndex(palette, legacyCurves.length + i),
+      visible: true,
+      axisId,
+      useLive: false,
+      updateRate: 'monitor',
+      useArchive: false,
+      expression,
+      bindings,
+      lineWidth: f.lineWidth ?? 2,
+      lineType: 'direct',
+      lineStyle: 'solid',
+      showSymbol: false,
+      symbolShape: 'circle',
+      symbolSize: 10,
+      data: [],
+    });
   });
 
   // Time range: legacy stores absolute strings. We map the common case
