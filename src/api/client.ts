@@ -1,8 +1,9 @@
 import type { ErrorEnvelope } from './types';
 
-// Vite dev server proxies /mole/* to the Canopy backend (see vite.config.ts) and injects X-API-Key,
-// so the browser bundle never sees the key. In a non-dev build the same path can be served by a
-// reverse proxy with the same header-injection responsibility.
+// Vite dev server proxies /mole/* (and /fox/*) to the Canopy backend (see
+// vite.config.ts) and injects X-API-Key, so the browser bundle never sees the
+// key. In a non-dev build the same paths can be served by a reverse proxy with
+// the same header-injection responsibility.
 const BASE = '';
 
 export class CanopyError extends Error {
@@ -22,6 +23,10 @@ export class CanopyError extends Error {
 export interface FetchOptions {
   query?: Record<string, string | number | boolean | null | undefined>;
   signal?: AbortSignal;
+  // HTTP method; defaults to GET. POST is used for Fox's validate/evaluate.
+  method?: 'GET' | 'POST';
+  // JSON request body (POST only). Serialized with a JSON content-type.
+  body?: unknown;
 }
 
 function buildQuery(query: FetchOptions['query']): string {
@@ -37,11 +42,18 @@ function buildQuery(query: FetchOptions['query']): string {
 
 export async function canopyFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
   const url = `${BASE}${path}${buildQuery(options.query)}`;
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  let body: string | undefined;
+  if (options.body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    body = JSON.stringify(options.body);
+  }
   let res: Response;
   try {
     res = await fetch(url, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
+      method: options.method ?? 'GET',
+      headers,
+      body,
       signal: options.signal,
     });
   } catch (err) {
