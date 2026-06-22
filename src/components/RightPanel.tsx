@@ -57,6 +57,7 @@ interface RightPanelProps {
   onUpdatePlot: (updates: Partial<Plot>) => void;
   onApplyPalette: (paletteId: string, scope: { plotId: string; axisId?: string }) => void;
   onInspectTrace: (traceId: string) => void;
+  onCreateFormula: (sourceTraceId: string) => void;
   onCollapse: () => void;
   onExpand: () => void;
   getAxisRange: (axisId: string) => [number, number] | undefined;
@@ -74,6 +75,7 @@ export function RightPanel({
   onUpdatePlot,
   onApplyPalette,
   onInspectTrace,
+  onCreateFormula,
   onCollapse,
   onExpand,
   getAxisRange,
@@ -127,6 +129,7 @@ export function RightPanel({
             onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)}
             onSelectPv={(pv) => onSelectPv(selectedTrace.id, pv)}
             onInspect={() => onInspectTrace(selectedTrace.id)}
+            onCreateFormula={() => onCreateFormula(selectedTrace.id)}
           />
         ),
     });
@@ -393,6 +396,7 @@ function TraceGeneralTab({
   onUpdate,
   onSelectPv,
   onInspect,
+  onCreateFormula,
 }: {
   trace: PVTrace;
   plotTraces: PVTrace[];
@@ -403,6 +407,7 @@ function TraceGeneralTab({
   onUpdate: (u: Partial<PVTrace>) => void;
   onSelectPv: (pv: string) => void;
   onInspect: () => void;
+  onCreateFormula: () => void;
 }) {
   const [pvQuery, setPvQuery] = useState<string>(trace.pvName);
   // Reset the local query when the panel switches to a different trace, so the
@@ -569,6 +574,25 @@ function TraceGeneralTab({
             size="sm"
           />
         </div>
+      </div>
+
+      <div className="prop-divider" />
+
+      <div className="prop-section">
+        <div className="prop-section__title">Derived</div>
+        <p style={{ fontSize: 11, color: 'var(--cds-text-helper)', marginBottom: 10 }}>
+          Create a formula curve seeded with this curve as <code>{'{x1}'}</code>, then edit the
+          expression (e.g. <code>{'{x1} * 1.5 + 10'}</code>).
+        </p>
+        <Button
+          kind="tertiary"
+          size="sm"
+          onClick={onCreateFormula}
+          disabled={!trace.pvName}
+          style={{ width: '100%', maxWidth: 'none' }}
+        >
+          Create formula from this curve
+        </Button>
       </div>
 
       <div className="prop-divider" />

@@ -431,6 +431,42 @@ export function TraceApp() {
     selectItem({ type: 'trace', id, plotId });
   };
 
+  // Derive a formula curve from an existing PV trace (the "transform" entry
+  // point). Non-destructive: the source curve is untouched; a new formula is
+  // seeded with it bound to {x1} and an identity expression the user then edits.
+  const createFormulaFromTrace = (plotId: string, sourceTraceId: string) => {
+    const plot = plots.find((p) => p.id === plotId);
+    const source = plot?.traces.find((t) => t.id === sourceTraceId);
+    if (!plot || !source) return;
+    const id = `formula-${Date.now()}`;
+    const colors = ['#0f62fe', '#ee5396', '#42be65', '#ff832b', '#a56eff', '#08bdba'];
+    const newFormula: PVTrace = {
+      id,
+      kind: 'formula',
+      pvName: '',
+      displayName: `f(${source.pvName || source.displayName || 'curve'})`,
+      color: colors[plot.traces.length % colors.length],
+      visible: true,
+      axisId: source.axisId,
+      useLive: false,
+      updateRate: 'monitor',
+      useArchive: false,
+      expression: '{x1}',
+      bindings: { x1: sourceTraceId },
+      lineWidth: 2,
+      lineType: 'direct',
+      lineStyle: 'solid',
+      showSymbol: false,
+      symbolShape: 'circle',
+      symbolSize: 10,
+      data: [],
+    };
+    setPlots((prev) =>
+      prev.map((p) => (p.id === plotId ? { ...p, traces: [...p.traces, newFormula] } : p))
+    );
+    selectItem({ type: 'trace', id, plotId });
+  };
+
   const deleteTrace = (plotId: string, traceId: string) => {
     setPlots((prev) =>
       prev.map((p) =>
@@ -957,6 +993,7 @@ export function TraceApp() {
               onApplyPalette={applyPalette}
               getAxisRange={getAxisRange}
               onInspectTrace={(id) => openInsight(id)}
+              onCreateFormula={(sourceId) => createFormulaFromTrace(activePlotId, sourceId)}
               onCollapse={() => {
                 rightPanelRef.current?.collapse();
                 setRightCollapsed(true);
