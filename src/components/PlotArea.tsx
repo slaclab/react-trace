@@ -181,6 +181,10 @@ export function SinglePlot({
 
   const chartRef = useRef<ReactECharts>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set while we programmatically reset the zoom on a range re-select, so the
+  // resulting datazoom event isn't mistaken for a manual pan (which would
+  // disable autoscroll right after the range re-select re-enabled it).
+  const programmaticZoomRef = useRef(false);
 
   // Reset the inside-zoom to full extent when the user picks a new range. This
   // replaces the React-key remount we used to do — the chart instance survives,
@@ -196,6 +200,7 @@ export function SinglePlot({
     }
     const inst = chartRef.current?.getEchartsInstance();
     if (!inst || !inst.getDom()) return;
+    programmaticZoomRef.current = true;
     inst.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
   }, [rangeKey]);
 
@@ -240,6 +245,12 @@ export function SinglePlot({
 
   const handleDataZoom = useCallback(() => {
     if (!onViewWindowChange) return;
+    // Ignore the zoom reset we dispatched on a range re-select; only genuine
+    // user pan/zoom should record a manual window and disable autoscroll.
+    if (programmaticZoomRef.current) {
+      programmaticZoomRef.current = false;
+      return;
+    }
     const inst = chartRef.current?.getEchartsInstance();
     if (!inst) return;
     // Read the current x-axis extent (in ms) directly from the model — this

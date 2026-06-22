@@ -30,6 +30,12 @@ import { usePaletteId } from '../state/paletteStore';
 import type { SelectedItem } from './TraceApp';
 import { DEFAULT_OPTIMIZED_BINS, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { LIVE_RETENTION_DEFAULT_MS, type LiveSeriesResult } from '../hooks/useLiveSeries';
+import {
+  DEFAULT_REFRESH_INTERVAL_S,
+  MIN_REFRESH_S,
+  MAX_REFRESH_S,
+  clampInterval,
+} from '../hooks/useAutoScrollTimers';
 import { ArchiverPicker } from './ArchiverPicker';
 import { usePVSearch } from '../hooks/usePVSearch';
 import { PanelRail } from './PanelRail';
@@ -1337,6 +1343,37 @@ function PlotGeneralTab({
             <SelectItem value="custom" text="Custom Range..." />
           </Select>
         </div>
+        {plot.xAxis.timeRange !== 'custom' && (
+          <>
+            <div className="prop-row">
+              <Toggle
+                id="autoscroll"
+                labelText="Autoscroll (track now)"
+                labelA="Off"
+                labelB="On"
+                toggled={plot.autoScroll !== false}
+                onToggle={(checked) => onUpdate({ autoScroll: checked })}
+                size="sm"
+              />
+            </div>
+            <div className="prop-row">
+              <NumberInput
+                id="refresh-interval"
+                label="Refresh interval (s)"
+                min={MIN_REFRESH_S}
+                max={MAX_REFRESH_S}
+                step={1}
+                value={plot.refreshIntervalS ?? DEFAULT_REFRESH_INTERVAL_S}
+                disabled={plot.autoScroll === false}
+                onChange={(_e, { value }) => {
+                  if (value === '' || value === undefined) return;
+                  onUpdate({ refreshIntervalS: clampInterval(Number(value)) });
+                }}
+                size="sm"
+              />
+            </div>
+          </>
+        )}
         {plot.xAxis.timeRange === 'custom' && (
           <>
             <div className="prop-row">
