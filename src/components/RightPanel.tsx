@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Settings, Radio, Archive, ChevronRight, DataTable } from '@carbon/icons-react';
 import {
   Button,
@@ -39,6 +39,9 @@ import {
 import { ArchiverPicker } from './ArchiverPicker';
 import { usePVSearch } from '../hooks/usePVSearch';
 import { PanelRail } from './PanelRail';
+import { validateFormula } from '../api/fox';
+import { CanopyError } from '../api/client';
+import { extractFormulaVars, resolveBindings } from '../formula';
 
 interface RightPanelProps {
   selectedItem: SelectedItem;
@@ -103,19 +106,29 @@ export function RightPanel({
   if (selectedTrace) {
     tabs.push({
       label: 'General',
-      render: () => (
-        <TraceGeneralTab
-          trace={selectedTrace}
-          plotTraces={activePlot.traces}
-          axes={activePlot.axes}
-          archiveResult={selectedTraceArchive}
-          liveResult={selectedTraceLive}
-          plotArchiver={activePlot.archiver}
-          onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)}
-          onSelectPv={(pv) => onSelectPv(selectedTrace.id, pv)}
-          onInspect={() => onInspectTrace(selectedTrace.id)}
-        />
-      ),
+      render: () =>
+        selectedTrace.kind === 'formula' ? (
+          <FormulaGeneralTab
+            trace={selectedTrace}
+            axes={activePlot.axes}
+            bindableTraces={activePlot.traces.filter(
+              (t) => t.id !== selectedTrace.id && t.kind !== 'formula' && !!t.pvName
+            )}
+            onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)}
+          />
+        ) : (
+          <TraceGeneralTab
+            trace={selectedTrace}
+            plotTraces={activePlot.traces}
+            axes={activePlot.axes}
+            archiveResult={selectedTraceArchive}
+            liveResult={selectedTraceLive}
+            plotArchiver={activePlot.archiver}
+            onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)}
+            onSelectPv={(pv) => onSelectPv(selectedTrace.id, pv)}
+            onInspect={() => onInspectTrace(selectedTrace.id)}
+          />
+        ),
     });
     tabs.push({
       label: 'Line',
@@ -212,6 +225,163 @@ export function RightPanel({
 }
 
 // ── Trace tabs ────────────────────────────────────────────────────────────────
+
+// Editor for a formula curve: an expression over {var} placeholders plus a
+// binding table mapping each variable to a PV-backed curve on the same plot.
+// Replaces PV traces' "PV Name + Data Sources" with Fox-specific controls.
+function FormulaGeneralTab({
+  trace,
+  axes,
+  bindableTraces,
+  onUpdate,
+}: {
+  trace: PVTrace;
+  axes: Axis[];
+  bindableTraces: PVTrace[];
+  onUpdate: (u: Partial<PVTrace>) => void;
+}) {
+  const expression = trace.expression ?? '';
+  const bindings = trace.bindings ?? {};
+  const vars = extractFormulaVars(expression);
+  const unbound = vars.filter((v) => !bindings[v]);
+  const hasExpr = expression.trim().length > 0;
+
+  // Debounced live validation via Fox. Sends whatever bindings are resolved so
+  // far, so the server red-lines bad syntax (and missing bindings) as you type.
+  const [validation, setValidation] = useState<{ valid: boolean; errors: string[] } | null>(null);
+  const bindingKey = JSON.stringify(bindings);
+  useEffect(() => {
+    const expr = expression.trim();
+    if (!expr) return;
+    const ac = new AbortController();
+    const handle = setTimeout(() => {
+      validateFormula(
+        { kind: 'timeseries', expression: expr, bindings: resolveBindings(trace, bindableTraces) },
+        ac.signal
+      )
+        .then((r) => {
+          if (!ac.signal.aborted) setValidation({ valid: r.valid, errors: r.errors });
+        })
+        .catch((err: unknown) => {
+          if (ac.signal.aborted || (err as { name?: string }).name === 'AbortError') return;
+          const detail = err instanceof CanopyError ? err.detail : (err as Error).message;
+          setValidation({ valid: false, errors: [detail] });
+        });
+    }, 400);
+    return () => {
+      clearTimeout(handle);
+      ac.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- expression + serialized bindings capture the inputs
+  }, [expression, bindingKey]);
+
+  return (
+    <div>
+      <div className="prop-section">
+        <div className="prop-section__title">Identity</div>
+        <div className="prop-row">
+          <TextInput
+            id="formula-display-name"
+            labelText="Display Name"
+            value={trace.displayName}
+            onChange={(e) => onUpdate({ displayName: e.target.value })}
+            size="sm"
+          />
+        </div>
+        <div className="prop-row">
+          <Select
+            id="formula-y-axis"
+            labelText="Y-Axis"
+            value={trace.axisId}
+            onChange={(e) => onUpdate({ axisId: e.target.value })}
+            size="sm"
+          >
+            {axes.map((axis) => (
+              <SelectItem key={axis.id} value={axis.id} text={axis.name} />
+            ))}
+          </Select>
+        </div>
+        <div className="prop-row prop-row--inline">
+          <Toggle
+            id="formula-visible"
+            labelText="Visible"
+            labelA="Hidden"
+            labelB="Visible"
+            toggled={trace.visible}
+            onToggle={(checked) => onUpdate({ visible: checked })}
+            size="sm"
+          />
+        </div>
+      </div>
+
+      <div className="prop-divider" />
+
+      <div className="prop-section">
+        <div className="prop-section__title">Formula</div>
+        <p style={{ fontSize: 11, color: 'var(--cds-text-helper)', marginBottom: 8 }}>
+          Combine curves with <code style={{ color: '#78a9ff' }}>{'{x1}'}</code>-style variables,
+          e.g. <code style={{ color: '#78a9ff' }}>{'{x1} + {x2}'}</code>. Supports arithmetic and
+          math functions (<code>mean</code>, <code>ln</code>, <code>abs</code>, <code>sqrt</code>,
+          …).
+        </p>
+        <textarea
+          className="prop-code-area"
+          placeholder="{x1} + {x2}"
+          rows={3}
+          style={{ width: '100%' }}
+          value={expression}
+          onChange={(e) => onUpdate({ expression: e.target.value })}
+          spellCheck={false}
+        />
+        {hasExpr && validation && !validation.valid && validation.errors.length > 0 && (
+          <div style={{ fontSize: 11, color: 'var(--cds-text-error)', marginTop: 6 }}>
+            {validation.errors.join('; ')}
+          </div>
+        )}
+        {hasExpr && validation && validation.valid && unbound.length === 0 && (
+          <div style={{ fontSize: 11, color: 'var(--cds-support-success)', marginTop: 6 }}>
+            Valid
+          </div>
+        )}
+      </div>
+
+      <div className="prop-divider" />
+
+      <div className="prop-section">
+        <div className="prop-section__title">Variables</div>
+        {vars.length === 0 ? (
+          <p style={{ fontSize: 11, color: 'var(--cds-text-helper)' }}>
+            Add a <code style={{ color: '#78a9ff' }}>{'{var}'}</code> to the formula to bind it to a
+            curve.
+          </p>
+        ) : bindableTraces.length === 0 ? (
+          <p style={{ fontSize: 11, color: 'var(--cds-text-helper)' }}>
+            No PV curves on this plot to reference. Add a PV trace first.
+          </p>
+        ) : (
+          vars.map((v) => (
+            <div className="prop-row" key={v}>
+              <Select
+                id={`formula-bind-${v}`}
+                labelText={`{${v}}`}
+                value={bindings[v] ?? ''}
+                onChange={(e) => onUpdate({ bindings: { ...bindings, [v]: e.target.value } })}
+                size="sm"
+                invalid={!bindings[v]}
+                invalidText="Unbound variable"
+              >
+                <SelectItem value="" text="— select curve —" />
+                {bindableTraces.map((bt) => (
+                  <SelectItem key={bt.id} value={bt.id} text={bt.displayName || bt.pvName} />
+                ))}
+              </Select>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
 
 function TraceGeneralTab({
   trace,
@@ -399,58 +569,6 @@ function TraceGeneralTab({
             size="sm"
           />
         </div>
-      </div>
-
-      <div className="prop-divider" />
-
-      <div className="prop-section">
-        <div className="prop-section__title">Formula / Transform</div>
-        <p style={{ fontSize: 11, color: 'var(--cds-text-helper)', marginBottom: 10 }}>
-          Apply a mathematical transformation to trace data.
-        </p>
-        <div style={{ marginBottom: 8 }}>
-          <label
-            style={{
-              display: 'block',
-              fontSize: 11,
-              color: 'var(--cds-text-helper)',
-              marginBottom: 4,
-            }}
-          >
-            Formula
-          </label>
-          <textarea
-            className="prop-code-area"
-            placeholder="e.g., y * 1.5 + 10"
-            rows={3}
-            style={{ width: '100%' }}
-          />
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <p
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: 'var(--cds-text-secondary)',
-              marginBottom: 6,
-            }}
-          >
-            Available variables:
-          </p>
-          <div style={{ fontSize: 11, color: 'var(--cds-text-helper)', lineHeight: 1.8 }}>
-            <div>
-              <code style={{ color: '#78a9ff', fontSize: 12 }}>y</code>
-              {' — '}Current value
-            </div>
-            <div>
-              <code style={{ color: '#78a9ff', fontSize: 12 }}>t</code>
-              {' — '}Timestamp (ms)
-            </div>
-          </div>
-        </div>
-        <Button kind="primary" size="sm" style={{ width: '100%', maxWidth: 'none' }}>
-          Apply Transform
-        </Button>
       </div>
 
       <div className="prop-divider" />

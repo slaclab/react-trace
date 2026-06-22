@@ -20,6 +20,7 @@ import { useArchiveSeries, type ArchiveSeriesResult } from '../hooks/useArchiveS
 import { useLiveSeries, type LiveSeriesResult } from '../hooks/useLiveSeries';
 import { archiveStore } from '../state/archiveStore';
 import { useAutoScrollTimers } from '../hooks/useAutoScrollTimers';
+import { useFormulaSeries, type FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
 import { rangeToWindowNs } from '../api/time';
 import { fetchMetadata } from '../api/mole';
@@ -31,6 +32,8 @@ import { serializeWorkspace, deserializeWorkspace } from '../io/serialize';
 import { buildCsvFiles } from '../io/exportCsv';
 import { safeFilename, timestamp } from '../io/filename';
 import { makeId } from '../id';
+import { resolveFormulaSpec } from '../formula';
+import type { FormulaSpecDTO } from '../api/types';
 
 const BUG_REPORT_URL = 'https://forms.office.com/r/qV7BmK2xi9';
 const DOCS_URL = 'https://github.com/slaclab/react-trace#readme';
@@ -196,11 +199,18 @@ export function TraceApp() {
   const windowByTrace = new Map<string, TimeWindowNs>();
   // Each trace inherits its plot's default archiver unless it sets its own.
   const plotArchiverByTrace = new Map<string, string | undefined>();
+  // Resolved Fox spec per formula trace (bindings mapped to PV names); null when
+  // the formula isn't ready to evaluate (empty expression or an unbound variable).
+  const formulaSpecByTrace = new Map<string, FormulaSpecDTO | null>();
   for (const plot of plots) {
     const win = viewWindowByPlot.get(plot.id) ?? rangeToWindowNs(plot.xAxis.timeRange);
     for (const trace of plot.traces) {
       if (trace.useArchive) windowByTrace.set(trace.id, win);
       plotArchiverByTrace.set(trace.id, plot.archiver);
+      if (trace.kind === 'formula') {
+        windowByTrace.set(trace.id, win);
+        formulaSpecByTrace.set(trace.id, resolveFormulaSpec(trace, plot.traces));
+      }
     }
   }
 
@@ -209,6 +219,7 @@ export function TraceApp() {
   // / grid views all share one WebSocket. The hook handles add/remove of
   // subscriptions when traces toggle their `useLive` flag.
   const liveResults = useLiveSeries(allTraces);
+  const formulaResults = useFormulaSeries(allTraces, formulaSpecByTrace, windowByTrace);
 
   const handleViewWindowChange = (plotId: string, window: TimeWindowNs) => {
     setViewWindowByPlot((prev) => {
@@ -222,28 +233,37 @@ export function TraceApp() {
   };
 
   // Split the flat result maps per plot. Memoized on (plots, archiveResults,
-  // liveResults): live data drives frequent re-renders via useSyncExternalStore,
-  // and rebuilding these maps every render would churn the props passed into
-  // PlotArea / RightPanel. The hooks now return stable references when their
-  // data is unchanged, so this memo holds across live frames that don't touch
-  // the underlying series.
-  const { archiveResultsByPlot, liveResultsByPlot } = useMemo(() => {
+  // liveResults, formulaResults): live/formula data drives frequent re-renders
+  // via useSyncExternalStore, and rebuilding these maps every render would churn
+  // the props passed into PlotArea / RightPanel. The hooks now return stable
+  // references when their data is unchanged, so this memo holds across frames
+  // that don't touch the underlying series.
+  const { archiveResultsByPlot, liveResultsByPlot, formulaResultsByPlot } = useMemo(() => {
     const archive = new Map<string, Map<string, ArchiveSeriesResult>>();
     const live = new Map<string, Map<string, LiveSeriesResult>>();
+    const formula = new Map<string, Map<string, FormulaSeriesResult>>();
     for (const plot of plots) {
       const a = new Map<string, ArchiveSeriesResult>();
       const l = new Map<string, LiveSeriesResult>();
+      const f = new Map<string, FormulaSeriesResult>();
       for (const trace of plot.traces) {
         const ar = archiveResults.get(trace.id);
         if (ar) a.set(trace.id, ar);
         const lr = liveResults.get(trace.id);
         if (lr) l.set(trace.id, lr);
+        const fr = formulaResults.get(trace.id);
+        if (fr) f.set(trace.id, fr);
       }
       archive.set(plot.id, a);
       live.set(plot.id, l);
+      formula.set(plot.id, f);
     }
-    return { archiveResultsByPlot: archive, liveResultsByPlot: live };
-  }, [plots, archiveResults, liveResults]);
+    return {
+      archiveResultsByPlot: archive,
+      liveResultsByPlot: live,
+      formulaResultsByPlot: formula,
+    };
+  }, [plots, archiveResults, liveResults, formulaResults]);
 
   // Selecting an item also focuses its plot, so RightPanel / Data Insight (which
   // read `activePlot`) stay correct even when selecting across plots in grid view.
@@ -375,6 +395,38 @@ export function TraceApp() {
     };
     setPlots((prev) =>
       prev.map((p) => (p.id === plotId ? { ...p, traces: [...p.traces, newTrace] } : p))
+    );
+    selectItem({ type: 'trace', id, plotId });
+  };
+
+  const addFormula = (plotId: string, axisId: string) => {
+    const id = `formula-${Date.now()}`;
+    const colors = ['#0f62fe', '#ee5396', '#42be65', '#ff832b', '#a56eff', '#08bdba'];
+    const traceCount = plots.find((p) => p.id === plotId)?.traces.length ?? 0;
+    const newFormula: PVTrace = {
+      id,
+      kind: 'formula',
+      pvName: '',
+      displayName: 'New Formula',
+      color: colors[traceCount % colors.length],
+      visible: true,
+      axisId,
+      // Formula curves have no PV data source; their values come from Fox.
+      useLive: false,
+      updateRate: 'monitor',
+      useArchive: false,
+      expression: '',
+      bindings: {},
+      lineWidth: 2,
+      lineType: 'direct',
+      lineStyle: 'solid',
+      showSymbol: false,
+      symbolShape: 'circle',
+      symbolSize: 10,
+      data: [],
+    };
+    setPlots((prev) =>
+      prev.map((p) => (p.id === plotId ? { ...p, traces: [...p.traces, newFormula] } : p))
     );
     selectItem({ type: 'trace', id, plotId });
   };
@@ -802,6 +854,7 @@ export function TraceApp() {
               selectedItem={selectedItem}
               onSelectItem={selectItem}
               onAddTrace={addTrace}
+              onAddFormula={addFormula}
               onDeleteTrace={deleteTrace}
               onAddAxis={addAxis}
               onDeleteAxis={deleteAxis}
@@ -828,6 +881,7 @@ export function TraceApp() {
                   viewMode={viewMode}
                   archiveResultsByPlot={archiveResultsByPlot}
                   liveResultsByPlot={liveResultsByPlot}
+                  formulaResultsByPlot={formulaResultsByPlot}
                   onSetActivePlot={setActivePlotId}
                   onAddPlot={addPlot}
                   onRemovePlot={removePlot}
@@ -981,6 +1035,7 @@ export function TraceApp() {
                     fullscreen
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
                     liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
+                    formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
                     // eslint-disable-next-line react-hooks/refs -- ref is written from ECharts' finished event, not during render
                     onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
                   />
@@ -1049,6 +1104,7 @@ export function TraceApp() {
                   plot={plot}
                   archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
                   liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
+                  formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
                   onViewWindowChange={(w) => handleViewWindowChange(plot.id, w)}
                   initialViewWindowNs={viewWindowByPlot.get(plot.id)}
                   onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
