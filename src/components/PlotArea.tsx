@@ -425,12 +425,13 @@ export function SinglePlot({
           });
         }
 
+        const tracePoints = traceData.get(trace.id) ?? [];
         series.push({
           id: trace.id,
           name: trace.displayName,
           type: 'line',
           yAxisIndex,
-          data: traceData.get(trace.id) ?? [],
+          data: tracePoints,
           step: trace.lineType === 'step' ? 'end' : false,
           lineStyle: {
             color: trace.color,
@@ -448,6 +449,41 @@ export function SinglePlot({
           emphasis: { disabled: true },
         });
 
+        if (trace.showExtensionLine !== false && trace.lineStyle !== 'none') {
+          const last = tracePoints.at(-1);
+          if (last && last[0] < xAxisMax) {
+            const startTime = Math.max(last[0], xAxisMin);
+            // 2048 anchors so weakFilter always finds in-window points at any zoom depth.
+            const ANCHORS = 2048;
+            const data = Array.from({ length: ANCHORS }, (_, k): [number, number] => [
+              startTime + ((xAxisMax - startTime) * k) / (ANCHORS - 1),
+              last[1],
+            ]);
+            series.push({
+              id: `${trace.id}-extension`,
+              name: `${trace.displayName} (extension)`,
+              type: 'line',
+              yAxisIndex,
+              data,
+              lineStyle: {
+                color: trace.color,
+                width: trace.lineWidth,
+                type: 'dashed',
+                opacity: 0.7,
+              },
+              itemStyle: { color: trace.color },
+              symbol: 'none',
+              showSymbol: false,
+              showInLegend: false,
+              tooltip: { show: false },
+              silent: true,
+              animation: false,
+              z: baseZ + 1,
+              emphasis: { disabled: true },
+            });
+          }
+        }
+
         return series;
       });
     })(),
@@ -457,6 +493,9 @@ export function SinglePlot({
         zoomOnMouseWheel: true,
         moveOnMouseMove: true,
         moveOnMouseWheel: false,
+        // 'weakFilter' drops segments only when both endpoints are outside the
+        // window on the same side — extension lines survive any intersecting zoom.
+        filterMode: 'weakFilter',
         ...(seedZoom ?? {}),
       },
     ],

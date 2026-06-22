@@ -21,6 +21,8 @@ export interface PVTrace {
   // default — ECharts `step: 'end'`, matching the Python trace's stepMode="right").
   lineType: 'direct' | 'step';
   lineStyle: 'none' | 'solid' | 'dashed' | 'dotted' | 'dashDot' | 'dashDotDot';
+  // Defaults to true when undefined.
+  showExtensionLine?: boolean;
   // Symbol (data-point marker) appearance.
   showSymbol: boolean;
   symbolShape:
