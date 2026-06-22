@@ -499,12 +499,8 @@ export function SinglePlot({
         zoomOnMouseWheel: true,
         moveOnMouseMove: true,
         moveOnMouseWheel: false,
-        // 'weakFilter' keeps a segment whose ENDPOINTS straddle the window —
-        // only segments with both endpoints outside on the same side are
-        // dropped. The trace extension's 2-point segment survives any zoom
-        // that intersects it. Heavier series (main trace, archive band) still
-        // get pruned point-by-point, unlike 'none' which kept every point in
-        // the render pipeline and pegged interaction at wide ranges.
+        // 'weakFilter' drops segments only when both endpoints are outside the
+        // window on the same side — extension lines survive any intersecting zoom.
         filterMode: 'weakFilter',
         ...(seedZoom ?? {}),
       },
