@@ -22,7 +22,7 @@ import { archiveStore } from '../state/archiveStore';
 import { useAutoScrollTimers } from '../hooks/useAutoScrollTimers';
 import { useFormulaSeries, type FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
-import { rangeToWindowNs } from '../api/time';
+import { resolveTimeWindow } from '../api/time';
 import { fetchMetadata } from '../api/mole';
 import { useColorMode } from '../state/themeStore';
 import { usePaletteId } from '../state/paletteStore';
@@ -203,7 +203,7 @@ export function TraceApp() {
   // the formula isn't ready to evaluate (empty expression or an unbound variable).
   const formulaSpecByTrace = new Map<string, FormulaSpecDTO | null>();
   for (const plot of plots) {
-    const win = viewWindowByPlot.get(plot.id) ?? rangeToWindowNs(plot.xAxis.timeRange);
+    const win = viewWindowByPlot.get(plot.id) ?? resolveTimeWindow(plot.xAxis).window;
     for (const trace of plot.traces) {
       if (trace.useArchive) windowByTrace.set(trace.id, win);
       plotArchiverByTrace.set(trace.id, plot.archiver);
@@ -824,7 +824,7 @@ export function TraceApp() {
   // Each plot's current view window (pan/zoom) or its resolved relative range.
   const windowByPlotId = new Map<string, TimeWindowNs>();
   for (const p of plots) {
-    windowByPlotId.set(p.id, viewWindowByPlot.get(p.id) ?? rangeToWindowNs(p.xAxis.timeRange));
+    windowByPlotId.set(p.id, viewWindowByPlot.get(p.id) ?? resolveTimeWindow(p.xAxis).window);
   }
   // Keep the selected PV valid for the inspectable set; fall back to its first PV.
   const insightTraces = insightPlots.flatMap((p) => p.traces);

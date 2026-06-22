@@ -1,6 +1,7 @@
 import type { Plot, PVTrace, Axis } from '../types';
 import type { ColorMode } from '../state/themeStore';
 import { getPalette, colorForIndex, DEFAULT_PALETTE_ID } from '../palettes';
+import { parseSpanMs, toDatetimeLocal } from '../api/time';
 
 // Native save format — a superset of what's currently in app state plus a
 // schema version for forward compatibility. Bumping schemaVersion means the
@@ -83,8 +84,11 @@ function rehydratePlot(p: Plot): Plot {
   // opacity / tick font size. Migrate the old flag to both X and Y toggles and
   // default the rest so loaded plots render the same as before.
   const legacy = p as Plot & { showGridlines?: boolean };
+  // The month preset value changed from "-1m" (ambiguous with minutes) to "-1M".
+  const xAxis = p.xAxis?.timeRange === '-1m' ? { ...p.xAxis, timeRange: '-1M' } : p.xAxis;
   return {
     ...p,
+    xAxis,
     // Older saved workspaces predate showLegend; default to shown.
     showLegend: p.showLegend ?? true,
     showCrosshair: p.showCrosshair ?? true,
@@ -126,6 +130,41 @@ interface LegacyFormula {
   lineWidth?: number;
   lineStyle?: number;
   yAxisName?: string;
+}
+
+type LegacyTime = { start?: string; end?: string };
+
+// Map a legacy `time_axis` to our xAxis. A relative `start` ("-1d") with an
+// open end becomes a relative range; absolute bounds become a custom From/To
+// range (open end resolves to "now" at fetch time). Otherwise fall back to -1h.
+function mapLegacyTimeRange(time: LegacyTime, warnings: string[]): Plot['xAxis'] {
+  const { start, end } = time;
+  const endIsNow = !end || end === 'now';
+
+  if (start && start.startsWith('-') && parseSpanMs(start.slice(1)) !== null && endIsNow) {
+    // Normalize a bare minute span ("-1m") onto the new month/minute scheme is
+    // unnecessary here: legacy minutes already meant minutes, so keep as-is.
+    return { timeRange: start };
+  }
+
+  const startMs = start ? new Date(start).getTime() : NaN;
+  if (Number.isFinite(startMs)) {
+    const xAxis: Plot['xAxis'] = { timeRange: 'custom', timeFrom: toDatetimeLocal(startMs) };
+    if (!endIsNow) {
+      const endMs = new Date(end as string).getTime();
+      if (Number.isFinite(endMs)) {
+        xAxis.timeTo = toDatetimeLocal(endMs);
+      } else {
+        warnings.push(`Legacy end time '${end}' not understood; treated as 'now'.`);
+      }
+    }
+    return xAxis;
+  }
+
+  if (start || end) {
+    warnings.push(`Legacy time range not understood; defaulted to '-1h'.`);
+  }
+  return { timeRange: '-1h' };
 }
 
 function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
@@ -235,19 +274,10 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
     });
   });
 
-  // Time range: legacy stores absolute strings. We map the common case
-  // `end == "now"` to a relative range; otherwise fall back to "-1h" with
-  // a warning, since the absolute custom-range path needs more work.
-  const timeRange = '-1h';
-  if (legacyTime.end === 'now' && legacyTime.start) {
-    // No clean way to recover the original "-1h" intent from the start
-    // timestamp without parsing; default to -1h and warn.
-    warnings.push(
-      `Legacy time range '${legacyTime.start}' to 'now' approximated as '-1h' — adjust in plot settings.`
-    );
-  } else if (legacyTime.start || legacyTime.end) {
-    warnings.push(`Custom time range from legacy file not yet supported — defaulted to '-1h'.`);
-  }
+  // Time range: legacy stores either a relative span ("-1d") or absolute ISO
+  // timestamps in `start`/`end` (with `end` possibly "now"). Map relative spans
+  // straight through, and absolute bounds to a custom From/To range.
+  const xAxis = mapLegacyTimeRange(legacyTime, warnings);
 
   // Legacy stored X and Y gridline flags separately; map each to the plot's
   // X / Y gridline toggles.
@@ -263,7 +293,7 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
     gridStyle: 'solid',
     gridOpacity: 1,
     tickFontSize: 11,
-    xAxis: { timeRange },
+    xAxis,
     axes,
     traces,
   };
