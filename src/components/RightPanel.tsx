@@ -204,7 +204,19 @@ function TraceGeneralTab({
   onInspect: () => void;
 }) {
   const [pvQuery, setPvQuery] = useState<string>(trace.pvName);
-  const search = usePVSearch(pvQuery, trace.archiver ?? plotArchiver);
+  // Reset the local query when the panel switches to a different trace, so the
+  // previous trace's typed-but-uncommitted text doesn't leak across. (useState
+  // only seeds on first mount; switching traces reuses the same component.)
+  const [prevTraceId, setPrevTraceId] = useState(trace.id);
+  if (trace.id !== prevTraceId) {
+    setPrevTraceId(trace.id);
+    setPvQuery(trace.pvName);
+  }
+  // While the query still equals the committed PV name (i.e. the user hasn't
+  // typed anything new), don't search; an empty pattern keeps us from
+  // re-fetching matches for the already-selected PV on every focus.
+  const searchPattern = pvQuery === trace.pvName ? '' : pvQuery;
+  const search = usePVSearch(searchPattern, trace.archiver ?? plotArchiver);
   const items: string[] = (() => {
     const seen = new Set<string>();
     const out: string[] = [];
@@ -225,6 +237,7 @@ function TraceGeneralTab({
   const liveStatus = liveResult?.status ?? 'idle';
   const liveConnected = liveResult?.connected ?? false;
   const liveSeverity = liveResult?.severity ?? null;
+  const liveError = liveResult?.error ?? null;
   const liveStatusLabel = !trace.useLive
     ? 'Disabled'
     : liveStatus === 'connecting'
@@ -286,19 +299,26 @@ function TraceGeneralTab({
             itemToString={(item: string | null | undefined) => item ?? ''}
             selectedItem={trace.pvName || null}
             onInputChange={(text: string) => {
+              // Track keystrokes locally to drive the search dropdown only.
+              // Committing pvName here would fire an archive fetch + live
+              // subscription for every partial string (`c`, `ca`, ...), flooding
+              // the backend with lookups for nonexistent PVs. We commit on
+              // selection / Enter instead (onChange).
               setPvQuery(text);
-              if (text) onUpdate({ pvName: text });
             }}
             onChange={({ selectedItem }: { selectedItem?: string | null }) => {
-              if (selectedItem) {
-                setPvQuery(selectedItem);
+              // Carbon fires onChange on selection and on Enter with a custom
+              // value. Fall back to the trimmed typed query for the latter.
+              const pv = (selectedItem || pvQuery).trim();
+              if (pv) {
+                setPvQuery(pv);
                 onUpdate({
-                  pvName: selectedItem,
+                  pvName: pv,
                   displayName:
                     !trace.displayName ||
                     trace.displayName === trace.pvName ||
                     trace.displayName === 'New Trace'
-                      ? selectedItem
+                      ? pv
                       : trace.displayName,
                 });
               }
@@ -587,6 +607,11 @@ function TraceGeneralTab({
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
                   <span>Severity:</span>
                   <span style={{ color: severityColor(liveSeverity) }}>{liveSeverity}</span>
+                </div>
+              )}
+              {liveError && (
+                <div style={{ marginTop: 4, color: 'var(--cds-text-error)' }}>
+                  {liveError.message}
                 </div>
               )}
             </>

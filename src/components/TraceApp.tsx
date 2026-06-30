@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Panel,
   Group as PanelGroup,
@@ -197,20 +197,29 @@ export function TraceApp() {
     });
   };
 
-  const archiveResultsByPlot = new Map<string, Map<string, ArchiveSeriesResult>>();
-  const liveResultsByPlot = new Map<string, Map<string, LiveSeriesResult>>();
-  for (const plot of plots) {
-    const a = new Map<string, ArchiveSeriesResult>();
-    const l = new Map<string, LiveSeriesResult>();
-    for (const trace of plot.traces) {
-      const ar = archiveResults.get(trace.id);
-      if (ar) a.set(trace.id, ar);
-      const lr = liveResults.get(trace.id);
-      if (lr) l.set(trace.id, lr);
+  // Split the flat result maps per plot. Memoized on (plots, archiveResults,
+  // liveResults): live data drives frequent re-renders via useSyncExternalStore,
+  // and rebuilding these maps every render would churn the props passed into
+  // PlotArea / RightPanel. The hooks now return stable references when their
+  // data is unchanged, so this memo holds across live frames that don't touch
+  // the underlying series.
+  const { archiveResultsByPlot, liveResultsByPlot } = useMemo(() => {
+    const archive = new Map<string, Map<string, ArchiveSeriesResult>>();
+    const live = new Map<string, Map<string, LiveSeriesResult>>();
+    for (const plot of plots) {
+      const a = new Map<string, ArchiveSeriesResult>();
+      const l = new Map<string, LiveSeriesResult>();
+      for (const trace of plot.traces) {
+        const ar = archiveResults.get(trace.id);
+        if (ar) a.set(trace.id, ar);
+        const lr = liveResults.get(trace.id);
+        if (lr) l.set(trace.id, lr);
+      }
+      archive.set(plot.id, a);
+      live.set(plot.id, l);
     }
-    archiveResultsByPlot.set(plot.id, a);
-    liveResultsByPlot.set(plot.id, l);
-  }
+    return { archiveResultsByPlot: archive, liveResultsByPlot: live };
+  }, [plots, archiveResults, liveResults]);
 
   // Selecting an item also focuses its plot, so RightPanel / Data Insight (which
   // read `activePlot`) stay correct even when selecting across plots in grid view.

@@ -1,17 +1,18 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { liveStore } from '../state/liveStore';
-import type { LiveEntry, LivePoint, LiveStatus } from '../state/liveStore';
+import type { LiveEntry, LiveError, LivePoint, LiveStatus } from '../state/liveStore';
 import type { PVTrace } from '../types';
 
 export const LIVE_RETENTION_DEFAULT_MS = 5 * 60_000;
 
-export type { LivePoint, LiveStatus } from '../state/liveStore';
+export type { LivePoint, LiveStatus, LiveError } from '../state/liveStore';
 
 export interface LiveSeriesResult {
   status: LiveStatus;
   connected: boolean;
   severity: LiveEntry['severity'];
   latest: LiveEntry['latest'];
+  error: LiveError | null;
   points: readonly LivePoint[];
 }
 
@@ -20,19 +21,33 @@ const IDLE_RESULT: LiveSeriesResult = {
   connected: false,
   severity: null,
   latest: null,
+  error: null,
   points: [],
 };
 
 const EMPTY_SERIES = new Map<string, LiveSeriesResult>();
 
+// Cache the per-entry result keyed by the source LiveEntry. The store hands
+// back a stable LiveEntry reference when a PV is unchanged, so mapping it to a
+// memoized LiveSeriesResult keeps that stability through to PlotArea /
+// RightPanel: an unchanged entry yields the same result object across frames.
+// Module-scoped because `useLiveSeries` is mounted once at the app level; a
+// WeakMap lets entries for released PVs be collected.
+const resultCache = new WeakMap<LiveEntry, LiveSeriesResult>();
+
 function entryToResult(entry: LiveEntry): LiveSeriesResult {
-  return {
+  const cached = resultCache.get(entry);
+  if (cached) return cached;
+  const result: LiveSeriesResult = {
     status: entry.status,
     connected: entry.connected,
     severity: entry.severity,
     latest: entry.latest,
+    error: entry.error,
     points: entry.points,
   };
+  resultCache.set(entry, result);
+  return result;
 }
 
 export function useLiveSeries(traces: PVTrace[]): Map<string, LiveSeriesResult> {
@@ -62,12 +77,20 @@ export function useLiveSeries(traces: PVTrace[]): Map<string, LiveSeriesResult> 
 
   const snapshot = useSyncExternalStore(liveStore.subscribe, liveStore.getSnapshot);
 
-  if (snapshot.size === 0) return EMPTY_SERIES;
-
-  const out = new Map<string, LiveSeriesResult>();
-  for (const trace of traces) {
-    const entry = snapshot.get(trace.id);
-    out.set(trace.id, entry ? entryToResult(entry) : IDLE_RESULT);
-  }
-  return out;
+  // Memoize the output Map so we return a stable reference when neither the
+  // store snapshot nor the trace order changed. Live data drives frequent
+  // re-renders via useSyncExternalStore; an unchanged frame thus yields the
+  // same Map and downstream React.memo short-circuits instead of re-rendering.
+  const ids = traces.map((t) => t.id).join('|');
+  return useMemo(() => {
+    if (snapshot.size === 0) return EMPTY_SERIES;
+    const out = new Map<string, LiveSeriesResult>();
+    for (const trace of traces) {
+      const entry = snapshot.get(trace.id);
+      out.set(trace.id, entry ? entryToResult(entry) : IDLE_RESULT);
+    }
+    return out;
+    // `traces` churns every render; `ids` captures the meaningful subset.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot, ids]);
 }

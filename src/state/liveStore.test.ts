@@ -146,31 +146,44 @@ describe('LiveStore', () => {
     ]);
   });
 
-  it('evicts samples older than the longest active retention', () => {
+  it('evicts samples older than the longest active retention once slack is exceeded', () => {
     const store = new LiveStore();
     store.watch('t1', 'BAR', 1_000); // 1s retention
     const ws = MockWebSocket.instances[0];
     ws.open();
 
     const t0 = Date.now();
-    ws.emit({
-      type: 'initial',
-      data: { BAR: pvValue('BAR', 1, t0) },
-      count: 1,
-    });
-    expect(store.getSnapshot().get('t1')!.points).toHaveLength(1);
+    // Push a batch of stale samples all timestamped at t0. Eviction is batched
+    // (deferred until the buffer overshoots the window by a slack margin), so
+    // we push well past that margin to force a trim pass.
+    const STALE = 300;
+    for (let i = 0; i < STALE; i++) {
+      ws.emit({
+        type: 'diff',
+        data: { BAR: pvValue('BAR', i, t0) },
+        count: 1,
+        timestamp: t0,
+      });
+    }
+    expect(store.getSnapshot().get('t1')!.points).toHaveLength(STALE);
 
-    // Advance system time past the retention window, then push a new sample.
+    // Advance past the retention window, then push enough fresh samples to
+    // cross the slack threshold and trigger eviction of the stale batch.
     vi.setSystemTime(new Date(t0 + 1_500));
-    ws.emit({
-      type: 'diff',
-      data: { BAR: pvValue('BAR', 2, t0 + 1_500) },
-      count: 1,
-      timestamp: t0 + 1_500,
-    });
+    const FRESH = 300;
+    for (let i = 0; i < FRESH; i++) {
+      ws.emit({
+        type: 'diff',
+        data: { BAR: pvValue('BAR', 1000 + i, t0 + 1_500) },
+        count: 1,
+        timestamp: t0 + 1_500,
+      });
+    }
     const points = store.getSnapshot().get('t1')!.points;
-    // Only the fresh sample remains; the t0 sample is now older than 1s.
-    expect(points).toEqual([{ time: t0 + 1_500, value: 2 }]);
+    // The t0 batch is older than 1s and has been evicted; only the fresh
+    // samples (all at t0 + 1_500) remain.
+    expect(points).toHaveLength(FRESH);
+    expect(points.every((p) => p.time === t0 + 1_500)).toBe(true);
   });
 
   it('marks PVs disconnected on socket close and re-subscribes on reopen', () => {
@@ -215,5 +228,56 @@ describe('LiveStore', () => {
     const entry = store.getSnapshot().get('t1')!;
     expect(entry.latest?.value).toBe('OPERATIONAL');
     expect(entry.points).toEqual([]);
+  });
+
+  it('surfaces ws error frames on the entry and clears them on a clean reopen', () => {
+    const store = new LiveStore();
+    store.watch('t1', 'ERR', 60_000);
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+    expect(store.getSnapshot().get('t1')!.error).toBeNull();
+
+    ws.emit({ type: 'error', code: 'BACKEND_DOWN', message: 'archiver unreachable' });
+    expect(store.getSnapshot().get('t1')!.error).toEqual({
+      code: 'BACKEND_DOWN',
+      message: 'archiver unreachable',
+    });
+
+    // A clean reconnect clears the error.
+    ws.close();
+    vi.advanceTimersByTime(1_000);
+    const ws2 = MockWebSocket.instances[1];
+    ws2.open();
+    expect(store.getSnapshot().get('t1')!.error).toBeNull();
+  });
+
+  it('reuses the same entry reference when a PV is unchanged between frames', () => {
+    const store = new LiveStore();
+    store.watch('t1', 'AAA', 60_000);
+    store.watch('t2', 'BBB', 60_000);
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+
+    const t0 = Date.now();
+    ws.emit({
+      type: 'initial',
+      data: { AAA: pvValue('AAA', 1, t0), BBB: pvValue('BBB', 1, t0) },
+      count: 2,
+    });
+    const first = store.getSnapshot();
+    const aBefore = first.get('t1')!;
+    const bBefore = first.get('t2')!;
+
+    // A frame touching only AAA should leave BBB's entry object identical, so
+    // downstream React.memo / shallow checks for the BBB trace short-circuit.
+    ws.emit({
+      type: 'diff',
+      data: { AAA: pvValue('AAA', 2, t0 + 100) },
+      count: 1,
+      timestamp: t0 + 100,
+    });
+    const second = store.getSnapshot();
+    expect(second.get('t1')).not.toBe(aBefore); // AAA changed -> new entry
+    expect(second.get('t2')).toBe(bBefore); // BBB unchanged -> same entry
   });
 });
