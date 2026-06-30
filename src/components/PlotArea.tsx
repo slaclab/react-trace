@@ -571,6 +571,7 @@ export function SinglePlot({
       textStyle: { color: theme.legend, fontSize: 11 },
       inactiveColor: theme.tooltipMuted,
       data: visibleTraces.map((t) => t.displayName),
+      selectedMode: false, // legend clicks aren't wired to trace.visible --> disable to + avoid drift
     },
   };
 
