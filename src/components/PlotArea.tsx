@@ -3,6 +3,7 @@ import ReactECharts from 'echarts-for-react';
 import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
 import type { Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
+import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs, rangeToWindowNs } from '../api/time';
 import { echartsLineType, echartsSymbol } from '../curveStyle';
@@ -85,6 +86,7 @@ interface PlotAreaProps {
   activePlotId: string;
   viewMode: 'tabs' | 'grid';
   archiveResultsByPlot: Map<string, Map<string, ArchiveSeriesResult>>;
+  liveResultsByPlot: Map<string, Map<string, LiveSeriesResult>>;
   onSetActivePlot: (id: string) => void;
   onAddPlot: () => void;
   onRemovePlot: (id: string) => void;
@@ -118,6 +120,7 @@ function DetachedPlaceholder({ title, onReattach }: { title: string; onReattach:
 interface SinglePlotProps {
   plot: Plot;
   archiveResults: Map<string, ArchiveSeriesResult>;
+  liveResults: Map<string, LiveSeriesResult>;
   onViewWindowChange?: (window: TimeWindowNs) => void;
   /**
    * Last known visible window from a prior mount of this plot. Seeds the inside
@@ -156,13 +159,33 @@ function formatTimeOffset(deltaMs: number): string {
 
 function traceLineData(
   trace: PVTrace,
-  archive: ArchiveSeriesResult | undefined
+  archive: ArchiveSeriesResult | undefined,
+  live: LiveSeriesResult | undefined
 ): [number, number][] {
-  // The store keeps the last good buffer around across refetches, so this is
-  // a single read with no anti-flicker shim.
-  if (trace.useArchive && archive && archive.mean.length > 0) {
-    return archive.mean.map((p) => [p.time, p.value]);
+  // Mirror old Trace's independent toggles. Archive feeds the past, live
+  // feeds the present; with both on, archive runs up to the last archive
+  // sample and live takes over afterwards (de-duped at the seam).
+  const archivePts =
+    trace.useArchive && archive && archive.mean.length > 0
+      ? archive.mean.map((p): [number, number] => [p.time, p.value])
+      : null;
+  const livePts =
+    trace.useLive && live && live.points.length > 0
+      ? live.points.map((p): [number, number] => [p.time, p.value])
+      : null;
+
+  if (archivePts && livePts) {
+    const seamMs = archivePts[archivePts.length - 1][0];
+    let head = 0;
+    while (head < livePts.length && livePts[head][0] <= seamMs) head++;
+    return head === 0 ? archivePts.concat(livePts) : archivePts.concat(livePts.slice(head));
   }
+  if (archivePts) return archivePts;
+  if (livePts) return livePts;
+  // Live-capable trace that has no live yet (pre-connect or no samples) and
+  // no archive: render nothing rather than the mock seed. Mock data stays
+  // for traces with neither toggle on, since there's no other source to show.
+  if (trace.useLive || trace.useArchive) return [];
   return trace.data.map((p) => [p.time, p.value]);
 }
 
@@ -191,6 +214,7 @@ function nearestSample(
 export function SinglePlot({
   plot,
   archiveResults,
+  liveResults,
   onViewWindowChange,
   initialViewWindowNs,
   onAxisRangesChange,
@@ -309,7 +333,10 @@ export function SinglePlot({
   // tooltip formatter both read from this map. Sorted ascending by time.
   const traceData = new Map<string, [number, number][]>();
   for (const trace of visibleTraces) {
-    traceData.set(trace.id, traceLineData(trace, archiveResults.get(trace.id)));
+    traceData.set(
+      trace.id,
+      traceLineData(trace, archiveResults.get(trace.id), liveResults.get(trace.id))
+    );
   }
 
   const option = {
@@ -560,12 +587,14 @@ export function SinglePlot({
 }
 
 const EMPTY_RESULTS: Map<string, ArchiveSeriesResult> = new Map();
+const EMPTY_LIVE_RESULTS: Map<string, LiveSeriesResult> = new Map();
 
 export function PlotArea({
   plots,
   activePlotId,
   viewMode,
   archiveResultsByPlot,
+  liveResultsByPlot,
   onSetActivePlot,
   onAddPlot,
   onRemovePlot,
@@ -686,6 +715,7 @@ export function PlotArea({
               key={activePlot.id}
               plot={activePlot}
               archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
+              liveResults={liveResultsByPlot.get(activePlot.id) ?? EMPTY_LIVE_RESULTS}
               onViewWindowChange={
                 onViewWindowChange ? (w) => onViewWindowChange(activePlot.id, w) : undefined
               }
@@ -739,6 +769,7 @@ export function PlotArea({
                   <SinglePlot
                     plot={plot}
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
+                    liveResults={liveResultsByPlot.get(plot.id) ?? EMPTY_LIVE_RESULTS}
                     onViewWindowChange={
                       onViewWindowChange ? (w) => onViewWindowChange(plot.id, w) : undefined
                     }

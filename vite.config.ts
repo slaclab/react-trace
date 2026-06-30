@@ -21,6 +21,23 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        // Hare lives behind the same backend host. WebSocket upgrades for the
+        // live-PV stream go through this proxy with `ws: true`. The same
+        // X-API-Key injection covers both the HTTP and the WS upgrade path so
+        // the bundle never holds the key.
+        '/hare': {
+          target,
+          changeOrigin: true,
+          ws: true,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
+            });
+            proxy.on('proxyReqWs', (proxyReq) => {
+              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
+            });
+          },
+        },
       },
     },
     test: {

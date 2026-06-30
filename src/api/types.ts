@@ -84,3 +84,53 @@ export interface ErrorEnvelope {
   code: string;
   detail: string;
 }
+
+// ── Hare (live PV) DTOs ──────────────────────────────────────────────────────
+// Source: canopy.contracts.pv.PVValue + canopy.hare.api.v1.ws frame schema.
+// `tsNs` matches Mole's Sample.tsNs so live and archive share one time domain.
+
+export type PVScalarValue = number | string | boolean | null;
+export type PVValueType = PVScalarValue | PVScalarValue[];
+
+export interface PVValueDTO {
+  pv: string;
+  value: PVValueType;
+  severity: AlarmSeverity;
+  tsNs: number;
+  connected: boolean;
+  units: string | null;
+  precision: number | null;
+  error: string | null;
+}
+
+export interface WsInitialFrame {
+  type: 'initial';
+  data: Record<string, PVValueDTO>;
+  count: number;
+}
+
+export interface WsDiffFrame {
+  type: 'diff';
+  data: Record<string, PVValueDTO>;
+  count: number;
+  timestamp: number;
+}
+
+export interface WsHeartbeatFrame {
+  type: 'heartbeat';
+  timestamp: number;
+  backend: string | null;
+}
+
+export interface WsPongFrame {
+  type: 'pong';
+  timestamp: number;
+}
+
+export interface WsErrorFrame {
+  type: 'error';
+  code: string;
+  message: string;
+}
+
+export type WsFrame = WsInitialFrame | WsDiffFrame | WsHeartbeatFrame | WsPongFrame | WsErrorFrame;
