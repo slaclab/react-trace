@@ -1136,6 +1136,17 @@ function PlotGeneralTab({ plot, onUpdate }: { plot: Plot; onUpdate: (u: Partial<
             </Select>
           </div>
         )}
+        <div className="prop-row prop-row--inline">
+          <Toggle
+            id="show-crosshair"
+            labelText="Show Crosshair"
+            labelA="Off"
+            labelB="On"
+            toggled={plot.showCrosshair}
+            onToggle={(checked) => onUpdate({ showCrosshair: checked })}
+            size="sm"
+          />
+        </div>
         <div className="prop-row">
           <ArchiverPicker
             value={plot.archiver}
@@ -1217,6 +1228,9 @@ function PlotCodeTab({ plot }: { plot: Plot }) {
 
   // Legend
   legend: { show: ${plot.showLegend} },
+
+  // Crosshair
+  axisPointer: { type: '${plot.showCrosshair ? 'cross' : 'none'}' },
 
   // Composition
   axes: ${plot.axes.length},
