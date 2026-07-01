@@ -61,20 +61,27 @@ export function DataInsightTool({
   const multiPlot = plots.length > 1;
   const selected = inspectable.find((x) => x.trace.id === selectedPv) ?? inspectable[0];
   const pv = selected?.trace.pvName;
+  const traceId = selected?.trace.id;
   const archiver = selected?.trace.archiver ?? selected?.plot.archiver;
   const windowNs = selected ? windowByPlotId.get(selected.plot.id) : undefined;
 
-  const { rows, meta, status, error, decimated, refetch } = useInsightData(pv, archiver, windowNs);
+  const { rows, meta, status, error, decimated, refetch } = useInsightData(
+    pv,
+    archiver,
+    windowNs,
+    traceId
+  );
 
   const totalPages = Math.max(1, Math.ceil(rows.length / ROWS_PER_PAGE));
   const [page, setPage] = useState(0);
-  // Reset the page to 0 whenever the underlying row set changes (new PV, new
-  // window, refetch). Comparing the previous rows reference during render and
-  // calling setState is the idiomatic React pattern for resetting state from
-  // a prop change without an effect.
-  const [prevRows, setPrevRows] = useState(rows);
-  if (prevRows !== rows) {
-    setPrevRows(rows);
+  // Reset to the first page when the selected PV changes — not when the row set
+  // merely grows from streaming live samples, which would otherwise yank the
+  // user back to page 1 on every incoming sample. Comparing the previous value
+  // during render and calling setState is the idiomatic React pattern for
+  // resetting state from a prop change without an effect.
+  const [prevTraceId, setPrevTraceId] = useState(traceId);
+  if (prevTraceId !== traceId) {
+    setPrevTraceId(traceId);
     setPage(0);
   }
   const safePage = Math.min(page, totalPages - 1);

@@ -110,7 +110,7 @@ describe('LiveStore', () => {
     expect(entry).toBeDefined();
     expect(entry!.connected).toBe(true);
     expect(entry!.severity).toBe('NO_ALARM');
-    expect(entry!.points).toEqual([{ time: tsMs, value: 1.5 }]);
+    expect(entry!.points).toEqual([{ time: tsMs, value: 1.5, severity: 'NO_ALARM' }]);
 
     ws.emit({
       type: 'diff',
@@ -119,8 +119,34 @@ describe('LiveStore', () => {
       timestamp: tsMs + 100,
     });
     expect(store.getSnapshot().get('t1')!.points).toEqual([
-      { time: tsMs, value: 1.5 },
-      { time: tsMs + 100, value: 2.25 },
+      { time: tsMs, value: 1.5, severity: 'NO_ALARM' },
+      { time: tsMs + 100, value: 2.25, severity: 'NO_ALARM' },
+    ]);
+  });
+
+  it('retains per-sample severity on each buffered point', () => {
+    const store = new LiveStore();
+    store.watch('t1', 'SEV', 60_000);
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+
+    const tsMs = Date.now();
+    ws.emit({
+      type: 'initial',
+      data: { SEV: { ...pvValue('SEV', 1, tsMs), severity: 'MINOR' } },
+      count: 1,
+    });
+    ws.emit({
+      type: 'diff',
+      data: { SEV: { ...pvValue('SEV', 2, tsMs + 100), severity: 'MAJOR' } },
+      count: 1,
+      timestamp: tsMs + 100,
+    });
+
+    // Each point keeps the severity reported with it, not just the PV's latest.
+    expect(store.getSnapshot().get('t1')!.points).toEqual([
+      { time: tsMs, value: 1, severity: 'MINOR' },
+      { time: tsMs + 100, value: 2, severity: 'MAJOR' },
     ]);
   });
 

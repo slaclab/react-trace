@@ -11,6 +11,9 @@ import type { AlarmSeverity, PVValueDTO, WsFrame } from '../api/types';
 export interface LivePoint {
   time: number;
   value: number;
+  // Alarm severity reported alongside this sample. Retained per-point so the
+  // Data Insight Tool can show live-sample severity, not just the PV's latest.
+  severity: AlarmSeverity;
 }
 
 export type LiveStatus = 'idle' | 'connecting' | 'connected' | 'disconnected';
@@ -271,7 +274,7 @@ export class LiveStore {
     state.severity = v.severity;
     state.rev++;
     if (typeof v.value === 'number' && Number.isFinite(v.value)) {
-      state.points.push({ time: nsToMs(v.tsNs), value: v.value });
+      state.points.push({ time: nsToMs(v.tsNs), value: v.value, severity: v.severity });
       this.trim(state);
     }
   }
