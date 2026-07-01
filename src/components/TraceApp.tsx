@@ -19,6 +19,8 @@ import { useLiveSeries, type LiveSeriesResult } from '../hooks/useLiveSeries';
 import type { TimeWindowNs } from '../api/time';
 import { rangeToWindowNs } from '../api/time';
 import { useColorMode } from '../state/themeStore';
+import { usePaletteId } from '../state/paletteStore';
+import { getPalette, colorForIndex } from '../palettes';
 import { downloadBlob, pickFile } from '../io/download';
 import { serializeWorkspace, deserializeWorkspace } from '../io/serialize';
 import { buildCsvFiles } from '../io/exportCsv';
@@ -156,6 +158,7 @@ export function TraceApp() {
     pv?: string;
   }>({ open: false, minimized: false, detached: false });
   const { colorMode, toggle: toggleTheme } = useColorMode();
+  const { paletteId } = usePaletteId();
   // Last viewport emitted by each plot's dataZoom. Drives the archive store's
   // window per trace; the store decides whether the change requires a fetch
   // based on its coverage check, so this map can be updated freely.
@@ -318,13 +321,12 @@ export function TraceApp() {
 
   const addTrace = (plotId: string, axisId: string) => {
     const id = `trace-${Date.now()}`;
-    const colors = ['#0f62fe', '#ee5396', '#42be65', '#ff832b', '#a56eff', '#08bdba'];
     const traceCount = plots.find((p) => p.id === plotId)?.traces.length ?? 0;
     const newTrace: PVTrace = {
       id,
       pvName: '',
       displayName: '', // traceLabel() falls back to pvName --> no default needed
-      color: colors[traceCount % colors.length],
+      color: colorForIndex(getPalette(paletteId), traceCount),
       visible: true,
       axisId,
       // New traces default to both sources on. Live is the headline; archive
@@ -365,6 +367,23 @@ export function TraceApp() {
             }
           : p
       )
+    );
+  };
+
+  const applyPalette = (palId: string, scope: { plotId: string; axisId?: string }) => {
+    const palette = getPalette(palId);
+    setPlots((prev) =>
+      prev.map((p) => {
+        if (p.id !== scope.plotId) return p;
+        let i = 0;
+        return {
+          ...p,
+          traces: p.traces.map((t) => {
+            if (scope.axisId && t.axisId !== scope.axisId) return t;
+            return { ...t, color: colorForIndex(palette, i++) };
+          }),
+        };
+      })
     );
   };
 
@@ -691,6 +710,7 @@ export function TraceApp() {
               onUpdateTrace={updateTrace}
               onUpdateAxis={updateAxis}
               onUpdatePlot={(updates) => updatePlot(activePlotId, updates)}
+              onApplyPalette={applyPalette}
               getAxisRange={getAxisRange}
               onInspectTrace={(id) => openInsight(id)}
               onCollapse={() => {

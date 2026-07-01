@@ -24,6 +24,8 @@ import {
   echartsLineType,
   echartsSymbol,
 } from '../curveStyle';
+import { PALETTES, getPalette } from '../palettes';
+import { usePaletteId } from '../state/paletteStore';
 import type { SelectedItem } from './TraceApp';
 import { DEFAULT_OPTIMIZED_BINS, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { LIVE_RETENTION_DEFAULT_MS, type LiveSeriesResult } from '../hooks/useLiveSeries';
@@ -40,6 +42,7 @@ interface RightPanelProps {
   onUpdateTrace: (traceId: string, updates: Partial<PVTrace>) => void;
   onUpdateAxis: (axisId: string, updates: Partial<Axis>) => void;
   onUpdatePlot: (updates: Partial<Plot>) => void;
+  onApplyPalette: (paletteId: string, scope: { plotId: string; axisId?: string }) => void;
   onInspectTrace: (traceId: string) => void;
   onCollapse: () => void;
   onExpand: () => void;
@@ -55,6 +58,7 @@ export function RightPanel({
   onUpdateTrace,
   onUpdateAxis,
   onUpdatePlot,
+  onApplyPalette,
   onInspectTrace,
   onCollapse,
   onExpand,
@@ -128,8 +132,10 @@ export function RightPanel({
       render: () => (
         <AxisGeneralTab
           axis={selectedAxis}
+          plotId={activePlot.id}
           getAxisRange={getAxisRange}
           onUpdate={(u) => onUpdateAxis(selectedAxis.id, u)}
+          onApplyPalette={onApplyPalette}
         />
       ),
     });
@@ -137,7 +143,9 @@ export function RightPanel({
   } else if (isPlotSelected) {
     tabs.push({
       label: 'General',
-      render: () => <PlotGeneralTab plot={activePlot} onUpdate={onUpdatePlot} />,
+      render: () => (
+        <PlotGeneralTab plot={activePlot} onUpdate={onUpdatePlot} onApplyPalette={onApplyPalette} />
+      ),
     });
     tabs.push({ label: 'Code', render: () => <PlotCodeTab plot={activePlot} /> });
   }
@@ -890,15 +898,73 @@ function TraceCodeTab({ trace, label }: { trace: PVTrace; label: string }) {
 
 // ── Axis tabs ─────────────────────────────────────────────────────────────────
 
+// Horizontal strip previewing a palette's colors, shown under the picker.
+function PaletteSwatches({ colors }: { colors: string[] }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: 1,
+        marginTop: 6,
+        borderRadius: 2,
+        overflow: 'hidden',
+        border: '1px solid var(--cds-border-subtle)',
+      }}
+    >
+      {colors.map((c, i) => (
+        <div key={`${c}-${i}`} title={c} style={{ flex: 1, height: 14, backgroundColor: c }} />
+      ))}
+    </div>
+  );
+}
+
+// Palette dropdown + live swatch preview. Carbon's Select can't render a color
+// swatch per option, so the preview strip sits beneath it.
+function PalettePicker({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (paletteId: string) => void;
+}) {
+  return (
+    <>
+      <Select
+        id={id}
+        labelText="Palette"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        size="sm"
+      >
+        {PALETTES.map((p) => (
+          <SelectItem key={p.id} value={p.id} text={p.label} />
+        ))}
+      </Select>
+      <PaletteSwatches colors={getPalette(value).colors} />
+    </>
+  );
+}
+
 function AxisGeneralTab({
   axis,
+  plotId,
   getAxisRange,
   onUpdate,
+  onApplyPalette,
 }: {
   axis: Axis;
+  plotId: string;
   getAxisRange: (axisId: string) => [number, number] | undefined;
   onUpdate: (u: Partial<Axis>) => void;
+  onApplyPalette: (paletteId: string, scope: { plotId: string; axisId?: string }) => void;
 }) {
+  // Which palette the "Apply to this axis" action uses. Seeded from the global
+  // default; changing it here is local to this apply action (it does not change
+  // the default new traces get).
+  const { paletteId: defaultPaletteId } = usePaletteId();
+  const [palette, setPalette] = useState(defaultPaletteId);
   // Toggling auto-scale off should leave the user on the same range they were
   // already seeing. Seed min/max from the displayed range only when the axis
   // has none yet, so re-toggling later doesn't clobber edited values.
@@ -997,6 +1063,22 @@ function AxisGeneralTab({
           />
         </div>
       </div>
+
+      <div className="prop-divider" />
+
+      <div className="prop-section">
+        <div className="prop-section__title">Color Palette</div>
+        <div className="prop-row">
+          <PalettePicker id="axis-palette" value={palette} onChange={setPalette} />
+        </div>
+        <Button
+          kind="tertiary"
+          size="sm"
+          onClick={() => onApplyPalette(palette, { plotId, axisId: axis.id })}
+        >
+          Apply to this axis
+        </Button>
+      </div>
     </div>
   );
 }
@@ -1048,7 +1130,18 @@ function AxisCodeTab({ axis }: { axis: Axis }) {
 
 // ── Plot tabs ─────────────────────────────────────────────────────────────────
 
-function PlotGeneralTab({ plot, onUpdate }: { plot: Plot; onUpdate: (u: Partial<Plot>) => void }) {
+function PlotGeneralTab({
+  plot,
+  onUpdate,
+  onApplyPalette,
+}: {
+  plot: Plot;
+  onUpdate: (u: Partial<Plot>) => void;
+  onApplyPalette: (paletteId: string, scope: { plotId: string; axisId?: string }) => void;
+}) {
+  // The Plot-tab picker controls the global default palette (persisted), so new
+  // traces follow it; the button additionally recolors existing traces now.
+  const { paletteId, setPaletteId } = usePaletteId();
   return (
     <div>
       <div className="prop-section">
@@ -1144,6 +1237,25 @@ function PlotGeneralTab({ plot, onUpdate }: { plot: Plot; onUpdate: (u: Partial<
             width="100%"
           />
         </div>
+      </div>
+
+      <div className="prop-divider" />
+
+      <div className="prop-section">
+        <div className="prop-section__title">Color Palette</div>
+        <div className="prop-row">
+          <PalettePicker id="plot-palette" value={paletteId} onChange={setPaletteId} />
+        </div>
+        <p style={{ fontSize: 11, color: 'var(--cds-text-helper)', margin: '0 0 8px' }}>
+          New traces are colored from this palette.
+        </p>
+        <Button
+          kind="tertiary"
+          size="sm"
+          onClick={() => onApplyPalette(paletteId, { plotId: plot.id })}
+        >
+          Apply to all traces
+        </Button>
       </div>
 
       <div className="prop-divider" />

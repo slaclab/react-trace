@@ -1,5 +1,6 @@
 import type { Plot, PVTrace, Axis } from '../types';
 import type { ColorMode } from '../state/themeStore';
+import { getPalette, colorForIndex, DEFAULT_PALETTE_ID } from '../palettes';
 
 // Native save format — a superset of what's currently in app state plus a
 // schema version for forward compatibility. Bumping schemaVersion means the
@@ -145,14 +146,16 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
     });
   }
 
-  const colors = ['#0f62fe', '#ee5396', '#42be65', '#ff832b', '#a56eff', '#08bdba'];
+  // Use the fixed default palette (not the user's persisted choice) so the same
+  // .trc file imports to the same fallback colors for everyone.
+  const palette = getPalette(DEFAULT_PALETTE_ID);
   const traces: PVTrace[] = legacyCurves.map((c, i) => {
     const axisId = (c.yAxisName && axisIdByName.get(c.yAxisName)) ?? axes[0].id;
     return {
       id: `trace-${i + 1}`,
       pvName: c.channel ?? '',
       displayName: c.name && c.name !== c.channel ? c.name : '', // blank --> traceLabel falls back to PV
-      color: c.color ?? colors[i % colors.length],
+      color: c.color ?? colorForIndex(palette, i),
       visible: true,
       axisId,
       useLive: c.liveData ?? false,
