@@ -80,6 +80,8 @@ export function deserializeWorkspace(text: string): DeserializeResult {
 function rehydratePlot(p: Plot): Plot {
   return {
     ...p,
+    // Older saved workspaces predate showLegend; default to shown.
+    showLegend: p.showLegend ?? true,
     traces: (p.traces ?? []).map((t) => ({ ...t, data: t.data ?? [] })),
     axes: p.axes ?? [],
   };
@@ -185,6 +187,7 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
     title: typeof legacyPlot.title === 'string' ? legacyPlot.title : 'Imported',
     backgroundColor:
       typeof legacyPlot.backgroundColor === 'string' ? legacyPlot.backgroundColor : '#161616',
+    showLegend: legacyPlot.legend !== false,
     showGridlines: legacyPlot.xGrid === true && legacyPlot.yGrid === true,
     gridStyle: 'solid',
     xAxis: { timeRange },

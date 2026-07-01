@@ -1101,6 +1101,17 @@ function PlotGeneralTab({ plot, onUpdate }: { plot: Plot; onUpdate: (u: Partial<
         </div>
         <div className="prop-row prop-row--inline">
           <Toggle
+            id="show-legend"
+            labelText="Show Legend"
+            labelA="Off"
+            labelB="On"
+            toggled={plot.showLegend}
+            onToggle={(checked) => onUpdate({ showLegend: checked })}
+            size="sm"
+          />
+        </div>
+        <div className="prop-row prop-row--inline">
+          <Toggle
             id="show-gridlines"
             labelText="Show Gridlines"
             labelA="Off"
@@ -1203,6 +1214,9 @@ function PlotCodeTab({ plot }: { plot: Plot }) {
     show: ${plot.showGridlines},
     lineStyle: { type: '${plot.gridStyle}' }
   },
+
+  // Legend
+  legend: { show: ${plot.showLegend} },
 
   // Composition
   axes: ${plot.axes.length},

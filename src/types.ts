@@ -60,6 +60,7 @@ export interface Plot {
   traces: PVTrace[];
   axes: Axis[];
   backgroundColor: string;
+  showLegend: boolean;
   showGridlines: boolean;
   gridStyle: 'solid' | 'dashed' | 'dotted';
   // Per-plot default archiver for this plot's traces; undefined means "use the
