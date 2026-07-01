@@ -7,6 +7,7 @@ import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs, rangeToWindowNs } from '../api/time';
 import { echartsLineType, echartsSymbol } from '../curveStyle';
+import { traceLabel } from '../traceLabel';
 import { useColorMode } from '../state/themeStore';
 
 interface ChartTheme {
@@ -223,6 +224,7 @@ export function SinglePlot({
   const theme = colorMode === 'dark' ? DARK_CHART_THEME : LIGHT_CHART_THEME;
   const visibleAxes = plot.axes.filter((a) => a.visible);
   const visibleTraces = plot.traces.filter((t) => t.visible);
+  const labels = new Map(plot.traces.map((t) => [t.id, traceLabel(t, plot.traces)]));
 
   const chartRef = useRef<ReactECharts>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -418,7 +420,7 @@ export function SinglePlot({
           const stackId = `band-${trace.id}`;
           series.push({
             id: `${trace.id}-band-min`,
-            name: `${trace.displayName} (min)`,
+            name: `${labels.get(trace.id)} (min)`,
             type: 'line',
             yAxisIndex,
             data: archive.band.map((p) => [p.time, p.min]),
@@ -435,7 +437,7 @@ export function SinglePlot({
           });
           series.push({
             id: `${trace.id}-band-max`,
-            name: `${trace.displayName} (max)`,
+            name: `${labels.get(trace.id)} (max)`,
             type: 'line',
             yAxisIndex,
             data: archive.band.map((p) => [p.time, p.max - p.min]),
@@ -455,7 +457,7 @@ export function SinglePlot({
         const tracePoints = traceData.get(trace.id) ?? [];
         series.push({
           id: trace.id,
-          name: trace.displayName,
+          name: labels.get(trace.id),
           type: 'line',
           yAxisIndex,
           data: tracePoints,
@@ -560,7 +562,7 @@ export function SinglePlot({
             ? `${formatTooltipValue(sample.value)} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
             : `<span style="color:${theme.tooltipMuted}">no data</span>`;
           lines.push(
-            `<span style="color:${trace.color}">${trace.displayName}</span>: ${valueCell}`
+            `<span style="color:${trace.color}">${labels.get(trace.id)}</span>: ${valueCell}`
           );
         }
         return `<div style="font-size:11px"><div style="color:${theme.tooltipMuted};margin-bottom:4px">${time}</div>${lines.join('<br/>')}</div>`;
@@ -570,7 +572,7 @@ export function SinglePlot({
       bottom: 8,
       textStyle: { color: theme.legend, fontSize: 11 },
       inactiveColor: theme.tooltipMuted,
-      data: visibleTraces.map((t) => t.displayName),
+      data: visibleTraces.map((t) => labels.get(t.id)),
       selectedMode: false, // legend clicks aren't wired to trace.visible --> disable to + avoid drift
     },
   };

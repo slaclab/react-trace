@@ -68,7 +68,7 @@ const INITIAL_PLOTS: Plot[] = [
       {
         id: 'trace-1',
         pvName: 'TEST:SINE',
-        displayName: 'TEST:SINE',
+        displayName: '',
         color: '#0f62fe',
         visible: true,
         axisId: 'y-axis-1',
@@ -86,7 +86,7 @@ const INITIAL_PLOTS: Plot[] = [
       {
         id: 'trace-2',
         pvName: 'TEST:COUNTER',
-        displayName: 'TEST:COUNTER',
+        displayName: '',
         color: '#ee5396',
         visible: true,
         axisId: 'y-axis-1',
@@ -104,7 +104,7 @@ const INITIAL_PLOTS: Plot[] = [
       {
         id: 'trace-3',
         pvName: 'TEST:RAMP',
-        displayName: 'TEST:RAMP',
+        displayName: '',
         color: '#42be65',
         visible: true,
         axisId: 'y-axis-2',
@@ -321,7 +321,7 @@ export function TraceApp() {
     const newTrace: PVTrace = {
       id,
       pvName: '',
-      displayName: 'New Trace',
+      displayName: '', // traceLabel() falls back to pvName --> no default needed
       color: colors[traceCount % colors.length],
       visible: true,
       axisId,

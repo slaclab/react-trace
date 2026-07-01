@@ -16,6 +16,7 @@ import {
   ComboBox,
 } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
+import { traceLabel } from '../traceLabel';
 import {
   LINE_TYPE_OPTIONS,
   LINE_STYLE_OPTIONS,
@@ -90,6 +91,7 @@ export function RightPanel({
       render: () => (
         <TraceGeneralTab
           trace={selectedTrace}
+          plotTraces={activePlot.traces}
           axes={activePlot.axes}
           archiveResult={selectedTraceArchive}
           liveResult={selectedTraceLive}
@@ -114,7 +116,12 @@ export function RightPanel({
         />
       ),
     });
-    tabs.push({ label: 'Code', render: () => <TraceCodeTab trace={selectedTrace} /> });
+    tabs.push({
+      label: 'Code',
+      render: () => (
+        <TraceCodeTab trace={selectedTrace} label={traceLabel(selectedTrace, activePlot.traces)} />
+      ),
+    });
   } else if (selectedAxis) {
     tabs.push({
       label: 'General',
@@ -188,6 +195,7 @@ export function RightPanel({
 
 function TraceGeneralTab({
   trace,
+  plotTraces,
   axes,
   archiveResult,
   liveResult,
@@ -196,6 +204,7 @@ function TraceGeneralTab({
   onInspect,
 }: {
   trace: PVTrace;
+  plotTraces: PVTrace[];
   axes: Axis[];
   archiveResult: ArchiveSeriesResult | undefined;
   liveResult: LiveSeriesResult | undefined;
@@ -312,15 +321,9 @@ function TraceGeneralTab({
               const pv = (selectedItem || pvQuery).trim();
               if (pv) {
                 setPvQuery(pv);
-                onUpdate({
-                  pvName: pv,
-                  displayName:
-                    !trace.displayName ||
-                    trace.displayName === trace.pvName ||
-                    trace.displayName === 'New Trace'
-                      ? pv
-                      : trace.displayName,
-                });
+                // displayName is left alone: while it's blank the label falls
+                // back to the PV name (traceLabel), and a user-set name wins.
+                onUpdate({ pvName: pv });
               }
             }}
             allowCustomValue
@@ -341,6 +344,7 @@ function TraceGeneralTab({
             id="display-name"
             labelText="Display Name"
             value={trace.displayName}
+            placeholder={traceLabel({ ...trace, displayName: '' }, plotTraces)}
             onChange={(e) => onUpdate({ displayName: e.target.value })}
             size="sm"
           />
@@ -815,9 +819,9 @@ function TraceSymbolTab({
   );
 }
 
-function TraceCodeTab({ trace }: { trace: PVTrace }) {
+function TraceCodeTab({ trace, label }: { trace: PVTrace; label: string }) {
   const config = `{
-  name: '${trace.displayName}',
+  name: '${label}',
   type: 'line',
   step: ${trace.lineType === 'step' ? "'end'" : 'false'},
 
