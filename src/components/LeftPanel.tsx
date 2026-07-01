@@ -25,6 +25,7 @@ import {
 } from '@carbon/icons-react';
 import { Button, Tag } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
+import { traceLabel } from '../traceLabel';
 import type { SelectedItem } from './TraceApp';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { PanelRail } from './PanelRail';
@@ -101,6 +102,7 @@ function ArchiveStatusChip({ result }: { result: ArchiveSeriesResult | undefined
 
 interface TraceRowProps {
   trace: PVTrace;
+  label: string;
   plotId: string;
   archiveResult: ArchiveSeriesResult | undefined;
   isSelected: boolean;
@@ -108,7 +110,15 @@ interface TraceRowProps {
   onDelete: () => void;
 }
 
-function TraceRow({ trace, plotId, archiveResult, isSelected, onSelect, onDelete }: TraceRowProps) {
+function TraceRow({
+  trace,
+  label,
+  plotId,
+  archiveResult,
+  isSelected,
+  onSelect,
+  onDelete,
+}: TraceRowProps) {
   const data: DragData = { plotId, axisId: trace.axisId, traceId: trace.id };
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `${plotId}::${trace.id}`,
@@ -130,8 +140,8 @@ function TraceRow({ trace, plotId, archiveResult, isSelected, onSelect, onDelete
       {...listeners}
     >
       <div className="layer-row__color-swatch" style={{ backgroundColor: trace.color }} />
-      <span className="layer-row__name" title={trace.displayName}>
-        {trace.displayName}
+      <span className="layer-row__name" title={label}>
+        {label}
       </span>
       <div className="layer-row__indicators">
         {trace.useLive && (
@@ -185,6 +195,8 @@ interface AxisSectionProps {
   axis: Axis;
   plotId: string;
   traces: PVTrace[];
+  // The plot's full trace list, for numbering unnamed traces plot-wide.
+  plotTraces: PVTrace[];
   archiveResults: Map<string, ArchiveSeriesResult>;
   isSelected: boolean;
   isExpanded: boolean;
@@ -202,6 +214,7 @@ function AxisSection({
   axis,
   plotId,
   traces,
+  plotTraces,
   archiveResults,
   isSelected,
   isExpanded,
@@ -312,6 +325,7 @@ function AxisSection({
               <TraceRow
                 key={trace.id}
                 trace={trace}
+                label={traceLabel(trace, plotTraces)}
                 plotId={plotId}
                 archiveResult={archiveResults.get(trace.id)}
                 isSelected={
@@ -382,6 +396,7 @@ function PlotAxes({
             axis={axis}
             plotId={plot.id}
             traces={axisTraces}
+            plotTraces={plot.traces}
             archiveResults={archiveResults}
             isSelected={
               selectedItem?.type === 'axis' &&
@@ -459,9 +474,10 @@ export function LeftPanel({
   // the active plot (the others aren't visible in the chart area).
   const plotsToShow = viewMode === 'grid' ? plots : plots.filter((p) => p.id === activePlotId);
 
-  const activeTrace = activeDrag?.traceId
-    ? plots.flatMap((p) => p.traces).find((t) => t.id === activeDrag.traceId)
+  const activeTracePlot = activeDrag?.traceId
+    ? plots.find((p) => p.traces.some((t) => t.id === activeDrag.traceId))
     : null;
+  const activeTrace = activeTracePlot?.traces.find((t) => t.id === activeDrag?.traceId) ?? null;
 
   return (
     <div className="layers-panel">
@@ -537,7 +553,9 @@ export function LeftPanel({
                   className="layer-row__color-swatch"
                   style={{ backgroundColor: activeTrace.color }}
                 />
-                <span className="layer-row__name">{activeTrace.displayName}</span>
+                <span className="layer-row__name">
+                  {traceLabel(activeTrace, activeTracePlot?.traces)}
+                </span>
               </div>
             )}
           </DragOverlay>

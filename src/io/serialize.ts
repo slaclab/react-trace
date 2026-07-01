@@ -149,7 +149,7 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
     return {
       id: `trace-${i + 1}`,
       pvName: c.channel ?? '',
-      displayName: c.name ?? c.channel ?? `Trace ${i + 1}`,
+      displayName: c.name && c.name !== c.channel ? c.name : '', // blank --> traceLabel falls back to PV
       color: c.color ?? colors[i % colors.length],
       visible: true,
       axisId,
