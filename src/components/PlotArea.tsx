@@ -531,12 +531,16 @@ export function SinglePlot({
     tooltip: {
       trigger: 'axis',
       axisPointer: {
-        type: 'line',
+        type: plot.showCrosshair ? 'cross' : 'none', // 'cross' adds Y-axis readout; 'none' hides crosshair but keeps tooltip
         snap: false,
         lineStyle: { color: theme.crosshair, width: 1, type: 'dashed' },
+        crossStyle: { color: theme.crosshair, width: 1, type: 'dashed' },
         label: {
           backgroundColor: theme.tooltipBorder,
-          formatter: (p: { value: number }) => formatCrosshairTime(p.value),
+          formatter: (
+            p: { value: number; axisDimension?: string } // X --> timestamp, Y --> raw value
+          ) =>
+            p.axisDimension === 'y' ? formatTooltipValue(p.value) : formatCrosshairTime(p.value),
         },
       },
       backgroundColor: theme.tooltipBg,

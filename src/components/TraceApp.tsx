@@ -45,6 +45,7 @@ const INITIAL_PLOTS: Plot[] = [
     backgroundColor: '#161616',
     showLegend: true,
     showGridlines: true,
+    showCrosshair: true,
     gridStyle: 'solid',
     xAxis: { timeRange: '-1h' },
     axes: [
@@ -258,6 +259,7 @@ export function TraceApp() {
         backgroundColor: '#161616',
         showLegend: true,
         showGridlines: true,
+        showCrosshair: true,
         gridStyle: 'solid',
         xAxis: { timeRange: '-1h' },
         axes: [

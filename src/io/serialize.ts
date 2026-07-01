@@ -82,6 +82,7 @@ function rehydratePlot(p: Plot): Plot {
     ...p,
     // Older saved workspaces predate showLegend; default to shown.
     showLegend: p.showLegend ?? true,
+    showCrosshair: p.showCrosshair ?? true,
     traces: (p.traces ?? []).map((t) => ({ ...t, data: t.data ?? [] })),
     axes: p.axes ?? [],
   };
@@ -189,6 +190,7 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
       typeof legacyPlot.backgroundColor === 'string' ? legacyPlot.backgroundColor : '#161616',
     showLegend: legacyPlot.legend !== false,
     showGridlines: legacyPlot.xGrid === true && legacyPlot.yGrid === true,
+    showCrosshair: legacyPlot.crosshair !== false,
     gridStyle: 'solid',
     xAxis: { timeRange },
     axes,
