@@ -8,6 +8,7 @@ import {
   Debug,
   Help,
   DataTable,
+  Renew,
 } from '@carbon/icons-react';
 import { HeaderGlobalAction } from '@carbon/react';
 import type { ColorMode } from '../state/themeStore';
@@ -22,6 +23,7 @@ interface ToolbarProps {
   onReportBug: () => void;
   onOpenDocs: () => void;
   onOpenDataInsight: () => void;
+  onRefreshArchive: () => void;
 }
 
 // Carbon HeaderGlobalAction gives us hover/tooltip/keyboard handling for free
@@ -38,9 +40,17 @@ export function Toolbar({
   onReportBug,
   onOpenDocs,
   onOpenDataInsight,
+  onRefreshArchive,
 }: ToolbarProps) {
   return (
     <>
+      <HeaderGlobalAction
+        aria-label="Refresh archive data"
+        tooltipAlignment="end"
+        onClick={onRefreshArchive}
+      >
+        <Renew size={20} />
+      </HeaderGlobalAction>
       <HeaderGlobalAction
         aria-label="Data Insight"
         tooltipAlignment="end"
