@@ -544,7 +544,9 @@ export function TraceApp() {
         ? [activePlot]
         : plots;
     const shots = targets.flatMap((p) => {
-      const dataUrl = capturePlotPng(p, colorMode);
+      // When a plot is fullscreen, capture that copy rather than the in-window
+      // one hidden behind it (both share a data-plot-id).
+      const dataUrl = capturePlotPng(p, colorMode, p.id === poppedOutPlot);
       return dataUrl ? [{ plotId: p.id, title: p.title, dataUrl }] : [];
     });
     if (shots.length === 0) {
@@ -835,6 +837,7 @@ export function TraceApp() {
                 <div style={{ flex: 1, overflow: 'hidden' }}>
                   <SinglePlot
                     plot={plot}
+                    fullscreen
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
                     liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
                     // eslint-disable-next-line react-hooks/refs -- ref is written from ECharts' finished event, not during render

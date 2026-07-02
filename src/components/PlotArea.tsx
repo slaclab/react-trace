@@ -76,6 +76,12 @@ interface SinglePlotProps {
    */
   initialViewWindowNs?: TimeWindowNs;
   onAxisRangesChange?: (ranges: Map<string, [number, number]>) => void;
+  /**
+   * True when this instance is the fullscreen (popped-out) copy of a plot. The
+   * in-window copy stays mounted underneath with the same `data-plot-id`, so
+   * this marks which one a print snapshot should capture; see capturePlotPng.
+   */
+  fullscreen?: boolean;
 }
 
 function formatCrosshairTime(ms: number): string {
@@ -165,6 +171,7 @@ export function SinglePlot({
   onViewWindowChange,
   initialViewWindowNs,
   onAxisRangesChange,
+  fullscreen,
 }: SinglePlotProps) {
   const { colorMode } = useColorMode();
   const theme = colorMode === 'dark' ? DARK_CHART_THEME : LIGHT_CHART_THEME;
@@ -531,8 +538,14 @@ export function SinglePlot({
   return (
     // data-plot-id lets capturePlotPng find this chart's ECharts instance in
     // the document (print snapshots). Detached plots live in another window's
-    // document, so they're naturally out of scope.
-    <div data-plot-id={plot.id} style={{ height: '100%', width: '100%' }}>
+    // document, so they're naturally out of scope. data-fullscreen marks the
+    // popped-out copy so capture targets it over the in-window one, which
+    // shares the same data-plot-id.
+    <div
+      data-plot-id={plot.id}
+      data-fullscreen={fullscreen ? 'true' : undefined}
+      style={{ height: '100%', width: '100%' }}
+    >
       <ReactECharts
         ref={chartRef}
         option={option}
