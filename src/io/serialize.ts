@@ -79,13 +79,20 @@ export function deserializeWorkspace(text: string): DeserializeResult {
 }
 
 function rehydratePlot(p: Plot): Plot {
+  // Older saved workspaces used a single `showGridlines` flag and lacked grid
+  // opacity / tick font size. Migrate the old flag to both X and Y toggles and
+  // default the rest so loaded plots render the same as before.
+  const legacy = p as Plot & { showGridlines?: boolean };
   return {
     ...p,
     // Older saved workspaces predate showLegend; default to shown.
     showLegend: p.showLegend ?? true,
     showCrosshair: p.showCrosshair ?? true,
+    showXGridlines: p.showXGridlines ?? legacy.showGridlines ?? true,
+    showYGridlines: p.showYGridlines ?? legacy.showGridlines ?? true,
+    gridOpacity: p.gridOpacity ?? 1,
+    tickFontSize: p.tickFontSize ?? 11,
     traces: (p.traces ?? []).map((t) => ({ ...t, data: t.data ?? [] })),
-    axes: p.axes ?? [],
   };
 }
 
@@ -186,15 +193,20 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
     warnings.push(`Custom time range from legacy file not yet supported — defaulted to '-1h'.`);
   }
 
+  // Legacy stored X and Y gridline flags separately; map each to the plot's
+  // X / Y gridline toggles.
   const plot: Plot = {
     id: 'plot-1',
     title: typeof legacyPlot.title === 'string' ? legacyPlot.title : 'Imported',
     backgroundColor:
       typeof legacyPlot.backgroundColor === 'string' ? legacyPlot.backgroundColor : '#161616',
     showLegend: legacyPlot.legend !== false,
-    showGridlines: legacyPlot.xGrid === true && legacyPlot.yGrid === true,
+    showXGridlines: legacyPlot.xGrid === true,
+    showYGridlines: legacyPlot.yGrid === true,
     showCrosshair: legacyPlot.crosshair !== false,
     gridStyle: 'solid',
+    gridOpacity: 1,
+    tickFontSize: 11,
     xAxis: { timeRange },
     axes,
     traces,

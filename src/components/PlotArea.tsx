@@ -354,14 +354,14 @@ export function SinglePlot({
       type: 'time',
       min: xAxisMin,
       max: xAxisMax,
-      axisLabel: { color: theme.axisLabel, fontSize: 11 },
+      axisLabel: { color: theme.axisLabel, fontSize: plot.tickFontSize },
       axisLine: { lineStyle: { color: theme.axisLine } },
       splitLine: {
-        show: plot.showGridlines,
-        lineStyle: { color: theme.splitLine, type: plot.gridStyle },
+        show: plot.showXGridlines,
+        lineStyle: { color: theme.splitLine, type: plot.gridStyle, opacity: plot.gridOpacity },
       },
     },
-    yAxis: visibleAxes.map((axis) => ({
+    yAxis: visibleAxes.map((axis, axisIdx) => ({
       // Intentionally no `id`: with replaceMerge, ECharts matches by id and
       // would pin a surviving axis back to its old slot index, leaving a
       // hole at the deleted slot. Series then point to that hole and ECharts
@@ -379,13 +379,17 @@ export function SinglePlot({
       min: axis.autoScale ? undefined : axis.min,
       max: axis.autoScale ? undefined : axis.max,
       scale: axis.autoScale,
-      axisLabel: { color: theme.axisLabel, fontSize: 11, formatter: formatAxisTick },
+      axisLabel: { color: theme.axisLabel, fontSize: plot.tickFontSize, formatter: formatAxisTick },
       // ECharts hides axisLine on secondary y-axes by default; force it on so
       // every stacked axis shows its own vertical line next to its labels.
       axisLine: { show: true, lineStyle: { color: theme.axisLine } },
       splitLine: {
-        show: plot.showGridlines,
-        lineStyle: { color: theme.splitLine, type: plot.gridStyle },
+        // Horizontal gridlines are a property of the grid, not each axis: with
+        // multiple Y axes on differing scales their ticks fall at different
+        // heights, so drawing more than one set overlaps into a broken-looking
+        // grid. Draw only the primary (first visible) axis's lines.
+        show: plot.showYGridlines && axisIdx === 0,
+        lineStyle: { color: theme.splitLine, type: plot.gridStyle, opacity: plot.gridOpacity },
       },
     })),
     series: (() => {

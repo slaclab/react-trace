@@ -14,6 +14,7 @@ import {
   Toggle,
   NumberInput,
   ComboBox,
+  Slider,
 } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
 import { traceLabel } from '../traceLabel';
@@ -1205,30 +1206,65 @@ function PlotGeneralTab({
         </div>
         <div className="prop-row prop-row--inline">
           <Toggle
-            id="show-gridlines"
-            labelText="Show Gridlines"
+            id="show-x-gridlines"
+            labelText="Show X Gridlines"
             labelA="Off"
             labelB="On"
-            toggled={plot.showGridlines}
-            onToggle={(checked) => onUpdate({ showGridlines: checked })}
+            toggled={plot.showXGridlines}
+            onToggle={(checked) => onUpdate({ showXGridlines: checked })}
             size="sm"
           />
         </div>
-        {plot.showGridlines && (
-          <div className="prop-row">
-            <Select
-              id="grid-style"
-              labelText="Grid Style"
-              value={plot.gridStyle}
-              onChange={(e) => onUpdate({ gridStyle: e.target.value as Plot['gridStyle'] })}
-              size="sm"
-            >
-              <SelectItem value="solid" text="Solid" />
-              <SelectItem value="dashed" text="Dashed" />
-              <SelectItem value="dotted" text="Dotted" />
-            </Select>
-          </div>
-        )}
+        <div className="prop-row prop-row--inline">
+          <Toggle
+            id="show-y-gridlines"
+            labelText="Show Y Gridlines"
+            labelA="Off"
+            labelB="On"
+            toggled={plot.showYGridlines}
+            onToggle={(checked) => onUpdate({ showYGridlines: checked })}
+            size="sm"
+          />
+        </div>
+        <div className="prop-row">
+          <Select
+            id="grid-style"
+            labelText="Grid Style"
+            value={plot.gridStyle}
+            onChange={(e) => onUpdate({ gridStyle: e.target.value as Plot['gridStyle'] })}
+            size="sm"
+          >
+            <SelectItem value="solid" text="Solid" />
+            <SelectItem value="dashed" text="Dashed" />
+            <SelectItem value="dotted" text="Dotted" />
+          </Select>
+        </div>
+        <div className="prop-row">
+          <Slider
+            id="grid-opacity"
+            labelText="Gridline Opacity"
+            min={0}
+            max={100}
+            step={5}
+            value={Math.round(plot.gridOpacity * 100)}
+            onChange={({ value }) => onUpdate({ gridOpacity: value / 100 })}
+          />
+        </div>
+        <div className="prop-row">
+          <NumberInput
+            id="tick-font-size"
+            label="Tick Font Size (px)"
+            min={6}
+            max={24}
+            step={1}
+            value={plot.tickFontSize}
+            onChange={(_e, { value }) => {
+              const n = typeof value === 'number' ? value : parseInt(String(value), 10);
+              if (!Number.isNaN(n)) onUpdate({ tickFontSize: n });
+            }}
+            size="sm"
+          />
+        </div>
         <div className="prop-row prop-row--inline">
           <Toggle
             id="show-crosshair"
@@ -1332,10 +1368,11 @@ function PlotCodeTab({ plot }: { plot: Plot }) {
     timeRange: '${plot.xAxis.timeRange}'${plot.xAxis.timeFrom ? `,\n    timeFrom: '${plot.xAxis.timeFrom}'` : ''}${plot.xAxis.timeTo ? `,\n    timeTo: '${plot.xAxis.timeTo}'` : ''}
   },
 
-  // Grid
+  // Grid (X = vertical time lines; Y = horizontal lines from the primary axis)
   splitLine: {
-    show: ${plot.showGridlines},
-    lineStyle: { type: '${plot.gridStyle}' }
+    showX: ${plot.showXGridlines},
+    showY: ${plot.showYGridlines},
+    lineStyle: { type: '${plot.gridStyle}', opacity: ${plot.gridOpacity} }
   },
 
   // Legend
@@ -1343,6 +1380,9 @@ function PlotCodeTab({ plot }: { plot: Plot }) {
 
   // Crosshair
   axisPointer: { type: '${plot.showCrosshair ? 'cross' : 'none'}' },
+
+  // Axis tick labels
+  axisLabel: { fontSize: ${plot.tickFontSize} },
 
   // Composition
   axes: ${plot.axes.length},

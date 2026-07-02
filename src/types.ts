@@ -61,9 +61,17 @@ export interface Plot {
   axes: Axis[];
   backgroundColor: string;
   showLegend: boolean;
-  showGridlines: boolean;
+  // X (vertical, time) gridlines.
+  showXGridlines: boolean;
+  // Y (horizontal) gridlines. Drawn from the primary (first visible) axis only,
+  // so a multi-axis plot never stacks mismatched grids from differing scales.
+  showYGridlines: boolean;
   showCrosshair: boolean;
   gridStyle: 'solid' | 'dashed' | 'dotted';
+  // Opacity applied to all gridlines (X and Y), 0..1. Defaults to 1.
+  gridOpacity: number;
+  // Axis tick label font size in px. Defaults to 11.
+  tickFontSize: number;
   // Per-plot default archiver for this plot's traces; undefined means "use the
   // backend default". A trace's own `archiver` overrides this.
   archiver?: string;
