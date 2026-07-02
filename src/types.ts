@@ -52,9 +52,6 @@ export interface Axis {
   autoScale: boolean;
   logScale: boolean;
   visible: boolean;
-  // Per-axis Y gridlines (horizontal splitLines for this axis). Independent of
-  // the plot-level X gridline toggle. Defaults to shown when undefined.
-  showGridlines?: boolean;
 }
 
 export interface Plot {
@@ -64,8 +61,11 @@ export interface Plot {
   axes: Axis[];
   backgroundColor: string;
   showLegend: boolean;
-  // X (vertical, time) gridlines. Per-axis Y gridlines live on each Axis.
+  // X (vertical, time) gridlines.
   showXGridlines: boolean;
+  // Y (horizontal) gridlines. Drawn from the primary (first visible) axis only,
+  // so a multi-axis plot never stacks mismatched grids from differing scales.
+  showYGridlines: boolean;
   showCrosshair: boolean;
   gridStyle: 'solid' | 'dashed' | 'dotted';
   // Opacity applied to all gridlines (X and Y), 0..1. Defaults to 1.

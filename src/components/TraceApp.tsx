@@ -47,6 +47,7 @@ const INITIAL_PLOTS: Plot[] = [
     backgroundColor: '#161616',
     showLegend: true,
     showXGridlines: true,
+    showYGridlines: true,
     showCrosshair: true,
     gridStyle: 'solid',
     gridOpacity: 1,
@@ -264,6 +265,7 @@ export function TraceApp() {
         backgroundColor: '#161616',
         showLegend: true,
         showXGridlines: true,
+        showYGridlines: true,
         showCrosshair: true,
         gridStyle: 'solid',
         gridOpacity: 1,
@@ -436,7 +438,6 @@ export function TraceApp() {
       autoScale: true,
       logScale: false,
       visible: true,
-      showGridlines: true,
     };
     setPlots((prev) =>
       prev.map((p) => (p.id === plotId ? { ...p, axes: [...p.axes, newAxis] } : p))

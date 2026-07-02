@@ -361,7 +361,7 @@ export function SinglePlot({
         lineStyle: { color: theme.splitLine, type: plot.gridStyle, opacity: plot.gridOpacity },
       },
     },
-    yAxis: visibleAxes.map((axis) => ({
+    yAxis: visibleAxes.map((axis, axisIdx) => ({
       // Intentionally no `id`: with replaceMerge, ECharts matches by id and
       // would pin a surviving axis back to its old slot index, leaving a
       // hole at the deleted slot. Series then point to that hole and ECharts
@@ -384,7 +384,11 @@ export function SinglePlot({
       // every stacked axis shows its own vertical line next to its labels.
       axisLine: { show: true, lineStyle: { color: theme.axisLine } },
       splitLine: {
-        show: axis.showGridlines ?? true,
+        // Horizontal gridlines are a property of the grid, not each axis: with
+        // multiple Y axes on differing scales their ticks fall at different
+        // heights, so drawing more than one set overlaps into a broken-looking
+        // grid. Draw only the primary (first visible) axis's lines.
+        show: plot.showYGridlines && axisIdx === 0,
         lineStyle: { color: theme.splitLine, type: plot.gridStyle, opacity: plot.gridOpacity },
       },
     })),

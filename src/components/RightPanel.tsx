@@ -1063,17 +1063,6 @@ function AxisGeneralTab({
             size="sm"
           />
         </div>
-        <div className="prop-row prop-row--inline">
-          <Toggle
-            id="axis-gridlines"
-            labelText="Show Gridlines"
-            labelA="Off"
-            labelB="On"
-            toggled={axis.showGridlines ?? true}
-            onToggle={(checked) => onUpdate({ showGridlines: checked })}
-            size="sm"
-          />
-        </div>
       </div>
 
       <div className="prop-divider" />
@@ -1110,10 +1099,7 @@ function AxisCodeTab({ axis }: { axis: Axis }) {
   axisLabel: {
     color: 'var(--cds-text-secondary)',
     fontSize: 11
-  },
-
-  // Gridlines
-  splitLine: { show: ${axis.showGridlines ?? true} }
+  }
 }`;
 
   return (
@@ -1226,6 +1212,17 @@ function PlotGeneralTab({
             labelB="On"
             toggled={plot.showXGridlines}
             onToggle={(checked) => onUpdate({ showXGridlines: checked })}
+            size="sm"
+          />
+        </div>
+        <div className="prop-row prop-row--inline">
+          <Toggle
+            id="show-y-gridlines"
+            labelText="Show Y Gridlines"
+            labelA="Off"
+            labelB="On"
+            toggled={plot.showYGridlines}
+            onToggle={(checked) => onUpdate({ showYGridlines: checked })}
             size="sm"
           />
         </div>
@@ -1371,9 +1368,10 @@ function PlotCodeTab({ plot }: { plot: Plot }) {
     timeRange: '${plot.xAxis.timeRange}'${plot.xAxis.timeFrom ? `,\n    timeFrom: '${plot.xAxis.timeFrom}'` : ''}${plot.xAxis.timeTo ? `,\n    timeTo: '${plot.xAxis.timeTo}'` : ''}
   },
 
-  // Grid (X gridlines; per-axis Y gridlines set on each axis)
+  // Grid (X = vertical time lines; Y = horizontal lines from the primary axis)
   splitLine: {
-    show: ${plot.showXGridlines},
+    showX: ${plot.showXGridlines},
+    showY: ${plot.showYGridlines},
     lineStyle: { type: '${plot.gridStyle}', opacity: ${plot.gridOpacity} }
   },
 
