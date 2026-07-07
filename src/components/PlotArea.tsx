@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
+import { DARK_CHART_THEME, LIGHT_CHART_THEME, effectiveBackground } from '../chartTheme';
 import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
 import type { Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
@@ -10,54 +11,6 @@ import { echartsLineType, echartsSymbol } from '../curveStyle';
 import { traceLabel } from '../traceLabel';
 import { useColorMode } from '../state/themeStore';
 
-interface ChartTheme {
-  bg: string;
-  axisLabel: string;
-  axisLine: string;
-  splitLine: string;
-  axisName: string;
-  tooltipBg: string;
-  tooltipBorder: string;
-  tooltipText: string;
-  tooltipMuted: string;
-  crosshair: string;
-  legend: string;
-}
-
-const DARK_CHART_THEME: ChartTheme = {
-  bg: '#161616',
-  axisLabel: '#c6c6c6',
-  axisLine: '#525252',
-  splitLine: '#393939',
-  axisName: '#8d8d8d',
-  tooltipBg: '#262626',
-  tooltipBorder: '#393939',
-  tooltipText: '#f4f4f4',
-  tooltipMuted: '#8d8d8d',
-  crosshair: '#8d8d8d',
-  legend: '#c6c6c6',
-};
-
-const LIGHT_CHART_THEME: ChartTheme = {
-  bg: '#ffffff',
-  axisLabel: '#393939',
-  axisLine: '#a8a8a8',
-  splitLine: '#e0e0e0',
-  axisName: '#525252',
-  tooltipBg: '#ffffff',
-  tooltipBorder: '#c6c6c6',
-  tooltipText: '#161616',
-  tooltipMuted: '#525252',
-  crosshair: '#525252',
-  legend: '#393939',
-};
-
-// Defaults from `addPlot` / INITIAL_PLOTS so we know which `plot.backgroundColor`
-// values are "the theme default" vs. an explicit user override. When toggling
-// themes, only the defaults follow.
-const DARK_DEFAULT_BG = '#161616';
-const LIGHT_DEFAULT_BG = '#ffffff';
-
 // Numbers like 0.000000018 produce extremely wide tick labels that spill past
 // neighboring stacked axes. Switch to exponential at the same magnitudes the
 // browser's default Number.toString stops being compact.
@@ -66,13 +19,6 @@ function formatAxisTick(value: number): string {
   const abs = Math.abs(value);
   if (abs < 1e-3 || abs >= 1e6) return value.toExponential(1);
   return String(value);
-}
-
-function effectiveBackground(plotBg: string, theme: ChartTheme): string {
-  // If plotBg matches either theme's default bg, snap to current theme's bg.
-  // User-customized backgrounds (anything else) stay put.
-  if (plotBg === DARK_DEFAULT_BG || plotBg === LIGHT_DEFAULT_BG) return theme.bg;
-  return plotBg;
 }
 
 // Signature of the user-chosen range. Bumps when picking a new time range so
@@ -130,6 +76,12 @@ interface SinglePlotProps {
    */
   initialViewWindowNs?: TimeWindowNs;
   onAxisRangesChange?: (ranges: Map<string, [number, number]>) => void;
+  /**
+   * True when this instance is the fullscreen (popped-out) copy of a plot. The
+   * in-window copy stays mounted underneath with the same `data-plot-id`, so
+   * this marks which one a print snapshot should capture; see capturePlotPng.
+   */
+  fullscreen?: boolean;
 }
 
 function formatCrosshairTime(ms: number): string {
@@ -219,6 +171,7 @@ export function SinglePlot({
   onViewWindowChange,
   initialViewWindowNs,
   onAxisRangesChange,
+  fullscreen,
 }: SinglePlotProps) {
   const { colorMode } = useColorMode();
   const theme = colorMode === 'dark' ? DARK_CHART_THEME : LIGHT_CHART_THEME;
@@ -587,14 +540,25 @@ export function SinglePlot({
   };
 
   return (
-    <ReactECharts
-      ref={chartRef}
-      option={option}
-      replaceMerge={['series', 'yAxis']}
-      onEvents={{ datazoom: handleDataZoom, finished: handleFinished }}
+    // data-plot-id lets capturePlotPng find this chart's ECharts instance in
+    // the document (print snapshots). Detached plots live in another window's
+    // document, so they're naturally out of scope. data-fullscreen marks the
+    // popped-out copy so capture targets it over the in-window one, which
+    // shares the same data-plot-id.
+    <div
+      data-plot-id={plot.id}
+      data-fullscreen={fullscreen ? 'true' : undefined}
       style={{ height: '100%', width: '100%' }}
-      opts={{ renderer: 'canvas' }}
-    />
+    >
+      <ReactECharts
+        ref={chartRef}
+        option={option}
+        replaceMerge={['series', 'yAxis']}
+        onEvents={{ datazoom: handleDataZoom, finished: handleFinished }}
+        style={{ height: '100%', width: '100%' }}
+        opts={{ renderer: 'canvas' }}
+      />
+    </div>
   );
 }
 
@@ -622,16 +586,11 @@ export function PlotArea({
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
   const isDetached = (id: string) => detachedPlotIds.includes(id);
 
-  const gridCols =
-    plots.length === 1
-      ? 'grid-cols-1'
-      : plots.length === 2
-        ? 'grid-cols-2'
-        : plots.length === 3
-          ? 'grid-cols-3'
-          : 'grid-cols-2';
-
-  const gridRows = plots.length >= 4 ? 'grid-rows-2' : 'grid-rows-1';
+  // Near-square tiling: columns = ceil(sqrt(n)), rows = ceil(n / columns). This
+  // keeps every cell a real, evenly-sized tile so no plot collapses to a sliver
+  // (the old fixed 2-col/1-row logic left a 3rd plot with no row to fill).
+  const gridColCount = Math.ceil(Math.sqrt(plots.length));
+  const gridRowCount = Math.ceil(plots.length / gridColCount);
 
   return (
     <div className="plot-area">
@@ -739,10 +698,10 @@ export function PlotArea({
           )
         ) : (
           <div
-            className={`plot-grid ${gridCols} ${gridRows}`}
+            className="plot-grid"
             style={{
-              gridTemplateColumns: `repeat(${plots.length <= 2 ? plots.length : 2}, 1fr)`,
-              gridTemplateRows: plots.length >= 4 ? '1fr 1fr' : '1fr',
+              gridTemplateColumns: `repeat(${gridColCount}, 1fr)`,
+              gridTemplateRows: `repeat(${gridRowCount}, 1fr)`,
             }}
           >
             {plots.map((plot) => (

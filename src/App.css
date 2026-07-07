@@ -673,24 +673,56 @@
   padding: 2px 8px 2px 28px;
 }
 
-/* Print: show only the active plot, hide all surrounding chrome */
+/* Print: the toolbar Print action snapshots the visible plots into PNGs
+   (.print-sheet) and tags <body> with .printing-chart; these rules then show
+   only the sheet. A plain Ctrl+P (no .printing-chart) keeps the browser's
+   default full-page print. */
+.print-sheet {
+  display: none;
+}
+
 @media print {
-  body * {
-    visibility: hidden;
+  body.printing-chart > *:not(.print-sheet) {
+    display: none !important;
   }
 
-  .plot-content,
-  .plot-content * {
-    visibility: visible;
+  /* Tiled: reflow figures into columns matching the on-screen grid (--print-cols
+     set inline from the plot count), background baked white for paper. */
+  body.printing-chart .print-sheet {
+    display: grid;
+    grid-template-columns: repeat(var(--print-cols, 1), 1fr);
+    gap: 16px;
+    background: #ffffff;
   }
 
-  .plot-content {
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    overflow: visible;
-    background-color: var(--cds-background, #ffffff);
+  .print-sheet__plot {
+    break-inside: avoid;
+    margin: 0;
+    text-align: center;
+  }
+
+  .print-sheet__plot figcaption {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: #161616;
+    margin-bottom: 6px;
+    text-align: left;
+  }
+
+  .print-sheet__plot img {
+    /* Bound the snapshot by BOTH page width and height so a near-square chart
+       doesn't scale to full width and overflow the page bottom (which clipped
+       the legend and x-axis labels). auto sizing keeps the aspect ratio; the
+       browser picks whichever constraint binds first.
+
+       The whole grid prints on one page, so the height budget is split across
+       the rows (--print-rows). Subtract a per-row allowance for the caption and
+       grid gap so the bottom row's legend/axis labels aren't clipped. */
+    max-width: 100%;
+    max-height: calc((100vh / var(--print-rows, 1)) - 36px);
+    width: auto;
+    height: auto;
   }
 }
 
