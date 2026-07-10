@@ -207,13 +207,22 @@ export function SinglePlot({
   // disable autoscroll right after the range re-select re-enabled it).
   const programmaticZoomRef = useRef(false);
 
-  // Publish the ECharts instance up to the app for PNG capture; clear on unmount
-  // so a captured-but-gone plot (closed tab, reattached window) isn't stale.
+  // Publish a stable PngSource proxy up to the app for PNG capture; clear on
+  // unmount so a captured-but-gone plot (closed tab, reattached window) isn't
+  // stale. The proxy resolves the *live* ECharts instance on each call instead
+  // of capturing one at mount: echarts-for-react disposes and recreates its
+  // internal instance across some re-renders, so a snapshotted reference goes
+  // stale and getDataURL() silently returns undefined on the dead instance.
   useEffect(() => {
-    const inst = chartRef.current?.getEchartsInstance();
-    if (!inst) return undefined;
-    onChartInstance?.(inst, true);
-    return () => onChartInstance?.(inst, false);
+    const source: PngSource = {
+      getDataURL(opts) {
+        const inst = chartRef.current?.getEchartsInstance();
+        if (!inst || !inst.getDom()) return '';
+        return inst.getDataURL(opts) ?? '';
+      },
+    };
+    onChartInstance?.(source, true);
+    return () => onChartInstance?.(source, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- register once per mount; the callback is stable
   }, []);
 

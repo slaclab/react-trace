@@ -43,7 +43,11 @@ export function capturePlots(
   const out: CapturedPlot[] = [];
   for (const p of plots) {
     if (!p.instance) continue;
-    out.push({ id: p.id, title: p.title, dataUrl: plotDataUrl(p.instance, backgroundColor) });
+    const dataUrl = plotDataUrl(p.instance, backgroundColor);
+    // A disposed or not-yet-rendered instance yields an empty/invalid data URL;
+    // skip it rather than attaching a broken (empty payload) image.
+    if (!dataUrl || !dataUrl.startsWith('data:')) continue;
+    out.push({ id: p.id, title: p.title, dataUrl });
   }
   return out;
 }
