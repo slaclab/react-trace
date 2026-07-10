@@ -190,6 +190,41 @@ class ArchiveStore {
   }
 
   /**
+   * Force a fresh fetch of every buffered trace, bypassing the coverage /
+   * dedup checks that `request()` uses. The prior buffer stays on screen while
+   * the refetch is in flight (status flips to 'loading'), so the plot never
+   * blanks. Re-issues each entry's most recent request (same pv, archiver,
+   * bins, window). Entries that never completed a request (no window) are
+   * skipped — there's nothing to re-fetch.
+   */
+  refetchAll(): void {
+    for (const [traceId, entry] of this.entries) {
+      const window = entry.requestedWindow;
+      if (!window) continue;
+
+      entry.controller?.abort();
+
+      const opts: RequestOpts = {
+        pv: entry.identityKey.pv,
+        archiver: entry.identityKey.archiver ?? undefined,
+        bins: entry.fetchSig.bins,
+        window,
+      };
+      const mode: FetchMode =
+        entry.fetchSig.mode === 'binned'
+          ? { binning: 'auto', maxPoints: entry.fetchSig.bins }
+          : { maxPoints: entry.fetchSig.bins };
+
+      const controller = new AbortController();
+      entry.controller = controller;
+      entry.data = { ...entry.data, status: 'loading', error: undefined };
+
+      void this.runFetch(traceId, opts, entry.fetchSig.mode, mode, controller);
+    }
+    this.publish();
+  }
+
+  /**
    * Ask for the buffer for `traceId` to cover `window`.
    *
    * - Identity change (pv/archiver) wipes the buffer — different signal, nothing

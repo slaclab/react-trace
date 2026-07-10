@@ -18,6 +18,7 @@ import { RightPanel } from './RightPanel';
 import { Toolbar } from './Toolbar';
 import { useArchiveSeries, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { useLiveSeries, type LiveSeriesResult } from '../hooks/useLiveSeries';
+import { archiveStore } from '../state/archiveStore';
 import type { TimeWindowNs } from '../api/time';
 import { rangeToWindowNs } from '../api/time';
 import { useColorMode } from '../state/themeStore';
@@ -593,6 +594,10 @@ export function TraceApp() {
     window.open(DOCS_URL, '_blank', 'noopener,noreferrer');
   };
 
+  const handleRefreshArchive = () => {
+    archiveStore.refetchAll();
+  };
+
   // ── Data Insight Tool ─────────────────────────────────────────────────────────
 
   const openInsight = (traceId?: string) => {
@@ -639,6 +644,7 @@ export function TraceApp() {
               onReportBug={handleReportBug}
               onOpenDocs={handleOpenDocs}
               onOpenDataInsight={() => openInsight()}
+              onRefreshArchive={handleRefreshArchive}
             />
           </HeaderGlobalBar>
         </Header>
