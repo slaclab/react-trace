@@ -7,7 +7,7 @@ import {
   usePanelRef,
 } from 'react-resizable-panels';
 import { Close, Login, ChevronUp } from '@carbon/icons-react';
-import { Header, HeaderName, HeaderGlobalBar, Theme } from '@carbon/react';
+import { Header, HeaderName, HeaderGlobalBar, Theme, ToastNotification } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
 import { LeftPanel } from './LeftPanel';
 import { DetachedWindow } from './DetachedWindow';
@@ -183,6 +183,12 @@ export function TraceApp() {
     open: false,
     captured: [],
   });
+  // Success/error toast shown after an E-Log post attempt.
+  const [elogToast, setElogToast] = useState<{
+    kind: 'success' | 'error';
+    title: string;
+    subtitle?: string;
+  } | null>(null);
   // Last viewport emitted by each plot's dataZoom. Drives the archive store's
   // window per trace; the store decides whether the change requires a fetch
   // based on its coverage check, so this map can be updated freely.
@@ -1287,11 +1293,41 @@ export function TraceApp() {
           captured={elogModal.captured}
           logbooks={elogConfig.logbooks}
           defaultLogbooks={elogConfig.defaultLogbooks}
-          backgroundColor={colorMode === 'dark' ? '#161616' : '#ffffff'}
           buildConfigFile={buildElogConfigFile}
           onClose={() => setElogModal((p) => ({ ...p, open: false }))}
+          onPosted={(entryId) =>
+            setElogToast({
+              kind: 'success',
+              title: 'Posted to E-Log',
+              subtitle: `Entry ${entryId} created`,
+            })
+          }
+          onPostFailed={(message) =>
+            setElogToast({ kind: 'error', title: 'E-Log post failed', subtitle: message })
+          }
         />
       )}
+
+      {elogToast &&
+        createPortal(
+          <div
+            style={{ position: 'fixed', top: 56, right: 16, zIndex: 9999 }}
+            role="status"
+            aria-live="polite"
+          >
+            <ToastNotification
+              kind={elogToast.kind}
+              title={elogToast.title}
+              subtitle={elogToast.subtitle}
+              timeout={elogToast.kind === 'success' ? 5000 : 0}
+              onClose={() => {
+                setElogToast(null);
+                return true;
+              }}
+            />
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

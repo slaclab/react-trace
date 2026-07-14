@@ -8,14 +8,12 @@ import {
   TextInput,
   TextArea,
   Checkbox,
-  RadioButtonGroup,
-  RadioButton,
   InlineNotification,
 } from '@carbon/react';
 
 import { postEntry } from '../api/elog';
 import type { ElogLogbook } from '../api/elog';
-import { capturedToFile, composePlots, type CapturedPlot } from '../io/exportPlotImage';
+import { capturedToFile, type CapturedPlot } from '../io/exportPlotImage';
 
 interface PostToElogModalProps {
   open: boolean;
@@ -23,34 +21,36 @@ interface PostToElogModalProps {
   captured: CapturedPlot[];
   logbooks: ElogLogbook[];
   defaultLogbooks: string[];
-  /** Background color for the combined-image canvas (matches the chart theme). */
-  backgroundColor: string;
   /** Lazily builds the workspace config file when "Attach config" is checked. */
   buildConfigFile: () => File;
   onClose: () => void;
   onPosted?: (entryId: string) => void;
+  onPostFailed?: (message: string) => void;
 }
-
-type ImageMode = 'separate' | 'combined';
 
 export function PostToElogModal({
   open,
   captured,
   logbooks,
   defaultLogbooks,
-  backgroundColor,
   buildConfigFile,
   onClose,
   onPosted,
+  onPostFailed,
 }: PostToElogModalProps) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [selectedLogbooks, setSelectedLogbooks] = useState<string[]>([]);
   const [selectedPlotIds, setSelectedPlotIds] = useState<string[]>([]);
-  const [imageMode, setImageMode] = useState<ImageMode>('separate');
   const [attachConfig, setAttachConfig] = useState(false);
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Bumped on each open so the FilterableMultiSelect below remounts. Carbon's
+  // multiselect tracks its own selection from initialSelectedItems and does not
+  // reset when that prop changes, so without a fresh key it would keep showing
+  // the previous post's logbook chips while our state says none are selected.
+  const [openCount, setOpenCount] = useState(0);
 
   // Initialize form state once per open. captured/defaults are snapshots taken
   // at open time, so we don't want to clobber edits if they change underneath.
@@ -66,10 +66,10 @@ export function PostToElogModal({
     setBody('');
     setSelectedLogbooks(defaultLogbooks);
     setSelectedPlotIds(captured.map((c) => c.id));
-    setImageMode('separate');
     setAttachConfig(false);
     setPosting(false);
     setError(null);
+    setOpenCount((n) => n + 1);
   }, [open, captured, defaultLogbooks]);
 
   const selectedCaptured = useMemo(
@@ -90,13 +90,7 @@ export function PostToElogModal({
     setError(null);
     try {
       const files: File[] = [];
-      if (selectedCaptured.length > 0) {
-        if (imageMode === 'combined' && selectedCaptured.length > 1) {
-          files.push(await composePlots(selectedCaptured, backgroundColor));
-        } else {
-          selectedCaptured.forEach((c, i) => files.push(capturedToFile(c, i)));
-        }
-      }
+      selectedCaptured.forEach((c, i) => files.push(capturedToFile(c, i)));
       if (attachConfig) files.push(buildConfigFile());
 
       const result = await postEntry({
@@ -108,13 +102,13 @@ export function PostToElogModal({
       onPosted?.(result.id);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to post entry');
+      const message = err instanceof Error ? err.message : 'Failed to post entry';
+      setError(message);
+      onPostFailed?.(message);
     } finally {
       setPosting(false);
     }
   };
-
-  const showModeToggle = selectedCaptured.length > 1;
 
   return (
     <ComposedModal open={open} onClose={posting ? undefined : onClose} size="lg">
@@ -126,6 +120,7 @@ export function PostToElogModal({
           )}
 
           <FilterableMultiSelect
+            key={`elog-logbooks-${openCount}`}
             id="elog-logbooks"
             titleText="Logbooks"
             items={logbooks}
@@ -197,19 +192,6 @@ export function PostToElogModal({
                   </div>
                 ))}
               </div>
-              {showModeToggle && (
-                <RadioButtonGroup
-                  legendText="Image layout"
-                  name="elog-image-mode"
-                  valueSelected={imageMode}
-                  onChange={(value: string | number | undefined) =>
-                    setImageMode(value === 'combined' ? 'combined' : 'separate')
-                  }
-                >
-                  <RadioButton labelText="Separate images" value="separate" id="elog-mode-sep" />
-                  <RadioButton labelText="Combined image" value="combined" id="elog-mode-comb" />
-                </RadioButtonGroup>
-              )}
             </div>
           )}
 
