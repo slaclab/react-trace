@@ -96,6 +96,22 @@ describe('encodeMatFile', () => {
     expect(decoded.severity).toMatchObject({ kind: 'char', rows: 3 });
     expect((decoded.severity as { strings: string[] }).strings).toEqual(['NO_ALARM', 'MAJOR', '']);
   });
+
+  it('preserves both UTF-16 surrogates of a non-BMP char string', () => {
+    const emoji = '\u{1F600}'; // 😀 U+1F600, a surrogate pair D83D DE00
+    const decoded = decodeMatFile(encodeMatFile({ label: { type: 'char', value: emoji } }));
+    // cols counts UTF-16 units, so the pair survives as two code units.
+    expect(decoded.label).toMatchObject({ kind: 'char', rows: 1, cols: 2 });
+    expect((decoded.label as { strings: string[] }).strings[0]).toBe(emoji);
+  });
+
+  it('gives an all-empty charMatrix at least one column (no N×0 array)', () => {
+    const decoded = decodeMatFile(
+      encodeMatFile({ severity: { type: 'charMatrix', rows: ['', ''] } })
+    );
+    // maxLen is clamped to >= 1, so dims are 2×1 rather than 2×0.
+    expect(decoded.severity).toMatchObject({ kind: 'char', rows: 2, cols: 1 });
+  });
 });
 
 describe('buildInsightMat', () => {

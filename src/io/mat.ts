@@ -96,7 +96,12 @@ function realPart(value: MatValue): { klass: number; rows: number; cols: number;
     return { klass: mxDOUBLE_CLASS, rows, cols, pr: element(miDOUBLE, f64Bytes(data)) };
   }
   if (value.type === 'char') {
-    const codes = [...value.value].map((c) => c.charCodeAt(0));
+    // Iterate UTF-16 code units (not codepoints) so non-BMP characters keep
+    // both surrogates; MATLAB char arrays are UTF-16. This matches the
+    // charMatrix branch below, which indexes with charCodeAt(c).
+    const s = value.value;
+    const codes: number[] = [];
+    for (let c = 0; c < s.length; c++) codes.push(s.charCodeAt(c));
     return {
       klass: mxCHAR_CLASS,
       rows: 1,
@@ -107,7 +112,12 @@ function realPart(value: MatValue): { klass: number; rows: number; cols: number;
   // charMatrix: N rows, space-padded to the longest, stored column-major.
   const strs = value.rows;
   const n = strs.length;
-  const maxLen = strs.reduce((m, s) => Math.max(m, s.length), 0);
+  // At least one column: an N×0 char array is valid MAT but trips up some
+  // third-party readers, so all-empty rows still get a single space column.
+  const maxLen = Math.max(
+    1,
+    strs.reduce((m, s) => Math.max(m, s.length), 0)
+  );
   const codes: number[] = [];
   for (let c = 0; c < maxLen; c++) {
     for (let r = 0; r < n; r++) {
