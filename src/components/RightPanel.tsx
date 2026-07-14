@@ -41,6 +41,9 @@ interface RightPanelProps {
   liveResults: Map<string, LiveSeriesResult>;
   collapsed: boolean;
   onUpdateTrace: (traceId: string, updates: Partial<PVTrace>) => void;
+  // Fired when the user picks a concrete PV for a trace; triggers units-based
+  // axis assignment in the parent.
+  onSelectPv: (traceId: string, pvName: string) => void;
   onUpdateAxis: (axisId: string, updates: Partial<Axis>) => void;
   onUpdatePlot: (updates: Partial<Plot>) => void;
   onApplyPalette: (paletteId: string, scope: { plotId: string; axisId?: string }) => void;
@@ -57,6 +60,7 @@ export function RightPanel({
   liveResults,
   collapsed,
   onUpdateTrace,
+  onSelectPv,
   onUpdateAxis,
   onUpdatePlot,
   onApplyPalette,
@@ -102,6 +106,7 @@ export function RightPanel({
           liveResult={selectedTraceLive}
           plotArchiver={activePlot.archiver}
           onUpdate={(u) => onUpdateTrace(selectedTrace.id, u)}
+          onSelectPv={(pv) => onSelectPv(selectedTrace.id, pv)}
           onInspect={() => onInspectTrace(selectedTrace.id)}
         />
       ),
@@ -210,6 +215,7 @@ function TraceGeneralTab({
   liveResult,
   plotArchiver,
   onUpdate,
+  onSelectPv,
   onInspect,
 }: {
   trace: PVTrace;
@@ -219,6 +225,7 @@ function TraceGeneralTab({
   liveResult: LiveSeriesResult | undefined;
   plotArchiver: string | undefined;
   onUpdate: (u: Partial<PVTrace>) => void;
+  onSelectPv: (pv: string) => void;
   onInspect: () => void;
 }) {
   const [pvQuery, setPvQuery] = useState<string>(trace.pvName);
@@ -333,6 +340,10 @@ function TraceGeneralTab({
                 // displayName is left alone: while it's blank the label falls
                 // back to the PV name (traceLabel), and a user-set name wins.
                 onUpdate({ pvName: pv });
+                // Auto-assign only when the PV actually changed. Carbon fires
+                // onChange on a bare Enter too, and re-running the assign would
+                // revert a manual axis override the user made after selecting.
+                if (pv !== trace.pvName) onSelectPv(pv);
               }
             }}
             allowCustomValue
