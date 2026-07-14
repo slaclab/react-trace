@@ -175,6 +175,12 @@ export function TraceApp() {
   );
   const leftPanelRef = usePanelRef();
   const rightPanelRef = usePanelRef();
+  // In-flight units lookups per trace, so a rapid PV re-selection aborts the
+  // previous fetch and the last selection wins (see assignTraceToUnitAxis).
+  const unitFetchAbortRef = useRef(new Map<string, AbortController>());
+  // Monotonic suffix for generated axis ids; Date.now() alone collides when
+  // several axes are created within the same millisecond (e.g. batch import).
+  const idCounterRef = useRef(0);
 
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
 
@@ -407,19 +413,38 @@ export function TraceApp() {
     const plot = plots.find((p) => p.id === plotId);
     const trace = plot?.traces.find((t) => t.id === traceId);
     if (!plot || !trace) return;
+
+    // Abort any in-flight lookup for this trace so a rapid re-selection can't
+    // have a stale response land after the newer one.
+    const abortMap = unitFetchAbortRef.current;
+    abortMap.get(traceId)?.abort();
+    const controller = new AbortController();
+    abortMap.set(traceId, controller);
+
+    // Remember where the trace sat when the fetch began. If the user moves it
+    // (drag or axis dropdown) before we resolve, we must not clobber that.
+    const axisIdAtFetch = trace.axisId;
+
     let unit: string | undefined;
     try {
-      const meta = await fetchMetadata(pvName, trace.archiver ?? plot.archiver);
+      const meta = await fetchMetadata(pvName, trace.archiver ?? plot.archiver, controller.signal);
       unit = meta.units?.trim() || undefined;
     } catch {
-      return; // metadata unavailable — keep the trace on its current axis
+      return; // metadata unavailable / aborted — keep the trace on its current axis
+    } finally {
+      // Only clear the slot if it's still ours; a newer call may have replaced it.
+      if (abortMap.get(traceId) === controller) abortMap.delete(traceId);
     }
-    if (!unit) return;
+    if (controller.signal.aborted || !unit) return;
 
     const unitLower = unit.toLowerCase();
     setPlots((prev) =>
       prev.map((p) => {
         if (p.id !== plotId) return p;
+        // The user moved the trace to a different axis while we were fetching;
+        // respect that manual choice and skip the auto-assign entirely.
+        const current = p.traces.find((t) => t.id === traceId);
+        if (!current || current.axisId !== axisIdAtFetch) return p;
         const norm = (s: string | undefined) => (s ?? '').trim().toLowerCase();
         // Match an axis by recorded units, or by name as a fallback for axes
         // that predate unit tracking. The name fallback matches the unit only
@@ -440,7 +465,7 @@ export function TraceApp() {
           };
         }
         // No match: create a new axis labeled with the unit, alternating sides.
-        const newAxisId = `axis-${Date.now()}`;
+        const newAxisId = `axis-${Date.now()}-${idCounterRef.current++}`;
         const newAxis: Axis = {
           id: newAxisId,
           name: unit,

@@ -340,8 +340,10 @@ function TraceGeneralTab({
                 // displayName is left alone: while it's blank the label falls
                 // back to the PV name (traceLabel), and a user-set name wins.
                 onUpdate({ pvName: pv });
-                // Auto-assign the trace to the axis matching this PV's units.
-                onSelectPv(pv);
+                // Auto-assign only when the PV actually changed. Carbon fires
+                // onChange on a bare Enter too, and re-running the assign would
+                // revert a manual axis override the user made after selecting.
+                if (pv !== trace.pvName) onSelectPv(pv);
               }
             }}
             allowCustomValue
