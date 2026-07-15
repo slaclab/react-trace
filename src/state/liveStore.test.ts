@@ -110,7 +110,7 @@ describe('LiveStore', () => {
     expect(entry).toBeDefined();
     expect(entry!.connected).toBe(true);
     expect(entry!.severity).toBe('NO_ALARM');
-    expect(entry!.points).toEqual([{ time: tsMs, value: 1.5 }]);
+    expect(entry!.points).toEqual([{ time: tsMs, value: 1.5, severity: 'NO_ALARM' }]);
 
     ws.emit({
       type: 'diff',
@@ -119,8 +119,34 @@ describe('LiveStore', () => {
       timestamp: tsMs + 100,
     });
     expect(store.getSnapshot().get('t1')!.points).toEqual([
-      { time: tsMs, value: 1.5 },
-      { time: tsMs + 100, value: 2.25 },
+      { time: tsMs, value: 1.5, severity: 'NO_ALARM' },
+      { time: tsMs + 100, value: 2.25, severity: 'NO_ALARM' },
+    ]);
+  });
+
+  it('retains per-sample severity on each buffered point', () => {
+    const store = new LiveStore();
+    store.watch('t1', 'SEV', 60_000);
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+
+    const tsMs = Date.now();
+    ws.emit({
+      type: 'initial',
+      data: { SEV: { ...pvValue('SEV', 1, tsMs), severity: 'MINOR' } },
+      count: 1,
+    });
+    ws.emit({
+      type: 'diff',
+      data: { SEV: { ...pvValue('SEV', 2, tsMs + 100), severity: 'MAJOR' } },
+      count: 1,
+      timestamp: tsMs + 100,
+    });
+
+    // Each point keeps the severity reported with it, not just the PV's latest.
+    expect(store.getSnapshot().get('t1')!.points).toEqual([
+      { time: tsMs, value: 1, severity: 'MINOR' },
+      { time: tsMs + 100, value: 2, severity: 'MAJOR' },
     ]);
   });
 
@@ -279,5 +305,35 @@ describe('LiveStore', () => {
     const second = store.getSnapshot();
     expect(second.get('t1')).not.toBe(aBefore); // AAA changed -> new entry
     expect(second.get('t2')).toBe(bBefore); // BBB unchanged -> same entry
+  });
+
+  it('getEntrySnapshot returns one trace and stays ref-stable when unrelated traces change', () => {
+    const store = new LiveStore();
+    store.watch('t1', 'AAA', 60_000);
+    store.watch('t2', 'BBB', 60_000);
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+
+    const t0 = Date.now();
+    ws.emit({
+      type: 'initial',
+      data: { AAA: pvValue('AAA', 1, t0), BBB: pvValue('BBB', 1, t0) },
+      count: 2,
+    });
+
+    const bBefore = store.getEntrySnapshot('t2');
+    expect(bBefore?.pv).toBe('BBB');
+
+    // A frame touching only AAA leaves t2's entry reference identical, so a
+    // consumer subscribed via getEntrySnapshot('t2') can bail its re-render.
+    ws.emit({
+      type: 'diff',
+      data: { AAA: pvValue('AAA', 2, t0 + 100) },
+      count: 1,
+      timestamp: t0 + 100,
+    });
+    expect(store.getEntrySnapshot('t2')).toBe(bBefore); // unchanged -> same ref
+    expect(store.getEntrySnapshot('t1')).not.toBe(bBefore);
+    expect(store.getEntrySnapshot('missing')).toBeUndefined();
   });
 });
