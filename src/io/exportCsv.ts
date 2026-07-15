@@ -1,5 +1,6 @@
 import type { Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
+import { safeFilename } from './filename';
 
 // Long-format CSV: one row per (trace, sample). Easier to write and easier to
 // pivot later than a wide-format that aligns timestamps across PVs (Vole's job
@@ -50,10 +51,6 @@ function formatValue(v: number): string {
 function csvField(s: string): string {
   if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
-}
-
-function safeFilename(s: string): string {
-  return s.replace(/[/\\?%*:|"<>]/g, '_').replace(/\s+/g, '-') || 'plot';
 }
 
 // Re-export for callers that want to count exportable traces before clicking
