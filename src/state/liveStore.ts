@@ -97,6 +97,15 @@ export class LiveStore {
     return this.snapshot;
   };
 
+  // Single-trace snapshot for consumers that watch exactly one trace (e.g. the
+  // Data Insight Tool). Returns the ref-stable `LiveEntry` from the rebuilt
+  // snapshot, so a `useSyncExternalStore` reading only this entry re-renders on
+  // that trace's samples alone, not on every store notification.
+  getEntrySnapshot = (traceId: string): LiveEntry | undefined => {
+    if (this.dirty) this.rebuild();
+    return this.snapshot.get(traceId);
+  };
+
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

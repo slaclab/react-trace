@@ -306,4 +306,34 @@ describe('LiveStore', () => {
     expect(second.get('t1')).not.toBe(aBefore); // AAA changed -> new entry
     expect(second.get('t2')).toBe(bBefore); // BBB unchanged -> same entry
   });
+
+  it('getEntrySnapshot returns one trace and stays ref-stable when unrelated traces change', () => {
+    const store = new LiveStore();
+    store.watch('t1', 'AAA', 60_000);
+    store.watch('t2', 'BBB', 60_000);
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+
+    const t0 = Date.now();
+    ws.emit({
+      type: 'initial',
+      data: { AAA: pvValue('AAA', 1, t0), BBB: pvValue('BBB', 1, t0) },
+      count: 2,
+    });
+
+    const bBefore = store.getEntrySnapshot('t2');
+    expect(bBefore?.pv).toBe('BBB');
+
+    // A frame touching only AAA leaves t2's entry reference identical, so a
+    // consumer subscribed via getEntrySnapshot('t2') can bail its re-render.
+    ws.emit({
+      type: 'diff',
+      data: { AAA: pvValue('AAA', 2, t0 + 100) },
+      count: 1,
+      timestamp: t0 + 100,
+    });
+    expect(store.getEntrySnapshot('t2')).toBe(bBefore); // unchanged -> same ref
+    expect(store.getEntrySnapshot('t1')).not.toBe(bBefore);
+    expect(store.getEntrySnapshot('missing')).toBeUndefined();
+  });
 });

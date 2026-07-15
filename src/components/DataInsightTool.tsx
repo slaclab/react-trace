@@ -65,7 +65,7 @@ export function DataInsightTool({
   const archiver = selected?.trace.archiver ?? selected?.plot.archiver;
   const windowNs = selected ? windowByPlotId.get(selected.plot.id) : undefined;
 
-  const { rows, meta, status, error, decimated, refetch } = useInsightData(
+  const { rows, meta, status, error, decimated, refreshing, refetch } = useInsightData(
     pv,
     archiver,
     windowNs,
@@ -162,7 +162,7 @@ export function DataInsightTool({
             className="insight-tool__btn"
             title="Refresh"
             onClick={refetch}
-            disabled={!pv || status === 'loading'}
+            disabled={!pv || status === 'loading' || refreshing}
           >
             <Renew size={16} />
           </button>

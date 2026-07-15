@@ -29,6 +29,10 @@ export interface InsightData {
   // True when the archiver decimated the raw result (too many points for the
   // window). The table then shows representative rather than every sample.
   decimated: boolean;
+  // True while a fetch is in flight, including background refetches that keep
+  // `status` at 'ready' (stale-while-revalidate). Lets the UI disable Refresh
+  // so it can't fire overlapping requests.
+  refreshing: boolean;
   refetch: () => void;
 }
 
@@ -97,6 +101,7 @@ export function useInsightData(
   const [status, setStatus] = useState<InsightStatus>('idle');
   const [error, setError] = useState<string>();
   const [decimated, setDecimated] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   // PV whose archive rows are currently loaded, used to suppress the loading
   // flash on background refetches (see below).
@@ -109,11 +114,15 @@ export function useInsightData(
 
   // Quantize the archive query to whole seconds. A relative range (e.g. "-1h")
   // re-resolves `nowNs()` every render, so raw fromNs/toNs jitter by ms each
-  // frame — while live is streaming that would refetch the archive on every
-  // re-render. Live covers the moving present, so a sub-second-stale archive
-  // tail is invisible. The live merge below still uses the raw window.
+  // frame; while live is streaming that would refetch the archive on every
+  // re-render. Quantizing pins the query to second boundaries so it only
+  // refetches when the window actually crosses one. The start rounds down and
+  // the end rounds up, so the query fully covers the requested window: for
+  // archive-only traces (no live buffer to fill the tail) rounding the end down
+  // would drop up to 999ms at the edge. The live merge below still uses the raw
+  // window.
   const fromSec = fromNs === undefined ? undefined : Math.floor(fromNs / 1e9);
-  const toSec = toNs === undefined ? undefined : Math.floor(toNs / 1e9);
+  const toSec = toNs === undefined ? undefined : Math.ceil(toNs / 1e9);
 
   useEffect(() => {
     // Synchronous status/reset transitions before the async fetch are the
@@ -123,6 +132,7 @@ export function useInsightData(
       setStatus('idle');
       setArchiveRows([]);
       setMeta(null);
+      setRefreshing(false);
       loadedPvRef.current = undefined;
       return;
     }
@@ -131,6 +141,9 @@ export function useInsightData(
     // a PV. Background refetches (second-boundary window slide, refresh) keep
     // the current rows visible so streaming doesn't flicker the toolbar.
     if (loadedPvRef.current !== pv) setStatus('loading');
+    // `refreshing` tracks the in-flight fetch even when the loading flash is
+    // suppressed, so the UI can disable Refresh and prevent overlapping requests.
+    setRefreshing(true);
     setError(undefined);
     /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -151,10 +164,12 @@ export function useInsightData(
         setMeta({ pv, units: metadata?.units ?? null, description: metadata?.description ?? null });
         loadedPvRef.current = pv;
         setStatus('ready');
+        setRefreshing(false);
       } catch (err) {
         if ((err as { name?: string }).name === 'AbortError') return;
         setError(err instanceof CanopyError ? err.detail : (err as Error).message);
         setStatus('error');
+        setRefreshing(false);
       }
     })();
 
@@ -164,8 +179,14 @@ export function useInsightData(
   // Read the trace's live buffer. Subscribing here only adds a store listener;
   // the actual PV watch/subscribe is owned by the app-level useLiveSeries, so a
   // trace with `useLive` off simply has no entry and contributes no live rows.
-  const liveSnapshot = useSyncExternalStore(liveStore.subscribe, liveStore.getSnapshot);
-  const liveEntry = traceId ? liveSnapshot.get(traceId) : undefined;
+  // We read just this trace's entry (not the whole snapshot) so the panel
+  // re-renders on the selected trace's samples alone, not on every live frame
+  // from any trace. The store hands back a ref-stable entry per trace.
+  const getEntry = useCallback(
+    () => (traceId ? liveStore.getEntrySnapshot(traceId) : undefined),
+    [traceId]
+  );
+  const liveEntry = useSyncExternalStore(liveStore.subscribe, getEntry);
   const livePoints = liveEntry && liveEntry.pv === pv ? liveEntry.points : EMPTY_POINTS;
 
   const rows = useMemo(
@@ -177,5 +198,5 @@ export function useInsightData(
     [archiveRows, liveEntry, fromNs, toNs]
   );
 
-  return { rows, meta, status, error, decimated, refetch };
+  return { rows, meta, status, error, decimated, refreshing, refetch };
 }
