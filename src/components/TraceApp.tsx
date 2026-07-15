@@ -28,6 +28,7 @@ import { getPalette, colorForIndex } from '../palettes';
 import { downloadBlob, pickFile } from '../io/download';
 import { serializeWorkspace, deserializeWorkspace } from '../io/serialize';
 import { buildCsvFiles } from '../io/exportCsv';
+import { makeId } from '../id';
 
 const BUG_REPORT_URL = 'https://forms.office.com/r/qV7BmK2xi9';
 const DOCS_URL = 'https://github.com/slaclab/react-trace#readme';
@@ -178,9 +179,6 @@ export function TraceApp() {
   // In-flight units lookups per trace, so a rapid PV re-selection aborts the
   // previous fetch and the last selection wins (see assignTraceToUnitAxis).
   const unitFetchAbortRef = useRef(new Map<string, AbortController>());
-  // Monotonic suffix for generated axis ids; Date.now() alone collides when
-  // several axes are created within the same millisecond (e.g. batch import).
-  const idCounterRef = useRef(0);
 
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
 
@@ -265,7 +263,7 @@ export function TraceApp() {
   // ── Plot operations ─────────────────────────────────────────────────────────
 
   const addPlot = () => {
-    const id = `plot-${Date.now()}`;
+    const id = makeId('plot');
     const plotNum = plots.length + 1;
     setPlots((prev) => [
       ...prev,
@@ -338,7 +336,7 @@ export function TraceApp() {
   // ── Trace operations ─────────────────────────────────────────────────────────
 
   const addTrace = (plotId: string, axisId: string) => {
-    const id = `trace-${Date.now()}`;
+    const id = makeId('trace');
     const traceCount = plots.find((p) => p.id === plotId)?.traces.length ?? 0;
     const newTrace: PVTrace = {
       id,
@@ -465,7 +463,7 @@ export function TraceApp() {
           };
         }
         // No match: create a new axis labeled with the unit, alternating sides.
-        const newAxisId = `axis-${Date.now()}-${idCounterRef.current++}`;
+        const newAxisId = makeId('axis');
         const newAxis: Axis = {
           id: newAxisId,
           name: unit,
@@ -518,7 +516,7 @@ export function TraceApp() {
   // ── Axis operations ──────────────────────────────────────────────────────────
 
   const addAxis = (plotId: string) => {
-    const id = `axis-${Date.now()}`;
+    const id = makeId('axis');
     const axisNum = (plots.find((p) => p.id === plotId)?.axes.length ?? 0) + 1;
     const newAxis: Axis = {
       id,
