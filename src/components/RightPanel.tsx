@@ -28,6 +28,7 @@ import {
 import { PALETTES, getPalette } from '../palettes';
 import { usePaletteId } from '../state/paletteStore';
 import type { SelectedItem } from './TraceApp';
+import { parseSpanMs, resolveTimeWindow } from '../api/time';
 import { DEFAULT_OPTIMIZED_BINS, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { LIVE_RETENTION_DEFAULT_MS, type LiveSeriesResult } from '../hooks/useLiveSeries';
 import {
@@ -1307,6 +1308,41 @@ function PlotGeneralTab({
   // The Plot-tab picker controls the global default palette (persisted), so new
   // traces follow it; the button additionally recolors existing traces now.
   const { paletteId, setPaletteId } = usePaletteId();
+  // Free-text span field (e.g. "90m", "1.5h"). Seeded from the relative range
+  // minus its leading "-"; commits a normalized "-<span>" range on Enter/blur.
+  const isCustom = plot.xAxis.timeRange === 'custom';
+  const spanFromRange = isCustom ? '' : plot.xAxis.timeRange.replace(/^-/, '');
+  const [spanText, setSpanText] = useState(spanFromRange);
+  const [spanError, setSpanError] = useState<string | undefined>(undefined);
+  // Re-sync when timeRange changes externally (workspace load, undo, etc.).
+  // Without this, spanText keeps its mount-time value, and a focus/blur without
+  // typing fires commitSpan and overwrites the loaded range with stale text. We
+  // derive during render (React's recommended pattern over an effect) and track
+  // the range we last synced from so genuine typing between renders isn't lost.
+  const [syncedFrom, setSyncedFrom] = useState(plot.xAxis.timeRange);
+  if (plot.xAxis.timeRange !== syncedFrom) {
+    setSyncedFrom(plot.xAxis.timeRange);
+    setSpanText(spanFromRange);
+    setSpanError(undefined);
+  }
+  const commitSpan = () => {
+    const trimmed = spanText.trim();
+    if (trimmed === '') {
+      setSpanError(undefined);
+      return;
+    }
+    if (parseSpanMs(trimmed) === null) {
+      setSpanError('Use a number plus m, h, d, w, or M (e.g. 90m, 1.5h, 2w).');
+      return;
+    }
+    setSpanError(undefined);
+    onUpdate({ xAxis: { ...plot.xAxis, timeRange: `-${trimmed}` } });
+  };
+  const customError = isCustom ? resolveTimeWindow(plot.xAxis).error : undefined;
+  // A relative range that isn't one of the dropdown presets (e.g. "-30m") needs
+  // its own option, or the native Select would mislead by showing the first item.
+  const PRESETS = ['-1h', '-4h', '-1d', '-2d', '-1w', '-1M', 'custom'];
+  const isPresetRange = PRESETS.includes(plot.xAxis.timeRange);
   return (
     <div>
       <div className="prop-section">
@@ -1478,7 +1514,12 @@ function PlotGeneralTab({
             id="time-range"
             labelText="Time Range"
             value={plot.xAxis.timeRange}
-            onChange={(e) => onUpdate({ xAxis: { ...plot.xAxis, timeRange: e.target.value } })}
+            onChange={(e) => {
+              const next = e.target.value;
+              if (next !== 'custom') setSpanText(next.replace(/^-/, ''));
+              setSpanError(undefined);
+              onUpdate({ xAxis: { ...plot.xAxis, timeRange: next } });
+            }}
             size="sm"
           >
             <SelectItem value="-1h" text="Last 1 Hour" />
@@ -1486,12 +1527,33 @@ function PlotGeneralTab({
             <SelectItem value="-1d" text="Last 1 Day" />
             <SelectItem value="-2d" text="Last 2 Days" />
             <SelectItem value="-1w" text="Last 1 Week" />
-            <SelectItem value="-1m" text="Last 1 Month" />
+            <SelectItem value="-1M" text="Last 1 Month" />
+            {!isPresetRange && (
+              <SelectItem
+                value={plot.xAxis.timeRange}
+                text={`Last ${plot.xAxis.timeRange.replace(/^-/, '')}`}
+              />
+            )}
             <SelectItem value="custom" text="Custom Range..." />
           </Select>
         </div>
-        {plot.xAxis.timeRange !== 'custom' && (
+        {!isCustom && (
           <>
+            <div className="prop-row">
+              <TextInput
+                id="time-span"
+                labelText="Span (e.g. 90m, 1.5h, 2w)"
+                value={spanText}
+                invalid={!!spanError}
+                invalidText={spanError}
+                onChange={(e) => setSpanText(e.target.value)}
+                onBlur={commitSpan}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitSpan();
+                }}
+                size="sm"
+              />
+            </div>
             <div className="prop-row">
               <Toggle
                 id="autoscroll"
@@ -1521,7 +1583,7 @@ function PlotGeneralTab({
             </div>
           </>
         )}
-        {plot.xAxis.timeRange === 'custom' && (
+        {isCustom && (
           <>
             <div className="prop-row">
               <TextInput
@@ -1536,13 +1598,21 @@ function PlotGeneralTab({
             <div className="prop-row">
               <TextInput
                 id="time-to"
-                labelText="To"
+                labelText="To (blank = now)"
                 type="datetime-local"
                 value={plot.xAxis.timeTo ?? ''}
                 onChange={(e) => onUpdate({ xAxis: { ...plot.xAxis, timeTo: e.target.value } })}
                 size="sm"
               />
             </div>
+            {customError && (
+              <div
+                className="prop-row"
+                style={{ fontSize: 12, color: 'var(--cds-text-error, #da1e28)' }}
+              >
+                {customError}
+              </div>
+            )}
           </>
         )}
       </div>

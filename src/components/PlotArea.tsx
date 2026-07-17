@@ -7,7 +7,7 @@ import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 import type { FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
-import { msToNs, nsToMs, rangeToWindowNs } from '../api/time';
+import { msToNs, nsToMs, resolveTimeWindow } from '../api/time';
 import { echartsLineType, echartsSymbol } from '../curveStyle';
 import { traceLabel } from '../traceLabel';
 import { useColorMode } from '../state/themeStore';
@@ -310,7 +310,7 @@ export function SinglePlot({
   // Pin the x-axis extent to the requested time range so the axis spans the
   // full window even when archive data is sparse and clusters in a sub-range.
   // dataZoom inside the chart still sub-zooms within [min, max].
-  const requested = rangeToWindowNs(plot.xAxis.timeRange);
+  const requested = resolveTimeWindow(plot.xAxis).window;
   const xAxisMin = nsToMs(requested.fromNs);
   const xAxisMax = nsToMs(requested.toNs);
 
