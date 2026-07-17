@@ -400,15 +400,14 @@ export function TraceApp() {
   };
 
   const addFormula = (plotId: string, axisId: string) => {
-    const id = `formula-${Date.now()}`;
-    const colors = ['#0f62fe', '#ee5396', '#42be65', '#ff832b', '#a56eff', '#08bdba'];
+    const id = makeId('trace');
     const traceCount = plots.find((p) => p.id === plotId)?.traces.length ?? 0;
     const newFormula: PVTrace = {
       id,
       kind: 'formula',
       pvName: '',
       displayName: 'New Formula',
-      color: colors[traceCount % colors.length],
+      color: colorForIndex(getPalette(paletteId), traceCount),
       visible: true,
       axisId,
       // Formula curves have no PV data source; their values come from Fox.
@@ -438,14 +437,13 @@ export function TraceApp() {
     const plot = plots.find((p) => p.id === plotId);
     const source = plot?.traces.find((t) => t.id === sourceTraceId);
     if (!plot || !source) return;
-    const id = `formula-${Date.now()}`;
-    const colors = ['#0f62fe', '#ee5396', '#42be65', '#ff832b', '#a56eff', '#08bdba'];
+    const id = makeId('trace');
     const newFormula: PVTrace = {
       id,
       kind: 'formula',
       pvName: '',
       displayName: `f(${source.pvName || source.displayName || 'curve'})`,
-      color: colors[plot.traces.length % colors.length],
+      color: colorForIndex(getPalette(paletteId), plot.traces.length),
       visible: true,
       axisId: source.axisId,
       useLive: false,
@@ -712,9 +710,9 @@ export function TraceApp() {
   };
 
   const handleExport = () => {
-    const files = buildCsvFiles(plots, archiveResultsByPlot);
+    const files = buildCsvFiles(plots, archiveResultsByPlot, formulaResultsByPlot);
     if (files.length === 0) {
-      alert('No archive data to export. Toggle archive on a trace and wait for data to load.');
+      alert('No data to export. Toggle archive on a trace or add a formula, then wait for data.');
       return;
     }
     for (const f of files) {

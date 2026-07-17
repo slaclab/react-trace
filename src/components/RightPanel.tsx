@@ -252,14 +252,19 @@ function FormulaGeneralTab({
   // Debounced live validation via Fox. Sends whatever bindings are resolved so
   // far, so the server red-lines bad syntax (and missing bindings) as you type.
   const [validation, setValidation] = useState<{ valid: boolean; errors: string[] } | null>(null);
-  const bindingKey = JSON.stringify(bindings);
+  // Resolve to actual PV names here and key the effect on the result. Keying on
+  // the raw bindings object alone would miss a bound curve's pvName changing
+  // while its target id stays the same, leaving validation to fire against stale
+  // PV names read from the closure.
+  const resolvedBindings = resolveBindings(trace, bindableTraces);
+  const resolvedKey = JSON.stringify(resolvedBindings);
   useEffect(() => {
     const expr = expression.trim();
     if (!expr) return;
     const ac = new AbortController();
     const handle = setTimeout(() => {
       validateFormula(
-        { kind: 'timeseries', expression: expr, bindings: resolveBindings(trace, bindableTraces) },
+        { kind: 'timeseries', expression: expr, bindings: resolvedBindings },
         ac.signal
       )
         .then((r) => {
@@ -275,8 +280,8 @@ function FormulaGeneralTab({
       clearTimeout(handle);
       ac.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- expression + serialized bindings capture the inputs
-  }, [expression, bindingKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- expression + resolved bindings capture the inputs
+  }, [expression, resolvedKey]);
 
   return (
     <div>

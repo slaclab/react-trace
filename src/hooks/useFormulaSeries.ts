@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { evaluateFormula } from '../api/fox';
 import { CanopyError } from '../api/client';
 import { nsToMs, type TimeWindowNs } from '../api/time';
@@ -98,11 +98,23 @@ export function useFormulaSeries(
     // eslint-disable-next-line react-hooks/exhaustive-deps -- signature captures the meaningful inputs
   }, [signature]);
 
-  if (results.size === 0) return EMPTY_SERIES;
-  const out = new Map<string, FormulaSeriesResult>();
-  for (const trace of traces) {
-    if (trace.kind !== 'formula') continue;
-    out.set(trace.id, results.get(trace.id) ?? IDLE_RESULT);
-  }
-  return out;
+  // Project `results` down to the current formula traces. Memoized on the result
+  // map and the set of formula trace ids so the returned reference stays stable
+  // across unrelated re-renders (e.g. ~10 Hz live-data ticks). A fresh Map every
+  // render would defeat TraceApp's downstream useMemo, which lists this as a dep,
+  // churning props to every SinglePlot on every tick.
+  const formulaIds = traces
+    .filter((t) => t.kind === 'formula')
+    .map((t) => t.id)
+    .join('|');
+  return useMemo(() => {
+    if (results.size === 0) return EMPTY_SERIES;
+    const out = new Map<string, FormulaSeriesResult>();
+    for (const trace of traces) {
+      if (trace.kind !== 'formula') continue;
+      out.set(trace.id, results.get(trace.id) ?? IDLE_RESULT);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- formulaIds captures the trace subset
+  }, [results, formulaIds]);
 }
