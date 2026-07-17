@@ -18,11 +18,15 @@ function eligible(plot: Plot, viewWindowByPlot: Map<string, TimeWindowNs>): bool
   );
 }
 
-// Drives now-tracking. One interval per eligible plot (plots can have different
-// refresh rates). Each tick bumps local state, which re-renders the caller
-// (TraceApp); its `windowByTrace` then recomputes `rangeToWindowNs` fresh and
-// the window advances. The archive store's coverage check decides whether the
-// advance warrants a refetch, so over-ticking is cheap.
+// Drives now-tracking. A single timer fires at the shortest eligible interval.
+// Each tick bumps local state, which re-renders the caller (TraceApp); its
+// `windowByTrace` then recomputes `rangeToWindowNs` fresh and every eligible
+// plot's window advances at once. This is deliberate: one `setTick` re-renders
+// the whole tree, so separate per-plot timers could not advance plots
+// independently anyway (a faster plot's tick would still advance the slow ones).
+// Ticking all plots at the fastest rate keeps the behavior explicit. The archive
+// store's coverage check decides whether an advance warrants a refetch, so the
+// extra ticks on slower plots are cheap.
 export function useAutoScrollTimers(
   plots: Plot[],
   viewWindowByPlot: Map<string, TimeWindowNs>
@@ -30,17 +34,14 @@ export function useAutoScrollTimers(
   const [, setTick] = useState(0);
 
   // Re-subscribe only when the eligible set or any interval changes.
-  const signature = plots
+  const intervals = plots
     .filter((p) => eligible(p, viewWindowByPlot))
-    .map((p) => `${p.id}:${clampInterval(p.refreshIntervalS)}`)
-    .join('|');
+    .map((p) => clampInterval(p.refreshIntervalS));
+  const tickSecs = intervals.length ? Math.min(...intervals) : 0;
 
   useEffect(() => {
-    if (!signature) return;
-    const timers = signature.split('|').map((entry) => {
-      const secs = Number(entry.slice(entry.lastIndexOf(':') + 1));
-      return window.setInterval(() => setTick((t) => t + 1), secs * 1000);
-    });
-    return () => timers.forEach((id) => window.clearInterval(id));
-  }, [signature]);
+    if (!tickSecs) return;
+    const id = window.setInterval(() => setTick((t) => t + 1), tickSecs * 1000);
+    return () => window.clearInterval(id);
+  }, [tickSecs]);
 }

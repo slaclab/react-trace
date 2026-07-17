@@ -202,6 +202,15 @@ export function SinglePlot({
     if (!inst || !inst.getDom()) return;
     programmaticZoomRef.current = true;
     inst.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+    // If the chart was already at 0-100 the action is a no-op and no `datazoom`
+    // event fires, so `handleDataZoom` never clears the flag. Without this the
+    // flag stays `true` and swallows the user's next genuine pan. Clear it on a
+    // later tick as a fallback; a real event beats the timeout and clears it
+    // first, making this a safety net rather than a race.
+    const clearTimer = window.setTimeout(() => {
+      programmaticZoomRef.current = false;
+    }, 0);
+    return () => window.clearTimeout(clearTimer);
   }, [rangeKey]);
 
   // Seed the saved sub-range directly into the inside-dataZoom on first render
