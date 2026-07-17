@@ -84,4 +84,9 @@ export interface Plot {
     timeFrom?: string;
     timeTo?: string;
   };
+  // Autoscroll keeps "now" pinned to the right edge by advancing a relative
+  // window every `refreshIntervalS` seconds. Undefined autoScroll is treated as
+  // on, so plots created before this field still track.
+  autoScroll?: boolean;
+  refreshIntervalS?: number;
 }

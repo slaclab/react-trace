@@ -19,6 +19,7 @@ import { Toolbar } from './Toolbar';
 import { useArchiveSeries, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { useLiveSeries, type LiveSeriesResult } from '../hooks/useLiveSeries';
 import { archiveStore } from '../state/archiveStore';
+import { useAutoScrollTimers } from '../hooks/useAutoScrollTimers';
 import type { TimeWindowNs } from '../api/time';
 import { rangeToWindowNs } from '../api/time';
 import { fetchMetadata } from '../api/mole';
@@ -181,6 +182,9 @@ export function TraceApp() {
   // previous fetch and the last selection wins (see assignTraceToUnitAxis).
   const unitFetchAbortRef = useRef(new Map<string, AbortController>());
 
+  // Now-tracking: ticks re-render so the relative-range branch below advances.
+  useAutoScrollTimers(plots, viewWindowByPlot);
+
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
 
   const allTraces = plots.flatMap((p) => p.traces);
@@ -212,6 +216,9 @@ export function TraceApp() {
       next.set(plotId, window);
       return next;
     });
+    // A manual pan/zoom takes over the window, so stop tracking "now". Picking a
+    // time range re-enables it (see updatePlot).
+    setPlots((prev) => prev.map((p) => (p.id === plotId ? { ...p, autoScroll: false } : p)));
   };
 
   // Split the flat result maps per plot. Memoized on (plots, archiveResults,
@@ -280,6 +287,8 @@ export function TraceApp() {
         gridOpacity: 1,
         tickFontSize: 11,
         xAxis: { timeRange: '-1h' },
+        autoScroll: true,
+        refreshIntervalS: 5,
         axes: [
           {
             id: `${id}-axis-1`,
@@ -327,11 +336,16 @@ export function TraceApp() {
   };
 
   const updatePlot = (plotId: string, updates: Partial<Plot>) => {
-    setPlots((prev) => prev.map((p) => (p.id === plotId ? { ...p, ...updates } : p)));
-    // Picking a new x-axis time range is an explicit reset; drop the panned
-    // viewport so the next render uses the relative range, not the stale one.
-    // PlotArea also dispatches a dataZoom reset on the same trigger.
-    if (updates.xAxis && 'timeRange' in updates.xAxis) clearViewWindow(plotId);
+    // Picking a new x-axis time range is an explicit reset: drop the panned
+    // viewport so the next render uses the relative range (PlotArea also
+    // dispatches a dataZoom reset on the same trigger) and re-enable tracking.
+    const reselectsRange = !!updates.xAxis && 'timeRange' in updates.xAxis;
+    setPlots((prev) =>
+      prev.map((p) =>
+        p.id === plotId ? { ...p, ...updates, ...(reselectsRange ? { autoScroll: true } : {}) } : p
+      )
+    );
+    if (reselectsRange) clearViewWindow(plotId);
   };
 
   // ── Trace operations ─────────────────────────────────────────────────────────
