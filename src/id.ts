@@ -10,7 +10,7 @@
 
 let counter = 0;
 
-export type IdKind = 'plot' | 'trace' | 'axis';
+export type IdKind = 'plot' | 'trace' | 'axis' | 'formula';
 
 export function makeId(kind: IdKind): string {
   return `${kind}-${Date.now()}-${counter++}`;
