@@ -1,0 +1,37 @@
+[package]
+name = "app"
+version = "0.1.0"
+description = "Trace desktop app"
+authors = ["SLAC"]
+license = ""
+repository = ""
+edition = "2021"
+rust-version = "1.60"
+
+[build-dependencies]
+tauri-build = { version = "1.5.5", features = [] }
+
+[dependencies]
+tauri = { version = "1.8", features = ["shell-open", "cli", "devtools"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# In-process reverse proxy: serves the bundled SPA and forwards /mole /hare /fox
+# to the configured Canopy backend, injecting X-API-Key so the JS bundle never
+# holds the key (mirrors the web deployment's reverse-proxy security model).
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util"] }
+axum = { version = "0.7", features = ["ws"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["fs"] }
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+futures-util = "0.3"
+http = "1"
+bytes = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[features]
+# This feature is used for production builds or when a dev server is not specified,
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
