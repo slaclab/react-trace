@@ -1311,8 +1311,20 @@ function PlotGeneralTab({
   // Free-text span field (e.g. "90m", "1.5h"). Seeded from the relative range
   // minus its leading "-"; commits a normalized "-<span>" range on Enter/blur.
   const isCustom = plot.xAxis.timeRange === 'custom';
-  const [spanText, setSpanText] = useState(isCustom ? '' : plot.xAxis.timeRange.replace(/^-/, ''));
+  const spanFromRange = isCustom ? '' : plot.xAxis.timeRange.replace(/^-/, '');
+  const [spanText, setSpanText] = useState(spanFromRange);
   const [spanError, setSpanError] = useState<string | undefined>(undefined);
+  // Re-sync when timeRange changes externally (workspace load, undo, etc.).
+  // Without this, spanText keeps its mount-time value, and a focus/blur without
+  // typing fires commitSpan and overwrites the loaded range with stale text. We
+  // derive during render (React's recommended pattern over an effect) and track
+  // the range we last synced from so genuine typing between renders isn't lost.
+  const [syncedFrom, setSyncedFrom] = useState(plot.xAxis.timeRange);
+  if (plot.xAxis.timeRange !== syncedFrom) {
+    setSyncedFrom(plot.xAxis.timeRange);
+    setSpanText(spanFromRange);
+    setSpanError(undefined);
+  }
   const commitSpan = () => {
     const trimmed = spanText.trim();
     if (trimmed === '') {
