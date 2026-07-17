@@ -5,6 +5,7 @@ import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@ca
 import type { Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
+import type { FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs, rangeToWindowNs } from '../api/time';
 import { echartsLineType, echartsSymbol } from '../curveStyle';
@@ -34,6 +35,7 @@ interface PlotAreaProps {
   viewMode: 'tabs' | 'grid';
   archiveResultsByPlot: Map<string, Map<string, ArchiveSeriesResult>>;
   liveResultsByPlot: Map<string, Map<string, LiveSeriesResult>>;
+  formulaResultsByPlot: Map<string, Map<string, FormulaSeriesResult>>;
   onSetActivePlot: (id: string) => void;
   onAddPlot: () => void;
   onRemovePlot: (id: string) => void;
@@ -68,6 +70,7 @@ interface SinglePlotProps {
   plot: Plot;
   archiveResults: Map<string, ArchiveSeriesResult>;
   liveResults: Map<string, LiveSeriesResult>;
+  formulaResults: Map<string, FormulaSeriesResult>;
   onViewWindowChange?: (window: TimeWindowNs) => void;
   /**
    * Last known visible window from a prior mount of this plot. Seeds the inside
@@ -113,8 +116,14 @@ function formatTimeOffset(deltaMs: number): string {
 function traceLineData(
   trace: PVTrace,
   archive: ArchiveSeriesResult | undefined,
-  live: LiveSeriesResult | undefined
+  live: LiveSeriesResult | undefined,
+  formula: FormulaSeriesResult | undefined
 ): [number, number][] {
+  // Formula curves are evaluated server-side (Fox); their points are the only
+  // source — no archive/live merge, no mock seed.
+  if (trace.kind === 'formula') {
+    return formula ? formula.points : [];
+  }
   // Mirror old Trace's independent toggles. Archive feeds the past, live
   // feeds the present; with both on, archive runs up to the last archive
   // sample and live takes over afterwards (de-duped at the seam).
@@ -168,6 +177,7 @@ export function SinglePlot({
   plot,
   archiveResults,
   liveResults,
+  formulaResults,
   onViewWindowChange,
   initialViewWindowNs,
   onAxisRangesChange,
@@ -310,7 +320,12 @@ export function SinglePlot({
   for (const trace of visibleTraces) {
     traceData.set(
       trace.id,
-      traceLineData(trace, archiveResults.get(trace.id), liveResults.get(trace.id))
+      traceLineData(
+        trace,
+        archiveResults.get(trace.id),
+        liveResults.get(trace.id),
+        formulaResults.get(trace.id)
+      )
     );
   }
 
@@ -584,6 +599,7 @@ export function SinglePlot({
 
 const EMPTY_RESULTS: Map<string, ArchiveSeriesResult> = new Map();
 const EMPTY_LIVE_RESULTS: Map<string, LiveSeriesResult> = new Map();
+const EMPTY_FORMULA_RESULTS: Map<string, FormulaSeriesResult> = new Map();
 
 export function PlotArea({
   plots,
@@ -591,6 +607,7 @@ export function PlotArea({
   viewMode,
   archiveResultsByPlot,
   liveResultsByPlot,
+  formulaResultsByPlot,
   onSetActivePlot,
   onAddPlot,
   onRemovePlot,
@@ -707,6 +724,7 @@ export function PlotArea({
               plot={activePlot}
               archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
               liveResults={liveResultsByPlot.get(activePlot.id) ?? EMPTY_LIVE_RESULTS}
+              formulaResults={formulaResultsByPlot.get(activePlot.id) ?? EMPTY_FORMULA_RESULTS}
               onViewWindowChange={
                 onViewWindowChange ? (w) => onViewWindowChange(activePlot.id, w) : undefined
               }
@@ -761,6 +779,7 @@ export function PlotArea({
                     plot={plot}
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
                     liveResults={liveResultsByPlot.get(plot.id) ?? EMPTY_LIVE_RESULTS}
+                    formulaResults={formulaResultsByPlot.get(plot.id) ?? EMPTY_FORMULA_RESULTS}
                     onViewWindowChange={
                       onViewWindowChange ? (w) => onViewWindowChange(plot.id, w) : undefined
                     }

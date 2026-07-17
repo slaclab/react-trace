@@ -22,6 +22,7 @@ import {
   Radio,
   Archive,
   TrashCan,
+  Function as FunctionIcon,
 } from '@carbon/icons-react';
 import { Button, Tag } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
@@ -52,6 +53,7 @@ interface LeftPanelProps {
   selectedItem: SelectedItem;
   onSelectItem: (item: SelectedItem) => void;
   onAddTrace: (plotId: string, axisId: string) => void;
+  onAddFormula: (plotId: string, axisId: string) => void;
   onDeleteTrace: (plotId: string, traceId: string) => void;
   onAddAxis: (plotId: string) => void;
   onDeleteAxis: (plotId: string, axisId: string) => void;
@@ -208,6 +210,7 @@ interface AxisSectionProps {
   onSelectTrace: (traceId: string) => void;
   onDeleteTrace: (traceId: string) => void;
   onAddTrace: () => void;
+  onAddFormula: () => void;
 }
 
 function AxisSection({
@@ -226,6 +229,7 @@ function AxisSection({
   onSelectTrace,
   onDeleteTrace,
   onAddTrace,
+  onAddFormula,
 }: AxisSectionProps) {
   const data: DragData = { plotId, axisId: axis.id };
   const { setNodeRef, isOver } = useDroppable({ id: `axis::${plotId}::${axis.id}`, data });
@@ -354,6 +358,21 @@ function AxisSection({
             >
               Add Trace
             </Button>
+            <Button
+              kind="ghost"
+              size="sm"
+              renderIcon={FunctionIcon}
+              iconDescription="Add formula"
+              onClick={onAddFormula}
+              style={{
+                fontSize: 11,
+                color: 'var(--cds-text-helper)',
+                minHeight: 'unset',
+                padding: '2px 8px',
+              }}
+            >
+              Add Formula
+            </Button>
           </div>
         </div>
       )}
@@ -369,6 +388,7 @@ interface PlotAxesProps {
   onToggleAxis: (axisId: string) => void;
   onSelectItem: (item: SelectedItem) => void;
   onAddTrace: (plotId: string, axisId: string) => void;
+  onAddFormula: (plotId: string, axisId: string) => void;
   onDeleteTrace: (plotId: string, traceId: string) => void;
   onDeleteAxis: (plotId: string, axisId: string) => void;
 }
@@ -383,6 +403,7 @@ function PlotAxes({
   onToggleAxis,
   onSelectItem,
   onAddTrace,
+  onAddFormula,
   onDeleteTrace,
   onDeleteAxis,
 }: PlotAxesProps) {
@@ -412,6 +433,7 @@ function PlotAxes({
             onSelectTrace={(id) => onSelectItem({ type: 'trace', id, plotId: plot.id })}
             onDeleteTrace={(id) => onDeleteTrace(plot.id, id)}
             onAddTrace={() => onAddTrace(plot.id, axis.id)}
+            onAddFormula={() => onAddFormula(plot.id, axis.id)}
           />
         );
       })}
@@ -428,6 +450,7 @@ export function LeftPanel({
   selectedItem,
   onSelectItem,
   onAddTrace,
+  onAddFormula,
   onDeleteTrace,
   onAddAxis,
   onDeleteAxis,
@@ -524,6 +547,7 @@ export function LeftPanel({
                 onToggleAxis={toggleAxisExpanded}
                 onSelectItem={onSelectItem}
                 onAddTrace={onAddTrace}
+                onAddFormula={onAddFormula}
                 onDeleteTrace={onDeleteTrace}
                 onDeleteAxis={onDeleteAxis}
               />

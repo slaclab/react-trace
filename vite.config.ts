@@ -38,6 +38,22 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        // Fox (formula evaluation): REST validate/evaluate plus the live-formula
+        // WebSocket. `ws: true` upgrades /fox/v1/ws/formulas; X-API-Key is injected
+        // on both the HTTP and WS paths so the bundle never holds the key.
+        '/fox': {
+          target,
+          changeOrigin: true,
+          ws: true,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
+            });
+            proxy.on('proxyReqWs', (proxyReq) => {
+              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
+            });
+          },
+        },
       },
     },
     test: {

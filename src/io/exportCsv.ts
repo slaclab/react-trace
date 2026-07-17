@@ -1,5 +1,7 @@
 import type { Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
+import type { FormulaSeriesResult } from '../hooks/useFormulaSeries';
+import { traceLabel } from '../traceLabel';
 import { safeFilename } from './filename';
 
 // Long-format CSV: one row per (trace, sample). Easier to write and easier to
@@ -7,16 +9,19 @@ import { safeFilename } from './filename';
 // once it lands). One file per plot.
 //
 // Returns the filename → contents pairs the caller should download. Plots
-// without any archive samples are skipped — there's nothing to write.
+// without any samples are skipped — there's nothing to write.
 export function buildCsvFiles(
   plots: Plot[],
-  archiveResultsByPlot: Map<string, Map<string, ArchiveSeriesResult>>
+  archiveResultsByPlot: Map<string, Map<string, ArchiveSeriesResult>>,
+  formulaResultsByPlot?: Map<string, Map<string, FormulaSeriesResult>>
 ): { filename: string; csv: string }[] {
   const out: { filename: string; csv: string }[] = [];
   for (const plot of plots) {
     const results = archiveResultsByPlot.get(plot.id);
-    if (!results) continue;
-    const rows = buildPlotRows(plot, results);
+    const formulaResults = formulaResultsByPlot?.get(plot.id);
+    // A plot may have only formula curves (no archive map), so don't skip on a
+    // missing archive map alone.
+    const rows = buildPlotRows(plot, results ?? new Map(), formulaResults ?? new Map());
     if (rows.length === 0) continue;
     out.push({
       filename: safeFilename(plot.title) + '.csv',
@@ -26,9 +31,27 @@ export function buildCsvFiles(
   return out;
 }
 
-function buildPlotRows(plot: Plot, results: Map<string, ArchiveSeriesResult>): string[] {
+function buildPlotRows(
+  plot: Plot,
+  results: Map<string, ArchiveSeriesResult>,
+  formulaResults: Map<string, FormulaSeriesResult>
+): string[] {
   const rows: string[] = [];
   for (const trace of plot.traces) {
+    // Formula curves have no archive data (useArchive is false); their evaluated
+    // points come from Fox, so pull them from the formula results instead. The
+    // label column carries the formula's display name since it has no pvName.
+    if (trace.kind === 'formula') {
+      const fr = formulaResults.get(trace.id);
+      if (!fr || fr.points.length === 0) continue;
+      const label = csvField(traceLabel(trace, plot.traces));
+      for (const [timeMs, value] of fr.points) {
+        const ns = Math.round(timeMs * 1_000_000);
+        const iso = new Date(timeMs).toISOString();
+        rows.push(`${label},${ns},${iso},${formatValue(value)}`);
+      }
+      continue;
+    }
     if (!trace.useArchive) continue;
     const result = results.get(trace.id);
     if (!result || result.mean.length === 0) continue;
@@ -57,14 +80,20 @@ function csvField(s: string): string {
 // (e.g. to disable the button when nothing is loaded).
 export function countExportableTraces(
   plots: Plot[],
-  archiveResultsByPlot: Map<string, Map<string, ArchiveSeriesResult>>
+  archiveResultsByPlot: Map<string, Map<string, ArchiveSeriesResult>>,
+  formulaResultsByPlot?: Map<string, Map<string, FormulaSeriesResult>>
 ): number {
   let n = 0;
   for (const plot of plots) {
     const results = archiveResultsByPlot.get(plot.id);
-    if (!results) continue;
+    const formulaResults = formulaResultsByPlot?.get(plot.id);
     for (const trace of plot.traces as PVTrace[]) {
-      const r = results.get(trace.id);
+      if (trace.kind === 'formula') {
+        const fr = formulaResults?.get(trace.id);
+        if (fr && fr.points.length > 0) n += 1;
+        continue;
+      }
+      const r = results?.get(trace.id);
       if (trace.useArchive && r && r.mean.length > 0) n += 1;
     }
   }

@@ -1,5 +1,9 @@
 export interface PVTrace {
   id: string;
+  // Curve data source. 'pv' (the default when undefined, for back-compat with
+  // saved workspaces) reads a live/archive PV; 'formula' evaluates an expression
+  // over other curves via Fox.
+  kind?: 'pv' | 'formula';
   pvName: string;
   displayName: string;
   color: string;
@@ -19,6 +23,13 @@ export interface PVTrace {
   showArchiveBand?: boolean;
   // Per-curve archiver override; undefined means "use the global selection".
   archiver?: string;
+  // ── Formula curves (kind === 'formula') ──────────────────────────────────
+  // Fox expression with {var} placeholders, e.g. "{x1} + {x2}".
+  expression?: string;
+  // Variable name -> referenced trace id (a curve on the same plot). Resolved to
+  // that trace's pvName when building the Fox request. Only PV-backed curves may
+  // be referenced for now (formula-to-formula references are deferred).
+  bindings?: Record<string, string>;
   lineWidth: number;
   // Connect points directly ('direct') or as a step function ('step', the
   // default — ECharts `step: 'end'`, matching the Python trace's stepMode="right").
