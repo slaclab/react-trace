@@ -10,6 +10,7 @@ import {
   Help,
   DataTable,
   Renew,
+  SendAlt,
 } from '@carbon/icons-react';
 import { HeaderGlobalAction } from '@carbon/react';
 import type { ColorMode } from '../state/themeStore';
@@ -26,6 +27,8 @@ interface ToolbarProps {
   onOpenDocs: () => void;
   onOpenDataInsight: () => void;
   onRefreshArchive: () => void;
+  /** When set, shows a "Post to E-Log" action. Hidden when e-log is unconfigured. */
+  onPostElog?: () => void;
 }
 
 // Carbon HeaderGlobalAction gives us hover/tooltip/keyboard handling for free
@@ -44,6 +47,7 @@ export function Toolbar({
   onOpenDocs,
   onOpenDataInsight,
   onRefreshArchive,
+  onPostElog,
 }: ToolbarProps) {
   return (
     <>
@@ -61,6 +65,11 @@ export function Toolbar({
       >
         <DataTable size={20} />
       </HeaderGlobalAction>
+      {onPostElog && (
+        <HeaderGlobalAction aria-label="Post to E-Log" tooltipAlignment="end" onClick={onPostElog}>
+          <SendAlt size={20} />
+        </HeaderGlobalAction>
+      )}
       <HeaderGlobalAction aria-label="Save" tooltipAlignment="end" onClick={onSave}>
         <Save size={20} />
       </HeaderGlobalAction>
