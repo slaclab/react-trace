@@ -433,7 +433,7 @@ export function TraceApp() {
   };
 
   const addFormula = (plotId: string, axisId: string) => {
-    const id = makeId('trace');
+    const id = makeId('formula');
     const traceCount = plots.find((p) => p.id === plotId)?.traces.length ?? 0;
     const newFormula: PVTrace = {
       id,
@@ -470,7 +470,7 @@ export function TraceApp() {
     const plot = plots.find((p) => p.id === plotId);
     const source = plot?.traces.find((t) => t.id === sourceTraceId);
     if (!plot || !source) return;
-    const id = makeId('trace');
+    const id = makeId('formula');
     const newFormula: PVTrace = {
       id,
       kind: 'formula',
