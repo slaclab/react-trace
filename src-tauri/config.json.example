@@ -1,4 +1,6 @@
 {
   "canopyUrl": "http://localhost:8000",
-  "apiKey": "dev"
+  "apiKey": "dev",
+  "elogUrl": "",
+  "elogApiKey": ""
 }

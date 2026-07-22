@@ -5,18 +5,14 @@
     "beforeBuildCommand": "pnpm build",
     "devPath": "http://localhost:5173",
     "distDir": "../dist",
-    "withGlobalTauri": true
+    "withGlobalTauri": false
   },
   "package": {
     "productName": "Trace",
     "version": "0.1.0"
   },
   "tauri": {
-    "allowlist": {
-      "shell": {
-        "open": "^https?://"
-      }
-    },
+    "allowlist": {},
     "bundle": {
       "active": true,
       "category": "DeveloperTool",
@@ -61,6 +57,16 @@
           "name": "api-key",
           "takesValue": true,
           "description": "X-API-Key value the proxy injects (overrides env and bundled config.json)"
+        },
+        {
+          "name": "elog-url",
+          "takesValue": true,
+          "description": "elog-plus backend base URL; unset disables e-log posting (overrides env and bundled config.json)"
+        },
+        {
+          "name": "elog-key",
+          "takesValue": true,
+          "description": "x-vouch-idp-accesstoken value the proxy injects on /elog (overrides env and bundled config.json)"
         }
       ]
     },
@@ -70,14 +76,6 @@
     "updater": {
       "active": false
     },
-    "windows": [
-      {
-        "fullscreen": false,
-        "resizable": true,
-        "title": "Trace",
-        "width": 1440,
-        "height": 900
-      }
-    ]
+    "windows": []
   }
 }
