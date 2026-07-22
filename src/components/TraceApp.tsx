@@ -687,9 +687,16 @@ export function TraceApp() {
   };
 
   const updateAxis = (axisId: string, updates: Partial<Axis>) => {
+    updateAxisInPlot(activePlotId, axisId, updates);
+  };
+
+  // Plot-scoped axis update: direct axis pan/zoom in PlotArea targets a specific
+  // plot (grid cells and popouts aren't necessarily the active plot), so route
+  // by the plot id rather than assuming activePlotId.
+  const updateAxisInPlot = (plotId: string, axisId: string, updates: Partial<Axis>) => {
     setPlots((prev) =>
       prev.map((p) =>
-        p.id === activePlotId
+        p.id === plotId
           ? {
               ...p,
               axes: p.axes.map((a) => (a.id === axisId ? { ...a, ...updates } : a)),
@@ -1002,6 +1009,7 @@ export function TraceApp() {
                   onViewWindowChange={handleViewWindowChange}
                   viewWindowByPlot={viewWindowByPlot}
                   onAxisRangesChange={handleAxisRangesChange}
+                  onUpdateAxis={updateAxisInPlot}
                   onChartInstance={handleChartInstance}
                 />
               </div>
@@ -1149,6 +1157,7 @@ export function TraceApp() {
                     formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
                     // eslint-disable-next-line react-hooks/refs -- ref is written from ECharts' finished event, not during render
                     onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
+                    onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
                     // eslint-disable-next-line react-hooks/refs -- ref is written on mount/unmount, not during render
                     onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
                   />
@@ -1221,6 +1230,7 @@ export function TraceApp() {
                   onViewWindowChange={(w) => handleViewWindowChange(plot.id, w)}
                   initialViewWindowNs={viewWindowByPlot.get(plot.id)}
                   onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
+                  onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
                   onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
                 />
               </div>
