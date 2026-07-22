@@ -37,6 +37,7 @@ import type { FormulaSpecDTO } from '../api/types';
 import { capturePlots, type PngSource, type CapturedPlot } from '../io/exportPlotImage';
 import { PostToElogModal } from './PostToElogModal';
 import { useElogConfig } from '../hooks/useElogConfig';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 const BUG_REPORT_URL = 'https://forms.office.com/r/qV7BmK2xi9';
 const DOCS_URL = 'https://github.com/slaclab/react-trace#readme';
@@ -906,6 +907,17 @@ export function TraceApp() {
     (insight.pv && insightTraces.some((t) => t.id === insight.pv)
       ? insight.pv
       : insightTraces.find((t) => t.pvName)?.id) ?? '';
+
+  // Keyboard shortcuts map to the same handlers as the toolbar buttons below.
+  // Post-to-E-Log is only wired when e-log is configured, matching the button.
+  useKeyboardShortcuts({
+    onSave: handleSave,
+    onOpen: () => void handleImport(),
+    onExportImage: handleExportImage,
+    onPostElog: elogConfig?.enabled ? openElogPost : undefined,
+    onDataInsight: () => openInsight(),
+    onToggleTheme: toggleTheme,
+  });
 
   return (
     <div className="trace-app">
