@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'react';
  */
 export interface ShortcutHandlers {
   onSave?: () => void;
+  onPrint?: () => void;
   onOpen?: () => void;
   onExportImage?: () => void;
   onPostElog?: () => void;
@@ -38,9 +39,10 @@ export function formatShortcut(mod: Mod, key: string): string {
 // Bindings: (modifier group, lowercase key) → the handler it invokes.
 const BINDINGS: { mod: Mod; key: string; action: Action }[] = [
   { mod: 'primary', key: 's', action: 'onSave' },
+  { mod: 'primary', key: 'p', action: 'onPrint' },
+  { mod: 'primary', key: 'e', action: 'onPostElog' },
   { mod: 'primary', key: 'o', action: 'onOpen' },
   { mod: 'primary', key: 'i', action: 'onExportImage' },
-  { mod: 'primary', key: 'p', action: 'onPostElog' },
   { mod: 'alt', key: 'd', action: 'onDataInsight' },
   { mod: 'alt', key: 't', action: 'onToggleTheme' },
 ];
@@ -108,8 +110,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers): void {
 
       const run = ref.current[action];
       // Only intercept when a handler is actually wired. This keeps the browser
-      // default when a shortcut is inactive — notably Ctrl/Cmd+P still opens
-      // browser Print when e-log is unconfigured.
+      // default when a shortcut is inactive.
       if (!run) return;
       e.preventDefault();
       run();

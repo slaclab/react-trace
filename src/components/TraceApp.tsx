@@ -854,25 +854,6 @@ export function TraceApp() {
     setElogModal({ open: true, captured });
   }, [elogConfig?.enabled, viewMode, plots, activePlot, colorMode]);
 
-  // Ctrl/Cmd+E opens the post dialog (matches the Python Trace shortcut). Ignore
-  // when typing in an input or when e-log is unconfigured.
-  useEffect(() => {
-    if (!elogConfig?.enabled) return undefined;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'e') return;
-      const el = document.activeElement;
-      const typing =
-        el instanceof HTMLInputElement ||
-        el instanceof HTMLTextAreaElement ||
-        (el instanceof HTMLElement && el.isContentEditable);
-      if (typing) return;
-      e.preventDefault();
-      openElogPost();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [elogConfig?.enabled, openElogPost]);
-
   const buildElogConfigFile = useCallback((): File => {
     const json = serializeWorkspace({ theme: colorMode, plots });
     return new File([json], 'trace_config.json', { type: 'application/json' });
@@ -912,6 +893,7 @@ export function TraceApp() {
   // Post-to-E-Log is only wired when e-log is configured, matching the button.
   useKeyboardShortcuts({
     onSave: handleSave,
+    onPrint: handlePrint,
     onOpen: () => void handleImport(),
     onExportImage: handleExportImage,
     onPostElog: elogConfig?.enabled ? openElogPost : undefined,

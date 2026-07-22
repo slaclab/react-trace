@@ -28,10 +28,11 @@ describe('resolveShortcut', () => {
       expect(resolveShortcut(ev({ key: 's', ctrlKey: true }), true)).toBeNull();
     });
 
-    it('maps Ctrl+O to Open, Ctrl+I to Export image, Ctrl+P to Post E-Log', () => {
+    it('maps Ctrl+P to Print, Ctrl+E to Post E-Log, Ctrl+O to Open, Ctrl+I to Export image', () => {
+      expect(resolveShortcut(ev({ key: 'p', ctrlKey: true }), false)).toBe('onPrint');
+      expect(resolveShortcut(ev({ key: 'e', ctrlKey: true }), false)).toBe('onPostElog');
       expect(resolveShortcut(ev({ key: 'o', ctrlKey: true }), false)).toBe('onOpen');
       expect(resolveShortcut(ev({ key: 'i', ctrlKey: true }), false)).toBe('onExportImage');
-      expect(resolveShortcut(ev({ key: 'p', ctrlKey: true }), false)).toBe('onPostElog');
     });
 
     it('is case-insensitive on the key', () => {

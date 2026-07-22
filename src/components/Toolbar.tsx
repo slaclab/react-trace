@@ -68,7 +68,7 @@ export function Toolbar({
       </HeaderGlobalAction>
       {onPostElog && (
         <HeaderGlobalAction
-          aria-label={`Post to E-Log (${formatShortcut('primary', 'P')})`}
+          aria-label={`Post to E-Log (${formatShortcut('primary', 'E')})`}
           tooltipAlignment="end"
           onClick={onPostElog}
         >
@@ -82,7 +82,11 @@ export function Toolbar({
       >
         <Save size={20} />
       </HeaderGlobalAction>
-      <HeaderGlobalAction aria-label="Print" tooltipAlignment="end" onClick={onPrint}>
+      <HeaderGlobalAction
+        aria-label={`Print (${formatShortcut('primary', 'P')})`}
+        tooltipAlignment="end"
+        onClick={onPrint}
+      >
         <Printer size={20} />
       </HeaderGlobalAction>
       <HeaderGlobalAction
