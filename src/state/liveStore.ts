@@ -6,6 +6,8 @@
 
 import { liveWsUrl } from '../api/hare';
 import { nsToMs } from '../api/time';
+import { fetchBackfill, subscribeVoleBuffer } from '../api/vole';
+import { CanopyError } from '../api/client';
 import type { AlarmSeverity, PVValueDTO, WsFrame } from '../api/types';
 
 export interface LivePoint {
@@ -60,6 +62,11 @@ interface PVState {
   // `entryFor()` reuses the cached LiveEntry when the rev is unchanged so
   // downstream shallow-equality / React.memo checks hold across frames.
   rev: number;
+  // In-flight backfill controller — aborted on release or superseded request.
+  backfillController: AbortController | null;
+  // True once a successful backfill has been merged (prevents re-fetching on
+  // reconnect when the buffer already has data from the initial backfill).
+  backfilled: boolean;
 }
 
 interface TraceRef {
@@ -133,6 +140,8 @@ export class LiveStore {
         connected: false,
         severity: null,
         rev: 0,
+        backfillController: null,
+        backfilled: false,
       };
       this.pvs.set(pv, state);
     }
@@ -140,7 +149,10 @@ export class LiveStore {
     state.rev++;
 
     this.ensureConnected();
-    if (isFirst) this.sendSubscribe([pv]);
+    if (isFirst) {
+      this.sendSubscribe([pv]);
+      if (this.wsStatus === 'connected') this.startBackfill(pv, state);
+    }
     this.markDirty();
   }
 
@@ -152,6 +164,8 @@ export class LiveStore {
     if (!state) return true;
     state.refs.delete(traceId);
     if (state.refs.size === 0) {
+      state.backfillController?.abort();
+      state.backfillController = null;
       this.pvs.delete(prev.pv);
       this.sendUnsubscribe([prev.pv]);
     }
@@ -159,10 +173,27 @@ export class LiveStore {
   }
 
   release(traceId: string): void {
-    if (this.detach(traceId)) this.markDirty();
+    if (this.detach(traceId)) {
+      if (this.pvs.size === 0) this.closeSocket();
+      this.markDirty();
+    }
   }
 
-  /** Released for tests so we can assert post-disconnect state. */
+  private closeSocket(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempt = 0;
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
+    this.wsStatus = 'idle';
+  }
+
+  /** Exposed for tests so we can assert post-disconnect state. */
   forceDisconnect(): void {
     this.ws?.close();
   }
@@ -200,10 +231,14 @@ export class LiveStore {
   private handleOpen(): void {
     this.wsStatus = 'connected';
     this.reconnectAttempt = 0;
-    // A clean open clears any prior connection error.
     this.clearError();
     const pvs = [...this.pvs.keys()];
     if (pvs.length) this.sendSubscribe(pvs);
+    // Backfill on every (re)connect so the fetched window aligns with the WS
+    // subscribe moment — no gap between backfill coverage and first live sample.
+    for (const [pv, state] of this.pvs) {
+      this.startBackfill(pv, state);
+    }
     this.markDirty();
   }
 
@@ -384,6 +419,69 @@ export class LiveStore {
     };
     this.entryCache.set(pv, { sig, entry });
     return entry;
+  }
+
+  // ── backfill ───────────────────────────────────────────────────────────
+
+  private startBackfill(pv: string, state: PVState): void {
+    state.backfillController?.abort();
+    const controller = new AbortController();
+    state.backfillController = controller;
+
+    let maxRetention = 0;
+    for (const r of state.refs.values()) if (r > maxRetention) maxRetention = r;
+
+    const lastPointNs =
+      state.points.length > 0 ? state.points[state.points.length - 1].time * 1e6 : null;
+    const fromNs = lastPointNs ?? Date.now() * 1e6 - maxRetention * 1e6;
+
+    fetchBackfill(pv, fromNs, { signal: controller.signal })
+      .then((res) => {
+        if (controller.signal.aborted) return;
+        const current = this.pvs.get(pv);
+        if (!current || current.backfillController !== controller) return;
+        current.backfillController = null;
+        current.backfilled = true;
+        this.mergeBackfill(current, res.samples);
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        if ((err as { name?: string }).name === 'AbortError') return;
+        if (err instanceof CanopyError && err.code === 'pv_not_buffered') {
+          subscribeVoleBuffer([pv]).catch(() => {});
+          return;
+        }
+        console.warn('backfill failed for', pv, err);
+      });
+  }
+
+  private mergeBackfill(
+    state: PVState,
+    samples: { tsNs: number; value: number | string | boolean | null }[]
+  ): void {
+    const incoming: LivePoint[] = [];
+    for (const s of samples) {
+      if (typeof s.value !== 'number' || !Number.isFinite(s.value)) continue;
+      incoming.push({ time: nsToMs(s.tsNs), value: s.value });
+    }
+    if (incoming.length === 0) return;
+
+    if (state.points.length === 0) {
+      state.points.push(...incoming);
+    } else {
+      const firstExisting = state.points[0].time;
+      const lastExisting = state.points[state.points.length - 1].time;
+      // Prepend points strictly before the first existing point.
+      const before = incoming.filter((p) => p.time < firstExisting);
+      // Append points strictly after the last existing point (reconnect gap-fill).
+      const after = incoming.filter((p) => p.time > lastExisting);
+      if (before.length > 0) state.points.unshift(...before);
+      if (after.length > 0) state.points.push(...after);
+      if (before.length === 0 && after.length === 0) return;
+    }
+    state.rev++;
+    this.trim(state);
+    this.markDirty();
   }
 }
 
