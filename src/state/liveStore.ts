@@ -457,12 +457,12 @@ export class LiveStore {
 
   private mergeBackfill(
     state: PVState,
-    samples: { tsNs: number; value: number | string | boolean | null }[]
+    samples: { tsNs: number; value: number | string | boolean | null; severity: AlarmSeverity }[]
   ): void {
     const incoming: LivePoint[] = [];
     for (const s of samples) {
       if (typeof s.value !== 'number' || !Number.isFinite(s.value)) continue;
-      incoming.push({ time: nsToMs(s.tsNs), value: s.value });
+      incoming.push({ time: nsToMs(s.tsNs), value: s.value, severity: s.severity });
     }
     if (incoming.length === 0) return;
 

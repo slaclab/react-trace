@@ -383,8 +383,8 @@ describe('LiveStore backfill', () => {
     });
 
     const points = store.getSnapshot().get('t1')!.points;
-    expect(points[0]).toEqual({ time: t0 - 3000, value: 1 });
-    expect(points[3]).toEqual({ time: t0, value: 10 });
+    expect(points[0]).toEqual({ time: t0 - 3000, value: 1, severity: 'NO_ALARM' });
+    expect(points[3]).toEqual({ time: t0, value: 10, severity: 'NO_ALARM' });
   });
 
   it('deduplicates overlapping timestamps at the seam', async () => {
@@ -411,8 +411,8 @@ describe('LiveStore backfill', () => {
     const points = store.getSnapshot().get('t1')!.points;
     // Only the earlier sample is prepended; the overlapping one is dropped.
     expect(points).toEqual([
-      { time: t0 - 1000, value: 1 },
-      { time: t0, value: 2 },
+      { time: t0 - 1000, value: 1, severity: 'NO_ALARM' },
+      { time: t0, value: 2, severity: 'NO_ALARM' },
     ]);
   });
 
@@ -489,8 +489,8 @@ describe('LiveStore backfill', () => {
     });
 
     const points = store.getSnapshot().get('t1')!.points;
-    expect(points[0]).toEqual({ time: t0, value: 1 });
-    expect(points[1]).toEqual({ time: t0 + 1000, value: 1.5 });
+    expect(points[0]).toEqual({ time: t0, value: 1, severity: 'NO_ALARM' });
+    expect(points[1]).toEqual({ time: t0 + 1000, value: 1.5, severity: 'NO_ALARM' });
 
     // The fromNs passed to the reconnect backfill should be the last point's timestamp.
     const reconnectCall = mockFetchBackfill.mock.calls[mockFetchBackfill.mock.calls.length - 1];
