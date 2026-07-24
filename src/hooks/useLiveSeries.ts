@@ -72,6 +72,9 @@ export function useLiveSeries(traces: PVTrace[]): Map<string, LiveSeriesResult> 
     for (const id of liveStore.getSnapshot().keys()) {
       if (!wanted.has(id)) liveStore.release(id);
     }
+    return () => {
+      for (const id of wanted) liveStore.release(id);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
 
