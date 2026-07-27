@@ -537,7 +537,7 @@ export function SinglePlot({
         if (zone) zone.autoScale = false;
       }
       const anchor = ec.convertFromPixel({ yAxisIndex: hit.yAxisIndex }, y);
-      if (!Number.isFinite(anchor)) return;
+      if (!Number.isFinite(anchor) || (hit.logScale && anchor <= 0)) return;
       const factor = e.deltaY > 0 ? 1.1 : 1 / 1.1; // scroll down = zoom out
       const next = zoomExtent(ext[0], ext[1], anchor, factor, hit.logScale);
       commit(hit.axisId, hit.logScale, next[0], next[1], false);
