@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { DARK_CHART_THEME, LIGHT_CHART_THEME, effectiveBackground } from '../chartTheme';
 import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
-import type { Plot, PVTrace } from '../types';
+import type { Axis, Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 import type { FormulaSeriesResult } from '../hooks/useFormulaSeries';
@@ -12,6 +12,14 @@ import { echartsLineType, echartsSymbol } from '../curveStyle';
 import { traceLabel } from '../traceLabel';
 import { useColorMode } from '../state/themeStore';
 import type { PngSource } from '../io/exportPlotImage';
+import {
+  AXIS_OFFSET,
+  hitTestAxis,
+  panExtent,
+  zoomExtent,
+  type AxisHitZone,
+  type GridBand,
+} from './axisHitTest';
 
 // Numbers like 0.000000018 produce extremely wide tick labels that spill past
 // neighboring stacked axes. Switch to exponential at the same magnitudes the
@@ -50,6 +58,8 @@ interface PlotAreaProps {
   /** Saved per-plot view window; seeds dataZoom across remounts (e.g. popout). */
   viewWindowByPlot: Map<string, TimeWindowNs>;
   onAxisRangesChange?: (plotId: string, ranges: Map<string, [number, number]>) => void;
+  /** Commits a per-axis min/max (or autoScale flip) from a direct axis pan/zoom. */
+  onUpdateAxis?: (plotId: string, axisId: string, updates: Partial<Axis>) => void;
   /** Publishes each plot's ECharts instance for PNG capture (active=false on unmount). */
   onChartInstance?: (plotId: string, instance: PngSource, active: boolean) => void;
 }
@@ -82,6 +92,11 @@ interface SinglePlotProps {
    */
   initialViewWindowNs?: TimeWindowNs;
   onAxisRangesChange?: (ranges: Map<string, [number, number]>) => void;
+  /**
+   * Commits a per-axis min/max (or autoScale flip) when the user drags or wheels
+   * directly on a Y-axis band. See the per-axis pointer listeners in SinglePlot.
+   */
+  onUpdateAxis?: (axisId: string, updates: Partial<Axis>) => void;
   /**
    * True when this instance is the fullscreen (popped-out) copy of a plot. The
    * in-window copy stays mounted underneath with the same `data-plot-id`, so
@@ -191,6 +206,7 @@ export function SinglePlot({
   onViewWindowChange,
   initialViewWindowNs,
   onAxisRangesChange,
+  onUpdateAxis,
   fullscreen,
   onChartInstance,
 }: SinglePlotProps) {
@@ -201,11 +217,35 @@ export function SinglePlot({
   const labels = new Map(plot.traces.map((t) => [t.id, traceLabel(t, plot.traces)]));
 
   const chartRef = useRef<ReactECharts>(null);
+  // Our own wrapper around the chart; the per-axis pointer listeners attach
+  // here because it survives echarts-for-react's dispose/recreate cycles.
+  const wrapRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Set while we programmatically reset the zoom on a range re-select, so the
   // resulting datazoom event isn't mistaken for a manual pan (which would
   // disable autoscroll right after the range re-select re-enabled it).
   const programmaticZoomRef = useRef(false);
+
+  // Per-axis screen geometry + metadata, recomputed each render and read by the
+  // (mount-once) pointer listeners so hit-testing always reflects the current
+  // axis layout without re-subscribing. See the option builder for the matching
+  // grid/offset math.
+  const axisLayoutRef = useRef<AxisHitZone[]>([]);
+  const gridBandRef = useRef<GridBand>({ top: 40, bottom: 60, left: 70, right: 20 });
+  // Latest onUpdateAxis, so the mount-once listeners always call the current one.
+  const onUpdateAxisRef = useRef(onUpdateAxis);
+  // In-flight axis drag; null when not dragging. min/max/pxMin/pxMax are a frozen
+  // snapshot of the extent and its pixel mapping captured at mousedown.
+  const dragRef = useRef<{
+    axisId: string;
+    yAxisIndex: number;
+    logScale: boolean;
+    startY: number;
+    min: number;
+    max: number;
+    pxMin: number;
+    pxMax: number;
+  } | null>(null);
 
   // Publish a stable PngSource proxy up to the app for PNG capture; clear on
   // unmount so a captured-but-gone plot (closed tab, reattached window) isn't
@@ -319,6 +359,205 @@ export function SinglePlot({
     }, 400);
   }, [onViewWindowChange]);
 
+  // Per-Y-axis mouse interactions (issue 45): scrolling over a single axis zooms
+  // only that axis; dragging an axis pans only that axis. The whole-plot X
+  // pan/zoom (the `inside` dataZoom) still owns the plot interior.
+  //
+  // Listeners live on OUR wrapper div (and its window), never on the ECharts /
+  // zrender instance: echarts-for-react 3.x initializes asynchronously. It
+  // measures with a throwaway instance that it disposes right after the first
+  // `finished` event, then builds the real chart, and also disposes/rebuilds on
+  // some prop changes. Anything subscribed to a zrender instance at mount time
+  // dies within the first frame. The wrapper div is stable for the lifetime of
+  // this component, so each handler resolves the *live* instance on demand.
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    // Detached plots render into a `window.open` document; drag tracking must
+    // listen on THAT window, not the opener's.
+    const win = wrap.ownerDocument.defaultView ?? window;
+
+    type Ecm = {
+      convertFromPixel: (fh: { yAxisIndex: number }, px: number) => number;
+      convertToPixel: (fh: { yAxisIndex: number }, val: number) => number;
+      getModel: () => {
+        getComponent: (
+          n: string,
+          i: number
+        ) => { axis: { scale: { getExtent: () => [number, number] } } } | undefined;
+      };
+      getWidth: () => number;
+      getHeight: () => number;
+      getZr: () => { setCursorStyle: (cursor: string) => void };
+      isDisposed: () => boolean;
+    };
+    const liveEc = (): Ecm | null => {
+      const inst = chartRef.current?.getEchartsInstance() as unknown as Ecm | undefined;
+      return inst && !inst.isDisposed() ? inst : null;
+    };
+
+    // Wrapper-local coordinates. The wrapper exactly overlays the chart canvas
+    // (both fill 100% × 100% with no padding), so these are canvas pixels.
+    const toLocal = (e: MouseEvent) => {
+      const r = wrap.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+
+    const hitTest = (ec: Ecm, x: number, y: number) =>
+      hitTestAxis(x, y, ec.getWidth(), ec.getHeight(), gridBandRef.current, axisLayoutRef.current);
+
+    const extentOf = (ec: Ecm, yAxisIndex: number): [number, number] | null =>
+      ec.getModel().getComponent('yAxis', yAxisIndex)?.axis?.scale?.getExtent() ?? null;
+
+    // zrender re-stamps `cursor: default` onto its own root element on every
+    // mousemove, overriding anything set on an ancestor. Write through
+    // setCursorStyle instead; our handlers run after zrender's for the same
+    // event (they sit further out on the bubble path), so our write lands last.
+    const setCursor = (cursor: string) => liveEc()?.getZr().setCursorStyle(cursor);
+
+    // Freeze an auto-scaled axis to its current computed extent so the delta we
+    // apply isn't immediately overwritten by autoscale on the next render.
+    const commit = (
+      axisId: string,
+      logScale: boolean,
+      min: number,
+      max: number,
+      freeze: boolean
+    ) => {
+      if (!Number.isFinite(min) || !Number.isFinite(max)) return;
+      // A degenerate (flat-line) extent is valid for a freeze — the axis must
+      // still switch to manual — but a zoom/pan that collapses to zero range is
+      // pointless and would lock the axis.
+      if (min === max && !freeze) return;
+      if (logScale && (min <= 0 || max <= 0)) return;
+      const lo = Math.min(min, max);
+      const hi = Math.max(min, max);
+      onUpdateAxisRef.current?.(
+        axisId,
+        freeze ? { autoScale: false, min: lo, max: hi } : { min: lo, max: hi }
+      );
+    };
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const ec = liveEc();
+      if (!ec) return;
+      const { x, y } = toLocal(e);
+      const hit = hitTest(ec, x, y);
+      if (!hit) return;
+      e.preventDefault(); // no text selection / native drag while panning the axis
+      const ext = extentOf(ec, hit.yAxisIndex);
+      if (!ext) return;
+      // Freeze-to-manual up front so the drag delta isn't clobbered by autoscale.
+      if (hit.autoScale) {
+        commit(hit.axisId, hit.logScale, ext[0], ext[1], true);
+        const zone = axisLayoutRef.current.find((a) => a.axisId === hit.axisId);
+        if (zone) zone.autoScale = false;
+      }
+      // Snapshot the extent AND its pixel mapping once. The drag math below runs
+      // entirely off this frozen snapshot; it must not re-read the live scale,
+      // because committing a new min/max re-renders the axis and shifts the
+      // pixel<->data mapping out from under an in-progress drag.
+      const pxMin = ec.convertToPixel({ yAxisIndex: hit.yAxisIndex }, ext[0]);
+      const pxMax = ec.convertToPixel({ yAxisIndex: hit.yAxisIndex }, ext[1]);
+      dragRef.current = {
+        axisId: hit.axisId,
+        yAxisIndex: hit.yAxisIndex,
+        logScale: hit.logScale,
+        startY: y,
+        min: ext[0],
+        max: ext[1],
+        pxMin,
+        pxMax,
+      };
+    };
+
+    // Drag tracking lives on the window so the pan keeps following (and reliably
+    // ends) outside the canvas; the axis band touches the canvas edge, so a
+    // drag overshoots it constantly.
+    const onWindowMouseMove = (e: MouseEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      // If the button was released where our mouseup couldn't see it (over
+      // browser chrome, another window, devtools), no mouseup reaches `win` and
+      // dragRef would stay set, panning the axis on every later move. buttons===0
+      // means nothing is held, so end the drag here.
+      if (e.buttons === 0) {
+        dragRef.current = null;
+        return;
+      }
+      // Pan the FROZEN mousedown mapping by the total drag delta; see panExtent
+      // for the direction/log-space semantics.
+      const next = panExtent(drag, toLocal(e).y - drag.startY);
+      if (!next) return;
+      commit(drag.axisId, drag.logScale, next[0], next[1], false);
+      // zrender stamps `default` on every in-canvas move; re-assert while dragging.
+      setCursor('ns-resize');
+    };
+
+    const onWindowMouseUp = () => {
+      dragRef.current = null;
+    };
+
+    // Hover affordance. Re-assert on every move while over a band (zrender
+    // resets the cursor each mousemove); restore once on leaving so we don't
+    // fight ECharts' own cursor over the plot interior.
+    let hovering = false;
+    const onHoverMove = (e: MouseEvent) => {
+      if (dragRef.current) return;
+      const ec = liveEc();
+      if (!ec) return;
+      const { x, y } = toLocal(e);
+      const over = hitTest(ec, x, y) !== null;
+      if (over) setCursor('ns-resize');
+      else if (hovering) setCursor('default');
+      hovering = over;
+    };
+
+    // Native listener so preventDefault can cancel page scroll over an axis
+    // band (the inside dataZoom already ignores wheel outside the grid).
+    const onWheel = (e: WheelEvent) => {
+      const ec = liveEc();
+      if (!ec) return;
+      const { x, y } = toLocal(e);
+      const hit = hitTest(ec, x, y);
+      if (!hit) return;
+      // A purely horizontal scroll (deltaY 0, e.g. shift+wheel or a sideways
+      // trackpad gesture) carries no zoom intent; ignore it so we neither zoom
+      // the axis nor swallow the horizontal scroll via preventDefault.
+      if (e.deltaY === 0) return;
+      e.preventDefault();
+      const ext = extentOf(ec, hit.yAxisIndex);
+      if (!ext) return;
+      if (hit.autoScale) {
+        commit(hit.axisId, hit.logScale, ext[0], ext[1], true);
+        // Mark the ref stale synchronously so subsequent wheel events in the same
+        // React batch don't re-freeze (the useEffect hasn't re-synced yet).
+        const zone = axisLayoutRef.current.find((a) => a.axisId === hit.axisId);
+        if (zone) zone.autoScale = false;
+      }
+      const anchor = ec.convertFromPixel({ yAxisIndex: hit.yAxisIndex }, y);
+      if (!Number.isFinite(anchor) || (hit.logScale && anchor <= 0)) return;
+      const factor = e.deltaY > 0 ? 1.1 : 1 / 1.1; // scroll down = zoom out
+      const next = zoomExtent(ext[0], ext[1], anchor, factor, hit.logScale);
+      commit(hit.axisId, hit.logScale, next[0], next[1], false);
+    };
+
+    wrap.addEventListener('mousedown', onMouseDown);
+    wrap.addEventListener('mousemove', onHoverMove);
+    wrap.addEventListener('wheel', onWheel, { passive: false });
+    win.addEventListener('mousemove', onWindowMouseMove);
+    win.addEventListener('mouseup', onWindowMouseUp);
+
+    return () => {
+      wrap.removeEventListener('mousedown', onMouseDown);
+      wrap.removeEventListener('mousemove', onHoverMove);
+      wrap.removeEventListener('wheel', onWheel);
+      win.removeEventListener('mousemove', onWindowMouseMove);
+      win.removeEventListener('mouseup', onWindowMouseUp);
+    };
+  }, []);
+
   // Build yAxis array; ECharts links series to axes by index, so we track index per axis id
   const axisIndexMap = new Map<string, number>();
   visibleAxes.forEach((axis, idx) => {
@@ -327,8 +566,6 @@ export function SinglePlot({
 
   // Axes sharing a side (left/right) would otherwise stack at the same spot and
   // overlap, so we offset each one outward by its position within that side.
-  // Pixels each stacked axis is pushed past the previous one on the same side.
-  const AXIS_OFFSET = 80;
   const sideIndexMap = new Map<string, number>();
   let leftAxesCount = 0;
   let rightAxesCount = 0;
@@ -359,14 +596,42 @@ export function SinglePlot({
     );
   }
 
+  // Grid insets. Named so the per-axis hit-zones (below) derive from the exact
+  // same numbers ECharts lays the grid out with.
+  const GRID_TOP = 40;
+  const GRID_BOTTOM = 60;
+  const gridLeft = 70 + Math.max(0, leftAxesCount - 1) * AXIS_OFFSET;
+  const gridRight = (rightAxesCount > 0 ? 70 : 20) + Math.max(0, rightAxesCount - 1) * AXIS_OFFSET;
+
+  // Publish per-axis metadata for the pointer listeners. The listener claims the
+  // whole out-of-grid margin per side and slots it by sideIndex, so we only need
+  // each axis's side and its position within that side here.
+  const axisHitZones: AxisHitZone[] = visibleAxes.map((axis) => ({
+    axisId: axis.id,
+    yAxisIndex: axisIndexMap.get(axis.id) ?? 0,
+    logScale: axis.logScale,
+    autoScale: axis.autoScale,
+    side: axis.orientation,
+    sideIndex: sideIndexMap.get(axis.id) ?? 0,
+  }));
+
+  // Sync the render-computed geometry + callback into refs the mount-once
+  // pointer listeners read. Done in an effect (not during render) so ref writes
+  // don't fight React's render rules; listeners only read them on later events.
+  useEffect(() => {
+    axisLayoutRef.current = axisHitZones;
+    gridBandRef.current = { top: GRID_TOP, bottom: GRID_BOTTOM, left: gridLeft, right: gridRight };
+    onUpdateAxisRef.current = onUpdateAxis;
+  });
+
   const option = {
     backgroundColor: effectiveBackground(plot.backgroundColor, theme),
     animation: false,
     grid: {
-      top: 40,
-      bottom: 60,
-      left: 70 + Math.max(0, leftAxesCount - 1) * AXIS_OFFSET,
-      right: (rightAxesCount > 0 ? 70 : 20) + Math.max(0, rightAxesCount - 1) * AXIS_OFFSET,
+      top: GRID_TOP,
+      bottom: GRID_BOTTOM,
+      left: gridLeft,
+      right: gridRight,
     },
     xAxis: {
       type: 'time',
@@ -611,6 +876,7 @@ export function SinglePlot({
     // popped-out copy so capture targets it over the in-window one, which
     // shares the same data-plot-id.
     <div
+      ref={wrapRef}
       data-plot-id={plot.id}
       data-fullscreen={fullscreen ? 'true' : undefined}
       style={{ height: '100%', width: '100%' }}
@@ -649,6 +915,7 @@ export function PlotArea({
   onViewWindowChange,
   viewWindowByPlot,
   onAxisRangesChange,
+  onUpdateAxis,
   onChartInstance,
 }: PlotAreaProps) {
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
@@ -763,6 +1030,9 @@ export function PlotArea({
               onAxisRangesChange={
                 onAxisRangesChange ? (r) => onAxisRangesChange(activePlot.id, r) : undefined
               }
+              onUpdateAxis={
+                onUpdateAxis ? (id, u) => onUpdateAxis(activePlot.id, id, u) : undefined
+              }
               onChartInstance={
                 onChartInstance
                   ? (inst, active) => onChartInstance(activePlot.id, inst, active)
@@ -822,6 +1092,9 @@ export function PlotArea({
                     initialViewWindowNs={viewWindowByPlot.get(plot.id)}
                     onAxisRangesChange={
                       onAxisRangesChange ? (r) => onAxisRangesChange(plot.id, r) : undefined
+                    }
+                    onUpdateAxis={
+                      onUpdateAxis ? (id, u) => onUpdateAxis(plot.id, id, u) : undefined
                     }
                     onChartInstance={
                       onChartInstance
