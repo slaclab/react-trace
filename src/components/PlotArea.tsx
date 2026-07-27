@@ -449,7 +449,11 @@ export function SinglePlot({
       const ext = extentOf(ec, hit.yAxisIndex);
       if (!ext) return;
       // Freeze-to-manual up front so the drag delta isn't clobbered by autoscale.
-      if (hit.autoScale) commit(hit.axisId, hit.logScale, ext[0], ext[1], true);
+      if (hit.autoScale) {
+        commit(hit.axisId, hit.logScale, ext[0], ext[1], true);
+        const zone = axisLayoutRef.current.find((a) => a.axisId === hit.axisId);
+        if (zone) zone.autoScale = false;
+      }
       // Snapshot the extent AND its pixel mapping once. The drag math below runs
       // entirely off this frozen snapshot; it must not re-read the live scale,
       // because committing a new min/max re-renders the axis and shifts the
@@ -525,7 +529,13 @@ export function SinglePlot({
       e.preventDefault();
       const ext = extentOf(ec, hit.yAxisIndex);
       if (!ext) return;
-      if (hit.autoScale) commit(hit.axisId, hit.logScale, ext[0], ext[1], true);
+      if (hit.autoScale) {
+        commit(hit.axisId, hit.logScale, ext[0], ext[1], true);
+        // Mark the ref stale synchronously so subsequent wheel events in the same
+        // React batch don't re-freeze (the useEffect hasn't re-synced yet).
+        const zone = axisLayoutRef.current.find((a) => a.axisId === hit.axisId);
+        if (zone) zone.autoScale = false;
+      }
       const anchor = ec.convertFromPixel({ yAxisIndex: hit.yAxisIndex }, y);
       if (!Number.isFinite(anchor)) return;
       const factor = e.deltaY > 0 ? 1.1 : 1 / 1.1; // scroll down = zoom out
