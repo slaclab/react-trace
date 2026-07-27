@@ -424,9 +424,11 @@ export function SinglePlot({
       max: number,
       freeze: boolean
     ) => {
-      if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return;
-      // Log axes can't cross zero; drop an update that would invert or void the
-      // range rather than handing ECharts an invalid domain.
+      if (!Number.isFinite(min) || !Number.isFinite(max)) return;
+      // A degenerate (flat-line) extent is valid for a freeze — the axis must
+      // still switch to manual — but a zoom/pan that collapses to zero range is
+      // pointless and would lock the axis.
+      if (min === max && !freeze) return;
       if (logScale && (min <= 0 || max <= 0)) return;
       const lo = Math.min(min, max);
       const hi = Math.max(min, max);
