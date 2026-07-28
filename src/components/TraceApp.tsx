@@ -37,6 +37,7 @@ import type { FormulaSpecDTO } from '../api/types';
 import { capturePlots, type PngSource, type CapturedPlot } from '../io/exportPlotImage';
 import { PostToElogModal } from './PostToElogModal';
 import { useElogConfig } from '../hooks/useElogConfig';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 const BUG_REPORT_URL = 'https://forms.office.com/r/qV7BmK2xi9';
 const DOCS_URL = 'https://github.com/slaclab/react-trace#readme';
@@ -860,25 +861,6 @@ export function TraceApp() {
     setElogModal({ open: true, captured });
   }, [elogConfig?.enabled, viewMode, plots, activePlot, colorMode]);
 
-  // Ctrl/Cmd+E opens the post dialog (matches the Python Trace shortcut). Ignore
-  // when typing in an input or when e-log is unconfigured.
-  useEffect(() => {
-    if (!elogConfig?.enabled) return undefined;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'e') return;
-      const el = document.activeElement;
-      const typing =
-        el instanceof HTMLInputElement ||
-        el instanceof HTMLTextAreaElement ||
-        (el instanceof HTMLElement && el.isContentEditable);
-      if (typing) return;
-      e.preventDefault();
-      openElogPost();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [elogConfig?.enabled, openElogPost]);
-
   const buildElogConfigFile = useCallback((): File => {
     const json = serializeWorkspace({ theme: colorMode, plots });
     return new File([json], 'trace_config.json', { type: 'application/json' });
@@ -913,6 +895,18 @@ export function TraceApp() {
     (insight.pv && insightTraces.some((t) => t.id === insight.pv)
       ? insight.pv
       : insightTraces.find((t) => t.pvName)?.id) ?? '';
+
+  // Keyboard shortcuts map to the same handlers as the toolbar buttons below.
+  // Post-to-E-Log is only wired when e-log is configured, matching the button.
+  useKeyboardShortcuts({
+    onSave: handleSave,
+    onPrint: handlePrint,
+    onOpen: () => void handleImport(),
+    onExportImage: handleExportImage,
+    onPostElog: elogConfig?.enabled ? openElogPost : undefined,
+    onDataInsight: () => openInsight(),
+    onToggleTheme: toggleTheme,
+  });
 
   return (
     <div className="trace-app">
