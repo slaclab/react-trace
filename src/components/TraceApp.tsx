@@ -28,7 +28,7 @@ import { useColorMode } from '../state/themeStore';
 import { usePaletteId } from '../state/paletteStore';
 import { getPalette, colorForIndex } from '../palettes';
 import { downloadBlob, downloadDataUrl, pickFile } from '../io/download';
-import { serializeWorkspace, deserializeWorkspace } from '../io/serialize';
+import { serializeWorkspace, deserializeWorkspace, type DeserializeResult } from '../io/serialize';
 import { buildCsvFiles } from '../io/exportCsv';
 import { safeFilename, timestamp } from '../io/filename';
 import { makeId } from '../id';
@@ -36,6 +36,9 @@ import { resolveFormulaSpec } from '../formula';
 import type { FormulaSpecDTO } from '../api/types';
 import { capturePlots, type PngSource, type CapturedPlot } from '../io/exportPlotImage';
 import { PostToElogModal } from './PostToElogModal';
+import { ConfigStoreModal } from './ConfigStoreModal';
+import { getConfig } from '../api/magpie';
+import { CanopyError } from '../api/client';
 import { useElogConfig } from '../hooks/useElogConfig';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
@@ -184,8 +187,10 @@ export function TraceApp() {
     open: false,
     captured: [],
   });
-  // Success/error toast shown after an E-Log post attempt.
-  const [elogToast, setElogToast] = useState<{
+  // Config-store (magpie) save/browse dialog.
+  const [configModalOpen, setConfigModalOpen] = useState(false);
+  // Shared success/error toast (E-Log posts, config-store save/load, …).
+  const [toast, setToast] = useState<{
     kind: 'success' | 'error';
     title: string;
     subtitle?: string;
@@ -721,6 +726,55 @@ export function TraceApp() {
     downloadBlob(`trace-${stamp}.trc.json`, 'application/json', json);
   };
 
+  // Apply a deserialized workspace to app state. Shared by file import, the
+  // ?config= startup loader, and the config-store modal's Load so there's one
+  // code path for "set plots + active plot + theme".
+  const applyWorkspace = useCallback((result: DeserializeResult) => {
+    setPlots(result.plots);
+    if (result.plots.length > 0) setActivePlotId(result.plots[0].id);
+    if (result.theme) {
+      // setColorMode lives on the store; the hook surface only exposes toggle,
+      // so go through the module API.
+      void import('../state/themeStore').then((m) => m.setColorMode(result.theme!));
+    }
+  }, []);
+
+  // Shareable-link bootstrap: ?config=<slug> loads a saved workspace from the
+  // magpie config store on startup, then strips the param so a refresh doesn't
+  // refetch (and a later save/edit isn't overwritten by the stale link).
+  useEffect(() => {
+    const slug = new URLSearchParams(window.location.search).get('config');
+    if (!slug) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const dto = await getConfig(slug);
+        if (cancelled) return;
+        const result = deserializeWorkspace(JSON.stringify(dto.data));
+        applyWorkspace(result);
+        setToast({
+          kind: 'success',
+          title: 'Workspace loaded',
+          subtitle: dto.name ? `Loaded "${dto.name}"` : `Loaded config ${slug}`,
+        });
+      } catch (err) {
+        if (cancelled) return;
+        const subtitle =
+          err instanceof CanopyError ? err.detail : ((err as Error).message ?? 'Unknown error');
+        setToast({ kind: 'error', title: 'Could not load shared workspace', subtitle });
+      } finally {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('config');
+        window.history.replaceState({}, '', url);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Mount-only: read the launch URL once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleImport = async () => {
     const file = await pickFile('.trc,.trc.json,.json,.xml,.stp');
     if (!file) return;
@@ -737,13 +791,7 @@ export function TraceApp() {
       alert(`Failed to import: ${(err as Error).message}`);
       return;
     }
-    setPlots(result.plots);
-    if (result.plots.length > 0) setActivePlotId(result.plots[0].id);
-    if (result.theme) {
-      // setColorMode lives on the store; the hook surface only exposes toggle,
-      // so go through the module API.
-      void import('../state/themeStore').then((m) => m.setColorMode(result.theme!));
-    }
+    applyWorkspace(result);
     if (result.warnings.length > 0) {
       console.warn('Import warnings:', result.warnings);
       alert(`Imported with ${result.warnings.length} warning(s):\n\n${result.warnings.join('\n')}`);
@@ -934,6 +982,7 @@ export function TraceApp() {
               onOpenDocs={handleOpenDocs}
               onOpenDataInsight={() => openInsight()}
               onRefreshArchive={handleRefreshArchive}
+              onOpenConfigStore={() => setConfigModalOpen(true)}
               onPostElog={elogConfig?.enabled ? openElogPost : undefined}
             />
           </HeaderGlobalBar>
@@ -1300,19 +1349,28 @@ export function TraceApp() {
           buildConfigFile={buildElogConfigFile}
           onClose={() => setElogModal((p) => ({ ...p, open: false }))}
           onPosted={(entryId) =>
-            setElogToast({
+            setToast({
               kind: 'success',
               title: 'Posted to E-Log',
               subtitle: `Entry ${entryId} created`,
             })
           }
           onPostFailed={(message) =>
-            setElogToast({ kind: 'error', title: 'E-Log post failed', subtitle: message })
+            setToast({ kind: 'error', title: 'E-Log post failed', subtitle: message })
           }
         />
       )}
 
-      {elogToast &&
+      <ConfigStoreModal
+        open={configModalOpen}
+        plots={plots}
+        theme={colorMode}
+        onClose={() => setConfigModalOpen(false)}
+        onLoaded={applyWorkspace}
+        onToast={setToast}
+      />
+
+      {toast &&
         createPortal(
           <div
             style={{ position: 'fixed', top: 56, right: 16, zIndex: 9999 }}
@@ -1320,12 +1378,12 @@ export function TraceApp() {
             aria-live="polite"
           >
             <ToastNotification
-              kind={elogToast.kind}
-              title={elogToast.title}
-              subtitle={elogToast.subtitle}
-              timeout={elogToast.kind === 'success' ? 5000 : 0}
+              kind={toast.kind}
+              title={toast.title}
+              subtitle={toast.subtitle}
+              timeout={toast.kind === 'success' ? 5000 : 0}
               onClose={() => {
-                setElogToast(null);
+                setToast(null);
                 return true;
               }}
             />

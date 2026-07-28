@@ -85,6 +85,32 @@ export interface ErrorEnvelope {
   detail: string;
 }
 
+// ── Magpie (config store) DTOs ───────────────────────────────────────────────
+// Source: canopy.magpie.schemas.config (camelCase wire). A Config stores an
+// opaque JSON `data` blob for a consuming app (here, "trace") — magpie does not
+// define its shape; the workspace shape is trace's concern (see io/serialize.ts).
+
+export interface ConfigDTO {
+  id: string;
+  app: string;
+  slug: string;
+  name: string | null;
+  description: string | null;
+  // Opaque to the wire layer: a serialized TraceWorkspace round-tripped through
+  // io/serialize's deserializeWorkspace on load.
+  data: unknown;
+  createdBy: string | null;
+  createdDate: string; // ISO 8601
+  lastModifiedDate: string; // ISO 8601
+}
+
+// Canopy's standard list envelope (canopy.contracts.pagination.PagedResult).
+export interface PagedResult<T> {
+  results: T[];
+  continuationToken: string | null;
+  totalCount: number | null;
+}
+
 // ── Hare (live PV) DTOs ──────────────────────────────────────────────────────
 // Source: canopy.contracts.pv.PVValue + canopy.hare.api.v1.ws frame schema.
 // `tsNs` matches Mole's Sample.tsNs so live and archive share one time domain.

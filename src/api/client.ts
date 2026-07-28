@@ -23,9 +23,10 @@ export class CanopyError extends Error {
 export interface FetchOptions {
   query?: Record<string, string | number | boolean | null | undefined>;
   signal?: AbortSignal;
-  // HTTP method; defaults to GET. POST is used for Fox's validate/evaluate.
-  method?: 'GET' | 'POST';
-  // JSON request body (POST only). Serialized with a JSON content-type.
+  // HTTP method; defaults to GET. POST is used for Fox's validate/evaluate;
+  // PUT/DELETE by Magpie's config-store CRUD.
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  // JSON request body (POST/PUT). Serialized with a JSON content-type.
   body?: unknown;
 }
 
