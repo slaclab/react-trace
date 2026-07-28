@@ -67,6 +67,7 @@ export function ConfigStoreModal({
   const [busySlug, setBusySlug] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    setError(null);
     setListing(true);
     try {
       const page = await listConfigs({ pageSize: 200 });
