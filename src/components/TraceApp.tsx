@@ -189,12 +189,23 @@ export function TraceApp() {
   });
   // Config-store (magpie) save/browse dialog.
   const [configModalOpen, setConfigModalOpen] = useState(false);
-  // Shared success/error toast (E-Log posts, config-store save/load, …).
+  // Shared success/error toast (E-Log posts, config-store save/load, …). `seq`
+  // keys the ToastNotification: Carbon arms its auto-dismiss timer in an effect
+  // keyed on `timeout`, so two same-kind toasts in a row would reuse one
+  // instance and the first toast's timer would dismiss the second early.
   const [toast, setToast] = useState<{
     kind: 'success' | 'error';
     title: string;
     subtitle?: string;
+    seq: number;
   } | null>(null);
+  const toastSeq = useRef(0);
+  const showToast = useCallback(
+    (t: { kind: 'success' | 'error'; title: string; subtitle?: string }) => {
+      setToast({ ...t, seq: ++toastSeq.current });
+    },
+    []
+  );
   // Last viewport emitted by each plot's dataZoom. Drives the archive store's
   // window per trace; the store decides whether the change requires a fetch
   // based on its coverage check, so this map can be updated freely.
@@ -730,13 +741,29 @@ export function TraceApp() {
   // ?config= startup loader, and the config-store modal's Load so there's one
   // code path for "set plots + active plot + theme".
   const applyWorkspace = useCallback((result: DeserializeResult) => {
+    // A workspace with no plots would leave `activePlot` undefined, which the
+    // render body dereferences — refuse it rather than blank the app. Reachable
+    // from a hand-edited ?config= link, not just from a picked file.
+    if (result.plots.length === 0) {
+      throw new Error('Workspace contains no plots');
+    }
     setPlots(result.plots);
-    if (result.plots.length > 0) setActivePlotId(result.plots[0].id);
+    setActivePlotId(result.plots[0].id);
     if (result.theme) {
       // setColorMode lives on the store; the hook surface only exposes toggle,
       // so go through the module API.
       void import('../state/themeStore').then((m) => m.setColorMode(result.theme!));
     }
+    // Everything below is keyed by plot id, and ids collide across workspaces
+    // (the default plot is `plot-1`, native saves keep ids verbatim, and the
+    // legacy .trc converter hardcodes `plot-1`). Carrying it over would let the
+    // outgoing workspace's viewport, detach state, or selection attach itself to
+    // the incoming plots, so reset it all as part of "apply a workspace".
+    setViewWindowByPlot(new Map());
+    setDetachedPlotIds([]);
+    setPoppedOutPlot(null);
+    setSelectedItem(null);
+    axisRangesRef.current.clear();
   }, []);
 
   // Shareable-link bootstrap: ?config=<slug> loads a saved workspace from the
@@ -746,13 +773,14 @@ export function TraceApp() {
     const slug = new URLSearchParams(window.location.search).get('config');
     if (!slug) return;
     let cancelled = false;
+    const abort = new AbortController();
     (async () => {
       try {
-        const dto = await getConfig(slug);
+        const dto = await getConfig(slug, abort.signal);
         if (cancelled) return;
         const result = deserializeWorkspace(JSON.stringify(dto.data));
         applyWorkspace(result);
-        setToast({
+        showToast({
           kind: 'success',
           title: 'Workspace loaded',
           subtitle: dto.name ? `Loaded "${dto.name}"` : `Loaded config ${slug}`,
@@ -760,8 +788,10 @@ export function TraceApp() {
       } catch (err) {
         if (cancelled) return;
         const subtitle =
-          err instanceof CanopyError ? err.detail : ((err as Error).message ?? 'Unknown error');
-        setToast({ kind: 'error', title: 'Could not load shared workspace', subtitle });
+          err instanceof CanopyError
+            ? err.detail
+            : ((err as Error | null)?.message ?? 'Unknown error');
+        showToast({ kind: 'error', title: 'Could not load shared workspace', subtitle });
       } finally {
         const url = new URL(window.location.href);
         url.searchParams.delete('config');
@@ -770,6 +800,7 @@ export function TraceApp() {
     })();
     return () => {
       cancelled = true;
+      abort.abort();
     };
     // Mount-only: read the launch URL once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -787,11 +818,11 @@ export function TraceApp() {
     let result;
     try {
       result = deserializeWorkspace(text);
+      applyWorkspace(result);
     } catch (err) {
       alert(`Failed to import: ${(err as Error).message}`);
       return;
     }
-    applyWorkspace(result);
     if (result.warnings.length > 0) {
       console.warn('Import warnings:', result.warnings);
       alert(`Imported with ${result.warnings.length} warning(s):\n\n${result.warnings.join('\n')}`);
@@ -1349,14 +1380,14 @@ export function TraceApp() {
           buildConfigFile={buildElogConfigFile}
           onClose={() => setElogModal((p) => ({ ...p, open: false }))}
           onPosted={(entryId) =>
-            setToast({
+            showToast({
               kind: 'success',
               title: 'Posted to E-Log',
               subtitle: `Entry ${entryId} created`,
             })
           }
           onPostFailed={(message) =>
-            setToast({ kind: 'error', title: 'E-Log post failed', subtitle: message })
+            showToast({ kind: 'error', title: 'E-Log post failed', subtitle: message })
           }
         />
       )}
@@ -1367,7 +1398,7 @@ export function TraceApp() {
         theme={colorMode}
         onClose={() => setConfigModalOpen(false)}
         onLoaded={applyWorkspace}
-        onToast={setToast}
+        onToast={showToast}
       />
 
       {toast &&
@@ -1378,6 +1409,7 @@ export function TraceApp() {
             aria-live="polite"
           >
             <ToastNotification
+              key={toast.seq}
               kind={toast.kind}
               title={toast.title}
               subtitle={toast.subtitle}

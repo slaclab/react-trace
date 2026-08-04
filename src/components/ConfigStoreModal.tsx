@@ -35,6 +35,10 @@ interface ConfigStoreModalProps {
   onToast: (t: { kind: 'success' | 'error'; title: string; subtitle?: string }) => void;
 }
 
+// One unpaginated page. Truncation is surfaced in the list header rather than
+// silently hidden; real paging is slaclab/react-trace#80.
+const PAGE_SIZE = 200;
+
 function shareUrl(slug: string): string {
   const url = new URL(window.location.href);
   url.search = '';
@@ -45,7 +49,18 @@ function shareUrl(slug: string): string {
 
 function errText(err: unknown): string {
   if (err instanceof CanopyError) return err.detail;
-  return (err as Error).message ?? 'Unknown error';
+  return (err as Error | null)?.message ?? 'Unknown error';
+}
+
+/** Copy `text`, reporting whether it actually landed (see handleSave). */
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (!navigator.clipboard) return false;
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function ConfigStoreModal({
@@ -62,6 +77,7 @@ export function ConfigStoreModal({
   const [error, setError] = useState<string | null>(null);
 
   const [configs, setConfigs] = useState<ConfigDTO[]>([]);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
   const [listing, setListing] = useState(false);
   // Slug currently undergoing a row action (delete/load), to disable its buttons.
   const [busySlug, setBusySlug] = useState<string | null>(null);
@@ -70,8 +86,16 @@ export function ConfigStoreModal({
     setError(null);
     setListing(true);
     try {
-      const page = await listConfigs({ pageSize: 200 });
-      setConfigs(page.results);
+      const page = await listConfigs({ pageSize: PAGE_SIZE });
+      // Magpie orders by its (random UUID) primary key, so sort here to get a
+      // predictable newest-first list. See slaclab/canopy#90 for the server-side
+      // ordering fix and slaclab/react-trace#80 for paging past PAGE_SIZE.
+      setConfigs(
+        [...page.results].sort(
+          (a, b) => new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime()
+        )
+      );
+      setTotalCount(page.totalCount ?? null);
     } catch (err) {
       setError(errText(err));
     } finally {
@@ -104,11 +128,15 @@ export function ConfigStoreModal({
         name: name.trim() || undefined,
         description: description.trim() || undefined,
       });
-      await navigator.clipboard?.writeText(shareUrl(dto.slug)).catch(() => {});
+      // Don't claim a copy that didn't happen: the clipboard API is absent on a
+      // non-secure origin and rejects when permission is denied or the document
+      // isn't focused. Show the link itself so it can still be copied by hand.
+      const link = shareUrl(dto.slug);
+      const copied = await copyToClipboard(link);
       onToast({
         kind: 'success',
         title: 'Workspace saved',
-        subtitle: `Share link copied to clipboard (${dto.slug})`,
+        subtitle: copied ? `Share link copied to clipboard (${dto.slug})` : `Share link: ${link}`,
       });
       setName('');
       setDescription('');
@@ -170,11 +198,11 @@ export function ConfigStoreModal({
   };
 
   const handleCopyLink = async (slug: string) => {
-    try {
-      await navigator.clipboard.writeText(shareUrl(slug));
-      onToast({ kind: 'success', title: 'Link copied', subtitle: shareUrl(slug) });
-    } catch {
-      onToast({ kind: 'error', title: 'Could not copy link' });
+    const link = shareUrl(slug);
+    if (await copyToClipboard(link)) {
+      onToast({ kind: 'success', title: 'Link copied', subtitle: link });
+    } else {
+      onToast({ kind: 'error', title: 'Could not copy link', subtitle: link });
     }
   };
 
@@ -226,6 +254,9 @@ export function ConfigStoreModal({
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="cds--label" style={{ marginBottom: 0 }}>
                 Saved configs
+                {totalCount !== null && totalCount > configs.length
+                  ? ` (showing ${configs.length} of ${totalCount})`
+                  : ''}
               </span>
               <Button
                 kind="ghost"
@@ -273,7 +304,12 @@ export function ConfigStoreModal({
                           >
                             Load
                           </Button>
-                          <Button size="sm" kind="ghost" onClick={() => void handleRename(c)}>
+                          <Button
+                            size="sm"
+                            kind="ghost"
+                            onClick={() => void handleRename(c)}
+                            disabled={busySlug === c.slug}
+                          >
                             Rename
                           </Button>
                           <Button
