@@ -1,4 +1,4 @@
-import { canopyFetch } from './client';
+import { canopyFetch, canopyWebSocketUrl } from './client';
 import type { FormulaResultDTO, FormulaSpecDTO, FormulaValidationDTO } from './types';
 
 // Parse + typecheck a formula without evaluating — drives the editor's live
@@ -34,7 +34,5 @@ export async function evaluateFormula(
 // prod reverse proxy) handle the /fox upgrade and inject X-API-Key, so the bundle
 // never holds the key. SSR-safe: returns an empty string when `window` is undefined.
 export function formulaWsUrl(): string {
-  if (typeof window === 'undefined') return '';
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${window.location.host}/fox/v1/ws/formulas`;
+  return canopyWebSocketUrl('/fox/v1/ws/formulas');
 }
