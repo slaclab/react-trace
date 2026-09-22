@@ -2,8 +2,8 @@ import type { ErrorEnvelope } from './types';
 
 // Vite dev server proxies /mole/* (and /fox/*) to the Canopy backend (see
 // vite.config.ts) and injects X-API-Key, so the browser bundle never sees the
-// key. In deployed builds, VITE_CANOPY_BASE_PATH points at the public Canopy
-// route, for example /api/canopy.
+// key. In deployed builds, VITE_CANOPY_BASE_PATH is served by Trace's reverse
+// proxy, for example /trace/api/canopy.
 const BASE = (import.meta.env.VITE_CANOPY_BASE_PATH ?? '').replace(/\/$/, '');
 
 export function canopyWebSocketUrl(path: string): string {
