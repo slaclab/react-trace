@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: trace-dev-image-publish
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
