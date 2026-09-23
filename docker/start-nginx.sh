@@ -8,5 +8,6 @@ export CANOPY_UPSTREAM
 envsubst '${CANOPY_UPSTREAM} ${CANOPY_API_KEY}' \
   < /app/nginx.conf.template \
   > /tmp/nginx.conf
+chmod 0600 /tmp/nginx.conf
 
 exec nginx -c /tmp/nginx.conf -g 'daemon off;'
