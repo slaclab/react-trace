@@ -793,9 +793,12 @@ export function TraceApp() {
             : ((err as Error | null)?.message ?? 'Unknown error');
         showToast({ kind: 'error', title: 'Could not load shared workspace', subtitle });
       } finally {
-        const url = new URL(window.location.href);
-        url.searchParams.delete('config');
-        window.history.replaceState({}, '', url);
+        // Don't rewrite the URL after unmount — it may belong to a later route.
+        if (!cancelled) {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('config');
+          window.history.replaceState({}, '', url);
+        }
       }
     })();
     return () => {

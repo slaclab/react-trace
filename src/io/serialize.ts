@@ -54,7 +54,12 @@ export function deserializeWorkspace(text: string): DeserializeResult {
         `File schema version ${obj.schemaVersion} is newer than the app understands (${SCHEMA_VERSION}). Update the app.`
       );
     }
-    let plots = Array.isArray(obj.plots) ? (obj.plots as Plot[]).map(rehydratePlot) : [];
+    // Native plots arrive from both a picked file and an arbitrary ?config=
+    // share link, so validate shape before the blind cast — a malformed plot
+    // crashes the render body (resolveTimeWindow(plot.xAxis), plot.traces.filter).
+    const rawPlots = Array.isArray(obj.plots) ? obj.plots : [];
+    rawPlots.forEach(assertPlotShape);
+    let plots = (rawPlots as Plot[]).map(rehydratePlot);
     // Migrate the old workspace-level default archiver onto each plot that
     // doesn't already carry one (the default is now per-plot).
     if (typeof obj.globalArchiver === 'string') {
@@ -77,6 +82,24 @@ export function deserializeWorkspace(text: string): DeserializeResult {
   }
 
   throw new Error('Unrecognized file format');
+}
+
+// Structural check for the fields the render path dereferences without guards.
+// rehydratePlot defaults the optional display fields, so only id, xAxis.timeRange,
+// and array traces/axes are required.
+function assertPlotShape(p: unknown, i: number): asserts p is Plot {
+  const where = `plots[${i}]`;
+  if (!p || typeof p !== 'object') throw new Error(`Invalid workspace: ${where} is not an object`);
+  const plot = p as Record<string, unknown>;
+  if (typeof plot.id !== 'string' || plot.id === '')
+    throw new Error(`Invalid workspace: ${where} is missing an id`);
+  const xAxis = plot.xAxis as Record<string, unknown> | undefined;
+  if (!xAxis || typeof xAxis.timeRange !== 'string')
+    throw new Error(`Invalid workspace: ${where} is missing xAxis.timeRange`);
+  if (!Array.isArray(plot.traces))
+    throw new Error(`Invalid workspace: ${where}.traces is not an array`);
+  if (!Array.isArray(plot.axes))
+    throw new Error(`Invalid workspace: ${where}.axes is not an array`);
 }
 
 function rehydratePlot(p: Plot): Plot {

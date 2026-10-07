@@ -171,10 +171,13 @@ export function ConfigStoreModal({
   const handleRename = async (config: ConfigDTO) => {
     const next = window.prompt('Rename config', config.name ?? '');
     if (next === null) return;
+    // Treat a blank rename as no-op; Save likewise omits empty names.
+    const trimmed = next.trim();
+    if (trimmed === (config.name ?? '')) return;
     setBusySlug(config.slug);
     setError(null);
     try {
-      await updateConfig(config.slug, { name: next.trim() });
+      await updateConfig(config.slug, { name: trimmed });
       await refresh();
     } catch (err) {
       setError(errText(err));
