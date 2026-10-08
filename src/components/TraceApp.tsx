@@ -54,6 +54,7 @@ function generateMockData(
   }));
 }
 
+// The app starts with a single empty plot so users begin from a clean slate.
 const INITIAL_PLOTS: Plot[] = [
   {
     id: 'plot-1',
@@ -70,77 +71,14 @@ const INITIAL_PLOTS: Plot[] = [
     axes: [
       {
         id: 'y-axis-1',
-        name: 'Vacuum (kV)',
+        name: 'Y-Axis 1',
         orientation: 'left',
         autoScale: true,
         logScale: false,
         visible: true,
       },
-      {
-        id: 'y-axis-2',
-        name: 'Temperature (°C)',
-        orientation: 'right',
-        autoScale: true,
-        logScale: false,
-        visible: true,
-      },
     ],
-    traces: [
-      {
-        id: 'trace-1',
-        pvName: 'TEST:SINE',
-        displayName: '',
-        color: '#0f62fe',
-        visible: true,
-        axisId: 'y-axis-1',
-        useLive: false,
-        updateRate: 'monitor',
-        useArchive: true,
-        lineWidth: 2,
-        lineType: 'step',
-        lineStyle: 'solid',
-        showSymbol: false,
-        symbolShape: 'circle',
-        symbolSize: 10,
-        data: generateMockData(100, 45, 5),
-      },
-      {
-        id: 'trace-2',
-        pvName: 'TEST:COUNTER',
-        displayName: '',
-        color: '#ee5396',
-        visible: true,
-        axisId: 'y-axis-1',
-        useLive: false,
-        updateRate: 'monitor',
-        useArchive: true,
-        lineWidth: 2,
-        lineType: 'step',
-        lineStyle: 'solid',
-        showSymbol: false,
-        symbolShape: 'circle',
-        symbolSize: 10,
-        data: generateMockData(100, 48, 3),
-      },
-      {
-        id: 'trace-3',
-        pvName: 'TEST:RAMP',
-        displayName: '',
-        color: '#42be65',
-        visible: true,
-        axisId: 'y-axis-2',
-        useLive: false,
-        updateRate: 'monitor',
-        useArchive: true,
-        lineWidth: 2,
-        lineType: 'step',
-        lineStyle: 'solid',
-        showSymbol: false,
-        symbolShape: 'circle',
-        symbolSize: 10,
-        data: generateMockData(100, 25, 2),
-      },
-    ],
+    traces: [],
   },
 ];
 
@@ -156,8 +94,8 @@ export function TraceApp() {
   const [plots, setPlots] = useState<Plot[]>(INITIAL_PLOTS);
   const [activePlotId, setActivePlotId] = useState<string>('plot-1');
   const [selectedItem, setSelectedItem] = useState<SelectedItem>({
-    type: 'trace',
-    id: 'trace-1',
+    type: 'plot',
+    id: 'plot-1',
     plotId: 'plot-1',
   });
   const [viewMode, setViewMode] = useState<'tabs' | 'grid'>('tabs');
