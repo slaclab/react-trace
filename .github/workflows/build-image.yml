@@ -1,0 +1,38 @@
+name: Build and publish container image
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-image:
+    name: Build and publish GHCR image
+    uses: slaclab/swapps-ci-helpers/.github/workflows/build-ghcr-image.yml@73e6ba924aac5f822b050bd6bed12b0e45c64034 # v1.1.0
+    permissions:
+      contents: read
+      packages: write
+    with:
+      dockerfile: docker/Dockerfile
+      context: .
+
+  dispatch-dev-deploy:
+    name: Trigger swapps-deployment dev deploy
+    needs: build-image
+    uses: slaclab/swapps-ci-helpers/.github/workflows/dispatch-swapps-deployment.yml@73e6ba924aac5f822b050bd6bed12b0e45c64034 # v1.1.0
+    with:
+      app: trace
+      environment: dev
+      image: ${{ needs.build-image.outputs.image }}
+    secrets:
+      APP_ID: ${{ secrets.APP_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}

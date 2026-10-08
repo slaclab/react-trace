@@ -14,6 +14,7 @@ export default defineConfig(({ mode }) => {
   const elogKey = env.ELOG_API_KEY ?? '';
 
   return {
+    base: env.VITE_BASE_PATH || '/',
     plugins: [react()],
     server: {
       proxy: {
