@@ -28,7 +28,12 @@ import { useColorMode } from '../state/themeStore';
 import { usePaletteId } from '../state/paletteStore';
 import { getPalette, colorForIndex } from '../palettes';
 import { downloadBlob, downloadDataUrl, pickFile } from '../io/download';
-import { serializeWorkspace, deserializeWorkspace, type DeserializeResult } from '../io/serialize';
+import {
+  serializeWorkspace,
+  deserializeWorkspace,
+  deserializeConfigData,
+  type DeserializeResult,
+} from '../io/serialize';
 import { buildCsvFiles } from '../io/exportCsv';
 import { safeFilename, timestamp } from '../io/filename';
 import { makeId } from '../id';
@@ -778,7 +783,7 @@ export function TraceApp() {
       try {
         const dto = await getConfig(slug, abort.signal);
         if (cancelled) return;
-        const result = deserializeWorkspace(JSON.stringify(dto.data));
+        const result = deserializeConfigData(dto.data);
         applyWorkspace(result);
         showToast({
           kind: 'success',

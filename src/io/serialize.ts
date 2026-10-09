@@ -16,14 +16,19 @@ export interface TraceWorkspace {
   plots: Plot[];
 }
 
-export function serializeWorkspace(args: { theme: ColorMode; plots: Plot[] }): string {
-  const ws: TraceWorkspace = {
+// Build the workspace object the config store persists as its JSON `data`.
+export function serializeConfigData(args: { theme: ColorMode; plots: Plot[] }): TraceWorkspace {
+  return {
     schemaVersion: SCHEMA_VERSION,
     savedAt: new Date().toISOString(),
     theme: args.theme,
     plots: args.plots.map(stripTraceData),
   };
-  return JSON.stringify(ws, null, 2);
+}
+
+// String form for a .trc.json file/export; the config store uses serializeConfigData.
+export function serializeWorkspace(args: { theme: ColorMode; plots: Plot[] }): string {
+  return JSON.stringify(serializeConfigData(args), null, 2);
 }
 
 // `data` is the per-trace mock array for live previews; it's regenerated at
@@ -42,9 +47,19 @@ export interface DeserializeResult {
   warnings: string[];
 }
 
+// Parse the string form (a .trc.json file or export). The config store, which
+// holds an already-parsed JSON object, uses deserializeConfigData instead.
 export function deserializeWorkspace(text: string): DeserializeResult {
-  const data: unknown = JSON.parse(text);
-  if (!data || typeof data !== 'object') throw new Error('Invalid file: not an object');
+  return deserializeConfigData(JSON.parse(text));
+}
+
+// Build a workspace from a parsed JSON value — the native (object) entry used by
+// the magpie config store, where `data` is JSON, not a string. deserializeWorkspace
+// is the thin string wrapper over this. Validates untrusted input (?config= links,
+// hand-edited files) before the cast so malformed shapes hit the caller's error
+// path rather than crashing the render body.
+export function deserializeConfigData(data: unknown): DeserializeResult {
+  if (!data || typeof data !== 'object') throw new Error('Invalid workspace: not an object');
   const obj = data as Record<string, unknown>;
 
   // Native format identification by schemaVersion.
@@ -54,9 +69,6 @@ export function deserializeWorkspace(text: string): DeserializeResult {
         `File schema version ${obj.schemaVersion} is newer than the app understands (${SCHEMA_VERSION}). Update the app.`
       );
     }
-    // Native plots arrive from both a picked file and an arbitrary ?config=
-    // share link, so validate shape before the blind cast — a malformed plot
-    // crashes the render body (resolveTimeWindow(plot.xAxis), plot.traces.filter).
     const rawPlots = Array.isArray(obj.plots) ? obj.plots : [];
     rawPlots.forEach(assertPlotShape);
     let plots = (rawPlots as Plot[]).map(rehydratePlot);
@@ -100,6 +112,30 @@ function assertPlotShape(p: unknown, i: number): asserts p is Plot {
     throw new Error(`Invalid workspace: ${where}.traces is not an array`);
   if (!Array.isArray(plot.axes))
     throw new Error(`Invalid workspace: ${where}.axes is not an array`);
+  // Validate elements too: the render path maps trace.data and reads axis.visible,
+  // so a malformed entry from a ?config= link crashes past the array check.
+  plot.traces.forEach((t, j) => {
+    if (!t || typeof t !== 'object')
+      throw new Error(`Invalid workspace: ${where}.traces[${j}] is not an object`);
+    const trace = t as Record<string, unknown>;
+    if (typeof trace.id !== 'string' || trace.id === '')
+      throw new Error(`Invalid workspace: ${where}.traces[${j}] is missing an id`);
+    if (trace.data !== undefined) {
+      if (!Array.isArray(trace.data))
+        throw new Error(`Invalid workspace: ${where}.traces[${j}].data is not an array`);
+      // The render path reads p.time / p.value off each point (PlotArea).
+      trace.data.forEach((p, k) => {
+        if (!p || typeof p !== 'object')
+          throw new Error(`Invalid workspace: ${where}.traces[${j}].data[${k}] is not an object`);
+      });
+    }
+  });
+  plot.axes.forEach((a, j) => {
+    if (!a || typeof a !== 'object')
+      throw new Error(`Invalid workspace: ${where}.axes[${j}] is not an object`);
+    if (typeof (a as Record<string, unknown>).id !== 'string')
+      throw new Error(`Invalid workspace: ${where}.axes[${j}] is missing an id`);
+  });
 }
 
 function rehydratePlot(p: Plot): Plot {

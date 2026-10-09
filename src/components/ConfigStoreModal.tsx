@@ -20,7 +20,11 @@ import type { Plot } from '../types';
 import type { ColorMode } from '../state/themeStore';
 import type { ConfigDTO } from '../api/types';
 import { CanopyError } from '../api/client';
-import { serializeWorkspace, deserializeWorkspace, type DeserializeResult } from '../io/serialize';
+import {
+  serializeConfigData,
+  deserializeConfigData,
+  type DeserializeResult,
+} from '../io/serialize';
 import { saveConfig, getConfig, listConfigs, updateConfig, deleteConfig } from '../api/magpie';
 
 interface ConfigStoreModalProps {
@@ -81,12 +85,19 @@ export function ConfigStoreModal({
   const [listing, setListing] = useState(false);
   // Slug currently undergoing a row action (delete/load), to disable its buttons.
   const [busySlug, setBusySlug] = useState<string | null>(null);
+  // Monotonic refresh id. A Save/Delete fires its own refresh while the open
+  // refresh may still be in flight; without this, the slower (older) response
+  // could land last and overwrite the newer post-mutation list. Only the latest
+  // generation commits.
+  const refreshGen = useRef(0);
 
   const refresh = useCallback(async () => {
+    const gen = ++refreshGen.current;
     setError(null);
     setListing(true);
     try {
       const page = await listConfigs({ pageSize: PAGE_SIZE });
+      if (gen !== refreshGen.current) return;
       // Magpie orders by its (random UUID) primary key, so sort here to get a
       // predictable newest-first list. See slaclab/canopy#90 for the server-side
       // ordering fix and slaclab/react-trace#80 for paging past PAGE_SIZE.
@@ -97,9 +108,10 @@ export function ConfigStoreModal({
       );
       setTotalCount(page.totalCount ?? null);
     } catch (err) {
+      if (gen !== refreshGen.current) return;
       setError(errText(err));
     } finally {
-      setListing(false);
+      if (gen === refreshGen.current) setListing(false);
     }
   }, []);
 
@@ -123,7 +135,7 @@ export function ConfigStoreModal({
     setSaving(true);
     setError(null);
     try {
-      const data = JSON.parse(serializeWorkspace({ theme, plots }));
+      const data = serializeConfigData({ theme, plots });
       const dto = await saveConfig(data, {
         name: name.trim() || undefined,
         description: description.trim() || undefined,
@@ -153,7 +165,7 @@ export function ConfigStoreModal({
     setError(null);
     try {
       const dto = await getConfig(slug);
-      const result = deserializeWorkspace(JSON.stringify(dto.data));
+      const result = deserializeConfigData(dto.data);
       onLoaded(result);
       onToast({
         kind: 'success',
@@ -171,9 +183,9 @@ export function ConfigStoreModal({
   const handleRename = async (config: ConfigDTO) => {
     const next = window.prompt('Rename config', config.name ?? '');
     if (next === null) return;
-    // Treat a blank rename as no-op; Save likewise omits empty names.
+    // No-op a blank rename (Save likewise omits empty names) or an unchanged one.
     const trimmed = next.trim();
-    if (trimmed === (config.name ?? '')) return;
+    if (trimmed === '' || trimmed === (config.name ?? '')) return;
     setBusySlug(config.slug);
     setError(null);
     try {
