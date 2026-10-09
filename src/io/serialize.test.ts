@@ -119,6 +119,12 @@ describe('deserializeConfigData — native workspace', () => {
     expect(() => deserializeConfigData(nativeWorkspace([plot]))).toThrow(pattern as RegExp);
   });
 
+  it('drops an unsupported theme rather than passing it through', () => {
+    const data = { schemaVersion: SCHEMA_VERSION, theme: 'sepia', plots: [validPlot] };
+    expect(deserializeConfigData(data).theme).toBeUndefined();
+    expect(deserializeConfigData({ ...data, theme: 'light' }).theme).toBe('light');
+  });
+
   it('reports the index of the offending plot', () => {
     expect(() => deserializeConfigData(nativeWorkspace([validPlot, {}]))).toThrow(/plots\[1\]/);
   });

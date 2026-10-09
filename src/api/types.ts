@@ -96,8 +96,8 @@ export interface ConfigDTO {
   slug: string;
   name: string | null;
   description: string | null;
-  // Opaque to the wire layer: a serialized TraceWorkspace round-tripped through
-  // io/serialize's deserializeWorkspace on load.
+  // Opaque to the wire layer: a TraceWorkspace object, parsed by io/serialize's
+  // deserializeConfigData on load (deserializeWorkspace is the string-file door).
   data: unknown;
   createdBy: string | null;
   createdDate: string; // ISO 8601

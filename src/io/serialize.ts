@@ -80,7 +80,9 @@ export function deserializeConfigData(data: unknown): DeserializeResult {
     }
     return {
       source: 'native',
-      theme: typeof obj.theme === 'string' ? (obj.theme as ColorMode) : undefined,
+      // Narrow to the supported literals; an untrusted theme (e.g. "sepia" from a
+      // share link) is dropped rather than cast and handed to setColorMode.
+      theme: obj.theme === 'light' || obj.theme === 'dark' ? obj.theme : undefined,
       plots,
       warnings: [],
     };
