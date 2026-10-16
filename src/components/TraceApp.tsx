@@ -7,7 +7,7 @@ import {
   usePanelRef,
 } from 'react-resizable-panels';
 import { Close, Login, ChevronUp } from '@carbon/icons-react';
-import { Header, HeaderName, HeaderGlobalBar, Theme, ToastNotification } from '@carbon/react';
+import { ToastNotification } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
 import { LeftPanel } from './LeftPanel';
 import { DetachedWindow } from './DetachedWindow';
@@ -16,6 +16,7 @@ import { PlotArea, SinglePlot } from './PlotArea';
 import { capturePlotPng } from '../capturePlot';
 import { RightPanel } from './RightPanel';
 import { Toolbar } from './Toolbar';
+import { TraceHeader } from './TraceHeader';
 import { useArchiveSeries, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { useLiveSeries, type LiveSeriesResult } from '../hooks/useLiveSeries';
 import { archiveStore } from '../state/archiveStore';
@@ -38,9 +39,6 @@ import { capturePlots, type PngSource, type CapturedPlot } from '../io/exportPlo
 import { PostToElogModal } from './PostToElogModal';
 import { useElogConfig } from '../hooks/useElogConfig';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
-
-const BUG_REPORT_URL = 'https://forms.office.com/r/qV7BmK2xi9';
-const DOCS_URL = 'https://github.com/slaclab/react-trace#readme';
 
 function generateMockData(
   points: number,
@@ -774,10 +772,6 @@ export function TraceApp() {
     };
   }, [printShots]);
 
-  const handleReportBug = () => {
-    window.open(BUG_REPORT_URL, '_blank', 'noopener,noreferrer');
-  };
-
   // Capture context-aware plots (active plot in tabs view, all plots in grid)
   // and open the e-log post dialog. Background matches the current chart theme.
   const openElogPost = useCallback(() => {
@@ -799,10 +793,6 @@ export function TraceApp() {
     const json = serializeWorkspace({ theme: colorMode, plots });
     return new File([json], 'trace_config.json', { type: 'application/json' });
   }, [colorMode, plots]);
-
-  const handleOpenDocs = () => {
-    window.open(DOCS_URL, '_blank', 'noopener,noreferrer');
-  };
 
   const handleRefreshArchive = () => {
     archiveStore.refetchAll();
@@ -844,38 +834,25 @@ export function TraceApp() {
 
   return (
     <div className="trace-app">
-      {/* Header — wrapped in g100 so it stays a dark brand bar in light mode. */}
-      <Theme theme="g100">
-        <Header aria-label="Trace" className="trace-header">
-          <HeaderName href="#" prefix="" className="trace-header__name">
-            TRACE
-          </HeaderName>
-          <div className="trace-header__archiver">
-            <span className="trace-header__counts">
-              {liveCount} Live &bull; {archiveCount} Archive
-            </span>
-          </div>
-          <HeaderGlobalBar>
-            <Toolbar
-              colorMode={colorMode}
-              onSave={handleSave}
-              onPrint={handlePrint}
-              onImport={() => void handleImport()}
-              onExport={handleExport}
-              onExportImage={handleExportImage}
-              onToggleTheme={toggleTheme}
-              onReportBug={handleReportBug}
-              onOpenDocs={handleOpenDocs}
-              onOpenDataInsight={() => openInsight()}
-              onRefreshArchive={handleRefreshArchive}
-              onPostElog={elogConfig?.enabled ? openElogPost : undefined}
-            />
-          </HeaderGlobalBar>
-        </Header>
-      </Theme>
+      <TraceHeader
+        liveCount={liveCount}
+        archiveCount={archiveCount}
+        actions={
+          <Toolbar
+            onSave={handleSave}
+            onPrint={handlePrint}
+            onImport={() => void handleImport()}
+            onExport={handleExport}
+            onExportImage={handleExportImage}
+            onOpenDataInsight={() => openInsight()}
+            onRefreshArchive={handleRefreshArchive}
+            onPostElog={elogConfig?.enabled ? openElogPost : undefined}
+          />
+        }
+      />
 
-      {/* 3-panel layout */}
-      <div className="trace-panel-group">
+      {/* 3-panel layout. #main-content is the header's skip-link target. */}
+      <div className="trace-panel-group" id="main-content" tabIndex={-1}>
         <PanelGroup orientation="horizontal" style={{ flex: 1, height: '100%' }}>
           <Panel
             defaultSize="20%"

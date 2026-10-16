@@ -1,24 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getColorMode, setColorMode } from '@slaclab/canopy-shell/color-mode';
+import { memoryStorage } from '../test/dom';
 import { TRACE_COLOR_MODE, setupColorMode } from './colorMode';
-
-// In-memory localStorage, so the test doesn't depend on whether this Node
-// version exposes jsdom's storage (Node 26 shadows it without
-// --localstorage-file).
-function memoryStorage(): Storage {
-  const data = new Map<string, string>();
-  return {
-    get length() {
-      return data.size;
-    },
-    clear: () => data.clear(),
-    getItem: (key) => data.get(key) ?? null,
-    key: (i) => Array.from(data.keys())[i] ?? null,
-    removeItem: (key) => void data.delete(key),
-    setItem: (key, value) => void data.set(key, String(value)),
-  };
-}
 
 let storage: Storage;
 
