@@ -10,6 +10,7 @@ import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs, resolveTimeWindow } from '../api/time';
 import { echartsLineType, echartsSymbol } from '../curveStyle';
 import { isFollowing } from '../hooks/useAutoScrollTimers';
+import { useFollowNow } from '../hooks/useFollowNow';
 import { traceLabel } from '../traceLabel';
 import { useColorMode } from '../state/themeStore';
 import type { PngSource } from '../io/exportPlotImage';
@@ -257,6 +258,25 @@ export function SinglePlot({
   const gridBandRef = useRef<GridBand>({ top: 40, bottom: 60, left: 70, right: 20 });
   // Latest onUpdateAxis, so the mount-once listeners always call the current one.
   const onUpdateAxisRef = useRef(onUpdateAxis);
+
+  // Where the time axis is drawn to. `endMs` comes from the app (see
+  // axisEndMs): the plot's clock, or its newest live sample while following. A
+  // following plot also scrolls smoothly on animation frames between clock
+  // ticks (useFollowNow), so slow PVs don't wait for the next tick either.
+  const spanWindow = resolveTimeWindow(plot.xAxis, endMs).window;
+  const getWindow = useCallback(() => wrapRef.current?.ownerDocument.defaultView ?? null, []);
+  const getWidthPx = useCallback(
+    () =>
+      (wrapRef.current?.clientWidth ?? 0) - gridBandRef.current.left - gridBandRef.current.right,
+    []
+  );
+  const shownEndMs = useFollowNow({
+    following,
+    anchorMs: endMs,
+    spanMs: nsToMs(spanWindow.toNs - spanWindow.fromNs),
+    getWindow,
+    getWidthPx,
+  });
   // In-flight axis drag; null when not dragging. min/max/pxMin/pxMax are a frozen
   // snapshot of the extent and its pixel mapping captured at mousedown.
   const dragRef = useRef<{
@@ -607,7 +627,7 @@ export function SinglePlot({
   // Pin the x-axis extent to the requested time range so the axis spans the
   // full window even when archive data is sparse and clusters in a sub-range.
   // dataZoom inside the chart still sub-zooms within [min, max].
-  const requested = resolveTimeWindow(plot.xAxis, endMs).window;
+  const requested = resolveTimeWindow(plot.xAxis, shownEndMs).window;
   const xAxisMin = nsToMs(requested.fromNs);
   const xAxisMax = nsToMs(requested.toNs);
 

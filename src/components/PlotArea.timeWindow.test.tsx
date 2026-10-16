@@ -5,7 +5,7 @@
 // wall clock read during render: before the fix every live batch re-render
 // moved the axis to the current time, even with Autoscroll off.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import { SinglePlot } from './PlotArea';
 import { axisEndMs } from '../hooks/useAutoScrollTimers';
 import type { Plot } from '../types';
@@ -292,6 +292,69 @@ describe('SinglePlot pan while following', () => {
     const { unmount } = render(plotEl(plot, T0, new Map(), false, onFollowStop));
     captured.onEvents.datazoom();
     expect(onFollowStop).not.toHaveBeenCalled();
+    unmount();
+  });
+});
+
+describe('SinglePlot smooth scrolling', () => {
+  // SinglePlot drives its display clock from the chart's own window
+  // (ownerDocument.defaultView), which in jsdom isn't the global that fake
+  // timers patch, so queue that window's animation frames by hand.
+  let frames: FrameRequestCallback[] = [];
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(T0);
+    frames = [];
+    const win = document.defaultView!;
+    vi.spyOn(win, 'requestAnimationFrame').mockImplementation((cb) => frames.push(cb));
+    vi.spyOn(win, 'cancelAnimationFrame').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  // Run the pending animation frame(s) at wall time `atMs`.
+  function frameAt(atMs: number) {
+    vi.setSystemTime(atMs);
+    const pending = frames;
+    frames = [];
+    act(() => {
+      for (const cb of pending) cb(atMs);
+    });
+  }
+
+  it('scrolls a following plot on animation frames between clock ticks', () => {
+    const plot = makePlot({ xAxis: { timeRange: '-30s' } });
+    const { unmount } = render(plotEl(plot, T0, new Map(), true));
+    expect(xAxis().max).toBe(T0);
+    frameAt(T0 + 1000);
+    expect(xAxis().max).toBe(T0 + 1000);
+    expect(xAxis().min).toBe(T0 + 1000 - 30_000);
+    frameAt(T0 + 1500);
+    expect(xAxis().max).toBe(T0 + 1500);
+    unmount();
+  });
+
+  it('keeps a frozen plot on its clock and schedules no frames', () => {
+    const plot = makePlot({ xAxis: { timeRange: '-30s' }, autoScroll: false });
+    const { unmount } = render(plotEl(plot, T0, new Map(), false));
+    expect(frames).toHaveLength(0);
+    vi.setSystemTime(T0 + 2000);
+    expect(xAxis().max).toBe(T0);
+    unmount();
+  });
+
+  it('stops following on a pan after scrolling past the last clock tick', () => {
+    const onFollowStop = vi.fn();
+    const plot = makePlot({ xAxis: { timeRange: '-30s' } });
+    const { unmount } = render(plotEl(plot, T0, new Map(), true, onFollowStop));
+    frameAt(T0 + 1200);
+    expect(xAxis().max).toBe(T0 + 1200);
+    // TraceApp freezes the plot at the current time or later (see
+    // freezeAtDisplayedEnd), so the axis doesn't jump back to the tick.
+    captured.onEvents.datazoom();
+    expect(onFollowStop).toHaveBeenCalledTimes(1);
     unmount();
   });
 });

@@ -1652,6 +1652,7 @@ function PlotGeneralTab({
               <NumberInput
                 id="refresh-interval"
                 label="Refresh interval (s)"
+                helperText="How often archive and formula data refresh. The axis scrolls continuously."
                 min={MIN_REFRESH_S}
                 max={MAX_REFRESH_S}
                 step={1}
