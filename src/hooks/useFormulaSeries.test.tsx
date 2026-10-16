@@ -5,9 +5,10 @@
 // "following" window drifts with Date.now() on every re-render.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
-import { StrictMode, useEffect, useState } from 'react';
+import { StrictMode, useEffect, useState, type ReactNode } from 'react';
 import { msToNs, type TimeWindowNs } from '../api/time';
-import type { FormulaSpecDTO } from '../api/types';
+import type { FormulaSpec } from '@slaclab/canopy-client';
+import { WithCanopy } from '../test/canopy';
 import { resolveFormulaSpec } from '../formula';
 import { formulaTrace, pvTrace } from '../test/traceAppHarness';
 import type { PVTrace } from '../types';
@@ -131,7 +132,7 @@ function Probe({ traces, windows, renderEveryMs, onRender }: ProbeProps) {
     const id = setInterval(() => setTick((n) => n + 1), renderEveryMs);
     return () => clearInterval(id);
   }, [renderEveryMs]);
-  const specByTrace = new Map<string, FormulaSpecDTO | null>();
+  const specByTrace = new Map<string, FormulaSpec | null>();
   const windowByTrace = new Map<string, TimeWindowNs>();
   for (const t of traces) {
     if (t.kind !== 'formula') continue;
@@ -171,11 +172,18 @@ const formula = (
   bindings: Record<string, string> = { x1: 'trace-1' }
 ) => formulaTrace(id, expression, bindings);
 
-function mount(props: Omit<ProbeProps, 'onRender'>, { strict = false } = {}) {
-  const view = render(
-    <Probe {...props} onRender={record} />,
-    strict ? { wrapper: StrictMode } : {}
+function StrictCanopy({ children }: { children: ReactNode }) {
+  return (
+    <StrictMode>
+      <WithCanopy>{children}</WithCanopy>
+    </StrictMode>
   );
+}
+
+function mount(props: Omit<ProbeProps, 'onRender'>, { strict = false } = {}) {
+  const view = render(<Probe {...props} onRender={record} />, {
+    wrapper: strict ? StrictCanopy : WithCanopy,
+  });
   return {
     rerender: (next: Omit<ProbeProps, 'onRender'>) =>
       view.rerender(<Probe {...next} onRender={record} />),

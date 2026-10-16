@@ -7,6 +7,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { RightPanel } from './RightPanel';
 import type { Plot, PVTrace } from '../types';
+import { WithCanopy } from '../test/canopy';
 
 // Carbon's Tabs query media features; jsdom doesn't implement matchMedia.
 vi.stubGlobal('matchMedia', (query: string) => ({
@@ -88,7 +89,8 @@ describe('formula help text', () => {
         onCollapse={vi.fn()}
         onExpand={vi.fn()}
         getAxisRange={() => undefined}
-      />
+      />,
+      { wrapper: WithCanopy }
     );
     const examples = ['{x1}', '{x1} + {x2}', '{var}'];
     const colours = examples.map(

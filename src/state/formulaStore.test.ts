@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TimeWindowNs } from '../api/time';
-import type { FormulaResultDTO, FormulaSpecDTO } from '../api/types';
+import type { FormulaResultDTO, FormulaSpec } from '@slaclab/canopy-client';
 import {
   EVAL_TIMEOUT_MS,
   FormulaStore,
@@ -41,6 +41,8 @@ function fakeFox(reply?: (call: Call) => void) {
         resolve: (values = [1], decimated = false) =>
           resolve({
             kind: 'timeseries',
+            scalar: null,
+            waveform: null,
             timeseries: {
               tsNs: values.map((_, i) => t1Ns - (values.length - 1 - i) * 1e6),
               values,
@@ -60,7 +62,7 @@ function fakeFox(reply?: (call: Call) => void) {
 const T0 = Date.UTC(2026, 9, 1, 12);
 const MINUTE = 60_000;
 
-const spec = (expression: string): FormulaSpecDTO => ({
+const spec = (expression: string): FormulaSpec => ({
   kind: 'timeseries',
   expression,
   bindings: { x1: 'PV:A' },

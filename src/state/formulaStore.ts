@@ -1,5 +1,5 @@
 import { nsToMs, type TimeWindowNs } from '../api/time';
-import type { FormulaResultDTO, FormulaSpecDTO } from '../api/types';
+import type { FormulaResultDTO, FormulaSpec } from '@slaclab/canopy-client';
 
 // Per-trace formula evaluation state behind useFormulaSeries: one store per
 // mounted hook (TraceApp), read through useSyncExternalStore.
@@ -86,12 +86,12 @@ export interface FormulaEntry {
 
 export interface FormulaRequest {
   // Null when the formula isn't evaluable (empty or unbound) or has no window.
-  spec: FormulaSpecDTO | null;
+  spec: FormulaSpec | null;
   window: TimeWindowNs | null;
 }
 
 export type EvaluateFn = (
-  spec: FormulaSpecDTO,
+  spec: FormulaSpec,
   t0Ns: number,
   t1Ns: number,
   signal: AbortSignal
@@ -103,7 +103,7 @@ export interface FormulaStoreDeps {
   now?: () => number;
 }
 
-export function specKey(spec: FormulaSpecDTO): string {
+export function specKey(spec: FormulaSpec): string {
   return JSON.stringify(spec);
 }
 
@@ -227,7 +227,7 @@ interface Failure {
 }
 
 interface Internal {
-  spec: FormulaSpecDTO;
+  spec: FormulaSpec;
   identity: string;
   data: FormulaEntry;
   // Window `data.points` were evaluated over; null until an evaluation under
