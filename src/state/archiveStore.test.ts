@@ -1,0 +1,344 @@
+import { describe, it, expect, vi } from 'vitest';
+import { ArchiveStore, type FetchDataFn } from './archiveStore';
+import { CanopyError } from '../api/client';
+import type { ArchiverDataDTO } from '../api/types';
+import type { TimeWindowNs } from '../api/time';
+import type { FetchDataParams } from '../api/mole';
+
+// Regression tests for #93: the archiver must not be re-queried as "now"
+// advances for a PV it doesn't have, and other failures back off instead of
+// retrying on every window move. Each test drives `request()` the way
+// useArchiveSeries does (once per render, window sliding with the clock) and
+// counts calls to an injected `fetchData`.
+
+const T0_MS = 1_700_000_000_000;
+const PV = 'TEST:PV';
+
+const notFound = () =>
+  new CanopyError('pv_not_found_in_archiver', 404, `PV '${PV}' not in archiver 'lcls' (HTTP 404)`);
+const unavailable = () =>
+  new CanopyError('archiver_unavailable', 503, 'Appliance returned HTTP 503');
+
+function rawDto(params: FetchDataParams): ArchiverDataDTO {
+  return {
+    mode: 'raw',
+    pv: PV,
+    archiver: 'lcls',
+    from: params.fromNs,
+    to: params.toNs ?? params.fromNs,
+    decimated: false,
+    samples: [
+      { tsNs: params.fromNs, value: 1, severity: 'NO_ALARM', source: 'archive' },
+      { tsNs: params.toNs ?? params.fromNs, value: 2, severity: 'NO_ALARM', source: 'archive' },
+    ],
+  };
+}
+
+type Impl = (pv: string, params: FetchDataParams, signal?: AbortSignal) => Promise<ArchiverDataDTO>;
+
+function setup(impl: Impl) {
+  let nowMs = T0_MS;
+  const fetchData = vi.fn(impl);
+  const store = new ArchiveStore({ fetchData: fetchData as FetchDataFn, now: () => nowMs });
+  // Status of each trace at every publish, to catch flicker back to 'loading'.
+  const published: Record<string, string[]> = {};
+  store.subscribe(() => {
+    for (const [id, entry] of store.getSnapshot()) (published[id] ??= []).push(entry.status);
+  });
+  return {
+    store,
+    fetchData,
+    published,
+    now: () => nowMs,
+    advance: (ms: number) => {
+      nowMs += ms;
+    },
+  };
+}
+
+type Harness = ReturnType<typeof setup>;
+
+function windowAt(nowMs: number, spanS: number): TimeWindowNs {
+  const toNs = nowMs * 1e6;
+  return { fromNs: toNs - spanS * 1e9, toNs };
+}
+
+async function flush(): Promise<void> {
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+}
+
+interface DriftOpts {
+  traceId?: string;
+  pv?: string;
+  archiver?: string;
+  spanS: number;
+  stepMs?: number;
+  steps: number;
+  // Hold the window still (a plot whose range doesn't track now) while the
+  // clock advances, as when another plot's drift re-runs useArchiveSeries.
+  staticWindow?: TimeWindowNs;
+}
+
+async function drift(h: Harness, o: DriftOpts): Promise<void> {
+  for (let i = 0; i < o.steps; i++) {
+    h.store.request(o.traceId ?? 't1', {
+      pv: o.pv ?? PV,
+      archiver: o.archiver,
+      window: o.staticWindow ?? windowAt(h.now(), o.spanS),
+    });
+    await flush();
+    h.advance(o.stepMs ?? 100);
+  }
+}
+
+function loadingAfterFirstError(statuses: string[] = []): number {
+  const first = statuses.indexOf('error');
+  return first < 0 ? 0 : statuses.slice(first).filter((s) => s === 'loading').length;
+}
+
+describe('archiveStore: PV not in the archiver', () => {
+  for (const spanS of [10, 30, 3600]) {
+    it(`fetches once for a ${spanS}s window while now advances for 60s`, async () => {
+      const h = setup(async () => {
+        throw notFound();
+      });
+      await drift(h, { spanS, steps: 600 });
+
+      expect(h.fetchData).toHaveBeenCalledTimes(1);
+      const entry = h.store.getSnapshot().get('t1')!;
+      expect(entry.status).toBe('error');
+      expect(entry.error?.code).toBe('pv_not_found_in_archiver');
+      expect(loadingAfterFirstError(h.published.t1)).toBe(0);
+      // Only the initial loading → error transition is published.
+      expect(h.published.t1).toEqual(['loading', 'error']);
+    });
+  }
+
+  it('stays put through bins changes and asks again once when the span changes', async () => {
+    const h = setup(async () => {
+      throw notFound();
+    });
+    await drift(h, { spanS: 30, steps: 50 });
+    // Different bins: same verdict, no fetch.
+    h.store.request('t1', {
+      pv: PV,
+      archiver: undefined,
+      bins: 100,
+      window: windowAt(h.now(), 30),
+    });
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(1);
+
+    // New range: 30 s → 1 h (also raw → binned). One more question, then sticky.
+    await drift(h, { spanS: 3600, steps: 300 });
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    expect(h.fetchData.mock.calls[1][1]).toMatchObject({ binning: 'auto' });
+    expect(loadingAfterFirstError(h.published.t1)).toBe(0);
+  });
+
+  it('asks again for a new pv or archiver', async () => {
+    const h = setup(async () => {
+      throw notFound();
+    });
+    await drift(h, { spanS: 30, steps: 20 });
+    await drift(h, { spanS: 30, steps: 20, pv: 'OTHER:PV' });
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    await drift(h, { spanS: 30, steps: 20, pv: 'OTHER:PV', archiver: 'facet' });
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+    expect(h.fetchData.mock.calls.map((c) => [c[0], c[1].archiver])).toEqual([
+      [PV, undefined],
+      ['OTHER:PV', undefined],
+      ['OTHER:PV', 'facet'],
+    ]);
+  });
+
+  it('shares the verdict with other traces and survives release()', async () => {
+    const h = setup(async () => {
+      throw notFound();
+    });
+    await drift(h, { spanS: 30, steps: 20 });
+    // Same PV on a second trace, and the first trace removed and re-added.
+    await drift(h, { spanS: 30, steps: 20, traceId: 't2' });
+    h.store.release('t1');
+    await drift(h, { spanS: 30, steps: 20 });
+
+    expect(h.fetchData).toHaveBeenCalledTimes(1);
+    expect(h.store.getSnapshot().get('t1')?.status).toBe('error');
+    expect(h.store.getSnapshot().get('t2')?.error?.code).toBe('pv_not_found_in_archiver');
+    expect(h.published.t2).not.toContain('loading');
+  });
+
+  it('adopts a verdict learned elsewhere (Data Insight Tool) without its own 404', async () => {
+    let fail = false;
+    const h = setup(async (_pv, params) => {
+      if (fail) throw notFound();
+      return { ...rawDto(params), samples: [] };
+    });
+    // Archived-but-empty first answer, so the entry has no buffer to cover with.
+    await drift(h, { spanS: 30, steps: 1 });
+    expect(h.fetchData).toHaveBeenCalledTimes(1);
+    fail = true;
+
+    const listener = vi.fn();
+    h.store.subscribe(listener);
+    h.store.markNotArchived(PV, undefined, notFound());
+    h.store.markNotArchived(PV, undefined, notFound()); // idempotent: no second publish
+    h.store.forgetNotArchived('NEVER:MARKED', undefined); // absent: no publish
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    await drift(h, { spanS: 30, steps: 100 });
+    expect(h.fetchData).toHaveBeenCalledTimes(1);
+    expect(h.store.getSnapshot().get('t1')?.status).toBe('error');
+  });
+
+  it('refetchAll() asks again with the current window, then stays sticky', async () => {
+    const h = setup(async () => {
+      throw notFound();
+    });
+    await drift(h, { spanS: 30, steps: 100 });
+    h.store.refetchAll();
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    // The latest wanted window, not the one from the first request 10 s ago.
+    const toNs = h.fetchData.mock.calls[1][1].toNs!;
+    expect(Math.abs(toNs - (h.now() - 100) * 1e6)).toBeLessThan(1e6);
+    // A manual refresh shows loading → error once.
+    expect(h.published.t1.slice(-2)).toEqual(['loading', 'error']);
+
+    await drift(h, { spanS: 30, steps: 100 });
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks again after forgetNotArchived() (Data Insight Tool refresh)', async () => {
+    const h = setup(async () => {
+      throw notFound();
+    });
+    await drift(h, { spanS: 30, steps: 20 });
+    h.store.forgetNotArchived(PV, undefined);
+    await drift(h, { spanS: 30, steps: 20 });
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    expect(loadingAfterFirstError(h.published.t1)).toBe(0);
+  });
+
+  it('does not ping-pong between two plots with different spans', async () => {
+    const h = setup(async () => {
+      throw notFound();
+    });
+    for (let i = 0; i < 200; i++) {
+      h.store.request('hour', { pv: PV, archiver: undefined, window: windowAt(h.now(), 3600) });
+      h.store.request('tenMin', { pv: PV, archiver: undefined, window: windowAt(h.now(), 600) });
+      await flush();
+      h.advance(100);
+    }
+    // Both ask in the first render (neither answer is back yet), then never again.
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+  });
+
+  it('dedupes a StrictMode-style double request', async () => {
+    const h = setup(async () => {
+      throw notFound();
+    });
+    const window = windowAt(h.now(), 30);
+    h.store.request('t1', { pv: PV, archiver: undefined, window });
+    h.store.request('t1', { pv: PV, archiver: undefined, window });
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(1);
+  });
+
+  it('a later success clears the verdict', async () => {
+    let archived = false;
+    const h = setup(async (_pv, params) => {
+      if (!archived) throw notFound();
+      return rawDto(params);
+    });
+    await drift(h, { spanS: 30, steps: 10 });
+    archived = true;
+    h.store.refetchAll();
+    await flush();
+    expect(h.store.getSnapshot().get('t1')?.status).toBe('ready');
+    expect(h.store.getNotArchived(PV, undefined)).toBeUndefined();
+  });
+});
+
+describe('archiveStore: other failures back off', () => {
+  async function failureTimes(
+    error: () => Error,
+    o: { spanS: number; staticWindow?: boolean }
+  ): Promise<{ h: Harness; times: number[] }> {
+    const times: number[] = [];
+    const h: Harness = setup(async () => {
+      times.push((h.now() - T0_MS) / 1000);
+      throw error();
+    });
+    await drift(h, {
+      spanS: o.spanS,
+      steps: 600,
+      staticWindow: o.staticWindow ? windowAt(T0_MS, o.spanS) : undefined,
+    });
+    return { h, times };
+  }
+
+  const SCHEDULE = [0, 1, 3, 7, 15, 30, 45];
+
+  it('retries a 503 on the backoff schedule, not on window drift', async () => {
+    const { h, times } = await failureTimes(unavailable, { spanS: 30 });
+    expect(times).toEqual(SCHEDULE);
+    expect(h.store.getSnapshot().get('t1')?.error?.code).toBe('archiver_unavailable');
+    expect(loadingAfterFirstError(h.published.t1)).toBe(0);
+  });
+
+  it('retries a network error on the same schedule', async () => {
+    const { times } = await failureTimes(
+      () => new CanopyError('network_error', 0, 'Failed to fetch'),
+      { spanS: 10 }
+    );
+    expect(times).toEqual(SCHEDULE);
+  });
+
+  it('retries a static window too (not blocked by the same-window dedup)', async () => {
+    const { times } = await failureTimes(unavailable, { spanS: 3600, staticWindow: true });
+    expect(times).toEqual(SCHEDULE);
+  });
+
+  it('recovers when the archiver comes back, and resets the backoff', async () => {
+    let up = false;
+    let failures = 0;
+    const h = setup(async (_pv, params) => {
+      if (!up) {
+        failures++;
+        throw unavailable();
+      }
+      return rawDto(params);
+    });
+    await drift(h, { spanS: 30, steps: 80 }); // fails at 0, 1, 3, 7 s
+    expect(failures).toBe(4);
+    up = true;
+    await drift(h, { spanS: 30, steps: 80 }); // retry at 15 s succeeds
+    expect(h.store.getSnapshot().get('t1')?.status).toBe('ready');
+
+    // The next failure (once drift uncovers the window) backs off from the
+    // first step again: two attempts within 2 s, not one per 15 s.
+    up = false;
+    failures = 0;
+    await drift(h, { spanS: 30, steps: 20 });
+    expect(failures).toBe(2);
+  });
+
+  it('ignores a fetch that resolves after release()', async () => {
+    let resolve!: (dto: ArchiverDataDTO) => void;
+    const h = setup(
+      (_pv, params) =>
+        new Promise((r) => {
+          resolve = () => r(rawDto(params));
+        })
+    );
+    h.store.request('t1', { pv: PV, archiver: undefined, window: windowAt(h.now(), 30) });
+    h.store.release('t1');
+    const listener = vi.fn();
+    h.store.subscribe(listener);
+    resolve(rawDto({ fromNs: 0 }));
+    await flush();
+    expect(h.store.getSnapshot().has('t1')).toBe(false);
+    expect(listener).not.toHaveBeenCalled();
+  });
+});
