@@ -47,6 +47,8 @@ import { extractFormulaVars, resolveBindings } from '../formula';
 interface RightPanelProps {
   selectedItem: SelectedItem;
   activePlot: Plot;
+  // The active plot's clock ("now" for its time range); see useAutoScrollTimers.
+  nowMs: number;
   archiveResults: Map<string, ArchiveSeriesResult>;
   liveResults: Map<string, LiveSeriesResult>;
   collapsed: boolean;
@@ -67,6 +69,7 @@ interface RightPanelProps {
 export function RightPanel({
   selectedItem,
   activePlot,
+  nowMs,
   archiveResults,
   liveResults,
   collapsed,
@@ -173,7 +176,12 @@ export function RightPanel({
     tabs.push({
       label: 'General',
       render: () => (
-        <PlotGeneralTab plot={activePlot} onUpdate={onUpdatePlot} onApplyPalette={onApplyPalette} />
+        <PlotGeneralTab
+          plot={activePlot}
+          nowMs={nowMs}
+          onUpdate={onUpdatePlot}
+          onApplyPalette={onApplyPalette}
+        />
       ),
     });
     tabs.push({ label: 'Code', render: () => <PlotCodeTab plot={activePlot} /> });
@@ -1298,10 +1306,12 @@ function AxisCodeTab({ axis }: { axis: Axis }) {
 
 function PlotGeneralTab({
   plot,
+  nowMs,
   onUpdate,
   onApplyPalette,
 }: {
   plot: Plot;
+  nowMs: number;
   onUpdate: (u: Partial<Plot>) => void;
   onApplyPalette: (paletteId: string, scope: { plotId: string; axisId?: string }) => void;
 }) {
@@ -1338,7 +1348,7 @@ function PlotGeneralTab({
     setSpanError(undefined);
     onUpdate({ xAxis: { ...plot.xAxis, timeRange: `-${trimmed}` } });
   };
-  const customError = isCustom ? resolveTimeWindow(plot.xAxis).error : undefined;
+  const customError = isCustom ? resolveTimeWindow(plot.xAxis, nowMs).error : undefined;
   // A relative range that isn't one of the dropdown presets (e.g. "-30m") needs
   // its own option, or the native Select would mislead by showing the first item.
   const PRESETS = ['-1h', '-4h', '-1d', '-2d', '-1w', '-1M', 'custom'];

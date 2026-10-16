@@ -140,17 +140,21 @@ export function TraceApp() {
   // previous fetch and the last selection wins (see assignTraceToUnitAxis).
   const unitFetchAbortRef = useRef(new Map<string, AbortController>());
 
-  // Now-tracking: ticks re-render so the relative-range branch below advances.
-  useAutoScrollTimers(plots, viewWindowByPlot);
+  // Per-plot "now". A following plot's anchor advances once per its refresh
+  // interval; any other plot's anchor holds, which freezes its window.
+  const clock = useAutoScrollTimers(plots, viewWindowByPlot);
 
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
 
   const allTraces = plots.flatMap((p) => p.traces);
 
-  // Compute the visible window per trace from its plot. Pan/zoom of the chart
-  // updates `viewWindowByPlot[plotId]`, which takes precedence; otherwise we
-  // resolve the plot's relative time range (e.g. "-1h"). The time range is
-  // plot-level — traces don't carry their own.
+  // Each plot's fetch window: a pan/zoom view window takes precedence,
+  // otherwise the plot's time range resolved at its anchor. It feeds the
+  // archive, formula and Data Insight queries; the chart gets the anchor and
+  // resolves the full requested range itself (a view window is a sub-zoom of
+  // that range, not the axis extent). Each trace takes its plot's fetch
+  // window: the time range is plot-level — traces don't carry their own.
+  const fetchWindowByPlot = new Map<string, TimeWindowNs>();
   const windowByTrace = new Map<string, TimeWindowNs>();
   // Each trace inherits its plot's default archiver unless it sets its own.
   const plotArchiverByTrace = new Map<string, string | undefined>();
@@ -158,7 +162,9 @@ export function TraceApp() {
   // the formula isn't ready to evaluate (empty expression or an unbound variable).
   const formulaSpecByTrace = new Map<string, FormulaSpecDTO | null>();
   for (const plot of plots) {
-    const win = viewWindowByPlot.get(plot.id) ?? resolveTimeWindow(plot.xAxis).window;
+    const win =
+      viewWindowByPlot.get(plot.id) ?? resolveTimeWindow(plot.xAxis, clock.nowFor(plot.id)).window;
+    fetchWindowByPlot.set(plot.id, win);
     for (const trace of plot.traces) {
       if (trace.useArchive) windowByTrace.set(trace.id, win);
       plotArchiverByTrace.set(trace.id, plot.archiver);
@@ -294,6 +300,7 @@ export function TraceApp() {
         traces: [],
       },
     ]);
+    clock.resync([id]);
     setActivePlotId(id);
   };
 
@@ -330,14 +337,18 @@ export function TraceApp() {
   const updatePlot = (plotId: string, updates: Partial<Plot>) => {
     // Picking a new x-axis time range is an explicit reset: drop the panned
     // viewport so the next render uses the relative range (PlotArea also
-    // dispatches a dataZoom reset on the same trigger) and re-enable tracking.
+    // dispatches a dataZoom reset on the same trigger), re-enable tracking, and
+    // re-anchor the plot at the current time.
     const reselectsRange = !!updates.xAxis && 'timeRange' in updates.xAxis;
     setPlots((prev) =>
       prev.map((p) =>
         p.id === plotId ? { ...p, ...updates, ...(reselectsRange ? { autoScroll: true } : {}) } : p
       )
     );
-    if (reselectsRange) clearViewWindow(plotId);
+    if (reselectsRange) {
+      clearViewWindow(plotId);
+      clock.resync([plotId]);
+    }
   };
 
   // ── Trace operations ─────────────────────────────────────────────────────────
@@ -676,6 +687,7 @@ export function TraceApp() {
       return;
     }
     setPlots(result.plots);
+    clock.resync(result.plots.map((p) => p.id));
     if (result.plots.length > 0) setActivePlotId(result.plots[0].id);
     if (result.theme) {
       // setColorMode lives on the store; the hook surface only exposes toggle,
@@ -822,11 +834,8 @@ export function TraceApp() {
   // The DIT inspects every visible plot in grid view (so any plot's PVs are
   // reachable), or just the active plot in tab view.
   const insightPlots = viewMode === 'grid' ? plots : [activePlot];
-  // Each plot's current view window (pan/zoom) or its resolved relative range.
-  const windowByPlotId = new Map<string, TimeWindowNs>();
-  for (const p of plots) {
-    windowByPlotId.set(p.id, viewWindowByPlot.get(p.id) ?? resolveTimeWindow(p.xAxis).window);
-  }
+  // Each plot's current view window (pan/zoom) or its range at the plot's anchor.
+  const windowByPlotId = fetchWindowByPlot;
   // Keep the selected PV valid for the inspectable set; fall back to its first PV.
   const insightTraces = insightPlots.flatMap((p) => p.traces);
   const insightPv =
@@ -940,6 +949,7 @@ export function TraceApp() {
                   onReattachPlot={reattachPlot}
                   onViewWindowChange={handleViewWindowChange}
                   viewWindowByPlot={viewWindowByPlot}
+                  nowFor={clock.nowFor}
                   onAxisRangesChange={handleAxisRangesChange}
                   onUpdateAxis={updateAxisInPlot}
                   onChartInstance={handleChartInstance}
@@ -997,6 +1007,7 @@ export function TraceApp() {
             <RightPanel
               selectedItem={selectedItem}
               activePlot={activePlot}
+              nowMs={clock.nowFor(activePlot.id)}
               archiveResults={archiveResultsByPlot.get(activePlot.id) ?? new Map()}
               liveResults={liveResultsByPlot.get(activePlot.id) ?? new Map()}
               collapsed={rightCollapsed}
@@ -1083,6 +1094,7 @@ export function TraceApp() {
                 <div style={{ flex: 1, overflow: 'hidden' }}>
                   <SinglePlot
                     plot={plot}
+                    nowMs={clock.nowFor(plot.id)}
                     fullscreen
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
                     liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
@@ -1156,6 +1168,7 @@ export function TraceApp() {
               <div style={{ flex: 1, minHeight: 0 }}>
                 <SinglePlot
                   plot={plot}
+                  nowMs={clock.nowFor(plot.id)}
                   archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
                   liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
                   formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}

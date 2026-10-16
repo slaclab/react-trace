@@ -79,6 +79,7 @@ function mountPlot(plot: Plot) {
   const { container, unmount } = render(
     <SinglePlot
       plot={plot}
+      nowMs={0}
       archiveResults={new Map()}
       liveResults={new Map()}
       formulaResults={new Map()}

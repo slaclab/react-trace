@@ -57,6 +57,8 @@ interface PlotAreaProps {
   onViewWindowChange?: (plotId: string, window: TimeWindowNs) => void;
   /** Saved per-plot view window; seeds dataZoom across remounts (e.g. popout). */
   viewWindowByPlot: Map<string, TimeWindowNs>;
+  /** Each plot's clock ("now" for its time range); see useAutoScrollTimers. */
+  nowFor: (plotId: string) => number;
   onAxisRangesChange?: (plotId: string, ranges: Map<string, [number, number]>) => void;
   /** Commits a per-axis min/max (or autoScale flip) from a direct axis pan/zoom. */
   onUpdateAxis?: (plotId: string, axisId: string, updates: Partial<Axis>) => void;
@@ -81,6 +83,12 @@ function DetachedPlaceholder({ title, onReattach }: { title: string; onReattach:
 
 interface SinglePlotProps {
   plot: Plot;
+  /**
+   * The instant the plot's time range ends at ("now" for a relative range or a
+   * custom range with a blank To), from the plot's autoscroll clock. The chart
+   * never reads the wall clock, so a re-render can't move the axis.
+   */
+  nowMs: number;
   archiveResults: Map<string, ArchiveSeriesResult>;
   liveResults: Map<string, LiveSeriesResult>;
   formulaResults: Map<string, FormulaSeriesResult>;
@@ -200,6 +208,7 @@ function nearestSample(
 
 export function SinglePlot({
   plot,
+  nowMs,
   archiveResults,
   liveResults,
   formulaResults,
@@ -577,7 +586,7 @@ export function SinglePlot({
   // Pin the x-axis extent to the requested time range so the axis spans the
   // full window even when archive data is sparse and clusters in a sub-range.
   // dataZoom inside the chart still sub-zooms within [min, max].
-  const requested = resolveTimeWindow(plot.xAxis).window;
+  const requested = resolveTimeWindow(plot.xAxis, nowMs).window;
   const xAxisMin = nsToMs(requested.fromNs);
   const xAxisMax = nsToMs(requested.toNs);
 
@@ -914,6 +923,7 @@ export function PlotArea({
   onReattachPlot,
   onViewWindowChange,
   viewWindowByPlot,
+  nowFor,
   onAxisRangesChange,
   onUpdateAxis,
   onChartInstance,
@@ -1020,6 +1030,7 @@ export function PlotArea({
             <SinglePlot
               key={activePlot.id}
               plot={activePlot}
+              nowMs={nowFor(activePlot.id)}
               archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
               liveResults={liveResultsByPlot.get(activePlot.id) ?? EMPTY_LIVE_RESULTS}
               formulaResults={formulaResultsByPlot.get(activePlot.id) ?? EMPTY_FORMULA_RESULTS}
@@ -1083,6 +1094,7 @@ export function PlotArea({
                 ) : (
                   <SinglePlot
                     plot={plot}
+                    nowMs={nowFor(plot.id)}
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
                     liveResults={liveResultsByPlot.get(plot.id) ?? EMPTY_LIVE_RESULTS}
                     formulaResults={formulaResultsByPlot.get(plot.id) ?? EMPTY_FORMULA_RESULTS}

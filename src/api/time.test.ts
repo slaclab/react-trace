@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSpanMs, relativeRangeMs, resolveTimeWindow, toDatetimeLocal, nsToMs } from './time';
+import { parseSpanMs, relativeRangeMs, resolveTimeWindow, toDatetimeLocal, msToNs } from './time';
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -44,62 +44,86 @@ describe('relativeRangeMs', () => {
 });
 
 describe('resolveTimeWindow', () => {
-  it('anchors a relative range to now with the right span', () => {
-    // Epoch-ns exceeds Number.MAX_SAFE_INTEGER, so ns<->ms round-trips are exact
-    // only to within ~1ms; assert "now" with a small tolerance.
-    const now = Date.now();
-    const { window, error } = resolveTimeWindow({ timeRange: '-1h' });
+  // A fixed "now" (the plot's clock). resolveTimeWindow never reads the wall
+  // clock, so these are exact. Epoch-ns exceeds Number.MAX_SAFE_INTEGER, so
+  // compare against the same msToNs expressions the code computes rather than
+  // re-deriving them from ms arithmetic.
+  const NOW = new Date('2026-10-15T12:00:00Z').getTime();
+
+  it('ends a relative range at the given now with the right span', () => {
+    const { window, error } = resolveTimeWindow({ timeRange: '-1h' }, NOW);
     expect(error).toBeUndefined();
-    expect(Math.abs(nsToMs(window.toNs) - now)).toBeLessThan(50);
-    expect(Math.abs(nsToMs(window.toNs) - nsToMs(window.fromNs) - HOUR)).toBeLessThan(2);
+    expect(window.toNs).toBe(msToNs(NOW));
+    expect(window.fromNs).toBe(msToNs(NOW) - msToNs(HOUR));
+  });
+
+  it('resolves to the same window however much wall-clock time passes', () => {
+    const a = resolveTimeWindow({ timeRange: '-30m' }, NOW).window;
+    const b = resolveTimeWindow({ timeRange: '-30m' }, NOW).window;
+    expect(b).toEqual(a);
+    expect(resolveTimeWindow({ timeRange: '-30m' }, NOW + 5000).window.toNs).toBe(
+      msToNs(NOW + 5000)
+    );
   });
 
   it('falls back to one hour for an unknown range', () => {
-    const { window } = resolveTimeWindow({ timeRange: 'bogus' });
-    expect(Math.abs(nsToMs(window.toNs) - nsToMs(window.fromNs) - HOUR)).toBeLessThan(2);
+    const { window } = resolveTimeWindow({ timeRange: 'bogus' }, NOW);
+    expect(window.toNs).toBe(msToNs(NOW));
+    expect(window.fromNs).toBe(msToNs(NOW) - msToNs(HOUR));
   });
 
   it('resolves a valid custom range from From/To', () => {
-    const { window, error } = resolveTimeWindow({
-      timeRange: 'custom',
-      timeFrom: '2024-01-01T00:00',
-      timeTo: '2024-01-01T01:00',
-    });
-    expect(error).toBeUndefined();
-    expect(Math.abs(nsToMs(window.fromNs) - new Date('2024-01-01T00:00').getTime())).toBeLessThan(
-      2
+    const { window, error } = resolveTimeWindow(
+      {
+        timeRange: 'custom',
+        timeFrom: '2024-01-01T00:00',
+        timeTo: '2024-01-01T01:00',
+      },
+      NOW
     );
-    expect(Math.abs(nsToMs(window.toNs) - new Date('2024-01-01T01:00').getTime())).toBeLessThan(2);
-  });
-
-  it('treats an empty To as now', () => {
-    const now = Date.now();
-    const { window, error } = resolveTimeWindow({
-      timeRange: 'custom',
-      timeFrom: '2024-01-01T00:00',
-      timeTo: '',
-    });
     expect(error).toBeUndefined();
-    expect(Math.abs(nsToMs(window.toNs) - now)).toBeLessThan(50);
+    expect(window.fromNs).toBe(msToNs(new Date('2024-01-01T00:00').getTime()));
+    expect(window.toNs).toBe(msToNs(new Date('2024-01-01T01:00').getTime()));
   });
 
-  it('errors and falls back when From is blank', () => {
-    const { window, error } = resolveTimeWindow({ timeRange: 'custom', timeFrom: '' });
+  it('treats an empty To as the given now', () => {
+    const { window, error } = resolveTimeWindow(
+      { timeRange: 'custom', timeFrom: '2024-01-01T00:00', timeTo: '' },
+      NOW
+    );
+    expect(error).toBeUndefined();
+    expect(window.toNs).toBe(msToNs(NOW));
+  });
+
+  it('errors and falls back to the hour before now when From is blank', () => {
+    const { window, error } = resolveTimeWindow({ timeRange: 'custom', timeFrom: '' }, NOW);
     expect(error).toBeDefined();
-    expect(Math.abs(nsToMs(window.toNs) - nsToMs(window.fromNs) - HOUR)).toBeLessThan(2);
+    expect(window.toNs).toBe(msToNs(NOW));
+    expect(window.fromNs).toBe(msToNs(NOW) - msToNs(HOUR));
   });
 
   it('errors when From is not before To', () => {
-    const { error } = resolveTimeWindow({
-      timeRange: 'custom',
-      timeFrom: '2024-01-02T00:00',
-      timeTo: '2024-01-01T00:00',
-    });
+    const { error } = resolveTimeWindow(
+      {
+        timeRange: 'custom',
+        timeFrom: '2024-01-02T00:00',
+        timeTo: '2024-01-01T00:00',
+      },
+      NOW
+    );
+    expect(error).toBeDefined();
+  });
+
+  it('errors when From is after the given now and To is blank', () => {
+    const { error } = resolveTimeWindow(
+      { timeRange: 'custom', timeFrom: '2026-10-16T00:00', timeTo: '' },
+      NOW
+    );
     expect(error).toBeDefined();
   });
 
   it('errors on an unparseable From', () => {
-    const { error } = resolveTimeWindow({ timeRange: 'custom', timeFrom: 'not-a-date' });
+    const { error } = resolveTimeWindow({ timeRange: 'custom', timeFrom: 'not-a-date' }, NOW);
     expect(error).toBeDefined();
   });
 });
