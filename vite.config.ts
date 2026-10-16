@@ -1,80 +1,38 @@
 import { defineConfig } from 'vitest/config';
 import { loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { canopyDevProxy, type CanopyDevProxyOptions } from '@slaclab/canopy-vite';
+
+// Dev-server proxy options for Canopy and e-log. The keys stay server-side
+// (no VITE_ prefix): the proxy injects X-API-Key on Canopy requests and
+// WebSocket upgrades, and the e-log access token on /elog, so the browser bundle
+// never holds either. In prod a reverse proxy owns the same paths and headers.
+//
+// The proxy serves the layout the bundle uses (src/api/connection.ts):
+// - VITE_CANOPY_BASE_PATH unset: per-module paths /mole, /hare and /fox,
+//   forwarded unchanged.
+// - VITE_CANOPY_BASE_PATH set (the deployed layout, e.g. /trace/api/canopy):
+//   that one prefix, stripped before forwarding, like the container's nginx.
+export function canopyProxyOptions(env: Record<string, string>): CanopyDevProxyOptions {
+  const basePath = env.VITE_CANOPY_BASE_PATH?.trim();
+  return {
+    target: env.CANOPY_BASE_URL,
+    apiKey: env.CANOPY_API_KEY,
+    ...(basePath ? { basePath } : { modules: ['/mole', '/hare', '/fox'] }),
+    // Left out when ELOG_BASE_URL is unset, which hides e-log posting.
+    elog: { target: env.ELOG_BASE_URL, accessToken: env.ELOG_API_KEY },
+  };
+}
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const target = env.CANOPY_BASE_URL ?? 'http://localhost:8000';
-  const apiKey = env.CANOPY_API_KEY ?? '';
-  // E-log (elog-plus) is a separate microservice; the dev proxy injects its
-  // access token so the key never reaches the browser bundle. In prod a reverse
-  // proxy owns the same /elog -> elog-plus rewrite + header injection.
-  const elogTarget = env.ELOG_BASE_URL ?? '';
-  const elogKey = env.ELOG_API_KEY ?? '';
 
   return {
     base: env.VITE_BASE_PATH || '/',
     plugins: [react()],
     server: {
-      proxy: {
-        '/mole': {
-          target,
-          changeOrigin: true,
-          configure: (proxy) => {
-            proxy.on('proxyReq', (proxyReq) => {
-              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
-            });
-          },
-        },
-        // Hare lives behind the same backend host. WebSocket upgrades for the
-        // live-PV stream go through this proxy with `ws: true`. The same
-        // X-API-Key injection covers both the HTTP and the WS upgrade path so
-        // the bundle never holds the key.
-        '/hare': {
-          target,
-          changeOrigin: true,
-          ws: true,
-          configure: (proxy) => {
-            proxy.on('proxyReq', (proxyReq) => {
-              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
-            });
-            proxy.on('proxyReqWs', (proxyReq) => {
-              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
-            });
-          },
-        },
-        // Fox (formula evaluation): REST validate/evaluate plus the live-formula
-        // WebSocket. `ws: true` upgrades /fox/v1/ws/formulas; X-API-Key is injected
-        // on both the HTTP and WS paths so the bundle never holds the key.
-        '/fox': {
-          target,
-          changeOrigin: true,
-          ws: true,
-          configure: (proxy) => {
-            proxy.on('proxyReq', (proxyReq) => {
-              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
-            });
-            proxy.on('proxyReqWs', (proxyReq) => {
-              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
-            });
-          },
-        },
-        ...(elogTarget
-          ? {
-              '/elog': {
-                target: elogTarget,
-                changeOrigin: true,
-                rewrite: (path: string) => path.replace(/^\/elog/, ''),
-                configure: (proxy) => {
-                  proxy.on('proxyReq', (proxyReq) => {
-                    if (elogKey) proxyReq.setHeader('x-vouch-idp-accesstoken', elogKey);
-                  });
-                },
-              },
-            }
-          : {}),
-      },
+      proxy: canopyDevProxy(canopyProxyOptions(env)),
     },
     test: {
       passWithNoTests: true,

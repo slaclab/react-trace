@@ -49,8 +49,16 @@ cp .env.example .env
 ```
 
 `CANOPY_API_KEY` is a server-side env var (no `VITE_` prefix). The Vite dev server proxies
-`/mole/*` to `CANOPY_BASE_URL` and injects the `X-API-Key` header, so the key never reaches
-the browser bundle.
+`/mole`, `/hare` and `/fox` (HTTP and WebSocket) to `CANOPY_BASE_URL` and injects the
+`X-API-Key` header, so the key never reaches the browser bundle. The same key goes to every
+module, so it must be scoped to all of them (`@*`) or to each one. If `VITE_CANOPY_BASE_PATH`
+is set (for example `/trace/api/canopy`), the dev server proxies that one prefix instead and
+strips it before forwarding, like the container's nginx.
+
+The proxy is [`canopyDevProxy`](https://github.com/slaclab/canopy-sdk-js/tree/main/packages/vite)
+from `@slaclab/canopy-vite`. It refuses cross-origin browser requests, including pages on
+another `localhost` port, so other sites open in your browser can't use the injected key.
+A trusted page on another origin needs to be listed in `allowedOrigins` in `vite.config.ts`.
 
 #### E-Log posting (optional)
 
