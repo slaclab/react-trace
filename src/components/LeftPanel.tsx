@@ -70,7 +70,7 @@ const ERROR_LABELS: Record<string, { short: string; tone: 'red' | 'magenta' | 'w
   archiver_timeout: { short: 'Timeout', tone: 'red' },
   archiver_bad_response: { short: 'Bad response', tone: 'red' },
   archiver_not_configured: { short: 'No archiver', tone: 'warm-gray' },
-  pv_not_found_in_archiver: { short: 'Unknown PV', tone: 'magenta' },
+  pv_not_found_in_archiver: { short: 'Not archived', tone: 'magenta' },
   invalid_api_key: { short: 'Auth error', tone: 'red' },
   insufficient_read_access: { short: 'Auth error', tone: 'red' },
   network_error: { short: 'Offline', tone: 'red' },
