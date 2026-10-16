@@ -2,19 +2,10 @@
 // Relative ranges are spans like "-1h"/"-90m"; "custom" resolves the plot's
 // absolute From/To datetime-local fields.
 
-const NS_PER_MS = 1_000_000n;
+import { msToNs, nowNs } from '@slaclab/canopy-client';
 
-export function nowNs(): number {
-  return Number(BigInt(Date.now()) * NS_PER_MS);
-}
-
-export function msToNs(ms: number): number {
-  return Number(BigInt(Math.trunc(ms)) * NS_PER_MS);
-}
-
-export function nsToMs(ns: number): number {
-  return Math.trunc(ns / 1_000_000);
-}
+// Epoch-ns helpers come from the SDK; re-exported so callers keep one import.
+export { msToNs, nowNs, nsToMs } from '@slaclab/canopy-client';
 
 // Span multipliers in milliseconds. Lowercase `m` is minutes; uppercase `M` is
 // months (approximated as 30 days), matching the Python IOTimeParser units.

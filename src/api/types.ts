@@ -1,89 +1,25 @@
-// Wire types mirroring Canopy/Mole DTOs (camelCase, as emitted by canopy.contracts.base.CanopyModel).
-// Source of truth: the Canopy repo's src/canopy/mole/schemas + Canopy.wiki Module-Architecture:-Mole.md.
+// Transitional: trace's wire-type names, now backed by @slaclab/canopy-client.
+// The Mole DTOs and the error envelope are the SDK's own types; the Hare and Fox
+// sections below go as their modules move to the SDK. Removed once nothing
+// imports it.
 
-export type AlarmSeverity = 'NO_ALARM' | 'MINOR' | 'MAJOR' | 'INVALID';
-export type BinningMode = 'auto' | 'time';
+import type { WireAlarmSeverity } from '@slaclab/canopy-client';
 
-export interface SampleDTO {
-  tsNs: number;
-  value: number | string | boolean | null;
-  severity: AlarmSeverity;
-  source: 'archive';
-}
+export type AlarmSeverity = WireAlarmSeverity;
 
-export interface ArchiverSeriesDTO {
-  mode: 'raw';
-  pv: string;
-  archiver: string;
-  from: number;
-  to: number;
-  decimated: boolean;
-  samples: SampleDTO[];
-}
-
-export interface BinnedPointDTO {
-  tsNs: number;
-  binNs: number;
-  mean: number;
-  stdDev: number;
-  min: number;
-  max: number;
-  count: number;
-  severity: AlarmSeverity;
-}
-
-export interface ArchiverBinnedSeriesDTO {
-  mode: 'binned';
-  pv: string;
-  archiver: string;
-  from: number;
-  to: number;
-  binning: BinningMode;
-  binSizeNs: number | null;
-  targetBuckets: number | null;
-  points: BinnedPointDTO[];
-}
-
-export type ArchiverDataDTO = ArchiverSeriesDTO | ArchiverBinnedSeriesDTO;
-
-export interface PVMetadataDTO {
-  pv: string;
-  archiver: string;
-  description: string | null;
-  units: string | null;
-  precision: number | null;
-  displayLow: number | null;
-  displayHigh: number | null;
-  alarmLow: number | null;
-  alarmHigh: number | null;
-  warningLow: number | null;
-  warningHigh: number | null;
-}
-
-export interface ArchiverInfoDTO {
-  name: string;
-  typeName: string;
-  url: string;
-  healthy: boolean;
-  latencyMs: number | null;
-  lastError: string | null;
-}
-
-export interface ArchiverListDTO {
-  default: string;
-  archivers: ArchiverInfoDTO[];
-}
-
-export interface SearchResultsDTO {
-  archiver: string;
-  pattern: string;
-  pvs: string[];
-}
-
-export interface ErrorEnvelope {
-  code: string;
-  detail: string;
-}
+export type {
+  ArchiverBinnedSeriesDTO,
+  ArchiverDataDTO,
+  ArchiverInfoDTO,
+  ArchiverListDTO,
+  ArchiverSeriesDTO,
+  BinnedPointDTO,
+  BinningMode,
+  ErrorEnvelope,
+  PVMetadataDTO,
+  SampleDTO,
+  SearchResultsDTO,
+} from '@slaclab/canopy-client';
 
 // ── Hare (live PV) DTOs ──────────────────────────────────────────────────────
 // Source: canopy.contracts.pv.PVValue + canopy.hare.api.v1.ws frame schema.
