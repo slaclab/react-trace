@@ -1,6 +1,11 @@
-import { fetchData } from '../api/mole';
-import { CanopyError } from '../api/client';
-import type { ArchiverDataDTO, BinnedPointDTO, SampleDTO } from '../api/types';
+import {
+  CanopyError,
+  fetchData,
+  type ArchiverDataDTO,
+  type BinnedPointDTO,
+  type SampleDTO,
+} from '@slaclab/canopy-client';
+import { canopyConnection } from '../api/connection';
 import type { TimeWindowNs } from '../api/time';
 import { nsToMs } from '../api/time';
 
@@ -306,6 +311,7 @@ class ArchiveStore {
   ): Promise<void> {
     try {
       const dto = await fetchData(
+        canopyConnection,
         opts.pv,
         {
           fromNs: opts.window.fromNs,

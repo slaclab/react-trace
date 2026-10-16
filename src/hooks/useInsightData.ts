@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { fetchData, fetchMetadata } from '../api/mole';
-import { CanopyError } from '../api/client';
+import {
+  CanopyError,
+  fetchData,
+  fetchMetadata,
+  type ArchiverDataDTO,
+  type WireAlarmSeverity,
+} from '@slaclab/canopy-client';
+import { useCanopyConnection } from '@slaclab/canopy-react';
 import { liveStore, type LivePoint } from '../state/liveStore';
 import { msToNs } from '../api/time';
-import type { AlarmSeverity, ArchiverDataDTO } from '../api/types';
 import type { TimeWindowNs } from '../api/time';
 
 export interface InsightRow {
   tsNs: number;
   value: number | string | boolean | null;
-  severity: AlarmSeverity | '';
+  severity: WireAlarmSeverity | '';
   source: 'Archive' | 'Live';
 }
 
@@ -96,6 +101,7 @@ export function useInsightData(
   window: TimeWindowNs | undefined,
   traceId?: string
 ): InsightData {
+  const conn = useCanopyConnection();
   const [archiveRows, setArchiveRows] = useState<InsightRow[]>([]);
   const [meta, setMeta] = useState<InsightMeta | null>(null);
   const [status, setStatus] = useState<InsightStatus>('idle');
@@ -153,10 +159,15 @@ export function useInsightData(
     void (async () => {
       try {
         const [data, metadata] = await Promise.all([
-          fetchData(pv, { fromNs: queryFromNs, toNs: queryToNs, archiver }, controller.signal),
+          fetchData(
+            conn,
+            pv,
+            { fromNs: queryFromNs, toNs: queryToNs, archiver },
+            controller.signal
+          ),
           // Metadata is best-effort; a missing/erroring metadata endpoint
           // shouldn't fail the whole table.
-          fetchMetadata(pv, archiver, controller.signal).catch(() => null),
+          fetchMetadata(conn, pv, archiver, controller.signal).catch(() => null),
         ]);
         if (controller.signal.aborted) return;
         setArchiveRows(toRows(data));
@@ -174,7 +185,7 @@ export function useInsightData(
     })();
 
     return () => controller.abort();
-  }, [pv, archiver, fromSec, toSec, refreshKey]);
+  }, [conn, pv, archiver, fromSec, toSec, refreshKey]);
 
   // Read the trace's live buffer. Subscribing here only adds a store listener;
   // the actual PV watch/subscribe is owned by the app-level useLiveSeries, so a
