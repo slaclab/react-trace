@@ -5,6 +5,25 @@
 React + Vite frontend for the Canopy / Trace plotting tool. Reads archive data from
 Canopy's Mole module (`/mole/v1/...`).
 
+## Registry access
+
+The shared Canopy packages (`@slaclab/canopy-*`) are published to GitHub Packages, not
+npm. The committed `.npmrc` points the `@slaclab` scope at `https://npm.pkg.github.com`.
+That registry requires authentication even to read, so once the app depends on an
+`@slaclab` package, `pnpm install` needs a token:
+
+1. Create a classic personal access token with the `read:packages` scope.
+2. Add it to your user-level `~/.npmrc`, never to the repo's `.npmrc`:
+
+   ```
+   //npm.pkg.github.com/:_authToken=<PAT>
+   ```
+
+CI authenticates with the workflow's `GITHUB_TOKEN` (`packages: read`). That only works
+if each `@slaclab/canopy-*` package grants this repository read access under
+**Package settings → Manage Actions access**. See the
+[canopy-sdk-js install notes](https://github.com/slaclab/canopy-sdk-js#installing-consumers).
+
 ## Local dev
 
 ### 1. Run the Canopy backend

@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+# packages: read lets GITHUB_TOKEN install @slaclab/canopy-* from GitHub Packages.
+# Each of those packages must also grant this repository read access
+# (package settings -> Manage Actions access).
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -20,9 +27,13 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           cache: 'pnpm'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@slaclab'
 
       - name: Install dependencies
         run: pnpm install
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run tests
         run: pnpm test
