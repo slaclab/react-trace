@@ -1369,7 +1369,7 @@ function PlotGeneralTab({
   // The Plot-tab picker controls the global default palette (persisted), so new
   // traces follow it; the button additionally recolors existing traces now.
   const { paletteId, setPaletteId } = usePaletteId();
-  // Free-text span field (e.g. "90m", "1.5h"). Seeded from the relative range
+  // Free-text span field (e.g. "30s", "90m", "1.5h"). Seeded from the relative range
   // minus its leading "-"; commits a normalized "-<span>" range on Enter/blur.
   const isCustom = plot.xAxis.timeRange === 'custom';
   const spanFromRange = isCustom ? '' : plot.xAxis.timeRange.replace(/^-/, '');
@@ -1393,7 +1393,7 @@ function PlotGeneralTab({
       return;
     }
     if (parseSpanMs(trimmed) === null) {
-      setSpanError('Use a number plus m, h, d, w, or M (e.g. 90m, 1.5h, 2w).');
+      setSpanError('Use a number plus s, m, h, d, w, or M (e.g. 30s, 90m, 1.5h, 2w).');
       return;
     }
     setSpanError(undefined);
@@ -1607,7 +1607,7 @@ function PlotGeneralTab({
             <div className="prop-row">
               <TextInput
                 id="time-span"
-                labelText="Span (e.g. 90m, 1.5h, 2w)"
+                labelText="Span (e.g. 30s, 90m, 1.5h, 2w)"
                 value={spanText}
                 invalid={!!spanError}
                 invalidText={spanError}
