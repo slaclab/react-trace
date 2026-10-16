@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { LegendComponentOption, TooltipComponentOption } from 'echarts';
-import { baseChartOption, chartAxisStyle, useChartTheme } from '@slaclab/canopy-charts';
+import {
+  baseChartOption,
+  chartAxisStyle,
+  formatAxisTick,
+  formatValue,
+  useChartTheme,
+} from '@slaclab/canopy-charts';
 import { effectiveBackground } from '../plotBackground';
 import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
 import type { Axis, Plot, PVTrace } from '../types';
@@ -32,16 +38,6 @@ import {
   type AxisHitZone,
   type GridBand,
 } from './axisHitTest';
-
-// Numbers like 0.000000018 produce extremely wide tick labels that spill past
-// neighboring stacked axes. Switch to exponential at the same magnitudes the
-// browser's default Number.toString stops being compact.
-function formatAxisTick(value: number): string {
-  if (value === 0) return '0';
-  const abs = Math.abs(value);
-  if (abs < 1e-3 || abs >= 1e6) return value.toExponential(1);
-  return String(value);
-}
 
 // Signature of the user-chosen range. Bumps when picking a new time range so
 // dataZoom resets to full extent — otherwise the previous zoom stays clipped
@@ -147,14 +143,6 @@ function formatCrosshairTime(ms: number): string {
   const d = new Date(ms);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-function formatTooltipValue(v: unknown): string {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return String(v);
-  if (v === 0) return '0';
-  const abs = Math.abs(v);
-  if (abs < 1e-3 || abs >= 1e7) return v.toExponential(4);
-  return v.toPrecision(7);
 }
 
 function escapeHtml(text: string): string {
@@ -1027,8 +1015,7 @@ export function SinglePlot({
           ...baseTooltip.axisPointer?.label,
           formatter: (
             p: { value: number; axisDimension?: string } // X --> timestamp, Y --> raw value
-          ) =>
-            p.axisDimension === 'y' ? formatTooltipValue(p.value) : formatCrosshairTime(p.value),
+          ) => (p.axisDimension === 'y' ? formatValue(p.value) : formatCrosshairTime(p.value)),
         },
       },
       textStyle: { ...baseTooltip.textStyle, fontSize: 11 },
@@ -1053,7 +1040,7 @@ export function SinglePlot({
               ? ` ${escapeHtml(sample.severity)}`
               : '';
           const valueCell = sample
-            ? `${escapeHtml(formatTooltipValue(sample.value))}${severity} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
+            ? `${escapeHtml(formatValue(sample.value))}${severity} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
             : `<span style="color:${theme.tooltipMuted}">no data</span>`;
           lines.push(
             `<span style="color:${safeTooltipColor(trace.color)}">${escapeHtml(labels.get(trace.id) ?? '')}</span>: ${valueCell}`

@@ -2,10 +2,11 @@
 //
 // Renders SinglePlot with echarts-for-react replaced by a recorder and checks
 // the ECharts option it builds: canopy-charts' g10/g100 chart theme, the
-// plot-background override, and trace's own sizing on top.
+// plot-background override, trace's own sizing on top, and the canopy-charts
+// number formatters in the axis ticks and tooltip.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
-import { CHART_THEMES } from '@slaclab/canopy-charts';
+import { CHART_THEMES, formatAxisTick } from '@slaclab/canopy-charts';
 import { setColorMode } from '@slaclab/canopy-shell/color-mode';
 import { memoryStorage } from '../test/dom';
 import { setupColorMode } from '../state/colorMode';
@@ -159,4 +160,41 @@ describe('SinglePlot chart theme', () => {
     expect(opt.legend.textStyle.fontSize).toBe(11);
     expect(opt.legend.bottom).toBe(8);
   });
+});
+
+describe('SinglePlot number formatting', () => {
+  // The tooltip line for the trace's sample nearest the cursor (at NOW).
+  function tooltipFor(value: number): string {
+    renderPlot(makePlot({ traces: [makeTrace([value])] }));
+    return lastOption().tooltip.formatter([{ axisValue: NOW }]);
+  }
+
+  it('formats y-axis ticks with canopy-charts formatAxisTick', () => {
+    const formatter = lastOptionAfterRender().yAxis[0].axisLabel.formatter;
+    expect(formatter).toBe(formatAxisTick);
+    expect(formatter(5e-4)).toBe('5.0e-4');
+    expect(formatter(1_500_000)).toBe('1.5e+6');
+    expect(formatter(12.5)).toBe('12.5');
+  });
+
+  it('shows tooltip values with trailing zeros trimmed', () => {
+    const html = tooltipFor(0.5);
+    expect(html).toMatch(/: 0\.5 <span/);
+    expect(html).not.toContain('0.5000000');
+  });
+
+  it('shows small and large tooltip values in trimmed exponential form', () => {
+    expect(tooltipFor(1.23456789e-5)).toMatch(/: 1\.234568e-5 <span/);
+    expect(tooltipFor(2e7)).toMatch(/: 2e\+7 <span/);
+  });
+
+  it('formats the crosshair y readout the same way', () => {
+    const label = lastOptionAfterRender().tooltip.axisPointer.label;
+    expect(label.formatter({ value: 12.3, axisDimension: 'y' })).toBe('12.3');
+  });
+
+  function lastOptionAfterRender(): Option {
+    renderPlot(makePlot());
+    return lastOption();
+  }
 });
