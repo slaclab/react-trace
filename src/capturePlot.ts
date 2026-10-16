@@ -1,6 +1,7 @@
 import { getInstanceByDom } from 'echarts';
+import { chartThemeFor } from '@slaclab/canopy-charts';
 import type { Plot } from './types';
-import { DARK_CHART_THEME, LIGHT_CHART_THEME, effectiveBackground } from './chartTheme';
+import { effectiveBackground } from './plotBackground';
 
 /**
  * Snapshot a mounted plot's chart as a PNG data URL. The effective background
@@ -25,7 +26,7 @@ export function capturePlotPng(
   if (!(host instanceof HTMLElement)) return null;
   const chart = getInstanceByDom(host);
   if (!chart) return null;
-  const theme = colorMode === 'dark' ? DARK_CHART_THEME : LIGHT_CHART_THEME;
+  const theme = chartThemeFor(colorMode);
   return chart.getDataURL({
     type: 'png',
     pixelRatio: 2,

@@ -26,6 +26,7 @@ import type { TimeWindowNs } from '../api/time';
 import { resolveTimeWindow } from '../api/time';
 import { fetchMetadata } from '../api/mole';
 import { ColorModeTheme, ErrorBoundary, useColorMode } from '@slaclab/canopy-shell';
+import { chartThemeFor } from '@slaclab/canopy-charts';
 import { usePaletteId } from '../state/paletteStore';
 import { getPalette, colorForIndex } from '../palettes';
 import { downloadBlob, downloadDataUrl, pickFile } from '../io/download';
@@ -777,7 +778,7 @@ export function TraceApp() {
   const openElogPost = useCallback(() => {
     if (!elogConfig?.enabled) return;
     const targetPlots = viewMode === 'grid' ? plots : [activePlot];
-    const bg = colorMode === 'dark' ? '#161616' : '#ffffff';
+    const bg = chartThemeFor(colorMode).bg;
     const captured = capturePlots(
       targetPlots.map((p) => ({
         id: p.id,
