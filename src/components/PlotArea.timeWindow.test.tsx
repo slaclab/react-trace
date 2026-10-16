@@ -11,7 +11,10 @@ import type { Plot } from '../types';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 
 const { captured, fakeInstance } = vi.hoisted(() => {
-  const captured: { option: { xAxis: { min: number; max: number } } | null } = { option: null };
+  const captured: {
+    option: { xAxis: { min: number; max: number } } | null;
+    onEvents: Record<string, () => void>;
+  } = { option: null, onEvents: {} };
   const fakeInstance = {
     getDom: () => ({}),
     isDisposed: () => false,
@@ -25,12 +28,16 @@ const { captured, fakeInstance } = vi.hoisted(() => {
 
 vi.mock('echarts-for-react', async () => {
   const React = await import('react');
-  class MockECharts extends React.Component<{ option: unknown }> {
+  class MockECharts extends React.Component<{
+    option: unknown;
+    onEvents: Record<string, () => void>;
+  }> {
     getEchartsInstance() {
       return fakeInstance;
     }
     render() {
       captured.option = this.props.option as typeof captured.option;
+      captured.onEvents = this.props.onEvents;
       return React.createElement('div');
     }
   }
@@ -111,13 +118,15 @@ function plotEl(
   plot: Plot,
   nowMs: number,
   live: Map<string, LiveSeriesResult>,
-  following = plot.autoScroll !== false
+  following = plot.autoScroll !== false,
+  onFollowStop?: (atMs: number) => void
 ) {
   return (
     <SinglePlot
       plot={plot}
       nowMs={nowMs}
       following={following}
+      onFollowStop={onFollowStop}
       archiveResults={new Map()}
       liveResults={live}
       formulaResults={new Map()}
@@ -244,6 +253,43 @@ describe('SinglePlot zoom reset', () => {
     rerender(plotEl({ ...plot, xAxis: { timeRange: '-4h' } }, T0, new Map(), true));
     expect(fakeInstance.dispatchAction).toHaveBeenCalledTimes(1);
     expect(fakeInstance.dispatchAction).toHaveBeenCalledWith(RESET);
+    unmount();
+  });
+});
+
+describe('SinglePlot pan while following', () => {
+  beforeEach(() => fakeInstance.dispatchAction.mockClear());
+
+  it('reports the end the axis shows on the first genuine pan', () => {
+    const onFollowStop = vi.fn();
+    const plot = makePlot({ refreshIntervalS: 5 });
+    const { unmount } = render(plotEl(plot, T0, liveBatch(T0 + 2000), true, onFollowStop));
+    captured.onEvents.datazoom();
+    expect(onFollowStop).toHaveBeenCalledTimes(1);
+    // The live edge, not the clock: freezing there doesn't pull the axis back.
+    expect(onFollowStop).toHaveBeenCalledWith(T0 + 2000);
+    unmount();
+  });
+
+  it('ignores the programmatic zoom reset', () => {
+    const onFollowStop = vi.fn();
+    const plot = makePlot({ autoScroll: false });
+    const { rerender, unmount } = render(plotEl(plot, T0, new Map(), false, onFollowStop));
+    // Resume: SinglePlot dispatches its own reset, whose datazoom event must
+    // not count as a user pan.
+    rerender(plotEl({ ...plot, autoScroll: true }, T0, new Map(), true, onFollowStop));
+    expect(fakeInstance.dispatchAction).toHaveBeenCalledTimes(1);
+    captured.onEvents.datazoom();
+    expect(onFollowStop).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('does nothing for a plot that is not following', () => {
+    const onFollowStop = vi.fn();
+    const plot = makePlot({ autoScroll: false });
+    const { unmount } = render(plotEl(plot, T0, new Map(), false, onFollowStop));
+    captured.onEvents.datazoom();
+    expect(onFollowStop).not.toHaveBeenCalled();
     unmount();
   });
 });

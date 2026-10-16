@@ -183,7 +183,6 @@ export function TraceApp() {
   const formulaResults = useFormulaSeries(allTraces, formulaSpecByTrace, windowByTrace);
 
   const handleViewWindowChange = (plotId: string, window: TimeWindowNs) => {
-    freezeAtDisplayedEnd(plotId);
     setViewWindowByPlot((prev) => {
       const next = new Map(prev);
       next.set(plotId, window);
@@ -226,6 +225,13 @@ export function TraceApp() {
       formulaResultsByPlot: formula,
     };
   }, [plots, archiveResults, liveResults, formulaResults]);
+
+  // A pan/zoom started on a following plot: freeze it where its axis ends
+  // (SinglePlot reports that instant) before the view window is debounced in.
+  const handleFollowStop = (plotId: string, atMs: number) => {
+    clock.resync([plotId], atMs);
+    setPlots((prev) => prev.map((p) => (p.id === plotId ? { ...p, autoScroll: false } : p)));
+  };
 
   // When a following plot stops following, pin its anchor where its axis ends
   // right now (it may be ahead of the anchor; see followingEndMs) so freezing
@@ -962,6 +968,7 @@ export function TraceApp() {
                   onDetachPlot={detachPlot}
                   onReattachPlot={reattachPlot}
                   onViewWindowChange={handleViewWindowChange}
+                  onFollowStop={handleFollowStop}
                   viewWindowByPlot={viewWindowByPlot}
                   nowFor={clock.nowFor}
                   onAxisRangesChange={handleAxisRangesChange}
@@ -1110,6 +1117,7 @@ export function TraceApp() {
                     plot={plot}
                     nowMs={clock.nowFor(plot.id)}
                     following={isFollowing(plot, viewWindowByPlot)}
+                    onFollowStop={(at) => handleFollowStop(plot.id, at)}
                     fullscreen
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
                     liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
@@ -1185,6 +1193,7 @@ export function TraceApp() {
                   plot={plot}
                   nowMs={clock.nowFor(plot.id)}
                   following={isFollowing(plot, viewWindowByPlot)}
+                  onFollowStop={(at) => handleFollowStop(plot.id, at)}
                   archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
                   liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
                   formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
