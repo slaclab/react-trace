@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
 import { TraceApp } from './TraceApp';
+import { WithCanopy } from '../test/canopy';
 
 vi.mock('echarts-for-react', async () => {
   const React = await import('react');
@@ -55,7 +56,7 @@ describe('Add plot', () => {
   });
 
   it("selects the new plot's settings in grid view", () => {
-    const { container } = render(<TraceApp />);
+    const { container } = render(<TraceApp />, { wrapper: WithCanopy });
     fireEvent.click(screen.getByTitle('Grid view'));
     // Select Plot 1's axis. (The initial selection is already a plot, which
     // Properties renders for whichever plot is active.)

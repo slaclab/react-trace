@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { searchPVs } from '../api/mole';
-import { CanopyError } from '../api/client';
+import { CanopyError, searchPVs } from '@slaclab/canopy-client';
+import { useCanopyConnection } from '@slaclab/canopy-react';
 
 export type PVSearchStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -18,6 +18,7 @@ export function usePVSearch(
   debounceMs = 300,
   limit = 50
 ): PVSearchResult {
+  const conn = useCanopyConnection();
   const [result, setResult] = useState<PVSearchResult>(EMPTY);
 
   useEffect(() => {
@@ -36,7 +37,7 @@ export function usePVSearch(
         try {
           const wildcard =
             trimmed.includes('.') || trimmed.includes('*') ? trimmed : `.*${trimmed}.*`;
-          const dto = await searchPVs(wildcard, { archiver, limit }, controller.signal);
+          const dto = await searchPVs(conn, wildcard, { archiver, limit }, controller.signal);
           if (controller.signal.aborted) return;
           setResult({ status: 'ready', pvs: dto.pvs });
         } catch (err) {
@@ -52,7 +53,7 @@ export function usePVSearch(
       controller.abort();
       clearTimeout(handle);
     };
-  }, [pattern, archiver, debounceMs, limit]);
+  }, [conn, pattern, archiver, debounceMs, limit]);
 
   return result;
 }

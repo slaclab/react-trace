@@ -8,6 +8,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
 import { downloadBlob } from '../io/download';
 import { TraceApp } from './TraceApp';
+import { WithCanopy } from '../test/canopy';
 
 vi.mock('echarts-for-react', async () => {
   const React = await import('react');
@@ -65,7 +66,7 @@ describe('Save workspace', () => {
 
   it('names the file with the local-time timestamp', () => {
     vi.setSystemTime(new Date(2026, 9, 16, 12, 30, 12)); // 2026-10-16 12:30:12 local
-    render(<TraceApp />);
+    render(<TraceApp />, { wrapper: WithCanopy });
     fireEvent.click(screen.getByRole('button', { name: /^Save/ }));
     expect(downloadBlob).toHaveBeenCalledTimes(1);
     expect(vi.mocked(downloadBlob).mock.calls[0][0]).toBe('trace-20261016_123012.trc.json');
