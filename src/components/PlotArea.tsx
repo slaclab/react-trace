@@ -10,7 +10,7 @@ import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs, resolveTimeWindow } from '../api/time';
 import { echartsLineType, echartsSymbol } from '../curveStyle';
 import { traceLabel } from '../traceLabel';
-import { useColorMode } from '../state/themeStore';
+import { useColorMode } from '@slaclab/canopy-shell/color-mode';
 import type { PngSource } from '../io/exportPlotImage';
 import {
   AXIS_OFFSET,

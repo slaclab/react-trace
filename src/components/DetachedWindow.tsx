@@ -67,6 +67,12 @@ export function DetachedWindow({
     popup.document.title = title;
     popup.document.body.style.margin = '0';
     popup.document.documentElement.dataset.theme = document.documentElement.dataset.theme ?? 'dark';
+    // Also the Carbon theme class (cds--g10/cds--g100) the color-mode store puts
+    // on <html>, so Carbon content portaled inside the popup gets the right tokens.
+    const carbonTheme = Array.from(document.documentElement.classList).find((c) =>
+      /^cds--(white|g10|g90|g100)$/.test(c)
+    );
+    if (carbonTheme) popup.document.documentElement.classList.add(carbonTheme);
 
     const mount = popup.document.createElement('div');
     mount.style.height = '100vh';

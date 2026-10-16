@@ -24,7 +24,7 @@ import { useFormulaSeries, type FormulaSeriesResult } from '../hooks/useFormulaS
 import type { TimeWindowNs } from '../api/time';
 import { resolveTimeWindow } from '../api/time';
 import { fetchMetadata } from '../api/mole';
-import { useColorMode } from '../state/themeStore';
+import { ColorModeTheme, useColorMode } from '@slaclab/canopy-shell';
 import { usePaletteId } from '../state/paletteStore';
 import { getPalette, colorForIndex } from '../palettes';
 import { downloadBlob, downloadDataUrl, pickFile } from '../io/download';
@@ -113,7 +113,7 @@ export function TraceApp() {
     detached: boolean;
     pv?: string;
   }>({ open: false, minimized: false, detached: false });
-  const { colorMode, toggle: toggleTheme } = useColorMode();
+  const { colorMode, setColorMode, toggle: toggleTheme } = useColorMode();
   const { paletteId } = usePaletteId();
   const elogConfig = useElogConfig();
   // E-Log post dialog. `captured` holds the plot PNGs snapshotted at open time
@@ -677,11 +677,7 @@ export function TraceApp() {
     }
     setPlots(result.plots);
     if (result.plots.length > 0) setActivePlotId(result.plots[0].id);
-    if (result.theme) {
-      // setColorMode lives on the store; the hook surface only exposes toggle,
-      // so go through the module API.
-      void import('../state/themeStore').then((m) => m.setColorMode(result.theme!));
-    }
+    if (result.theme) setColorMode(result.theme);
     if (result.warnings.length > 0) {
       console.warn('Import warnings:', result.warnings);
       alert(`Imported with ${result.warnings.length} warning(s):\n\n${result.warnings.join('\n')}`);
@@ -1110,8 +1106,7 @@ export function TraceApp() {
             title={`${plot.title} — Trace`}
             onClose={() => reattachPlot(id)}
           >
-            <Theme
-              theme={colorMode === 'dark' ? 'g90' : 'g10'}
+            <ColorModeTheme
               style={{
                 height: '100vh',
                 background: 'var(--cds-background)',
@@ -1166,7 +1161,7 @@ export function TraceApp() {
                   onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
                 />
               </div>
-            </Theme>
+            </ColorModeTheme>
           </DetachedWindow>
         );
       })}
@@ -1180,8 +1175,7 @@ export function TraceApp() {
           height={560}
           onClose={() => setInsight((p) => ({ ...p, detached: false }))}
         >
-          <Theme
-            theme={colorMode === 'dark' ? 'g90' : 'g10'}
+          <ColorModeTheme
             style={{
               height: '100vh',
               background: 'var(--cds-background)',
@@ -1197,7 +1191,7 @@ export function TraceApp() {
               onClose={() => setInsight((p) => ({ ...p, open: false, detached: false }))}
               onReattach={() => setInsight((p) => ({ ...p, detached: false }))}
             />
-          </Theme>
+          </ColorModeTheme>
         </DetachedWindow>
       )}
 

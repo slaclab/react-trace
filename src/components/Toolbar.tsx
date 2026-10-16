@@ -13,7 +13,7 @@ import {
   SendAlt,
 } from '@carbon/icons-react';
 import { HeaderGlobalAction } from '@carbon/react';
-import type { ColorMode } from '../state/themeStore';
+import type { ColorMode } from '@slaclab/canopy-shell';
 import { formatShortcut } from '../hooks/useKeyboardShortcuts';
 
 interface ToolbarProps {
