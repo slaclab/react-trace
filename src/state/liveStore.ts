@@ -5,17 +5,18 @@
 // refcounted so two traces watching the same PV produce one outbound subscribe.
 
 import { liveWsUrl } from '../api/hare';
+import type { WireAlarmSeverity } from '@slaclab/canopy-client';
 import { msToNs, nsToMs } from '../api/time';
 import { fetchBackfill, subscribeVoleBuffer } from '../api/vole';
 import { CanopyError } from '../api/client';
-import type { AlarmSeverity, PVValueDTO, SampleDTO, WsFrame } from '../api/types';
+import type { PVValueDTO, SampleDTO, WsFrame } from '../api/types';
 
 export interface LivePoint {
   time: number;
   value: number;
   // Alarm severity reported alongside this sample. Retained per-point so the
   // Data Insight Tool can show live-sample severity, not just the PV's latest.
-  severity: AlarmSeverity;
+  severity: WireAlarmSeverity;
 }
 
 export type LiveStatus = 'idle' | 'connecting' | 'connected' | 'disconnected';
@@ -32,7 +33,7 @@ export interface LiveEntry {
   // PV-level connection (Hare's PVValue.connected). True only after a frame
   // for this PV has been received reporting connected=true.
   connected: boolean;
-  severity: AlarmSeverity | null;
+  severity: WireAlarmSeverity | null;
   latest: PVValueDTO | null;
   // Last surfaced connection/protocol error, if any. Cleared on a clean
   // (re)connect. Distinct from a stale buffer: the chart can keep rendering
@@ -57,7 +58,7 @@ interface PVState {
   points: LivePoint[];
   latest: PVValueDTO | null;
   connected: boolean;
-  severity: AlarmSeverity | null;
+  severity: WireAlarmSeverity | null;
   // Monotonic revision bumped whenever any published field of this PV changes.
   // `entryFor()` reuses the cached LiveEntry when the rev is unchanged so
   // downstream shallow-equality / React.memo checks hold across frames.
