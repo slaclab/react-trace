@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { fetchData, fetchMetadata } from '../api/mole';
-import { CanopyError } from '../api/client';
+import {
+  archiveErrorInfo,
+  archiveStore,
+  isNotArchivedError,
+  retryDelayMs,
+} from '../state/archiveStore';
 import { liveStore, type LivePoint } from '../state/liveStore';
 import { msToNs } from '../api/time';
 import type { AlarmSeverity, ArchiverDataDTO } from '../api/types';
@@ -34,7 +39,20 @@ export interface InsightData {
   // so it can't fire overlapping requests.
   refreshing: boolean;
   refetch: () => void;
+  // Set when the rows are live samples only and why: Archive is off for the
+  // trace, or the archiver doesn't have this PV.
+  archiveNote?: string;
 }
+
+export interface InsightOptions {
+  // Query the archiver. False for a trace with Archive off: the rows are its
+  // live samples alone and neither /data nor /metadata is requested.
+  // Defaults to true.
+  archive?: boolean;
+}
+
+export const ARCHIVE_OFF_NOTE = 'Archive off, live samples only';
+export const NOT_ARCHIVED_NOTE = 'Not in archiver, live samples only';
 
 function toRows(data: ArchiverDataDTO): InsightRow[] {
   if (data.mode === 'raw') {
@@ -55,6 +73,7 @@ function toRows(data: ArchiverDataDTO): InsightRow[] {
 }
 
 const EMPTY_POINTS: readonly LivePoint[] = [];
+const NO_ROWS: InsightRow[] = [];
 
 /**
  * Fold live-store samples in after the archive seam. Mirrors PlotArea's
@@ -89,15 +108,23 @@ export function mergeLive(
  * seam — the data layer for the Data Insight Tool. Omits binning so the archiver
  * returns un-optimized samples (matching the Python DIT). Pass `traceId` to
  * include live samples for a `useLive` trace; archive-only traces omit it.
+ *
+ * The archiver is skipped entirely when `options.archive` is false, and for a
+ * (pv, archiver) the archive store already knows isn't archived (learned by the
+ * plot or by an earlier query here); the rows are then the live samples alone.
+ * Refresh asks again. Other failures retry on the archive store's backoff
+ * schedule rather than every time the window crosses a second.
  */
 export function useInsightData(
   pv: string | undefined,
   archiver: string | undefined,
   window: TimeWindowNs | undefined,
-  traceId?: string
+  traceId?: string,
+  options: InsightOptions = {}
 ): InsightData {
-  const [archiveRows, setArchiveRows] = useState<InsightRow[]>([]);
-  const [meta, setMeta] = useState<InsightMeta | null>(null);
+  const archiveEnabled = options.archive ?? true;
+  const [archiveRows, setArchiveRows] = useState<InsightRow[]>(NO_ROWS);
+  const [archiveMeta, setArchiveMeta] = useState<InsightMeta | null>(null);
   const [status, setStatus] = useState<InsightStatus>('idle');
   const [error, setError] = useState<string>();
   const [decimated, setDecimated] = useState(false);
@@ -106,8 +133,25 @@ export function useInsightData(
   // PV whose archive rows are currently loaded, used to suppress the loading
   // flash on background refetches (see below).
   const loadedPvRef = useRef<string | undefined>(undefined);
+  // Refresh key of the last effect run; a different one means Refresh was
+  // pressed, which bypasses the not-archived verdict and the backoff.
+  const seenRefreshKeyRef = useRef(refreshKey);
+  // Backoff after a failure other than not-archived, for one (pv, archiver).
+  const backoffRef = useRef<{ key: string; attempts: number; retryAtMs: number } | null>(null);
 
-  const refetch = useCallback(() => setRefreshKey((k) => k + 1), []);
+  // Shared verdict that the archiver doesn't have this (pv, archiver). The
+  // store hands back a stable object while it stands, so this re-renders only
+  // when it's set or cleared (e.g. by the toolbar's archive refresh).
+  const getNotArchived = useCallback(
+    () => (pv ? archiveStore.getNotArchived(pv, archiver) : undefined),
+    [pv, archiver]
+  );
+  const notArchived = useSyncExternalStore(archiveStore.subscribe, getNotArchived);
+
+  const refetch = useCallback(() => {
+    if (pv) archiveStore.forgetNotArchived(pv, archiver);
+    setRefreshKey((k) => k + 1);
+  }, [pv, archiver]);
 
   const fromNs = window?.fromNs;
   const toNs = window?.toNs;
@@ -128,23 +172,49 @@ export function useInsightData(
     // Synchronous status/reset transitions before the async fetch are the
     // standard data-fetching pattern; the cascading-render guard doesn't apply.
     /* eslint-disable react-hooks/set-state-in-effect */
+    const forced = seenRefreshKeyRef.current !== refreshKey;
+    seenRefreshKeyRef.current = refreshKey;
     if (!pv || fromSec === undefined || toSec === undefined) {
       setStatus('idle');
-      setArchiveRows([]);
-      setMeta(null);
+      setArchiveRows(NO_ROWS);
+      setArchiveMeta(null);
       setRefreshing(false);
       loadedPvRef.current = undefined;
+      backoffRef.current = null;
       return;
     }
+
+    // Archive off, or known not to be archived: live rows only, no request.
+    // Checked before any loading/refreshing writes so nothing flickers.
+    if (!archiveEnabled || (notArchived && !forced)) {
+      setArchiveRows(NO_ROWS);
+      setArchiveMeta(null);
+      setDecimated(false);
+      setError(undefined);
+      setStatus('ready');
+      setRefreshing(false);
+      loadedPvRef.current = undefined;
+      backoffRef.current = null;
+      return;
+    }
+
+    const key = `${pv}\u0000${archiver ?? ''}`;
+    if (backoffRef.current && backoffRef.current.key !== key) backoffRef.current = null;
+    const backoff = backoffRef.current;
+    // The last attempt failed: keep showing that error until the backoff
+    // expires, however often the window crosses a second.
+    if (backoff && !forced && Date.now() < backoff.retryAtMs) return;
+
     const controller = new AbortController();
     // Stale-while-revalidate: only flash the loading state on the first load for
     // a PV. Background refetches (second-boundary window slide, refresh) keep
-    // the current rows visible so streaming doesn't flicker the toolbar.
-    if (loadedPvRef.current !== pv) setStatus('loading');
+    // the current rows visible so streaming doesn't flicker the toolbar, and a
+    // retry after an error keeps the error until the answer arrives.
+    if (loadedPvRef.current !== pv && !backoff) setStatus('loading');
     // `refreshing` tracks the in-flight fetch even when the loading flash is
     // suppressed, so the UI can disable Refresh and prevent overlapping requests.
     setRefreshing(true);
-    setError(undefined);
+    if (!backoff) setError(undefined);
     /* eslint-enable react-hooks/set-state-in-effect */
 
     const queryFromNs = fromSec * 1e9;
@@ -159,22 +229,45 @@ export function useInsightData(
           fetchMetadata(pv, archiver, controller.signal).catch(() => null),
         ]);
         if (controller.signal.aborted) return;
+        backoffRef.current = null;
         setArchiveRows(toRows(data));
         setDecimated(data.mode === 'raw' ? data.decimated : false);
-        setMeta({ pv, units: metadata?.units ?? null, description: metadata?.description ?? null });
+        setArchiveMeta({
+          pv,
+          units: metadata?.units ?? null,
+          description: metadata?.description ?? null,
+        });
+        setError(undefined);
         loadedPvRef.current = pv;
         setStatus('ready');
         setRefreshing(false);
       } catch (err) {
-        if ((err as { name?: string }).name === 'AbortError') return;
-        setError(err instanceof CanopyError ? err.detail : (err as Error).message);
+        if ((err as { name?: string }).name === 'AbortError' || controller.signal.aborted) return;
+        const info = archiveErrorInfo(err);
+        if (isNotArchivedError(info)) {
+          // Not an error for the table: show the live rows, and share the
+          // verdict so neither this tool nor the plot asks again.
+          backoffRef.current = null;
+          setArchiveRows(NO_ROWS);
+          setArchiveMeta(null);
+          setDecimated(false);
+          setError(undefined);
+          loadedPvRef.current = undefined;
+          setStatus('ready');
+          setRefreshing(false);
+          archiveStore.markNotArchived(pv, archiver, info);
+          return;
+        }
+        const attempts = (backoff?.attempts ?? 0) + 1;
+        backoffRef.current = { key, attempts, retryAtMs: Date.now() + retryDelayMs(attempts) };
+        setError(info.detail);
         setStatus('error');
         setRefreshing(false);
       }
     })();
 
     return () => controller.abort();
-  }, [pv, archiver, fromSec, toSec, refreshKey]);
+  }, [pv, archiver, fromSec, toSec, refreshKey, archiveEnabled, notArchived]);
 
   // Read the trace's live buffer. Subscribing here only adds a store listener;
   // the actual PV watch/subscribe is owned by the app-level useLiveSeries, so a
@@ -187,7 +280,8 @@ export function useInsightData(
     [traceId]
   );
   const liveEntry = useSyncExternalStore(liveStore.subscribe, getEntry);
-  const livePoints = liveEntry && liveEntry.pv === pv ? liveEntry.points : EMPTY_POINTS;
+  const ownLiveEntry = liveEntry && liveEntry.pv === pv ? liveEntry : undefined;
+  const livePoints = ownLiveEntry ? ownLiveEntry.points : EMPTY_POINTS;
 
   const rows = useMemo(
     () => mergeLive(archiveRows, livePoints, fromNs, toNs),
@@ -198,5 +292,21 @@ export function useInsightData(
     [archiveRows, liveEntry, fromNs, toNs]
   );
 
-  return { rows, meta, status, error, decimated, refreshing, refetch };
+  const archiveNote = !pv
+    ? undefined
+    : !archiveEnabled
+      ? ARCHIVE_OFF_NOTE
+      : notArchived
+        ? NOT_ARCHIVED_NOTE
+        : undefined;
+  // Without archive metadata, fall back to the live value's units so the
+  // header and exports still have something (export needs a meta).
+  const liveUnits = ownLiveEntry?.latest?.units ?? null;
+  const meta = useMemo<InsightMeta | null>(() => {
+    if (!pv) return null;
+    if (archiveNote) return { pv, units: liveUnits, description: null };
+    return archiveMeta;
+  }, [pv, archiveNote, liveUnits, archiveMeta]);
+
+  return { rows, meta, status, error, decimated, refreshing, refetch, archiveNote };
 }
