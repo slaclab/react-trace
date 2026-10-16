@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { CanopyError, type FormulaSpec } from '@slaclab/canopy-client';
+import { useCanopyConnection } from '@slaclab/canopy-react';
 import { evaluateFormula } from '../api/fox';
-import { CanopyError } from '../api/client';
 import { nsToMs, type TimeWindowNs } from '../api/time';
-import type { FormulaSpecDTO } from '../api/types';
 import type { PVTrace } from '../types';
 
 export type FormulaSeriesStatus = 'idle' | 'ready' | 'error';
@@ -22,14 +22,16 @@ const EMPTY_SERIES = new Map<string, FormulaSeriesResult>();
 // when a spec or window actually changes (TraceApp rebuilds the maps every
 // render). State is only updated from the async result callbacks; the prior
 // result is left in place while a re-evaluation is in flight, so panning doesn't
-// blank the curve. Live push updates are a follow-up (the Fox WebSocket).
+// blank the curve. Live push updates are a follow-up (the SDK's
+// FoxFormulaService over the Fox WebSocket).
 export function useFormulaSeries(
   traces: PVTrace[],
   // Per-trace resolved Fox spec (bindings already mapped to PV names). `null`
   // means the formula isn't ready (empty / unbound) and is skipped.
-  specByTrace: Map<string, FormulaSpecDTO | null>,
+  specByTrace: Map<string, FormulaSpec | null>,
   windowByTrace: Map<string, TimeWindowNs>
 ): Map<string, FormulaSeriesResult> {
+  const conn = useCanopyConnection();
   const [results, setResults] = useState<Map<string, FormulaSeriesResult>>(EMPTY_SERIES);
   const abortByTrace = useRef(new Map<string, AbortController>());
 
@@ -56,7 +58,7 @@ export function useFormulaSeries(
       const ac = new AbortController();
       abortByTrace.current.set(trace.id, ac);
 
-      evaluateFormula(spec, win.fromNs, win.toNs, ac.signal)
+      evaluateFormula(conn, spec, win.fromNs, win.toNs, ac.signal)
         .then((res) => {
           if (ac.signal.aborted) return;
           const ts = res.timeseries;
@@ -96,7 +98,7 @@ export function useFormulaSeries(
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- signature captures the meaningful inputs
-  }, [signature]);
+  }, [conn, signature]);
 
   // Project `results` down to the current formula traces. Memoized on the result
   // map and the set of formula trace ids so the returned reference stays stable

@@ -34,7 +34,7 @@ import { buildCsvFiles } from '../io/exportCsv';
 import { safeFilename, timestamp } from '../io/filename';
 import { makeId } from '../id';
 import { resolveFormulaSpec } from '../formula';
-import type { FormulaSpecDTO } from '../api/types';
+import type { FormulaSpec } from '@slaclab/canopy-client';
 import { capturePlots, type PngSource, type CapturedPlot } from '../io/exportPlotImage';
 import { PostToElogModal } from './PostToElogModal';
 import { useElogConfig } from '../hooks/useElogConfig';
@@ -158,7 +158,7 @@ export function TraceApp() {
   const plotArchiverByTrace = new Map<string, string | undefined>();
   // Resolved Fox spec per formula trace (bindings mapped to PV names); null when
   // the formula isn't ready to evaluate (empty expression or an unbound variable).
-  const formulaSpecByTrace = new Map<string, FormulaSpecDTO | null>();
+  const formulaSpecByTrace = new Map<string, FormulaSpec | null>();
   for (const plot of plots) {
     const win = viewWindowByPlot.get(plot.id) ?? resolveTimeWindow(plot.xAxis).window;
     for (const trace of plot.traces) {
