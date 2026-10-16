@@ -107,11 +107,17 @@ function liveBatch(latestMs: number): Map<string, LiveSeriesResult> {
   ]);
 }
 
-function plotEl(plot: Plot, nowMs: number, live: Map<string, LiveSeriesResult>) {
+function plotEl(
+  plot: Plot,
+  nowMs: number,
+  live: Map<string, LiveSeriesResult>,
+  following = plot.autoScroll !== false
+) {
   return (
     <SinglePlot
       plot={plot}
       nowMs={nowMs}
+      following={following}
       archiveResults={new Map()}
       liveResults={live}
       formulaResults={new Map()}
@@ -147,6 +153,44 @@ describe('SinglePlot time axis', () => {
       unmount();
     });
   }
+
+  it('ends a following plot at the newest live sample past its clock', () => {
+    const plot = makePlot({ refreshIntervalS: 5 });
+    const { rerender, unmount } = render(plotEl(plot, T0, liveBatch(T0 + 3000)));
+    expect(xAxis().max).toBe(T0 + 3000);
+    expect(xAxis().min).toBe(T0 + 3000 - HOUR);
+    // An older sample never pulls the axis back behind the clock.
+    rerender(plotEl(plot, T0, liveBatch(T0 - 1000)));
+    expect(xAxis().max).toBe(T0);
+    unmount();
+  });
+
+  it('caps the live-edge lead at one refresh interval past the clock', () => {
+    // A skewed or bogus IOC timestamp far in the future.
+    const plot = makePlot({ refreshIntervalS: 5 });
+    const { unmount } = render(plotEl(plot, T0, liveBatch(T0 + 10 * 60_000)));
+    expect(xAxis().max).toBe(T0 + 5000);
+    unmount();
+  });
+
+  it('ignores live samples on a frozen plot', () => {
+    const plot = makePlot({ autoScroll: false });
+    const { unmount } = render(plotEl(plot, T0, liveBatch(T0 + 3000)));
+    expect(xAxis().max).toBe(T0);
+    unmount();
+  });
+
+  it('ignores live samples from hidden or non-live traces', () => {
+    const base = makePlot();
+    const hidden = { ...base, traces: [{ ...base.traces[0], visible: false }] };
+    const r1 = render(plotEl(hidden, T0, liveBatch(T0 + 3000)));
+    expect(xAxis().max).toBe(T0);
+    r1.unmount();
+    const notLive = { ...base, traces: [{ ...base.traces[0], useLive: false }] };
+    const r2 = render(plotEl(notLive, T0, liveBatch(T0 + 3000)));
+    expect(xAxis().max).toBe(T0);
+    r2.unmount();
+  });
 
   it('moves the axis only when the clock prop moves', () => {
     const plot = makePlot();

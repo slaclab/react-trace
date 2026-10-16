@@ -9,6 +9,7 @@ import type { FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs, resolveTimeWindow } from '../api/time';
 import { echartsLineType, echartsSymbol } from '../curveStyle';
+import { followingEndMs, isFollowing } from '../hooks/useAutoScrollTimers';
 import { traceLabel } from '../traceLabel';
 import { useColorMode } from '../state/themeStore';
 import type { PngSource } from '../io/exportPlotImage';
@@ -89,6 +90,12 @@ interface SinglePlotProps {
    * never reads the wall clock, so a re-render can't move the axis.
    */
   nowMs: number;
+  /**
+   * True while the plot tracks "now" (see isFollowing). The axis then ends at
+   * the newest live sample when that is past `nowMs` (see followingEndMs);
+   * otherwise it ends at `nowMs` exactly.
+   */
+  following?: boolean;
   archiveResults: Map<string, ArchiveSeriesResult>;
   liveResults: Map<string, LiveSeriesResult>;
   formulaResults: Map<string, FormulaSeriesResult>;
@@ -209,6 +216,7 @@ function nearestSample(
 export function SinglePlot({
   plot,
   nowMs,
+  following = false,
   archiveResults,
   liveResults,
   formulaResults,
@@ -585,8 +593,10 @@ export function SinglePlot({
 
   // Pin the x-axis extent to the requested time range so the axis spans the
   // full window even when archive data is sparse and clusters in a sub-range.
-  // dataZoom inside the chart still sub-zooms within [min, max].
-  const requested = resolveTimeWindow(plot.xAxis, nowMs).window;
+  // dataZoom inside the chart still sub-zooms within [min, max]. A frozen plot
+  // ends exactly at its clock; a following one keeps up with live samples.
+  const endMs = following ? followingEndMs(plot, nowMs, liveResults) : nowMs;
+  const requested = resolveTimeWindow(plot.xAxis, endMs).window;
   const xAxisMin = nsToMs(requested.fromNs);
   const xAxisMax = nsToMs(requested.toNs);
 
@@ -1031,6 +1041,7 @@ export function PlotArea({
               key={activePlot.id}
               plot={activePlot}
               nowMs={nowFor(activePlot.id)}
+              following={isFollowing(activePlot, viewWindowByPlot)}
               archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
               liveResults={liveResultsByPlot.get(activePlot.id) ?? EMPTY_LIVE_RESULTS}
               formulaResults={formulaResultsByPlot.get(activePlot.id) ?? EMPTY_FORMULA_RESULTS}
@@ -1095,6 +1106,7 @@ export function PlotArea({
                   <SinglePlot
                     plot={plot}
                     nowMs={nowFor(plot.id)}
+                    following={isFollowing(plot, viewWindowByPlot)}
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
                     liveResults={liveResultsByPlot.get(plot.id) ?? EMPTY_LIVE_RESULTS}
                     formulaResults={formulaResultsByPlot.get(plot.id) ?? EMPTY_FORMULA_RESULTS}

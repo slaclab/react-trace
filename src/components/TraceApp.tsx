@@ -19,7 +19,7 @@ import { Toolbar } from './Toolbar';
 import { useArchiveSeries, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { useLiveSeries, type LiveSeriesResult } from '../hooks/useLiveSeries';
 import { archiveStore } from '../state/archiveStore';
-import { useAutoScrollTimers } from '../hooks/useAutoScrollTimers';
+import { followingEndMs, isFollowing, useAutoScrollTimers } from '../hooks/useAutoScrollTimers';
 import { useFormulaSeries, type FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
 import { resolveTimeWindow } from '../api/time';
@@ -183,6 +183,7 @@ export function TraceApp() {
   const formulaResults = useFormulaSeries(allTraces, formulaSpecByTrace, windowByTrace);
 
   const handleViewWindowChange = (plotId: string, window: TimeWindowNs) => {
+    freezeAtDisplayedEnd(plotId);
     setViewWindowByPlot((prev) => {
       const next = new Map(prev);
       next.set(plotId, window);
@@ -225,6 +226,16 @@ export function TraceApp() {
       formulaResultsByPlot: formula,
     };
   }, [plots, archiveResults, liveResults, formulaResults]);
+
+  // When a following plot stops following, pin its anchor where its axis ends
+  // right now (it may be ahead of the anchor; see followingEndMs) so freezing
+  // doesn't pull the axis back.
+  const freezeAtDisplayedEnd = (plotId: string) => {
+    const plot = plots.find((p) => p.id === plotId);
+    if (!plot || !isFollowing(plot, viewWindowByPlot)) return;
+    const live = liveResultsByPlot.get(plotId) ?? new Map<string, LiveSeriesResult>();
+    clock.resync([plotId], followingEndMs(plot, clock.nowFor(plotId), live));
+  };
 
   // Selecting an item also focuses its plot, so RightPanel / Data Insight (which
   // read `activePlot`) stay correct even when selecting across plots in grid view.
@@ -340,6 +351,7 @@ export function TraceApp() {
     // dispatches a dataZoom reset on the same trigger), re-enable tracking, and
     // re-anchor the plot at the current time.
     const reselectsRange = !!updates.xAxis && 'timeRange' in updates.xAxis;
+    if (updates.autoScroll === false && !reselectsRange) freezeAtDisplayedEnd(plotId);
     setPlots((prev) =>
       prev.map((p) =>
         p.id === plotId ? { ...p, ...updates, ...(reselectsRange ? { autoScroll: true } : {}) } : p
@@ -1095,6 +1107,7 @@ export function TraceApp() {
                   <SinglePlot
                     plot={plot}
                     nowMs={clock.nowFor(plot.id)}
+                    following={isFollowing(plot, viewWindowByPlot)}
                     fullscreen
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
                     liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
@@ -1169,6 +1182,7 @@ export function TraceApp() {
                 <SinglePlot
                   plot={plot}
                   nowMs={clock.nowFor(plot.id)}
+                  following={isFollowing(plot, viewWindowByPlot)}
                   archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
                   liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
                   formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}

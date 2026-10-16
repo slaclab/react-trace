@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Plot } from '../types';
 import type { TimeWindowNs } from '../api/time';
+import type { LiveSeriesResult } from './useLiveSeries';
 
 export const DEFAULT_REFRESH_INTERVAL_S = 5;
 export const MIN_REFRESH_S = 1;
@@ -20,6 +21,34 @@ export function isFollowing(plot: Plot, viewWindowByPlot: Map<string, TimeWindow
   return (
     plot.autoScroll !== false && plot.xAxis.timeRange !== 'custom' && !viewWindowByPlot.has(plot.id)
   );
+}
+
+// Newest live sample time (ms) among the plot's visible live traces, or
+// -Infinity when there is none.
+export function liveEdgeMs(plot: Plot, liveResults: Map<string, LiveSeriesResult>): number {
+  let edge = -Infinity;
+  for (const trace of plot.traces) {
+    if (!trace.visible || !trace.useLive || trace.kind === 'formula') continue;
+    const last = liveResults.get(trace.id)?.points.at(-1);
+    if (last && last.time > edge) edge = last.time;
+  }
+  return edge;
+}
+
+// Where a following plot's time axis ends. The anchor only advances once per
+// refresh interval, so on its own it would leave up to one interval of fresh
+// live samples past the right edge. Instead the end is pushed forward to the
+// newest live sample, so the axis keeps up with live data between ticks without
+// reading the wall clock. It never runs more than one interval past the anchor,
+// which bounds the effect of a skewed or bogus IOC timestamp. Fetch windows
+// still use the anchor alone.
+export function followingEndMs(
+  plot: Plot,
+  anchorMs: number,
+  liveResults: Map<string, LiveSeriesResult>
+): number {
+  const capMs = anchorMs + clampInterval(plot.refreshIntervalS) * 1000;
+  return Math.min(Math.max(anchorMs, liveEdgeMs(plot, liveResults)), capMs);
 }
 
 interface ClockState {

@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import { isFollowing, useAutoScrollTimers } from './useAutoScrollTimers';
+import {
+  followingEndMs,
+  isFollowing,
+  liveEdgeMs,
+  useAutoScrollTimers,
+} from './useAutoScrollTimers';
+import type { LiveSeriesResult } from './useLiveSeries';
 import type { TimeWindowNs } from '../api/time';
 import type { Plot } from '../types';
 
@@ -56,6 +62,50 @@ describe('isFollowing', () => {
     expect(isFollowing(makePlot('p', { xAxis: { timeRange: 'custom' } }), NO_VIEW)).toBe(false);
     const view = new Map([['p', { fromNs: 0, toNs: 1 }]]);
     expect(isFollowing(makePlot('p'), view)).toBe(false);
+  });
+});
+
+describe('liveEdgeMs / followingEndMs', () => {
+  const live = (pairs: [string, number][]) =>
+    new Map<string, LiveSeriesResult>(
+      pairs.map(([id, t]) => [
+        id,
+        {
+          status: 'connected',
+          connected: true,
+          severity: 'NO_ALARM',
+          latest: null,
+          error: null,
+          points: [{ time: t, value: 1, severity: 'NO_ALARM' }],
+        },
+      ])
+    );
+  const trace = (id: string, extra: Partial<Plot['traces'][number]> = {}) =>
+    ({ id, visible: true, useLive: true, ...extra }) as Plot['traces'][number];
+
+  it('takes the newest last sample across visible live traces', () => {
+    const plot = makePlot('p', {
+      traces: [trace('a'), trace('b'), trace('c', { visible: false })],
+    });
+    expect(
+      liveEdgeMs(
+        plot,
+        live([
+          ['a', T0 + 1000],
+          ['b', T0 + 2000],
+          ['c', T0 + 9000],
+        ])
+      )
+    ).toBe(T0 + 2000);
+    expect(liveEdgeMs(plot, new Map())).toBe(-Infinity);
+  });
+
+  it('clamps the end between the anchor and one interval past it', () => {
+    const plot = makePlot('p', { traces: [trace('a')], refreshIntervalS: 2 });
+    expect(followingEndMs(plot, T0, new Map())).toBe(T0);
+    expect(followingEndMs(plot, T0, live([['a', T0 - 500]]))).toBe(T0);
+    expect(followingEndMs(plot, T0, live([['a', T0 + 1500]]))).toBe(T0 + 1500);
+    expect(followingEndMs(plot, T0, live([['a', T0 + 60_000]]))).toBe(T0 + 2000);
   });
 });
 
