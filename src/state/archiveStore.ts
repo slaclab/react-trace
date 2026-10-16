@@ -14,6 +14,14 @@ const RAW_WINDOW_MS_THRESHOLD = 30 * 60 * 1000; // 30 min
 const RAW_MAX_POINTS = 8000;
 export const DEFAULT_OPTIMIZED_BINS = 5000;
 
+// A window that tracks "now" refetches its newest part at most this often,
+// however fast it advances (every live batch, or a smoothly scrolling strip
+// tool). With Live on, the live buffer already covers those last seconds.
+export const DRIFT_MIN_INTERVAL_MS = 2_000;
+// A tail fetch re-reads this much of the buffered window, so samples the
+// archiver writes late (after the previous fetch) aren't lost.
+export const TAIL_OVERLAP_MS = 10_000;
+
 export interface FetchMode {
   binning?: 'auto';
   maxPoints: number;
@@ -136,6 +144,10 @@ interface InternalEntry {
   wanted: RequestOpts;
   controller: AbortController | null;
   failure: Failure | null;
+  // A fetch under this identity has succeeded, so `data.cover*` is real
+  // coverage. Distinguishes an archived PV with no samples in the window
+  // (covered, empty) from one never loaded.
+  hasCover: boolean;
 }
 
 export interface RequestOpts {
@@ -161,10 +173,48 @@ function coverageTolerance(win: TimeWindowNs): number {
   return Math.max(1, (win.toNs - win.fromNs) * 0.01);
 }
 
-function covers(entry: InternalEntry, win: TimeWindowNs): boolean {
-  if (entry.data.mean.length === 0) return false;
+function covers(entry: InternalEntry, win: TimeWindowNs, nowNs: number): boolean {
+  if (!entry.hasCover) return false;
   const tol = coverageTolerance(win);
-  return entry.data.coverFromNs <= win.fromNs + tol && entry.data.coverToNs >= win.toNs - tol;
+  if (entry.data.coverFromNs > win.fromNs + tol) return false;
+  if (entry.data.coverToNs >= win.toNs - tol) return true;
+  // A window tracking "now" can be behind by up to DRIFT_MIN_INTERVAL_MS
+  // before it's worth asking the archiver for the newest part. Historical
+  // windows (panned into the past) keep the plain tolerance.
+  const slack = Math.max(tol, DRIFT_MIN_INTERVAL_MS * 1_000_000);
+  return win.toNs >= nowNs - slack && entry.data.coverToNs >= win.toNs - slack;
+}
+
+// When the buffer covers the start of `win` and only the end is new (a window
+// sliding forward with "now"), the range to fetch: the new part plus
+// TAIL_OVERLAP_MS of what's buffered. Null when a full fetch is needed: binned
+// mode (bins are relative to the whole window), a decimated buffer (a sparse
+// tail would mix densities), after a failure, or when the gap is over half
+// the span.
+function tailRange(entry: InternalEntry, win: TimeWindowNs): TimeWindowNs | null {
+  if (!entry.hasCover || entry.failure || entry.fetchSig.mode !== 'raw' || entry.data.decimated) {
+    return null;
+  }
+  const { coverFromNs, coverToNs } = entry.data;
+  if (coverFromNs > win.fromNs + coverageTolerance(win)) return null;
+  if (win.toNs <= coverToNs) return null;
+  if (win.toNs - coverToNs > (win.toNs - win.fromNs) / 2) return null;
+  return {
+    fromNs: Math.max(win.fromNs, coverToNs - TAIL_OVERLAP_MS * 1_000_000),
+    toNs: win.toNs,
+  };
+}
+
+// The in-flight request for `prev` will cover most of `win`, which only moved
+// forward: let it finish instead of aborting it. Aborting on every small
+// advance could starve the archive at short spans (a new request every few
+// tens of ms, each cancelled before the archiver answers).
+function forwardSlide(prev: TimeWindowNs, win: TimeWindowNs): boolean {
+  return (
+    win.toNs >= prev.toNs &&
+    win.fromNs >= prev.fromNs - coverageTolerance(win) &&
+    !spanChanged(prev.toNs - prev.fromNs, win)
+  );
 }
 
 // True when we've already issued a request for this window (in flight or
@@ -269,6 +319,40 @@ function dtoToData(
   };
 }
 
+// Merge a tail fetch into the buffer: keep buffered points before the tail
+// (from the window start on), then the fetched samples. Coverage becomes
+// [window start, window end].
+function spliceTail(
+  prev: ArchiveEntry,
+  dto: ArchiverDataDTO,
+  tail: TimeWindowNs,
+  window: TimeWindowNs
+): ArchiveEntry {
+  if (dto.mode !== 'raw') return dtoToData(dto, 'binned', window);
+  const fromMs = nsToMs(window.fromNs);
+  const tailFromMs = nsToMs(tail.fromNs);
+  const mean: ArchivePlotPoint[] = [];
+  for (const p of prev.mean) {
+    if (p.time >= tailFromMs) break;
+    if (p.time >= fromMs) mean.push(p);
+  }
+  for (const s of dto.samples as SampleDTO[]) {
+    if (typeof s.value !== 'number') continue;
+    const time = nsToMs(s.tsNs);
+    if (time >= tailFromMs) mean.push({ time, value: s.value });
+  }
+  return {
+    status: 'ready',
+    mean,
+    band: [],
+    coverFromNs: Math.max(prev.coverFromNs, window.fromNs),
+    coverToNs: window.toNs,
+    mode: 'raw',
+    archiver: dto.archiver,
+    decimated: prev.decimated || dto.decimated,
+  };
+}
+
 // ── Store ────────────────────────────────────────────────────────────────────
 
 type Listener = () => void;
@@ -348,7 +432,7 @@ export class ArchiveStore {
       entry.failure = null;
       entry.data = { ...entry.data, status: 'loading', error: undefined };
 
-      void this.runFetch(traceId, opts, fetchSig.mode, mode, controller);
+      void this.runFetch(traceId, opts, fetchSig.mode, mode, controller, null);
     }
     if (this.entries.size > 0 || hadVerdicts) this.publish();
   }
@@ -362,7 +446,11 @@ export class ArchiveStore {
    *   window does. Asked again once when the span changes (a new time range or
    *   a zoom), or after `refetchAll()` / `forgetNotArchived()`.
    * - Same identity, same fetch signature, buffer already covers the window:
-   *   free render, no fetch.
+   *   free render, no fetch. A window tracking "now" counts as covered until
+   *   it's DRIFT_MIN_INTERVAL_MS (or 1% of the span, if longer) ahead.
+   * - Window slid forward past the buffer (raw mode): fetch only the new tail
+   *   (plus TAIL_OVERLAP_MS) and splice it in, keeping status 'ready'. An
+   *   in-flight fetch isn't aborted for a forward slide.
    * - Last fetch failed for another reason: no fetch until its backoff expires.
    * - Same identity, fetch signature or window changed: keep the prior buffer
    *   on screen, flip status to 'loading', fire a new fetch. Mode flips
@@ -405,7 +493,8 @@ export class ArchiveStore {
         }
       }
 
-      if (fetchSigEqual(existing.fetchSig, fetchSig) && covers(existing, opts.window)) {
+      const sameSig = fetchSigEqual(existing.fetchSig, fetchSig);
+      if (sameSig && covers(existing, opts.window, this.now() * 1_000_000)) {
         if (existing.data.status !== 'ready') {
           existing.data = { ...existing.data, status: 'ready', error: undefined };
           this.publish();
@@ -416,19 +505,23 @@ export class ArchiveStore {
       // Transient failure: wait out the backoff regardless of window drift.
       if (failure && !failure.notArchived && this.now() < failure.retryAtMs) return;
 
+      // A fetch is in flight and the window only moved forward: let it land.
+      if (
+        sameSig &&
+        existing.controller &&
+        existing.requestedWindow &&
+        forwardSlide(existing.requestedWindow, opts.window)
+      ) {
+        return;
+      }
+
       // Already requested this window under the same fetch signature (in
       // flight or completed). Don't refire — the render → publish → render loop
       // would pile up requests. A failed entry with nothing in flight got past
       // the gates above, so it's due for a retry: skip the dedup for it, or a
       // trace whose window never moves could never retry.
       const dueRetry = !!failure && !existing.controller;
-      if (
-        !dueRetry &&
-        fetchSigEqual(existing.fetchSig, fetchSig) &&
-        recentlyRequested(existing, opts.window)
-      ) {
-        return;
-      }
+      if (!dueRetry && sameSig && recentlyRequested(existing, opts.window)) return;
     } else if (known) {
       // New trace (or new identity) for a pair already known not to be
       // archived: show that straight away, no fetch.
@@ -451,6 +544,7 @@ export class ArchiveStore {
         wanted: opts,
         controller: null,
         failure: notArchivedFailure(known, spanNs),
+        hasCover: false,
       });
       this.publish();
       return;
@@ -459,15 +553,21 @@ export class ArchiveStore {
     if (existing) existing.controller?.abort();
 
     const prevData = sameIdentity ? existing!.data : undefined;
-    // Retrying a failed entry keeps showing the failure until the answer
-    // arrives, so the status chip doesn't blink through 'loading'.
-    const retrying = sameIdentity && !!existing!.failure;
+    const sigUnchanged = sameIdentity && fetchSigEqual(existing!.fetchSig, fetchSig);
+    // Keep the current status while the request is in flight when it's a
+    // retry of a failed entry (show the failure until the answer arrives) or a
+    // background refresh of a loaded one (the window moved). Either way the
+    // status chip doesn't blink through 'loading'.
+    const keepShowing =
+      sameIdentity && (!!existing!.failure || (sigUnchanged && existing!.data.status === 'ready'));
+    // Only the newest part is missing: fetch just that.
+    const tail = sigUnchanged ? tailRange(existing!, opts.window) : null;
 
     const controller = new AbortController();
     const entry: InternalEntry = {
       identityKey,
       fetchSig,
-      data: retrying
+      data: keepShowing
         ? prevData!
         : {
             status: 'loading',
@@ -485,11 +585,12 @@ export class ArchiveStore {
       wanted: opts,
       controller,
       failure: sameIdentity ? existing!.failure : null,
+      hasCover: sameIdentity ? existing!.hasCover : false,
     };
     this.entries.set(traceId, entry);
-    if (!retrying) this.publish();
+    if (!keepShowing) this.publish();
 
-    void this.runFetch(traceId, opts, fetchSig.mode, mode, controller);
+    void this.runFetch(traceId, opts, fetchSig.mode, mode, controller, tail);
   }
 
   private async runFetch(
@@ -497,15 +598,18 @@ export class ArchiveStore {
     opts: RequestOpts,
     resolvedMode: 'raw' | 'binned',
     mode: FetchMode,
-    controller: AbortController
+    controller: AbortController,
+    // Set for a tail-only fetch; the result is spliced into the buffer.
+    tail: TimeWindowNs | null
   ): Promise<void> {
     const key = registryKey(opts.pv, opts.archiver);
+    const range = tail ?? opts.window;
     try {
       const dto = await this.fetchData(
         opts.pv,
         {
-          fromNs: opts.window.fromNs,
-          toNs: opts.window.toNs,
+          fromNs: range.fromNs,
+          toNs: range.toNs,
           archiver: opts.archiver,
           binning: mode.binning,
           maxPoints: mode.maxPoints,
@@ -516,9 +620,12 @@ export class ArchiveStore {
       const cur = this.entries.get(traceId);
       // Bail if the trace was released or superseded mid-flight.
       if (!cur || cur.controller !== controller) return;
-      cur.data = dtoToData(dto, resolvedMode, opts.window);
+      cur.data = tail
+        ? spliceTail(cur.data, dto, tail, opts.window)
+        : dtoToData(dto, resolvedMode, opts.window);
       cur.controller = null;
       cur.failure = null;
+      cur.hasCover = true;
       // The archiver has this pair after all (e.g. archiving started since).
       this.notArchived.delete(key);
       this.publish();

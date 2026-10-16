@@ -317,10 +317,10 @@ describe('archiveStore: other failures back off', () => {
     expect(h.store.getSnapshot().get('t1')?.status).toBe('ready');
 
     // The next failure (once drift uncovers the window) backs off from the
-    // first step again: two attempts within 2 s, not one per 15 s.
+    // first step again: two attempts within 4 s, not one per 15 s.
     up = false;
     failures = 0;
-    await drift(h, { spanS: 30, steps: 20 });
+    await drift(h, { spanS: 30, steps: 40 });
     expect(failures).toBe(2);
   });
 
@@ -340,5 +340,143 @@ describe('archiveStore: other failures back off', () => {
     await flush();
     expect(h.store.getSnapshot().has('t1')).toBe(false);
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+// Archived PVs as "now" advances (#93 "Additional context", and #94's
+// seconds-scale strip-tool windows): fetch only the new tail, at most every
+// DRIFT_MIN_INTERVAL_MS, without aborting in-flight requests.
+describe('archiveStore: archived PV while the window tracks now', () => {
+  // One sample per whole second in the requested range, value = epoch second.
+  function secondsDto(params: FetchDataParams, decimated = false): ArchiverDataDTO {
+    const toNs = params.toNs ?? params.fromNs;
+    const samples = [];
+    for (let s = Math.ceil(params.fromNs / 1e9); s * 1e9 <= toNs; s++) {
+      samples.push({
+        tsNs: s * 1e9,
+        value: s,
+        severity: 'NO_ALARM' as const,
+        source: 'archive' as const,
+      });
+    }
+    return {
+      mode: 'raw',
+      pv: PV,
+      archiver: 'lcls',
+      from: params.fromNs,
+      to: toNs,
+      decimated,
+      samples,
+    };
+  }
+
+  const spanOf = (p: FetchDataParams) => ((p.toNs ?? p.fromNs) - p.fromNs) / 1e9;
+
+  for (const spanS of [10, 30]) {
+    it(`${spanS}s span: fetches the tail every ~2 s and keeps a clean buffer`, async () => {
+      const h = setup(async (_pv, params) => secondsDto(params));
+      await drift(h, { spanS, steps: 600 });
+
+      const calls = h.fetchData.mock.calls.map((c) => c[1]);
+      expect(calls.length).toBeGreaterThan(20);
+      expect(calls.length).toBeLessThanOrEqual(31);
+      expect(spanOf(calls[0])).toBe(spanS);
+      // Later requests are the new part plus TAIL_OVERLAP_MS, never more than the window.
+      for (const p of calls.slice(1)) expect(spanOf(p)).toBeLessThanOrEqual(Math.min(spanS, 12.2));
+
+      const entry = h.store.getSnapshot().get('t1')!;
+      expect(entry.status).toBe('ready');
+      // Sorted, no duplicates, one point per second, trimmed to the window.
+      const times = entry.mean.map((p) => p.time);
+      expect(times.slice(1).every((t, i) => t - times[i] === 1000)).toBe(true);
+      expect(times[0]).toBeGreaterThanOrEqual(h.now() - 100 - spanS * 1000 - 2100);
+      // Background refreshes never flip back to 'loading'.
+      expect(h.published.t1.filter((st) => st === 'loading')).toHaveLength(1);
+    });
+  }
+
+  it('20 min raw span: tail requests are seconds long, not 20 minutes', async () => {
+    const h = setup(async (_pv, params) => secondsDto(params));
+    await drift(h, { spanS: 1200, steps: 600 });
+    const spans = h.fetchData.mock.calls.map((c) => spanOf(c[1]));
+    expect(spans[0]).toBe(1200);
+    expect(spans.length).toBeGreaterThan(2);
+    // Slack is 1% of the span (12 s) here, plus the 10 s overlap.
+    for (const s of spans.slice(1)) expect(s).toBeLessThan(23);
+  });
+
+  it('lets a slow fetch finish instead of aborting it on every advance', async () => {
+    const signals: AbortSignal[] = [];
+    let resolve!: () => void;
+    const h = setup(
+      (_pv, params, signal) =>
+        new Promise((r) => {
+          signals.push(signal!);
+          resolve = () => r(secondsDto(params));
+        })
+    );
+    // 10 s span, a request every 16 ms (rAF-rate scrolling), answer after 400 ms.
+    await drift(h, { spanS: 10, stepMs: 16, steps: 25 });
+    expect(h.fetchData).toHaveBeenCalledTimes(1);
+    resolve();
+    await flush();
+    expect(signals[0].aborted).toBe(false);
+    expect(h.store.getSnapshot().get('t1')?.status).toBe('ready');
+  });
+
+  it('treats an empty answer as covered (quiet PV), not as missing', async () => {
+    const h = setup(async (_pv, params) => ({ ...secondsDto(params), samples: [] }));
+    await drift(h, { spanS: 30, steps: 600 });
+    expect(h.fetchData.mock.calls.length).toBeLessThanOrEqual(31);
+    expect(h.store.getSnapshot().get('t1')?.status).toBe('ready');
+  });
+
+  it('fills a small forward pan of a historical window right away', async () => {
+    const h = setup(async (_pv, params) => secondsDto(params));
+    const pastToMs = T0_MS - 3_600_000;
+    h.store.request('t1', { pv: PV, archiver: undefined, window: windowAt(pastToMs, 30) });
+    await flush();
+    h.store.request('t1', { pv: PV, archiver: undefined, window: windowAt(pastToMs + 1000, 30) });
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    // Only the new second plus the overlap.
+    expect(spanOf(h.fetchData.mock.calls[1][1])).toBeCloseTo(11, 3);
+  });
+
+  it('binned (1 h): full-window refetch only after 1% of the span', async () => {
+    const h = setup(async (_pv, params) => ({
+      mode: 'binned',
+      pv: PV,
+      archiver: 'lcls',
+      from: params.fromNs,
+      to: params.toNs ?? params.fromNs,
+      binning: 'auto',
+      binSizeNs: null,
+      targetBuckets: 5000,
+      points: [
+        {
+          tsNs: params.fromNs,
+          binNs: 1e9,
+          mean: 1,
+          stdDev: 0,
+          min: 1,
+          max: 1,
+          count: 1,
+          severity: 'NO_ALARM',
+        },
+      ],
+    }));
+    await drift(h, { spanS: 3600, steps: 600 });
+    const spans = h.fetchData.mock.calls.map((c) => spanOf(c[1]));
+    expect(spans).toEqual([3600, 3600]);
+    expect(h.published.t1.filter((st) => st === 'loading')).toHaveLength(1);
+  });
+
+  it('a decimated buffer is refetched whole', async () => {
+    const h = setup(async (_pv, params) => secondsDto(params, true));
+    await drift(h, { spanS: 30, steps: 100 });
+    const spans = h.fetchData.mock.calls.map((c) => spanOf(c[1]));
+    expect(spans.length).toBeGreaterThan(1);
+    expect(spans.every((s) => s === 30)).toBe(true);
   });
 });
