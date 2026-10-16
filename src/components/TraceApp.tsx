@@ -23,7 +23,8 @@ import { useAutoScrollTimers } from '../hooks/useAutoScrollTimers';
 import { useFormulaSeries, type FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
 import { resolveTimeWindow } from '../api/time';
-import { fetchMetadata } from '../api/mole';
+import { fetchMetadata } from '@slaclab/canopy-client';
+import { useCanopyConnection } from '@slaclab/canopy-react';
 import { useColorMode } from '../state/themeStore';
 import { usePaletteId } from '../state/paletteStore';
 import { getPalette, colorForIndex } from '../palettes';
@@ -91,6 +92,7 @@ export type SelectedItem = {
 } | null;
 
 export function TraceApp() {
+  const canopy = useCanopyConnection();
   const [plots, setPlots] = useState<Plot[]>(INITIAL_PLOTS);
   const [activePlotId, setActivePlotId] = useState<string>('plot-1');
   const [selectedItem, setSelectedItem] = useState<SelectedItem>({
@@ -498,7 +500,12 @@ export function TraceApp() {
 
     let unit: string | undefined;
     try {
-      const meta = await fetchMetadata(pvName, trace.archiver ?? plot.archiver, controller.signal);
+      const meta = await fetchMetadata(
+        canopy,
+        pvName,
+        trace.archiver ?? plot.archiver,
+        controller.signal
+      );
       unit = meta.units?.trim() || undefined;
     } catch {
       return; // metadata unavailable / aborted — keep the trace on its current axis
