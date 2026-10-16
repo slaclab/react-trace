@@ -348,16 +348,18 @@ export function TraceApp() {
   const updatePlot = (plotId: string, updates: Partial<Plot>) => {
     // Picking a new x-axis time range is an explicit reset: drop the panned
     // viewport so the next render uses the relative range (PlotArea also
-    // dispatches a dataZoom reset on the same trigger), re-enable tracking, and
-    // re-anchor the plot at the current time.
+    // dispatches a dataZoom reset when the range changes or the plot resumes
+    // following), re-enable tracking, and re-anchor the plot at the current
+    // time. Turning Autoscroll back on resumes the same way, even after a pan.
     const reselectsRange = !!updates.xAxis && 'timeRange' in updates.xAxis;
-    if (updates.autoScroll === false && !reselectsRange) freezeAtDisplayedEnd(plotId);
+    const resumes = reselectsRange || updates.autoScroll === true;
+    if (updates.autoScroll === false && !resumes) freezeAtDisplayedEnd(plotId);
     setPlots((prev) =>
       prev.map((p) =>
-        p.id === plotId ? { ...p, ...updates, ...(reselectsRange ? { autoScroll: true } : {}) } : p
+        p.id === plotId ? { ...p, ...updates, ...(resumes ? { autoScroll: true } : {}) } : p
       )
     );
-    if (reselectsRange) {
+    if (resumes) {
       clearViewWindow(plotId);
       clock.resync([plotId]);
     }

@@ -213,3 +213,37 @@ describe('SinglePlot time axis', () => {
     unmount();
   });
 });
+
+describe('SinglePlot zoom reset', () => {
+  beforeEach(() => fakeInstance.dispatchAction.mockClear());
+
+  const RESET = { type: 'dataZoom', start: 0, end: 100 };
+
+  it('does not reset on mount', () => {
+    const { unmount } = render(plotEl(makePlot(), T0, new Map(), true));
+    expect(fakeInstance.dispatchAction).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('resets when the plot resumes following, not when it stops', () => {
+    const plot = makePlot();
+    const { rerender, unmount } = render(plotEl(plot, T0, new Map(), true));
+    // Stops following (pan or Autoscroll off): the user's zoom must survive.
+    rerender(plotEl({ ...plot, autoScroll: false }, T0, new Map(), false));
+    expect(fakeInstance.dispatchAction).not.toHaveBeenCalled();
+    // Autoscroll back on: back to the full range.
+    rerender(plotEl(plot, T0 + 1000, new Map(), true));
+    expect(fakeInstance.dispatchAction).toHaveBeenCalledTimes(1);
+    expect(fakeInstance.dispatchAction).toHaveBeenCalledWith(RESET);
+    unmount();
+  });
+
+  it('resets when a new time range is picked', () => {
+    const plot = makePlot();
+    const { rerender, unmount } = render(plotEl(plot, T0, new Map(), true));
+    rerender(plotEl({ ...plot, xAxis: { timeRange: '-4h' } }, T0, new Map(), true));
+    expect(fakeInstance.dispatchAction).toHaveBeenCalledTimes(1);
+    expect(fakeInstance.dispatchAction).toHaveBeenCalledWith(RESET);
+    unmount();
+  });
+});

@@ -283,18 +283,20 @@ export function SinglePlot({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- register once per mount; the callback is stable
   }, []);
 
-  // Reset the inside-zoom to full extent when the user picks a new range. This
-  // replaces the React-key remount we used to do — the chart instance survives,
-  // so dataZoom state on subsequent panning is the only thing affected. Skip
-  // the first mount: there's no zoom state to reset yet, and the chart instance
-  // may not be fully attached to the DOM.
+  // Reset the inside-zoom to full extent when the user picks a new range, or
+  // when the plot resumes following "now" (Autoscroll turned back on after a
+  // pan). This replaces the React-key remount we used to do — the chart
+  // instance survives, so dataZoom state on subsequent panning is the only
+  // thing affected. Nothing resets on the first mount (there's no zoom state
+  // yet, and the chart instance may not be fully attached to the DOM) or when
+  // the plot stops following, which would undo the user's pan.
   const rangeKey = rangeKeyFor(plot);
-  const isFirstRangeRun = useRef(true);
+  const zoomTriggerRef = useRef({ rangeKey, following });
   useEffect(() => {
-    if (isFirstRangeRun.current) {
-      isFirstRangeRun.current = false;
-      return;
-    }
+    const prev = zoomTriggerRef.current;
+    zoomTriggerRef.current = { rangeKey, following };
+    const resumed = following && !prev.following;
+    if (prev.rangeKey === rangeKey && !resumed) return;
     const inst = chartRef.current?.getEchartsInstance();
     if (!inst || !inst.getDom()) return;
     programmaticZoomRef.current = true;
@@ -308,7 +310,7 @@ export function SinglePlot({
       programmaticZoomRef.current = false;
     }, 0);
     return () => window.clearTimeout(clearTimer);
-  }, [rangeKey]);
+  }, [rangeKey, following]);
 
   // Seed the saved sub-range directly into the inside-dataZoom on first render
   // so popping a plot out (or reattaching) preserves the user's wheel-zoom.
