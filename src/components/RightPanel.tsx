@@ -1402,7 +1402,21 @@ function PlotGeneralTab({
   const customError = isCustom ? resolveTimeWindow(plot.xAxis, nowMs).error : undefined;
   // A relative range that isn't one of the dropdown presets (e.g. "-30m") needs
   // its own option, or the native Select would mislead by showing the first item.
-  const PRESETS = ['-1h', '-4h', '-1d', '-2d', '-1w', '-1M', 'custom'];
+  // "Last 1 Minute" is stored as -60s, not -1m: loading a saved workspace
+  // rewrites -1m to -1M (the old month preset value).
+  const PRESETS = [
+    '-30s',
+    '-60s',
+    '-5m',
+    '-15m',
+    '-1h',
+    '-4h',
+    '-1d',
+    '-2d',
+    '-1w',
+    '-1M',
+    'custom',
+  ];
   const isPresetRange = PRESETS.includes(plot.xAxis.timeRange);
   const gridOpacityPct = Math.round(plot.gridOpacity * 100);
   return (
@@ -1587,6 +1601,10 @@ function PlotGeneralTab({
             }}
             size="sm"
           >
+            <SelectItem value="-30s" text="Last 30 Seconds" />
+            <SelectItem value="-60s" text="Last 1 Minute" />
+            <SelectItem value="-5m" text="Last 5 Minutes" />
+            <SelectItem value="-15m" text="Last 15 Minutes" />
             <SelectItem value="-1h" text="Last 1 Hour" />
             <SelectItem value="-4h" text="Last 4 Hours" />
             <SelectItem value="-1d" text="Last 1 Day" />
