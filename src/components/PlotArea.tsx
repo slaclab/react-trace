@@ -12,7 +12,7 @@ import { echartsLineType, echartsSymbol } from '../curveStyle';
 import { isFollowing } from '../hooks/useAutoScrollTimers';
 import { useFollowNow } from '../hooks/useFollowNow';
 import { traceLabel } from '../traceLabel';
-import { useColorMode } from '../state/themeStore';
+import { useColorMode } from '@slaclab/canopy-shell/color-mode';
 import type { PngSource } from '../io/exportPlotImage';
 import {
   gappedLineData,

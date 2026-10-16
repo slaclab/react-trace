@@ -24,7 +24,7 @@ import { useFormulaSeries, type FormulaSeriesResult } from '../hooks/useFormulaS
 import type { TimeWindowNs } from '../api/time';
 import { resolveTimeWindow } from '../api/time';
 import { fetchMetadata } from '../api/mole';
-import { setColorMode, useColorMode } from '../state/themeStore';
+import { ColorModeTheme, setColorMode, useColorMode } from '@slaclab/canopy-shell';
 import { usePaletteId } from '../state/paletteStore';
 import { getPalette, colorForIndex } from '../palettes';
 import { downloadBlob, downloadDataUrl, pickFile } from '../io/download';
@@ -1302,8 +1302,7 @@ export function TraceApp() {
             onBlocked={() => setBlockedPopup(plot.title || 'This plot')}
             onClose={() => reattachPlot(id)}
           >
-            <Theme
-              theme={colorMode === 'dark' ? 'g90' : 'g10'}
+            <ColorModeTheme
               style={{
                 height: '100vh',
                 background: 'var(--cds-background)',
@@ -1361,7 +1360,7 @@ export function TraceApp() {
                   onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
                 />
               </div>
-            </Theme>
+            </ColorModeTheme>
           </DetachedWindow>
         );
       })}
@@ -1376,8 +1375,7 @@ export function TraceApp() {
           onBlocked={() => setBlockedPopup('Data Insight')}
           onClose={() => setInsight((p) => ({ ...p, detached: false }))}
         >
-          <Theme
-            theme={colorMode === 'dark' ? 'g90' : 'g10'}
+          <ColorModeTheme
             style={{
               height: '100vh',
               background: 'var(--cds-background)',
@@ -1393,7 +1391,7 @@ export function TraceApp() {
               onClose={() => setInsight((p) => ({ ...p, open: false, detached: false }))}
               onReattach={() => setInsight((p) => ({ ...p, detached: false }))}
             />
-          </Theme>
+          </ColorModeTheme>
         </DetachedWindow>
       )}
 

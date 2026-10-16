@@ -1,5 +1,5 @@
 import type { Plot, PVTrace, Axis } from '../types';
-import type { ColorMode } from '../state/themeStore';
+import type { ColorMode } from '@slaclab/canopy-shell/color-mode';
 import { getPalette, colorForIndex, DEFAULT_PALETTE_ID } from '../palettes';
 import { parseSpanMs, toDatetimeLocal } from '../api/time';
 
