@@ -3,13 +3,9 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { saveConfig, getConfig, listConfigs, updateConfig, deleteConfig } from './magpie';
 import { CanopyError } from './client';
 
+// A real Response: the SDK's canopyFetch reads the body as text.
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
-  return {
-    ok,
-    status,
-    statusText: ok ? 'OK' : 'Error',
-    json: async () => body,
-  } as Response;
+  return new Response(JSON.stringify(body), { status, statusText: ok ? 'OK' : 'Error' });
 }
 
 // All paths are app-scoped to "trace"; BASE is empty in the test env.

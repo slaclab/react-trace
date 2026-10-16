@@ -1,13 +1,27 @@
-// Wire types mirroring Canopy/Mole DTOs (camelCase, as emitted by canopy.contracts.base.CanopyModel).
-// Source of truth: the Canopy repo's src/canopy/mole/schemas + Canopy.wiki Module-Architecture:-Mole.md.
+// Transitional: trace's wire-type names, now backed by @slaclab/canopy-client.
+// The Mole DTOs and the error envelope are the SDK's own types. Vole, Magpie,
+// Hare and Fox below stay here until their clients move to the SDK.
 
-export type AlarmSeverity = 'NO_ALARM' | 'MINOR' | 'MAJOR' | 'INVALID';
-export type BinningMode = 'auto' | 'time';
+import type { SampleDTO as MoleSampleDTO, WireAlarmSeverity } from '@slaclab/canopy-client';
 
-export interface SampleDTO {
-  tsNs: number;
-  value: number | string | boolean | null;
-  severity: AlarmSeverity;
+export type AlarmSeverity = WireAlarmSeverity;
+
+export type {
+  ArchiverBinnedSeriesDTO,
+  ArchiverDataDTO,
+  ArchiverInfoDTO,
+  ArchiverListDTO,
+  ArchiverSeriesDTO,
+  BinnedPointDTO,
+  BinningMode,
+  ErrorEnvelope,
+  PVMetadataDTO,
+  SearchResultsDTO,
+} from '@slaclab/canopy-client';
+
+// One stored sample: Mole's (source 'archive') or Vole's live buffer
+// (source 'live'). The SDK's SampleDTO only knows Mole's.
+export interface SampleDTO extends Omit<MoleSampleDTO, 'source'> {
   source: 'archive' | 'live';
 }
 
@@ -15,80 +29,6 @@ export interface VoleSeriesDTO {
   pv: string;
   count: number;
   samples: SampleDTO[];
-}
-
-export interface ArchiverSeriesDTO {
-  mode: 'raw';
-  pv: string;
-  archiver: string;
-  from: number;
-  to: number;
-  decimated: boolean;
-  samples: SampleDTO[];
-}
-
-export interface BinnedPointDTO {
-  tsNs: number;
-  binNs: number;
-  mean: number;
-  stdDev: number;
-  min: number;
-  max: number;
-  count: number;
-  severity: AlarmSeverity;
-}
-
-export interface ArchiverBinnedSeriesDTO {
-  mode: 'binned';
-  pv: string;
-  archiver: string;
-  from: number;
-  to: number;
-  binning: BinningMode;
-  binSizeNs: number | null;
-  targetBuckets: number | null;
-  points: BinnedPointDTO[];
-}
-
-export type ArchiverDataDTO = ArchiverSeriesDTO | ArchiverBinnedSeriesDTO;
-
-export interface PVMetadataDTO {
-  pv: string;
-  archiver: string;
-  description: string | null;
-  units: string | null;
-  precision: number | null;
-  displayLow: number | null;
-  displayHigh: number | null;
-  alarmLow: number | null;
-  alarmHigh: number | null;
-  warningLow: number | null;
-  warningHigh: number | null;
-}
-
-export interface ArchiverInfoDTO {
-  name: string;
-  typeName: string;
-  url: string;
-  healthy: boolean;
-  latencyMs: number | null;
-  lastError: string | null;
-}
-
-export interface ArchiverListDTO {
-  default: string;
-  archivers: ArchiverInfoDTO[];
-}
-
-export interface SearchResultsDTO {
-  archiver: string;
-  pattern: string;
-  pvs: string[];
-}
-
-export interface ErrorEnvelope {
-  code: string;
-  detail: string;
 }
 
 // ── Magpie (config store) DTOs ───────────────────────────────────────────────
