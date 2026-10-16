@@ -25,7 +25,7 @@ import { useFormulaSeries, type FormulaSeriesResult } from '../hooks/useFormulaS
 import type { TimeWindowNs } from '../api/time';
 import { resolveTimeWindow } from '../api/time';
 import { fetchMetadata } from '../api/mole';
-import { ColorModeTheme, useColorMode } from '@slaclab/canopy-shell';
+import { ColorModeTheme, ErrorBoundary, useColorMode } from '@slaclab/canopy-shell';
 import { usePaletteId } from '../state/paletteStore';
 import { getPalette, colorForIndex } from '../palettes';
 import { downloadBlob, downloadDataUrl, pickFile } from '../io/download';
@@ -866,29 +866,31 @@ export function TraceApp() {
               if (next !== leftCollapsed) setLeftCollapsed(next);
             }}
           >
-            <LeftPanel
-              plots={plots}
-              activePlotId={activePlotId}
-              viewMode={viewMode}
-              archiveResultsByPlot={archiveResultsByPlot}
-              collapsed={leftCollapsed}
-              selectedItem={selectedItem}
-              onSelectItem={selectItem}
-              onAddTrace={addTrace}
-              onAddFormula={addFormula}
-              onDeleteTrace={deleteTrace}
-              onAddAxis={addAxis}
-              onDeleteAxis={deleteAxis}
-              onMoveTrace={moveTrace}
-              onCollapse={() => {
-                leftPanelRef.current?.collapse();
-                setLeftCollapsed(true);
-              }}
-              onExpand={() => {
-                leftPanelRef.current?.expand();
-                setLeftCollapsed(false);
-              }}
-            />
+            <ErrorBoundary resetKeys={[activePlotId]}>
+              <LeftPanel
+                plots={plots}
+                activePlotId={activePlotId}
+                viewMode={viewMode}
+                archiveResultsByPlot={archiveResultsByPlot}
+                collapsed={leftCollapsed}
+                selectedItem={selectedItem}
+                onSelectItem={selectItem}
+                onAddTrace={addTrace}
+                onAddFormula={addFormula}
+                onDeleteTrace={deleteTrace}
+                onAddAxis={addAxis}
+                onDeleteAxis={deleteAxis}
+                onMoveTrace={moveTrace}
+                onCollapse={() => {
+                  leftPanelRef.current?.collapse();
+                  setLeftCollapsed(true);
+                }}
+                onExpand={() => {
+                  leftPanelRef.current?.expand();
+                  setLeftCollapsed(false);
+                }}
+              />
+            </ErrorBoundary>
           </Panel>
 
           <PanelResizeHandle className="trace-resize-handle" />
@@ -896,27 +898,29 @@ export function TraceApp() {
           <Panel defaultSize="60%" minSize="30%">
             <div className="plot-and-insight">
               <div className="plot-and-insight__plot">
-                <PlotArea
-                  plots={plots}
-                  activePlotId={activePlotId}
-                  viewMode={viewMode}
-                  archiveResultsByPlot={archiveResultsByPlot}
-                  liveResultsByPlot={liveResultsByPlot}
-                  formulaResultsByPlot={formulaResultsByPlot}
-                  onSetActivePlot={setActivePlotId}
-                  onAddPlot={addPlot}
-                  onRemovePlot={removePlot}
-                  onSetViewMode={setViewMode}
-                  onPopOutPlot={setPoppedOutPlot}
-                  detachedPlotIds={detachedPlotIds}
-                  onDetachPlot={detachPlot}
-                  onReattachPlot={reattachPlot}
-                  onViewWindowChange={handleViewWindowChange}
-                  viewWindowByPlot={viewWindowByPlot}
-                  onAxisRangesChange={handleAxisRangesChange}
-                  onUpdateAxis={updateAxisInPlot}
-                  onChartInstance={handleChartInstance}
-                />
+                <ErrorBoundary resetKeys={[activePlotId, viewMode]}>
+                  <PlotArea
+                    plots={plots}
+                    activePlotId={activePlotId}
+                    viewMode={viewMode}
+                    archiveResultsByPlot={archiveResultsByPlot}
+                    liveResultsByPlot={liveResultsByPlot}
+                    formulaResultsByPlot={formulaResultsByPlot}
+                    onSetActivePlot={setActivePlotId}
+                    onAddPlot={addPlot}
+                    onRemovePlot={removePlot}
+                    onSetViewMode={setViewMode}
+                    onPopOutPlot={setPoppedOutPlot}
+                    detachedPlotIds={detachedPlotIds}
+                    onDetachPlot={detachPlot}
+                    onReattachPlot={reattachPlot}
+                    onViewWindowChange={handleViewWindowChange}
+                    viewWindowByPlot={viewWindowByPlot}
+                    onAxisRangesChange={handleAxisRangesChange}
+                    onUpdateAxis={updateAxisInPlot}
+                    onChartInstance={handleChartInstance}
+                  />
+                </ErrorBoundary>
               </div>
               {insight.open && !insight.detached && insight.minimized && (
                 <div className="insight-minbar">
@@ -939,15 +943,17 @@ export function TraceApp() {
               )}
               {insight.open && !insight.detached && !insight.minimized && (
                 <div className="insight-dock">
-                  <DataInsightTool
-                    plots={insightPlots}
-                    windowByPlotId={windowByPlotId}
-                    selectedPv={insightPv}
-                    onSelectPv={(id) => setInsight((p) => ({ ...p, pv: id }))}
-                    onClose={() => setInsight((p) => ({ ...p, open: false }))}
-                    onMinimize={() => setInsight((p) => ({ ...p, minimized: true }))}
-                    onDetach={() => setInsight((p) => ({ ...p, detached: true }))}
-                  />
+                  <ErrorBoundary resetKeys={[insightPv]}>
+                    <DataInsightTool
+                      plots={insightPlots}
+                      windowByPlotId={windowByPlotId}
+                      selectedPv={insightPv}
+                      onSelectPv={(id) => setInsight((p) => ({ ...p, pv: id }))}
+                      onClose={() => setInsight((p) => ({ ...p, open: false }))}
+                      onMinimize={() => setInsight((p) => ({ ...p, minimized: true }))}
+                      onDetach={() => setInsight((p) => ({ ...p, detached: true }))}
+                    />
+                  </ErrorBoundary>
                 </div>
               )}
             </div>
@@ -967,29 +973,33 @@ export function TraceApp() {
               if (next !== rightCollapsed) setRightCollapsed(next);
             }}
           >
-            <RightPanel
-              selectedItem={selectedItem}
-              activePlot={activePlot}
-              archiveResults={archiveResultsByPlot.get(activePlot.id) ?? new Map()}
-              liveResults={liveResultsByPlot.get(activePlot.id) ?? new Map()}
-              collapsed={rightCollapsed}
-              onUpdateTrace={updateTrace}
-              onSelectPv={(traceId, pvName) => assignTraceToUnitAxis(activePlotId, traceId, pvName)}
-              onUpdateAxis={updateAxis}
-              onUpdatePlot={(updates) => updatePlot(activePlotId, updates)}
-              onApplyPalette={applyPalette}
-              getAxisRange={getAxisRange}
-              onInspectTrace={(id) => openInsight(id)}
-              onCreateFormula={(sourceId) => createFormulaFromTrace(activePlotId, sourceId)}
-              onCollapse={() => {
-                rightPanelRef.current?.collapse();
-                setRightCollapsed(true);
-              }}
-              onExpand={() => {
-                rightPanelRef.current?.expand();
-                setRightCollapsed(false);
-              }}
-            />
+            <ErrorBoundary resetKeys={[activePlotId, selectedItem?.type, selectedItem?.id]}>
+              <RightPanel
+                selectedItem={selectedItem}
+                activePlot={activePlot}
+                archiveResults={archiveResultsByPlot.get(activePlot.id) ?? new Map()}
+                liveResults={liveResultsByPlot.get(activePlot.id) ?? new Map()}
+                collapsed={rightCollapsed}
+                onUpdateTrace={updateTrace}
+                onSelectPv={(traceId, pvName) =>
+                  assignTraceToUnitAxis(activePlotId, traceId, pvName)
+                }
+                onUpdateAxis={updateAxis}
+                onUpdatePlot={(updates) => updatePlot(activePlotId, updates)}
+                onApplyPalette={applyPalette}
+                getAxisRange={getAxisRange}
+                onInspectTrace={(id) => openInsight(id)}
+                onCreateFormula={(sourceId) => createFormulaFromTrace(activePlotId, sourceId)}
+                onCollapse={() => {
+                  rightPanelRef.current?.collapse();
+                  setRightCollapsed(true);
+                }}
+                onExpand={() => {
+                  rightPanelRef.current?.expand();
+                  setRightCollapsed(false);
+                }}
+              />
+            </ErrorBoundary>
           </Panel>
         </PanelGroup>
       </div>
