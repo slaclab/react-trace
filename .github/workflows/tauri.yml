@@ -1,24 +1,61 @@
 name: Build Desktop App
 
-# Cross-platform (macOS + Linux) sanity build of the Tauri bundles. Runs on PRs
-# that touch the desktop app and on manual dispatch; artifacts are uploaded
-# per-platform (this does not publish a release or deploy). The Linux RPM build
-# on pushes to main is owned by build-dev.yml, and releases by
+# Rust tests plus a cross-platform (macOS, Linux, Windows) sanity build of the
+# Tauri bundles. Runs on PRs that touch the desktop app (path-filtered, so
+# bundle breakage is caught before merge) and on manual dispatch; artifacts are
+# uploaded per-platform (this does not publish a release or deploy). The Linux
+# RPM build on pushes to main is owned by build-dev.yml, and releases by
 # build-release.yml, so this workflow deliberately does not trigger on push to
 # main to avoid a duplicate build.
 on:
   pull_request:
     branches: [main]
     paths:
-      - 'src-tauri/**'
-      - 'src/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'vite.config.ts'
-      - '.github/workflows/tauri.yml'
+      - "src-tauri/**"
+      - "src/**"
+      - ".github/workflows/tauri.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "vite.config.ts"
   workflow_dispatch:
 
 jobs:
+  # Fast feedback: the Rust unit + in-process proxy e2e tests, no bundling.
+  test:
+    name: Rust tests
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install Linux WebView system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.0-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2
+        with:
+          workspaces: src-tauri
+
+      - name: Stage build-time resources
+        # tauri-build verifies the bundle resources exist even for `cargo test`:
+        # config.json is gitignored (it can hold an API key) and dist/ is the
+        # frontend build output (not needed by the Rust tests themselves).
+        run: |
+          cp src-tauri/config.json.example src-tauri/config.json
+          mkdir -p dist && touch dist/index.html
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
   build:
     name: Build (${{ matrix.platform }})
     runs-on: ${{ matrix.platform }}
@@ -29,6 +66,8 @@ jobs:
           - platform: macos-latest
             args: ""
           - platform: ubuntu-22.04
+            args: ""
+          - platform: windows-latest
             args: ""
 
     steps:
@@ -73,6 +112,7 @@ jobs:
         # config.json is gitignored (it can hold an API key); the bundled default
         # is the committed example. Operators repoint via env/CLI at runtime.
         run: cp src-tauri/config.json.example src-tauri/config.json
+        shell: bash
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@42e9df6c59070d114bf90dcd3943a1b8f138b113 # v0
@@ -97,3 +137,12 @@ jobs:
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/rpm/*.rpm
             src-tauri/target/release/bundle/appimage/*.AppImage
+
+      - name: Upload Windows artifacts
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: trace-windows
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
