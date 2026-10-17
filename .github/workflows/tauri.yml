@@ -3,7 +3,7 @@ name: Build Desktop App
 # Cross-platform (macOS + Linux) sanity build of the Tauri bundles. Runs on PRs
 # that touch the desktop app and on manual dispatch; artifacts are uploaded
 # per-platform (this does not publish a release or deploy). The Linux RPM build
-# on pushes to main is owned by build-and-deploy-dev.yml, and releases by
+# on pushes to main is owned by build-dev.yml, and releases by
 # build-release.yml, so this workflow deliberately does not trigger on push to
 # main to avoid a duplicate build.
 on:
