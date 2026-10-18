@@ -395,6 +395,29 @@ describe('FormulaStore in-flight requests', () => {
     expect(entry('f1')?.status).toBe('ready');
   });
 
+  it('keeps waiting when the window was resolved a little before the request went out', async () => {
+    const { fox, store } = setup();
+    // Rendered 100 ms before the effect sent it: 2% of this 5 s span.
+    const rendered = win(Date.now() - 5_100, Date.now() - 100);
+    store.request('f1', { spec: spec('{x1}*2'), window: rendered });
+    for (let ms = 100; ms <= 12_000; ms += 100) {
+      await vi.advanceTimersByTimeAsync(100);
+      store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5_000) });
+    }
+    expect(fox.calls).toHaveLength(1);
+  });
+
+  it("doesn't wait on a historical request the window was panned past", async () => {
+    const { fox, store } = setup();
+    const start = T0 - 60 * MINUTE;
+    store.request('f1', { spec: spec('{x1}*2'), window: win(start, start + 10_000) });
+    // Fox is slow: 15 s in, the user drags the 10 s view 12 s forward.
+    await vi.advanceTimersByTimeAsync(15_000);
+    store.request('f1', { spec: spec('{x1}*2'), window: win(start + 12_000, start + 22_000) });
+
+    expect(fox.calls.map((c) => c.signal.aborted)).toEqual([true, false]);
+  });
+
   it('catches up after an answer when the window slid past it and then stopped', async () => {
     const { fox, store } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });

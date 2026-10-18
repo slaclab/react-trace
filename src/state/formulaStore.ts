@@ -142,6 +142,15 @@ function spanChanged(prevSpanNs: number, win: TimeWindowNs): boolean {
   return Math.abs(spanOf(win) - prevSpanNs) > tolerance(win);
 }
 
+// How far behind "now" a window may end and still count as tracking it.
+function nearNowSlack(win: TimeWindowNs): number {
+  return Math.max(tolerance(win), NEAR_NOW_SLACK_MS * 1e6);
+}
+
+function tracksNow(win: TimeWindowNs, nowNs: number): boolean {
+  return win.toNs >= nowNs - nearNowSlack(win);
+}
+
 // The evaluated range `cover` already holds what `win` needs. `decimated` is
 // whether Fox thinned that result to its output cap.
 function covers(
@@ -158,8 +167,7 @@ function covers(
   if (cover.toNs >= win.toNs - tol) return true;
   // A window tracking "now" may run ahead by the slack; a historical window
   // (panned into the past, absolute) keeps the plain tolerance.
-  const slack = Math.max(tol, NEAR_NOW_SLACK_MS * 1e6);
-  return win.toNs >= nowNs - slack && cover.toNs >= win.toNs - slack;
+  return tracksNow(win, nowNs) && cover.toNs >= win.toNs - nearNowSlack(win);
 }
 
 function sameWindow(a: TimeWindowNs, b: TimeWindowNs): boolean {
@@ -168,16 +176,21 @@ function sameWindow(a: TimeWindowNs, b: TimeWindowNs): boolean {
 }
 
 // `win` is `prev` moved forward at the same span, and either still overlaps it
-// or has moved no further than the clock since `prev` was sent (a following
-// window shorter than Fox's latency). Waiting for that answer keeps one
-// evaluation in flight at a time. A jump further than that is a new request.
-function forwardSlide(prev: TimeWindowNs, win: TimeWindowNs, elapsedNs: number): boolean {
-  const tol = tolerance(win);
+// or is the same window following "now" (`prevTrackedNow`: it did when sent),
+// just further along because Fox is slower than its span. Waiting for that
+// answer keeps one evaluation in flight at a time. Any other jump forward is a
+// new request.
+function forwardSlide(
+  prev: TimeWindowNs,
+  prevTrackedNow: boolean,
+  win: TimeWindowNs,
+  nowNs: number
+): boolean {
   return (
     win.toNs >= prev.toNs &&
-    win.fromNs >= prev.fromNs - tol &&
+    win.fromNs >= prev.fromNs - tolerance(win) &&
     !spanChanged(spanOf(prev), win) &&
-    (win.fromNs < prev.toNs || win.toNs - prev.toNs <= elapsedNs + tol)
+    (win.fromNs < prev.toNs || (prevTrackedNow && tracksNow(win, nowNs)))
   );
 }
 
@@ -202,9 +215,9 @@ interface Internal {
   // Window `data.points` were evaluated over; null until an evaluation under
   // this identity succeeds.
   cover: TimeWindowNs | null;
-  // Window of the in-flight request, and when it was sent (ms).
+  // Window of the in-flight request, and whether it tracked "now" when sent.
   requested: TimeWindowNs | null;
-  startedAtMs: number;
+  requestedTrackedNow: boolean;
   // Latest window asked for, issued or not. Retries and catch-ups use it.
   wanted: TimeWindowNs;
   controller: AbortController | null;
@@ -253,7 +266,7 @@ export class FormulaStore {
         data: { identity, status: 'loading', points: [], decimated: false },
         cover: null,
         requested: null,
-        startedAtMs: 0,
+        requestedTrackedNow: false,
         wanted: req.window,
         controller: null,
         timeoutTimer: null,
@@ -306,34 +319,37 @@ export class FormulaStore {
     if (entry.controller && entry.requested) {
       // Let an in-flight request land when it was for (nearly) this window or
       // one this window only slid forward from. EVAL_TIMEOUT_MS bounds the wait.
-      const elapsedNs = (nowMs - entry.startedAtMs) * 1e6;
-      if (sameWindow(entry.requested, win) || forwardSlide(entry.requested, win, elapsedNs)) {
+      const { requested, requestedTrackedNow } = entry;
+      if (
+        sameWindow(requested, win) ||
+        forwardSlide(requested, requestedTrackedNow, win, nowMs * 1e6)
+      ) {
         return;
       }
       // That answer is for a window that's no longer wanted (a pan back, or a
       // window that a failure blocks), and landing would swap in its range.
       this.cancelRequest(entry);
     }
-    const failure = entry.failure;
     if (entry.cover && covers(entry.cover, entry.data.decimated, win, nowMs * 1e6)) {
       // What's drawn serves this window, whatever failed for another one. The
       // failure stays on record, so its backoff or terminal span still applies
       // if the window leaves this range again.
-      this.showFailure(entry, null);
+      this.showStatus(entry, null);
       return;
     }
     // A terminal failure waits for a new span; a transient one for its retry
     // timer, which re-drives the entry.
+    const failure = entry.failure;
     if (failure && (entry.retryTimer || (failure.terminal && !spanChanged(failure.spanNs, win)))) {
-      this.showFailure(entry, failure);
+      this.showStatus(entry, failure);
       return;
     }
     this.start(id, entry, win);
   }
 
-  // Show `failure` as the entry's status, or 'ready' for null, publishing only
-  // if that changes what's shown.
-  private showFailure(entry: Internal, failure: Failure | null): void {
+  // Show `failure` as the entry's status: 'error' with its info, or 'ready'
+  // for null. Publishes only if that changes what's shown.
+  private showStatus(entry: Internal, failure: Failure | null): void {
     const status = failure ? 'error' : 'ready';
     if (entry.data.status === status && entry.data.error === failure?.info) return;
     entry.data = { ...entry.data, status, error: failure?.info };
@@ -346,7 +362,7 @@ export class FormulaStore {
     const controller = new AbortController();
     entry.controller = controller;
     entry.requested = win;
-    entry.startedAtMs = this.now();
+    entry.requestedTrackedNow = tracksNow(win, this.now() * 1e6);
     // Settled here rather than through the aborted fetch's rejection, so a
     // request that ignores its signal still can't hold the entry.
     entry.timeoutTimer = setTimeout(() => {
