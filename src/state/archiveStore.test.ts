@@ -760,4 +760,26 @@ describe('archiveStore: zooming into a binned buffer', () => {
     // The first fetch, then one at every 7th step (0.9^7 < 0.5 < 0.9^6).
     expect(h.fetchData).toHaveBeenCalledTimes(5);
   });
+
+  it('after a zoom refetch, a pan or a zoom back out fetches its own window', async () => {
+    const h = setup(async (_pv, params) => binnedDto(params));
+    const day = windowAt(h.now(), DAY_S);
+    ask(h, day);
+    await flush();
+    const zoom = zoomTo(day, 40 * 60);
+    ask(h, zoom);
+    await flush();
+    // The buffer now holds only the zoomed window, at its own resolution.
+    const panned = { fromNs: zoom.fromNs - 600e9, toNs: zoom.toNs - 600e9 };
+    ask(h, panned);
+    await flush();
+    ask(h, day);
+    await flush();
+    expect(h.fetchData.mock.calls.map((c) => [c[1].fromNs, c[1].toNs])).toEqual([
+      [day.fromNs, day.toNs],
+      [zoom.fromNs, zoom.toNs],
+      [panned.fromNs, panned.toNs],
+      [day.fromNs, day.toNs],
+    ]);
+  });
 });
