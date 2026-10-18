@@ -1,5 +1,6 @@
-# Run TypeScript type checking
-pnpm run typecheck
+# Run TypeScript type checking. This calls tsc -b directly, the same check as
+# `pnpm run typecheck`, so it also works on branches that predate that script.
+pnpm exec tsc -b
 
 # Run lint-staged (eslint + prettier on staged files)
 pnpm lint-staged
