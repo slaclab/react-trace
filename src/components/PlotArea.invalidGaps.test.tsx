@@ -1,0 +1,291 @@
+// @vitest-environment jsdom
+//
+// Regression tests for #120: an INVALID sample breaks the line until the next
+// good sample, the stretch is marked under the x-axis, and the min/max band and
+// the extension line don't bridge it. Mounts SinglePlot with a mocked
+// echarts-for-react and inspects the option it's handed.
+import { describe, expect, it, vi } from 'vitest';
+import { render } from '@testing-library/react';
+import { SinglePlot } from './PlotArea';
+import type { Plot, PVTrace } from '../types';
+import type { AlarmSeverity } from '../api/types';
+import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
+import type { LiveSeriesResult } from '../hooks/useLiveSeries';
+
+type Series = Record<string, unknown> & { id: string; type: string; data: unknown[] };
+interface Option {
+  series: Series[];
+  xAxis: { axisLabel: { margin: number } };
+  tooltip: { formatter: (p: { axisValue: number }[]) => string };
+}
+
+const { lastOption } = vi.hoisted(() => ({ lastOption: { current: null as unknown } }));
+
+vi.mock('echarts-for-react', async () => {
+  const React = await import('react');
+  class MockECharts extends React.Component<{ option: unknown }> {
+    getEchartsInstance() {
+      return undefined;
+    }
+    render() {
+      lastOption.current = this.props.option;
+      return React.createElement('div');
+    }
+  }
+  return { default: MockECharts };
+});
+
+// A fixed custom window, so the x-axis end (and a trailing stretch) is exact.
+const FROM_MS = Date.UTC(2026, 9, 1, 12, 0, 0);
+const TO_MS = FROM_MS + 60_000;
+const at = (s: number) => FROM_MS + s * 1000;
+const COLOR = '#ff00aa';
+
+function makeTrace(over: Partial<PVTrace> = {}): PVTrace {
+  return {
+    id: 't1',
+    pvName: 'AV:TEMP',
+    displayName: 'AV:TEMP',
+    color: COLOR,
+    visible: true,
+    axisId: 'ax1',
+    useLive: false,
+    updateRate: '1s',
+    useArchive: true,
+    lineWidth: 2,
+    lineType: 'direct',
+    lineStyle: 'solid',
+    showSymbol: false,
+    symbolShape: 'circle',
+    symbolSize: 4,
+    data: [],
+    ...over,
+  };
+}
+
+function makePlot(traces: PVTrace[]): Plot {
+  return {
+    id: 'p1',
+    title: 'Plot 1',
+    traces,
+    axes: [
+      {
+        id: 'ax1',
+        name: 'Y',
+        orientation: 'left',
+        autoScale: true,
+        logScale: false,
+        visible: true,
+      },
+    ],
+    backgroundColor: 'default',
+    showLegend: false,
+    showXGridlines: false,
+    showYGridlines: false,
+    showCrosshair: false,
+    gridStyle: 'solid',
+    gridOpacity: 1,
+    tickFontSize: 11,
+    xAxis: {
+      timeRange: 'custom',
+      timeFrom: new Date(FROM_MS).toISOString(),
+      timeTo: new Date(TO_MS).toISOString(),
+    },
+  };
+}
+
+type Pt = [seconds: number, value: number, severity: AlarmSeverity];
+const points = (pts: Pt[]) => pts.map(([s, value, severity]) => ({ time: at(s), value, severity }));
+
+function rawResult(pts: Pt[]): ArchiveSeriesResult {
+  return { status: 'ready', mode: 'raw', mean: points(pts), band: [] };
+}
+
+function mount(
+  traces: PVTrace[],
+  archive: Map<string, ArchiveSeriesResult>,
+  live = new Map<string, LiveSeriesResult>()
+): Option {
+  const { unmount } = render(
+    <SinglePlot
+      plot={makePlot(traces)}
+      archiveResults={archive}
+      liveResults={live}
+      formulaResults={new Map()}
+    />
+  );
+  unmount();
+  return lastOption.current as Option;
+}
+
+const seriesById = (opt: Option, id: string) => opt.series.find((s) => s.id === id);
+
+// Good samples at 10 s and 20 s, INVALID at 30 s and 35 s, good again from 40 s.
+const WITH_INVALID: Pt[] = [
+  [10, 1, 'NO_ALARM'],
+  [20, 2, 'MINOR'],
+  [30, 99, 'INVALID'],
+  [35, 98, 'INVALID'],
+  [40, 3, 'NO_ALARM'],
+  [50, 4, 'NO_ALARM'],
+];
+
+// Runs a marker series' renderItem for one stretch against a 300 px-wide grid
+// spanning the window, and returns the shape it draws.
+function renderMarker(marker: Series, index: number) {
+  const grid = { type: 'cartesian2d', x: 70, y: 40, width: 300, height: 200 };
+  const stretch = marker.data[index] as [number, number];
+  const toPx = (t: number) => grid.x + ((t - FROM_MS) / (TO_MS - FROM_MS)) * grid.width;
+  const renderItem = marker.renderItem as (
+    params: unknown,
+    api: unknown
+  ) => { type: string; shape: Record<string, number>; style: { fill: string } };
+  return renderItem(
+    { coordSys: grid },
+    { value: (dim: number) => stretch[dim], coord: ([t]: [number]) => [toPx(t), 0] }
+  );
+}
+
+describe('PlotArea: INVALID samples (#120)', () => {
+  it('direct line: breaks at the first INVALID sample and restarts at the next good one', () => {
+    const opt = mount([makeTrace()], new Map([['t1', rawResult(WITH_INVALID)]]));
+    expect(seriesById(opt, 't1')!.data).toEqual([
+      [at(10), 1],
+      [at(20), 2],
+      [at(30), null],
+      [at(40), 3],
+      [at(50), 4],
+    ]);
+  });
+
+  it('step line: holds the last good value up to the bad sample, then breaks', () => {
+    const opt = mount(
+      [makeTrace({ lineType: 'step' })],
+      new Map([['t1', rawResult(WITH_INVALID)]])
+    );
+    const line = seriesById(opt, 't1')!;
+    expect(line.step).toBe('end');
+    expect(line.data).toEqual([
+      [at(10), 1],
+      [at(20), 2],
+      // The hold point isn't a sample, so it never draws a symbol.
+      { value: [at(30), 2], symbol: 'none' },
+      [at(30), null],
+      [at(40), 3],
+      [at(50), 4],
+    ]);
+  });
+
+  it('marks the INVALID stretch under the x-axis in the trace colour', () => {
+    for (const lineType of ['direct', 'step'] as const) {
+      const opt = mount([makeTrace({ lineType })], new Map([['t1', rawResult(WITH_INVALID)]]));
+      const marker = seriesById(opt, 't1-invalid')!;
+      expect(marker.type).toBe('custom');
+      // From the first INVALID sample to the next good one.
+      expect(marker.data).toEqual([[at(30), at(40)]]);
+      // It must not stretch the y-axis.
+      expect(marker.encode).toEqual({ x: [0, 1] });
+
+      const rect = renderMarker(marker, 0);
+      expect(rect.type).toBe('rect');
+      expect(rect.style.fill).toBe(COLOR);
+      // Below the axis line (grid bottom = 40 + 200), spanning 30 s → 40 s.
+      expect(rect.shape.y).toBeGreaterThan(240);
+      expect(rect.shape.x).toBeCloseTo(70 + 150);
+      expect(rect.shape.width).toBeCloseTo(50);
+    }
+  });
+
+  it('no marker series and an unbroken line without INVALID samples', () => {
+    const clean = WITH_INVALID.filter(([, , sev]) => sev !== 'INVALID');
+    const opt = mount([makeTrace()], new Map([['t1', rawResult(clean)]]));
+    expect(seriesById(opt, 't1-invalid')).toBeUndefined();
+    expect(seriesById(opt, 't1')!.data).toEqual(clean.map(([s, v]) => [at(s), v]));
+    expect(opt.xAxis.axisLabel.margin).toBe(8);
+  });
+
+  it('extension line: drawn from the last good sample, not across a trailing INVALID stretch', () => {
+    const ok = mount([makeTrace()], new Map([['t1', rawResult(WITH_INVALID)]]));
+    const ext = seriesById(ok, 't1-extension')!;
+    expect((ext.data as [number, number][])[0]).toEqual([at(50), 4]);
+
+    const endsInvalid: Pt[] = [...WITH_INVALID, [55, 97, 'INVALID']];
+    for (const lineType of ['direct', 'step'] as const) {
+      const opt = mount([makeTrace({ lineType })], new Map([['t1', rawResult(endsInvalid)]]));
+      expect(seriesById(opt, 't1-extension')).toBeUndefined();
+      // The open stretch runs to the window end instead.
+      expect(seriesById(opt, 't1-invalid')!.data).toEqual([
+        [at(30), at(40)],
+        [at(55), TO_MS],
+      ]);
+    }
+  });
+
+  it('min/max band: both stacked series break at the INVALID bin', () => {
+    const bins: [number, number, number, AlarmSeverity][] = [
+      [10, 0, 2, 'NO_ALARM'],
+      [20, 1, 3, 'NO_ALARM'],
+      [30, 50, 60, 'INVALID'],
+      [40, 2, 4, 'NO_ALARM'],
+    ];
+    const result: ArchiveSeriesResult = {
+      status: 'ready',
+      mode: 'binned',
+      mean: bins.map(([s, lo, hi, severity]) => ({ time: at(s), value: (lo + hi) / 2, severity })),
+      band: bins.map(([s, min, max, severity]) => ({ time: at(s), min, max, severity })),
+    };
+    const opt = mount([makeTrace()], new Map([['t1', result]]));
+    expect(seriesById(opt, 't1-band-min')!.data).toEqual([
+      [at(10), 0],
+      [at(20), 1],
+      [at(30), null],
+      [at(40), 2],
+    ]);
+    expect(seriesById(opt, 't1-band-max')!.data).toEqual([
+      [at(10), 2],
+      [at(20), 2],
+      [at(30), null],
+      [at(40), 2],
+    ]);
+  });
+
+  it('live points: an INVALID live sample breaks the line the same way', () => {
+    const live: LiveSeriesResult = {
+      status: 'connected',
+      connected: true,
+      severity: 'NO_ALARM',
+      latest: null,
+      error: null,
+      points: points(WITH_INVALID),
+    };
+    const opt = mount(
+      [makeTrace({ useArchive: false, useLive: true })],
+      new Map(),
+      new Map([['t1', live]])
+    );
+    expect(seriesById(opt, 't1')!.data).toContainEqual([at(30), null]);
+    expect(seriesById(opt, 't1-invalid')!.data).toEqual([[at(30), at(40)]]);
+  });
+
+  it('each trace with INVALID stretches gets its own marker lane', () => {
+    const opt = mount(
+      [makeTrace(), makeTrace({ id: 't2', pvName: 'AV:TEMP2', displayName: 'AV:TEMP2' })],
+      new Map([
+        ['t1', rawResult(WITH_INVALID)],
+        ['t2', rawResult(WITH_INVALID)],
+      ])
+    );
+    const y1 = renderMarker(seriesById(opt, 't1-invalid')!, 0).shape.y;
+    const y2 = renderMarker(seriesById(opt, 't2-invalid')!, 0).shape.y;
+    expect(y1).not.toBe(y2);
+    // The x-axis labels move down to clear the second lane.
+    expect(opt.xAxis.axisLabel.margin).toBeGreaterThan(8);
+  });
+
+  it('tooltip: shows a non-NO_ALARM severity next to the value', () => {
+    const opt = mount([makeTrace()], new Map([['t1', rawResult(WITH_INVALID)]]));
+    expect(opt.tooltip.formatter([{ axisValue: at(31) }])).toContain('INVALID');
+    expect(opt.tooltip.formatter([{ axisValue: at(21) }])).toContain('MINOR');
+    expect(opt.tooltip.formatter([{ axisValue: at(49) }])).not.toMatch(/NO_ALARM|INVALID|MINOR/);
+  });
+});

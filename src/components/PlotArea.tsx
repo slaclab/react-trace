@@ -13,6 +13,14 @@ import { traceLabel } from '../traceLabel';
 import { useColorMode } from '../state/themeStore';
 import type { PngSource } from '../io/exportPlotImage';
 import {
+  gappedLineData,
+  invalidMarkerSeries,
+  invalidStretches,
+  isInvalid,
+  xAxisLabelMargin,
+  type PlotSample,
+} from './invalidGaps';
+import {
   AXIS_OFFSET,
   hitTestAxis,
   panExtent,
@@ -138,33 +146,28 @@ function formatTimeOffset(deltaMs: number): string {
   return `${sign}${(abs / 86_400_000).toFixed(1)}d`;
 }
 
-function traceLineData(
+function traceSamples(
   trace: PVTrace,
   archive: ArchiveSeriesResult | undefined,
   live: LiveSeriesResult | undefined,
   formula: FormulaSeriesResult | undefined
-): [number, number][] {
+): readonly PlotSample[] {
   // Formula curves are evaluated server-side (Fox); their points are the only
   // source — no archive/live merge, no mock seed.
   if (trace.kind === 'formula') {
-    return formula ? formula.points : [];
+    return formula ? formula.points.map(([time, value]) => ({ time, value })) : [];
   }
   // Mirror old Trace's independent toggles. Archive feeds the past, live
   // feeds the present; with both on, archive runs up to the last archive
-  // sample and live takes over afterwards (de-duped at the seam).
-  const archivePts =
-    trace.useArchive && archive && archive.mean.length > 0
-      ? archive.mean.map((p): [number, number] => [p.time, p.value])
-      : null;
-  const livePts =
-    trace.useLive && live && live.points.length > 0
-      ? live.points.map((p): [number, number] => [p.time, p.value])
-      : null;
+  // sample and live takes over afterwards (de-duped at the seam). Both keep
+  // their per-sample severity.
+  const archivePts = trace.useArchive && archive && archive.mean.length > 0 ? archive.mean : null;
+  const livePts = trace.useLive && live && live.points.length > 0 ? live.points : null;
 
   if (archivePts && livePts) {
-    const seamMs = archivePts[archivePts.length - 1][0];
+    const seamMs = archivePts[archivePts.length - 1].time;
     let head = 0;
-    while (head < livePts.length && livePts[head][0] <= seamMs) head++;
+    while (head < livePts.length && livePts[head].time <= seamMs) head++;
     return head === 0 ? archivePts.concat(livePts) : archivePts.concat(livePts.slice(head));
   }
   if (archivePts) return archivePts;
@@ -173,29 +176,25 @@ function traceLineData(
   // no archive: render nothing rather than the mock seed. Mock data stays
   // for traces with neither toggle on, since there's no other source to show.
   if (trace.useLive || trace.useArchive) return [];
-  return trace.data.map((p) => [p.time, p.value]);
+  return trace.data;
 }
 
 // Binary search for the sample whose `time` is nearest to `tMs`. Series are
 // always sorted ascending by time (archive buffer + mock generator both honor
 // this), so we don't sort here.
-function nearestSample(
-  data: [number, number][],
-  tMs: number
-): { time: number; value: number } | undefined {
+function nearestSample(data: readonly PlotSample[], tMs: number): PlotSample | undefined {
   if (data.length === 0) return undefined;
   let lo = 0;
   let hi = data.length - 1;
-  if (tMs <= data[lo][0]) return { time: data[lo][0], value: data[lo][1] };
-  if (tMs >= data[hi][0]) return { time: data[hi][0], value: data[hi][1] };
+  if (tMs <= data[lo].time) return data[lo];
+  if (tMs >= data[hi].time) return data[hi];
   while (hi - lo > 1) {
     const mid = (lo + hi) >> 1;
-    if (data[mid][0] <= tMs) lo = mid;
+    if (data[mid].time <= tMs) lo = mid;
     else hi = mid;
   }
-  const pickHi = data[hi][0] - tMs < tMs - data[lo][0];
-  const idx = pickHi ? hi : lo;
-  return { time: data[idx][0], value: data[idx][1] };
+  const pickHi = data[hi].time - tMs < tMs - data[lo].time;
+  return pickHi ? data[hi] : data[lo];
 }
 
 export function SinglePlot({
@@ -581,19 +580,23 @@ export function SinglePlot({
   const xAxisMin = nsToMs(requested.fromNs);
   const xAxisMax = nsToMs(requested.toNs);
 
-  // Pre-compute per-trace [time, value] arrays once; series rendering and the
-  // tooltip formatter both read from this map. Sorted ascending by time.
-  const traceData = new Map<string, [number, number][]>();
+  // Pre-compute per-trace samples once; series rendering and the tooltip
+  // formatter both read from this map. Sorted ascending by time.
+  const traceData = new Map<string, readonly PlotSample[]>();
+  // INVALID stretches per trace, and the marker lane each trace draws them in.
+  const invalidByTrace = new Map<string, { stretches: [number, number][]; lane: number }>();
   for (const trace of visibleTraces) {
-    traceData.set(
-      trace.id,
-      traceLineData(
-        trace,
-        archiveResults.get(trace.id),
-        liveResults.get(trace.id),
-        formulaResults.get(trace.id)
-      )
+    const samples = traceSamples(
+      trace,
+      archiveResults.get(trace.id),
+      liveResults.get(trace.id),
+      formulaResults.get(trace.id)
     );
+    traceData.set(trace.id, samples);
+    const stretches = invalidStretches(samples, xAxisMax);
+    if (stretches.length > 0) {
+      invalidByTrace.set(trace.id, { stretches, lane: invalidByTrace.size });
+    }
   }
 
   // Grid insets. Named so the per-axis hit-zones (below) derive from the exact
@@ -637,7 +640,12 @@ export function SinglePlot({
       type: 'time',
       min: xAxisMin,
       max: xAxisMax,
-      axisLabel: { color: theme.axisLabel, fontSize: plot.tickFontSize },
+      axisLabel: {
+        color: theme.axisLabel,
+        fontSize: plot.tickFontSize,
+        // Clear the INVALID markers drawn under the axis.
+        margin: xAxisLabelMargin(invalidByTrace.size),
+      },
       axisLine: { lineStyle: { color: theme.axisLine } },
       splitLine: {
         show: plot.showXGridlines,
@@ -697,6 +705,7 @@ export function SinglePlot({
         // Min/max band, drawn as two stacked area series so ECharts fills between them.
         // Keep the previous band rendered while a fetch is in flight (status may
         // be 'loading') so the band doesn't disappear during panning/zooming.
+        // Both break at the same INVALID points as the line.
         if (
           trace.useArchive &&
           trace.showArchiveBand !== false &&
@@ -710,7 +719,7 @@ export function SinglePlot({
             name: `${labels.get(trace.id)} (min)`,
             type: 'line',
             yAxisIndex,
-            data: archive.band.map((p) => [p.time, p.min]),
+            data: gappedLineData(archive.band, (p) => p.min),
             stack: stackId,
             lineStyle: { opacity: 0 },
             areaStyle: { opacity: 0 },
@@ -727,7 +736,7 @@ export function SinglePlot({
             name: `${labels.get(trace.id)} (max)`,
             type: 'line',
             yAxisIndex,
-            data: archive.band.map((p) => [p.time, p.max - p.min]),
+            data: gappedLineData(archive.band, (p) => p.max - p.min),
             stack: stackId,
             lineStyle: { opacity: 0 },
             areaStyle: { color: trace.color, opacity: 0.18 },
@@ -742,13 +751,14 @@ export function SinglePlot({
         }
 
         const tracePoints = traceData.get(trace.id) ?? [];
+        const step = trace.lineType === 'step';
         series.push({
           id: trace.id,
           name: labels.get(trace.id),
           type: 'line',
           yAxisIndex,
-          data: tracePoints,
-          step: trace.lineType === 'step' ? 'end' : false,
+          data: gappedLineData(tracePoints, (p) => p.value, step),
+          step: step ? 'end' : false,
           lineStyle: {
             color: trace.color,
             width: trace.lineWidth,
@@ -765,15 +775,31 @@ export function SinglePlot({
           emphasis: { disabled: true },
         });
 
+        const invalid = invalidByTrace.get(trace.id);
+        if (invalid) {
+          series.push(
+            invalidMarkerSeries({
+              id: `${trace.id}-invalid`,
+              name: `${labels.get(trace.id)} (invalid)`,
+              color: trace.color,
+              yAxisIndex,
+              lane: invalid.lane,
+              stretches: invalid.stretches,
+              z: baseZ + 1,
+            })
+          );
+        }
+
+        // Not from an INVALID last sample: the marker covers that stretch.
         if (trace.showExtensionLine !== false && trace.lineStyle !== 'none') {
           const last = tracePoints.at(-1);
-          if (last && last[0] < xAxisMax) {
-            const startTime = Math.max(last[0], xAxisMin);
+          if (last && !isInvalid(last) && last.time < xAxisMax) {
+            const startTime = Math.max(last.time, xAxisMin);
             // 2048 anchors so weakFilter always finds in-window points at any zoom depth.
             const ANCHORS = 2048;
             const data = Array.from({ length: ANCHORS }, (_, k): [number, number] => [
               startTime + ((xAxisMax - startTime) * k) / (ANCHORS - 1),
-              last[1],
+              last.value,
             ]);
             series.push({
               id: `${trace.id}-extension`,
@@ -849,8 +875,10 @@ export function SinglePlot({
         for (const trace of visibleTraces) {
           const data = traceData.get(trace.id);
           const sample = data ? nearestSample(data, cursorMs) : undefined;
+          const severity =
+            sample?.severity && sample.severity !== 'NO_ALARM' ? ` ${sample.severity}` : '';
           const valueCell = sample
-            ? `${formatTooltipValue(sample.value)} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
+            ? `${formatTooltipValue(sample.value)}${severity} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
             : `<span style="color:${theme.tooltipMuted}">no data</span>`;
           lines.push(
             `<span style="color:${trace.color}">${labels.get(trace.id)}</span>: ${valueCell}`
