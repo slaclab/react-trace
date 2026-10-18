@@ -476,6 +476,21 @@ export function TraceApp() {
     );
   };
 
+  // Workspace replacement invalidates every in-flight units lookup: trace and axis
+  // ids collide across workspaces, so a late answer would retarget an incoming trace.
+  const abortUnitLookups = () => {
+    for (const c of unitFetchAbortRef.current.values()) c.abort();
+    unitFetchAbortRef.current.clear();
+  };
+  // Unmounting abandons them too.
+  useEffect(() => {
+    const lookups = unitFetchAbortRef.current;
+    return () => {
+      for (const c of lookups.values()) c.abort();
+      lookups.clear();
+    };
+  }, []);
+
   // When a PV is chosen for a trace, look up its engineering units and move the
   // trace to the axis representing those units, creating one if none exists.
   // This is a best-effort default the user can override with the axis dropdown
@@ -512,10 +527,10 @@ export function TraceApp() {
     setPlots((prev) =>
       prev.map((p) => {
         if (p.id !== plotId) return p;
-        // The user moved the trace to a different axis while we were fetching;
-        // respect that manual choice and skip the auto-assign entirely.
+        // The user moved the trace to a different axis (or gave it another PV)
+        // while we were fetching; respect that and skip the auto-assign entirely.
         const current = p.traces.find((t) => t.id === traceId);
-        if (!current || current.axisId !== axisIdAtFetch) return p;
+        if (!current || current.axisId !== axisIdAtFetch || current.pvName !== pvName) return p;
         const norm = (s: string | undefined) => (s ?? '').trim().toLowerCase();
         // Match an axis by recorded units, or by name as a fallback for axes
         // that predate unit tracking. The name fallback matches the unit only
@@ -675,6 +690,7 @@ export function TraceApp() {
       alert(`Failed to import: ${(err as Error).message}`);
       return;
     }
+    abortUnitLookups();
     setPlots(result.plots);
     if (result.plots.length > 0) setActivePlotId(result.plots[0].id);
     if (result.theme) {
