@@ -27,8 +27,17 @@ export interface FetchMode {
   maxPoints: number;
 }
 
-export function pickFetchMode(windowMs: number, traceBins?: number): FetchMode {
-  if (windowMs <= RAW_WINDOW_MS_THRESHOLD) return { maxPoints: RAW_MAX_POINTS };
+// `rawDecimatedMs`: raw for a window this long came back decimated (thinned to
+// RAW_MAX_POINTS by the archiver), so a window at least this long fetches
+// binned instead, whose min/max band keeps the spikes thinning would drop.
+export function pickFetchMode(
+  windowMs: number,
+  traceBins?: number,
+  rawDecimatedMs = Infinity
+): FetchMode {
+  if (windowMs <= RAW_WINDOW_MS_THRESHOLD && windowMs < rawDecimatedMs) {
+    return { maxPoints: RAW_MAX_POINTS };
+  }
   return { binning: 'auto', maxPoints: traceBins ?? DEFAULT_OPTIMIZED_BINS };
 }
 
@@ -155,6 +164,10 @@ interface InternalEntry {
   hasCover: boolean;
   // Pending retry of `wanted` after a transient failure (see scheduleRetry).
   retryTimer: ReturnType<typeof setTimeout> | null;
+  // Shortest span whose raw answer came back decimated; Infinity until one
+  // does. Windows at least this long fetch binned. Only ever decreases while
+  // the identity stays the same (refetchAll() keeps it).
+  rawDecimatedSpanNs: number;
 }
 
 export interface RequestOpts {
@@ -263,10 +276,18 @@ interface ResolvedRequest {
   spanNs: number;
 }
 
-function resolveRequest(opts: RequestOpts): ResolvedRequest {
+function resolveRequest(opts: RequestOpts, prev?: InternalEntry): ResolvedRequest {
   const spanNs = opts.window.toNs - opts.window.fromNs;
-  const mode = pickFetchMode(spanNs / 1_000_000, opts.bins);
   const identityKey: IdentityKey = { pv: opts.pv, archiver: opts.archiver ?? null };
+  // Within the coverage tolerance of a span that came back decimated counts as
+  // that span, so window jitter doesn't retry raw.
+  const decimatedNs =
+    prev && identityEqual(prev.identityKey, identityKey) ? prev.rawDecimatedSpanNs : Infinity;
+  const mode = pickFetchMode(
+    spanNs / 1_000_000,
+    opts.bins,
+    (decimatedNs - coverageTolerance(opts.window)) / 1_000_000
+  );
   const fetchSig: FetchSig = {
     ...identityKey,
     bins: mode.maxPoints,
@@ -434,7 +455,7 @@ export class ArchiveStore {
       this.clearRetry(entry);
 
       const opts = entry.wanted;
-      const { fetchSig, mode } = resolveRequest(opts);
+      const { fetchSig, mode } = resolveRequest(opts, entry);
       const controller = new AbortController();
       entry.fetchSig = fetchSig;
       entry.requestedWindow = opts.window;
@@ -466,6 +487,9 @@ export class ArchiveStore {
    *   fetched again instead and the archiver decimates it. An
    *   in-flight fetch isn't aborted for a forward slide; once it lands, the
    *   rest of the latest window is fetched.
+   * - Raw came back decimated: refetch binned. Windows at least that long go
+   *   straight to binned until the pv or archiver changes; a shorter one tries
+   *   raw again.
    * - Last fetch failed for another reason: no fetch until its backoff expires.
    *   Then a timer retries the latest request, so a window that never moves
    *   retries too.
@@ -481,10 +505,9 @@ export class ArchiveStore {
    * is backing off) doesn't flicker back to 'loading'.
    */
   request(traceId: string, opts: RequestOpts): void {
-    const { identityKey, fetchSig, mode, key, spanNs } = resolveRequest(opts);
-    const known = this.notArchived.get(key);
-
     const existing = this.entries.get(traceId);
+    const { identityKey, fetchSig, mode, key, spanNs } = resolveRequest(opts, existing);
+    const known = this.notArchived.get(key);
     const sameIdentity = !!existing && identityEqual(existing.identityKey, identityKey);
 
     if (existing && sameIdentity) {
@@ -569,6 +592,7 @@ export class ArchiveStore {
         failure: notArchivedFailure(known, spanNs),
         hasCover: false,
         retryTimer: null,
+        rawDecimatedSpanNs: Infinity,
       });
       this.publish();
       return;
@@ -614,6 +638,7 @@ export class ArchiveStore {
       failure: sameIdentity ? existing!.failure : null,
       hasCover: sameIdentity ? existing!.hasCover : false,
       retryTimer: null,
+      rawDecimatedSpanNs: sameIdentity ? existing!.rawDecimatedSpanNs : Infinity,
     };
     this.entries.set(traceId, entry);
     if (!keepShowing) this.publish();
@@ -650,6 +675,21 @@ export class ArchiveStore {
       if (!cur || cur.controller !== controller) return;
       // The archiver has this pair after all (e.g. archiving started since).
       const forgot = this.notArchived.delete(key);
+      // Raw came back thinned to maxPoints: the archiver keeps the sample
+      // nearest each of maxPoints evenly spaced times, dropping spikes between
+      // them. Don't keep it; re-request the window binned (the prior buffer
+      // stays on screen). Only a raw request gets here, and only a shorter
+      // window tries raw again, so this can't loop.
+      if (!tail && resolvedMode === 'raw' && dto.mode === 'raw' && dto.decimated) {
+        cur.rawDecimatedSpanNs = Math.min(
+          cur.rawDecimatedSpanNs,
+          opts.window.toNs - opts.window.fromNs
+        );
+        cur.controller = null;
+        cur.failure = null;
+        this.request(traceId, cur.wanted);
+        return;
+      }
       const data = tail
         ? spliceTail(cur.data, dto, tail, opts.window)
         : dtoToData(dto, resolvedMode, opts.window);

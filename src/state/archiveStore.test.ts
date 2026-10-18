@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ArchiveStore, type FetchDataFn } from './archiveStore';
+import { ArchiveStore, DEFAULT_OPTIMIZED_BINS, type FetchDataFn } from './archiveStore';
 import { CanopyError } from '../api/client';
 import type { ArchiverDataDTO } from '../api/types';
 import type { TimeWindowNs } from '../api/time';
@@ -450,12 +450,111 @@ describe('archiveStore: other failures back off', () => {
   });
 });
 
+// #122: Mole thins a raw answer over maxPoints by keeping the sample nearest
+// each of maxPoints evenly spaced times, which drops spikes between them. A
+// decimated raw answer is re-requested binned, whose min/max band keeps them.
+
+// A PV whose raw answers come back decimated for windows longer than
+// `rawCapS`. Binned requests get ten bins over the window.
+function decimatingFetch(rawCapS: number): Impl {
+  return async (_pv, params) => {
+    const toNs = params.toNs ?? params.fromNs;
+    if (!params.binning) {
+      return { ...rawDto(params), decimated: toNs - params.fromNs > rawCapS * 1e9 };
+    }
+    const binNs = (toNs - params.fromNs) / 10;
+    return {
+      mode: 'binned',
+      pv: PV,
+      archiver: 'lcls',
+      from: params.fromNs,
+      to: toNs,
+      binning: 'auto',
+      binSizeNs: null,
+      targetBuckets: params.maxPoints ?? null,
+      points: Array.from({ length: 10 }, (_, i) => ({
+        tsNs: params.fromNs + i * binNs,
+        binNs,
+        mean: i,
+        stdDev: 0,
+        min: i - 1,
+        max: i + 1,
+        count: 1,
+        severity: 'NO_ALARM' as const,
+      })),
+    };
+  };
+}
+
+describe('archiveStore: decimated raw answers', () => {
+  const RAW_CAP_S = 15 * 60;
+  const modes = (h: Harness) => h.fetchData.mock.calls.map((c) => c[1].binning ?? 'raw');
+  const ask = (h: Harness, window: TimeWindowNs, o: { pv?: string; bins?: number } = {}) =>
+    h.store.request('t1', { pv: o.pv ?? PV, archiver: undefined, bins: o.bins, window });
+
+  it('re-requests a decimated 30 min window binned, and stays binned as now advances', async () => {
+    const h = setup(decimatingFetch(RAW_CAP_S));
+    const thinnedShown: boolean[] = [];
+    h.store.subscribe(() => thinnedShown.push(!!h.store.getSnapshot().get('t1')?.decimated));
+    await drift(h, { spanS: 30 * 60, steps: 600 });
+
+    // One raw request, then bins for the same window, then a full binned
+    // refetch whenever the window drifts 1% (18 s) past the buffer.
+    expect(modes(h)).toEqual(['raw', 'auto', 'auto', 'auto', 'auto']);
+    const [first, second] = h.fetchData.mock.calls.map((c) => c[1]);
+    expect(second).toMatchObject({
+      fromNs: first.fromNs,
+      toNs: first.toNs,
+      maxPoints: DEFAULT_OPTIMIZED_BINS,
+    });
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry).toMatchObject({ status: 'ready', mode: 'binned', decimated: false });
+    expect(entry.band).toHaveLength(10);
+    // The thinned raw samples are never put on screen.
+    expect(thinnedShown).not.toContain(true);
+    expect(h.published.t1).not.toContain('error');
+  });
+
+  it('only a shorter window tries raw again', async () => {
+    const h = setup(decimatingFetch(RAW_CAP_S));
+    const toNs = windowAt(h.now(), 0).toNs;
+    const last = (spanS: number): TimeWindowNs => ({ fromNs: toNs - spanS * 1e9, toNs });
+    for (const spanS of [1800, 1200, 1500, 600, 1194]) {
+      ask(h, last(spanS));
+      await flush();
+    }
+    expect(modes(h)).toEqual([
+      'raw', // 30 min: decimated,
+      'auto', // so bins.
+      'raw', // 20 min, shorter: decimated again,
+      'auto', // so bins.
+      'auto', // 25 min, longer than 20: bins straight away.
+      'raw', // 10 min: not decimated, kept.
+      'auto', // 19.9 min: within 1% of 20 min, so bins straight away.
+    ]);
+  });
+
+  it('remembers it across refetchAll(), not across a pv change', async () => {
+    const h = setup(decimatingFetch(RAW_CAP_S));
+    const win = windowAt(h.now(), 30 * 60);
+    ask(h, win, { bins: 2000 });
+    await flush();
+    h.store.refetchAll();
+    await flush();
+    ask(h, win, { pv: 'OTHER:PV', bins: 2000 });
+    await flush();
+    expect(modes(h)).toEqual(['raw', 'auto', 'auto', 'raw', 'auto']);
+    // The trace's own bin count is used for the binned requests.
+    expect(h.fetchData.mock.calls[1][1].maxPoints).toBe(2000);
+  });
+});
+
 // Archived PVs as "now" advances (#93 "Additional context", and #94's
 // seconds-scale strip-tool windows): fetch only the new tail, at most every
 // DRIFT_MIN_INTERVAL_MS, without aborting in-flight requests.
 describe('archiveStore: archived PV while the window tracks now', () => {
   // One sample per whole second in the requested range, value = epoch second.
-  function secondsDto(params: FetchDataParams, decimated = false): ArchiverDataDTO {
+  function secondsDto(params: FetchDataParams): ArchiverDataDTO {
     const toNs = params.toNs ?? params.fromNs;
     const samples = [];
     for (let s = Math.ceil(params.fromNs / 1e9); s * 1e9 <= toNs; s++) {
@@ -472,7 +571,7 @@ describe('archiveStore: archived PV while the window tracks now', () => {
       archiver: 'test',
       from: params.fromNs,
       to: toNs,
-      decimated,
+      decimated: false,
       samples,
     };
   }
@@ -645,7 +744,8 @@ describe('archiveStore: archived PV while the window tracks now', () => {
   });
 
   it('a decimated buffer is refetched whole', async () => {
-    const h = setup(async (_pv, params) => secondsDto(params, true));
+    // Every raw answer is decimated, so the store asks for bins (#122).
+    const h = setup(decimatingFetch(0));
     await drift(h, { spanS: 30, steps: 100 });
     const spans = h.fetchData.mock.calls.map((c) => spanOf(c[1]));
     expect(spans.length).toBeGreaterThan(1);
