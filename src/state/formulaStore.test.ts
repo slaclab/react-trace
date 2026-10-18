@@ -443,6 +443,34 @@ describe('FormulaStore in-flight requests', () => {
     expect(fox.calls[3].signal.aborted).toBe(false);
   });
 
+  it('gives a late answer the near-now slack of the window it was asked for', async () => {
+    const { fox, store } = setup();
+    // 10 s span: 1% is 0.1 s, so the 2 s slack applies near "now".
+    store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(10_000) });
+    vi.setSystemTime(T0 + 1_000);
+    store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(10_000) });
+
+    // Nothing re-renders; the answer lands 3 s after that last ask.
+    vi.setSystemTime(T0 + 4_000);
+    fox.calls[0].resolve();
+    await flush();
+    expect(fox.calls).toHaveLength(1);
+  });
+
+  it('counts a window ending within the slack ahead of now as live, and one further out as not', () => {
+    // Half-second spans, so the new windows never overlap the in-flight one.
+    const ahead = (endMs: number) => win(T0 + endMs - 500, T0 + endMs);
+    const near = setup();
+    near.store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(500) });
+    near.store.request('f1', { spec: spec('{x1}*2'), window: ahead(NEAR_NOW_SLACK_MS - 500) });
+    expect(near.fox.calls).toHaveLength(1);
+
+    const far = setup();
+    far.store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(500) });
+    far.store.request('f1', { spec: spec('{x1}*2'), window: ahead(NEAR_NOW_SLACK_MS + 500) });
+    expect(far.fox.calls.map((c) => c.signal.aborted)).toEqual([true, false]);
+  });
+
   it('catches up after an answer when the window slid past it and then stopped', async () => {
     const { fox, store } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });

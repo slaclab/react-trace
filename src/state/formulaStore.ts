@@ -28,9 +28,10 @@ import type { FormulaResultDTO, FormulaSpecDTO } from '../api/types';
 
 // ── Policy ───────────────────────────────────────────────────────────────────
 
-// How far a window that tracks "now" may run ahead of the evaluated range
-// before it's re-evaluated (or 1% of its span, if larger). Matches the archive
-// store's drift interval.
+// How far a window that reaches "now" may run ahead of the evaluated range
+// before it's re-evaluated, and how close to "now" a window must end to count
+// as following it (or 1% of its span, if larger). Matches the archive store's
+// drift interval.
 export const NEAR_NOW_SLACK_MS = 2_000;
 
 // Retry schedule for transient failures; the last step repeats. Mirrors
@@ -143,12 +144,21 @@ function spanChanged(prevSpanNs: number, win: TimeWindowNs): boolean {
   return Math.abs(spanOf(win) - prevSpanNs) > tolerance(win);
 }
 
-// How far from "now" a window may end and still count as following it.
 function nearNowSlack(win: TimeWindowNs): number {
   return Math.max(tolerance(win), NEAR_NOW_SLACK_MS * 1e6);
 }
 
-// `win` ended at "now" (within the slack) when it was asked for at `askedAtNs`.
+// Both are judged at `askedAtNs`, the time the window was asked for: a retry or
+// catch-up runs later than that.
+//
+// `win` ended no earlier than the slack before "now": a live window, or one
+// ending in the future. Coverage gives these the slack.
+function reachesNow(win: TimeWindowNs, askedAtNs: number): boolean {
+  return win.toNs >= askedAtNs - nearNowSlack(win);
+}
+
+// `win` ended at "now", within the slack either way: a live window. Only these
+// wait on an in-flight request they no longer overlap.
 function followsNow(win: TimeWindowNs, askedAtNs: number): boolean {
   return Math.abs(win.toNs - askedAtNs) <= nearNowSlack(win);
 }
@@ -159,7 +169,7 @@ function covers(
   cover: TimeWindowNs,
   decimated: boolean,
   win: TimeWindowNs,
-  nowNs: number
+  askedAtNs: number
 ): boolean {
   const tol = tolerance(win);
   if (cover.fromNs > win.fromNs + tol) return false;
@@ -169,8 +179,7 @@ function covers(
   if (cover.toNs >= win.toNs - tol) return true;
   // A window reaching "now" may run ahead by the slack; a historical window
   // (panned into the past, absolute) keeps the plain tolerance.
-  const slack = nearNowSlack(win);
-  return win.toNs >= nowNs - slack && cover.toNs >= win.toNs - slack;
+  return reachesNow(win, askedAtNs) && cover.toNs >= win.toNs - nearNowSlack(win);
 }
 
 function sameWindow(a: TimeWindowNs, b: TimeWindowNs): boolean {
@@ -318,16 +327,15 @@ export class FormulaStore {
   }
 
   // Bring an entry whose identity is unchanged up to date for the window it
-  // wants: evaluate
-  // it only if what it has (or is about to get) doesn't serve the window. The
-  // current points stay up until a new answer lands.
+  // wants: evaluate it only if what it has (or is about to get) doesn't serve
+  // that window. The current points stay up until a new answer lands.
   private refresh(id: string, entry: Internal): void {
     const win = entry.wanted;
-    const nowMs = this.now();
+    const askedAtNs = entry.wantedAtMs * 1e6;
     if (entry.controller && entry.requested) {
       // Let an in-flight request land when it was for (nearly) this window or
       // one this window only slid forward from. EVAL_TIMEOUT_MS bounds the wait.
-      const winFollowsNow = followsNow(win, entry.wantedAtMs * 1e6);
+      const winFollowsNow = followsNow(win, askedAtNs);
       const { requested, requestedFollowedNow } = entry;
       if (
         sameWindow(requested, win) ||
@@ -339,7 +347,7 @@ export class FormulaStore {
       // window that a failure blocks), and landing would swap in its range.
       this.cancelRequest(entry);
     }
-    if (entry.cover && covers(entry.cover, entry.data.decimated, win, nowMs * 1e6)) {
+    if (entry.cover && covers(entry.cover, entry.data.decimated, win, askedAtNs)) {
       // What's drawn serves this window, whatever failed for another one. The
       // failure stays on record, so its backoff or terminal span still applies
       // if the window leaves this range again.
