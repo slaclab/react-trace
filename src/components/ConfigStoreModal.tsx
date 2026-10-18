@@ -39,6 +39,15 @@ interface ConfigStoreModalProps {
   onToast: (t: { kind: 'success' | 'error'; title: string; subtitle?: string }) => void;
 }
 
+// What the modal is busy with. Save and every row's Load/Rename/Delete share
+// this one slot, so only one runs at a time: a successful Load closes the
+// modal, which would orphan anything running beside it.
+type BusyOp =
+  | { kind: 'save' }
+  | { kind: 'load' | 'rename' | 'delete'; slug: string; label: string };
+
+const BUSY_VERB = { load: 'Loading', rename: 'Renaming', delete: 'Deleting' } as const;
+
 // One unpaginated page. Truncation is surfaced in the list header rather than
 // silently hidden; real paging is slaclab/react-trace#80.
 const PAGE_SIZE = 200;
@@ -77,14 +86,23 @@ export function ConfigStoreModal({
 }: ConfigStoreModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [configs, setConfigs] = useState<ConfigDTO[]>([]);
   const [totalCount, setTotalCount] = useState<number | null>(null);
   const [listing, setListing] = useState(false);
-  // Slug currently undergoing a row action (delete/load), to disable its buttons.
-  const [busySlug, setBusySlug] = useState<string | null>(null);
+
+  // The one operation in flight (see BusyOp). State drives the render; the ref
+  // gives handlers and the close guard the current value without waiting for a
+  // re-render, so a second click in the same tick can't also claim the slot.
+  const [busy, setBusyState] = useState<BusyOp | null>(null);
+  const busyRef = useRef<BusyOp | null>(null);
+  const setBusy = useCallback((op: BusyOp | null) => {
+    busyRef.current = op;
+    setBusyState(op);
+  }, []);
+  const saving = busy?.kind === 'save';
+
   // Monotonic refresh id. A Save/Delete fires its own refresh while the open
   // refresh may still be in flight; without this, the slower (older) response
   // could land last and overwrite the newer post-mutation list. Only the latest
@@ -126,14 +144,40 @@ export function ConfigStoreModal({
     initialized.current = true;
     setName('');
     setDescription('');
-    setSaving(false);
     setError(null);
     void refresh();
   }, [open, refresh]);
 
-  const handleSave = async () => {
-    setSaving(true);
+  // Carbon's X, Escape and backdrop all call this; returning false keeps the
+  // dialog open. Save, Rename and Delete block dismissal until they settle: the
+  // server change happens either way, so closing would only hide its outcome.
+  // This must read refs, not render state. Carbon registers its Escape listener
+  // once per open and keeps the onClose from that render, when nothing was busy.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+  const requestClose = useCallback(() => {
+    const op = busyRef.current;
+    if (op && op.kind !== 'load') return false;
+    onCloseRef.current();
+  }, []);
+
+  // Claim the slot for `op`; false if another operation holds it.
+  const begin = (op: BusyOp): boolean => {
+    if (busyRef.current) return false;
+    setBusy(op);
     setError(null);
+    return true;
+  };
+  // Release the slot only if `op` still holds it.
+  const end = (op: BusyOp) => {
+    if (busyRef.current === op) setBusy(null);
+  };
+
+  const handleSave = async () => {
+    const op: BusyOp = { kind: 'save' };
+    if (!begin(op)) return;
     try {
       const data = serializeConfigData({ theme, plots });
       const dto = await saveConfig(data, {
@@ -156,59 +200,62 @@ export function ConfigStoreModal({
     } catch (err) {
       setError(errText(err));
     } finally {
-      setSaving(false);
+      end(op);
     }
   };
 
-  const handleLoad = async (slug: string) => {
-    setBusySlug(slug);
-    setError(null);
+  const handleLoad = async (config: ConfigDTO) => {
+    const op: BusyOp = { kind: 'load', slug: config.slug, label: config.name || config.slug };
+    if (!begin(op)) return;
     try {
-      const dto = await getConfig(slug);
+      const dto = await getConfig(config.slug);
       const result = deserializeConfigData(dto.data);
       onLoaded(result);
       onToast({
         kind: 'success',
         title: 'Workspace loaded',
-        subtitle: dto.name ? `Loaded "${dto.name}"` : `Loaded config ${slug}`,
+        subtitle: dto.name ? `Loaded "${dto.name}"` : `Loaded config ${config.slug}`,
       });
       onClose();
     } catch (err) {
       setError(errText(err));
     } finally {
-      setBusySlug(null);
+      end(op);
     }
   };
 
   const handleRename = async (config: ConfigDTO) => {
+    // Don't prompt for an action that can't start.
+    if (busyRef.current) return;
     const next = window.prompt('Rename config', config.name ?? '');
     if (next === null) return;
     // No-op a blank rename (Save likewise omits empty names) or an unchanged one.
     const trimmed = next.trim();
     if (trimmed === '' || trimmed === (config.name ?? '')) return;
-    setBusySlug(config.slug);
-    setError(null);
+    const op: BusyOp = { kind: 'rename', slug: config.slug, label: config.name || config.slug };
+    if (!begin(op)) return;
     try {
       await updateConfig(config.slug, { name: trimmed });
       await refresh();
     } catch (err) {
       setError(errText(err));
     } finally {
-      setBusySlug(null);
+      end(op);
     }
   };
 
   const handleDelete = async (config: ConfigDTO) => {
+    if (busyRef.current) return;
     if (!window.confirm(`Delete "${config.name || config.slug}"? This cannot be undone.`)) return;
-    setBusySlug(config.slug);
-    setError(null);
+    const op: BusyOp = { kind: 'delete', slug: config.slug, label: config.name || config.slug };
+    if (!begin(op)) return;
     try {
       await deleteConfig(config.slug);
       await refresh();
     } catch (err) {
       setError(errText(err));
     } finally {
-      setBusySlug(null);
+      end(op);
     }
   };
 
@@ -222,7 +269,7 @@ export function ConfigStoreModal({
   };
 
   return (
-    <ComposedModal open={open} onClose={saving ? undefined : onClose} size="lg">
+    <ComposedModal open={open} onClose={requestClose} size="lg">
       <ModalHeader title="Config store" />
       <ModalBody hasScrollingContent>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 4 }}>
@@ -258,7 +305,7 @@ export function ConfigStoreModal({
               rows={2}
             />
             <div>
-              <Button onClick={handleSave} disabled={saving}>
+              <Button onClick={handleSave} disabled={busy !== null}>
                 {saving ? 'Saving…' : 'Save & copy share link'}
               </Button>
             </div>
@@ -282,6 +329,10 @@ export function ConfigStoreModal({
                 onClick={() => void refresh()}
                 disabled={listing}
               />
+              {/* Save shows its progress on its own button. */}
+              {busy && busy.kind !== 'save' && (
+                <InlineLoading description={`${BUSY_VERB[busy.kind]} "${busy.label}"…`} />
+              )}
             </div>
 
             {listing ? (
@@ -314,8 +365,8 @@ export function ConfigStoreModal({
                           <Button
                             size="sm"
                             kind="tertiary"
-                            onClick={() => void handleLoad(c.slug)}
-                            disabled={busySlug === c.slug}
+                            onClick={() => void handleLoad(c)}
+                            disabled={busy !== null}
                           >
                             Load
                           </Button>
@@ -323,7 +374,7 @@ export function ConfigStoreModal({
                             size="sm"
                             kind="ghost"
                             onClick={() => void handleRename(c)}
-                            disabled={busySlug === c.slug}
+                            disabled={busy !== null}
                           >
                             Rename
                           </Button>
@@ -342,7 +393,7 @@ export function ConfigStoreModal({
                             iconDescription="Delete"
                             renderIcon={TrashCan}
                             onClick={() => void handleDelete(c)}
-                            disabled={busySlug === c.slug}
+                            disabled={busy !== null}
                           />
                         </div>
                       </StructuredListCell>
