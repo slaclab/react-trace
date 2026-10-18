@@ -103,6 +103,9 @@ export function TraceApp() {
   // Plots detached into their own browser windows. Their charts render there
   // via a portal; the main window shows a reattach placeholder in their place.
   const [detachedPlotIds, setDetachedPlotIds] = useState<string[]>([]);
+  // What the browser last refused to open as a pop-up (a plot title or "Data
+  // Insight"), shown in a toast. DetachedWindow reattaches it on its own.
+  const [blockedPopup, setBlockedPopup] = useState<string | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   // Data Insight Tool: a dockable panel that can be minimized or popped out into
@@ -1099,6 +1102,28 @@ export function TraceApp() {
           );
         })()}
 
+      {/* Notice for a detach the browser blocked (DetachedWindow onBlocked). */}
+      {blockedPopup &&
+        createPortal(
+          <div
+            style={{ position: 'fixed', top: 56, right: 16, zIndex: 9999 }}
+            role="status"
+            aria-live="polite"
+          >
+            <ToastNotification
+              kind="warning"
+              title="Pop-up blocked"
+              subtitle={`${blockedPopup} couldn't open in a new window. Allow pop-ups for this site in your browser, then try again.`}
+              timeout={0}
+              onClose={() => {
+                setBlockedPopup(null);
+                return true;
+              }}
+            />
+          </div>,
+          document.body
+        )}
+
       {/* Detached plots — each renders into its own browser window via portal. */}
       {detachedPlotIds.map((id) => {
         const plot = plots.find((p) => p.id === id);
@@ -1108,6 +1133,7 @@ export function TraceApp() {
             key={id}
             name={`trace-plot-${id}`}
             title={`${plot.title} — Trace`}
+            onBlocked={() => setBlockedPopup(plot.title || 'This plot')}
             onClose={() => reattachPlot(id)}
           >
             <Theme
@@ -1178,6 +1204,7 @@ export function TraceApp() {
           title="Data Insight Tool"
           width={720}
           height={560}
+          onBlocked={() => setBlockedPopup('Data Insight')}
           onClose={() => setInsight((p) => ({ ...p, detached: false }))}
         >
           <Theme
