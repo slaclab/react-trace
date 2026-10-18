@@ -593,7 +593,7 @@ export function SinglePlot({
       formulaResults.get(trace.id)
     );
     traceData.set(trace.id, samples);
-    const stretches = invalidStretches(samples, xAxisMax);
+    const stretches = invalidStretches(samples, xAxisMin, xAxisMax);
     if (stretches.length > 0) {
       invalidByTrace.set(trace.id, { stretches, lane: invalidByTrace.size });
     }
@@ -700,12 +700,13 @@ export function SinglePlot({
         const yAxisIndex = axisIndexMap.get(trace.axisId) ?? 0;
         const archive = archiveResults.get(trace.id);
         const baseZ = (total - i) * 10;
+        const step = trace.lineType === 'step';
         const series: Record<string, unknown>[] = [];
 
         // Min/max band, drawn as two stacked area series so ECharts fills between them.
         // Keep the previous band rendered while a fetch is in flight (status may
         // be 'loading') so the band doesn't disappear during panning/zooming.
-        // Both break at the same INVALID points as the line.
+        // Both break at the same INVALID points as the line (and hold like it).
         if (
           trace.useArchive &&
           trace.showArchiveBand !== false &&
@@ -719,7 +720,7 @@ export function SinglePlot({
             name: `${labels.get(trace.id)} (min)`,
             type: 'line',
             yAxisIndex,
-            data: gappedLineData(archive.band, (p) => p.min),
+            data: gappedLineData(archive.band, (p) => p.min, step),
             stack: stackId,
             lineStyle: { opacity: 0 },
             areaStyle: { opacity: 0 },
@@ -736,7 +737,7 @@ export function SinglePlot({
             name: `${labels.get(trace.id)} (max)`,
             type: 'line',
             yAxisIndex,
-            data: gappedLineData(archive.band, (p) => p.max - p.min),
+            data: gappedLineData(archive.band, (p) => p.max - p.min, step),
             stack: stackId,
             lineStyle: { opacity: 0 },
             areaStyle: { color: trace.color, opacity: 0.18 },
@@ -751,7 +752,6 @@ export function SinglePlot({
         }
 
         const tracePoints = traceData.get(trace.id) ?? [];
-        const step = trace.lineType === 'step';
         series.push({
           id: trace.id,
           name: labels.get(trace.id),

@@ -24,7 +24,7 @@ interface HoldPoint {
   symbol: 'none';
 }
 
-export type LinePoint = [number, number | null] | HoldPoint;
+type LinePoint = [number, number | null] | HoldPoint;
 
 /**
  * ECharts line data for `points`, with a `[t, null]` break at the first
@@ -55,28 +55,40 @@ export function gappedLineData<T extends { time: number; severity?: AlarmSeverit
 }
 
 /**
- * `[from, to]` (ms) for each INVALID run: from its first point to the next
- * good one, or to `endMs` when the data ends INVALID.
+ * `[from, to]` (ms) for each INVALID run that overlaps the window
+ * `[fromMs, toMs]`: from its first point to the next good one, or to `toMs`
+ * when the data ends INVALID. Runs outside the window (e.g. live points older
+ * than its start) are left out, so they don't take a marker lane.
  */
-export function invalidStretches(points: readonly PlotSample[], endMs: number): [number, number][] {
+export function invalidStretches(
+  points: readonly PlotSample[],
+  fromMs: number,
+  toMs: number
+): [number, number][] {
   const out: [number, number][] = [];
+  const add = (from: number, to: number) => {
+    if (from <= toMs && to > fromMs) out.push([from, to]);
+  };
   let from: number | null = null;
   for (const p of points) {
     if (isInvalid(p)) from ??= p.time;
     else if (from !== null) {
-      out.push([from, p.time]);
+      add(from, p.time);
       from = null;
     }
   }
-  if (from !== null) out.push([from, Math.max(from, endMs)]);
+  if (from !== null) add(from, Math.max(from, toMs));
   return out;
 }
 
 // Marker geometry, in px below the x-axis line. Each trace with INVALID
 // stretches gets its own lane, so overlapping stretches stay distinguishable.
+// Lanes stop at MAX_MARKER_LANES (later traces share the last one) so the
+// tick labels stay clear of the legend under the 60 px grid inset.
 const MARKER_TOP = 2;
 const MARKER_HEIGHT = 3;
 const MARKER_LANE_PITCH = 4;
+const MAX_MARKER_LANES = 4;
 // A single bad sample on a long window is still visible.
 const MARKER_MIN_WIDTH = 2;
 const DEFAULT_LABEL_MARGIN = 8;
@@ -91,7 +103,8 @@ interface GridRect {
 
 /** x-axis label margin that keeps the labels clear of `lanes` marker lanes. */
 export function xAxisLabelMargin(lanes: number): number {
-  return DEFAULT_LABEL_MARGIN + Math.max(0, lanes - 1) * MARKER_LANE_PITCH;
+  const extra = Math.max(0, Math.min(lanes, MAX_MARKER_LANES) - 1);
+  return DEFAULT_LABEL_MARGIN + extra * MARKER_LANE_PITCH;
 }
 
 /**
@@ -109,7 +122,7 @@ export function invalidMarkerSeries(opts: {
   stretches: [number, number][];
   z: number;
 }): Record<string, unknown> {
-  const top = MARKER_TOP + opts.lane * MARKER_LANE_PITCH;
+  const top = MARKER_TOP + Math.min(opts.lane, MAX_MARKER_LANES - 1) * MARKER_LANE_PITCH;
   const renderItem: CustomSeriesRenderItem = (params, api) => {
     const grid = params.coordSys as typeof params.coordSys & GridRect;
     // Only x is used; 1 is a valid y on any axis type, log included.

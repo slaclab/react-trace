@@ -7,7 +7,8 @@ import type { FetchDataParams } from '../api/mole';
 // PlotArea can break the line at INVALID samples.
 
 const PV = 'AV:TEMP';
-// A historical window (not tracking now), so a forward pan is a tail fetch.
+// The store's clock sits at the window end, so moving the window forward
+// 5 s is a tail fetch spliced into the buffer.
 const TO_MS = 1_700_000_000_000;
 const SPAN_S = 30;
 

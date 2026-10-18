@@ -221,20 +221,21 @@ describe('PlotArea: INVALID samples (#120)', () => {
     }
   });
 
+  const bins: [number, number, number, AlarmSeverity][] = [
+    [10, 0, 2, 'NO_ALARM'],
+    [20, 1, 3, 'NO_ALARM'],
+    [30, 50, 60, 'INVALID'],
+    [40, 2, 4, 'NO_ALARM'],
+  ];
+  const binnedResult: ArchiveSeriesResult = {
+    status: 'ready',
+    mode: 'binned',
+    mean: bins.map(([s, lo, hi, severity]) => ({ time: at(s), value: (lo + hi) / 2, severity })),
+    band: bins.map(([s, min, max, severity]) => ({ time: at(s), min, max, severity })),
+  };
+
   it('min/max band: both stacked series break at the INVALID bin', () => {
-    const bins: [number, number, number, AlarmSeverity][] = [
-      [10, 0, 2, 'NO_ALARM'],
-      [20, 1, 3, 'NO_ALARM'],
-      [30, 50, 60, 'INVALID'],
-      [40, 2, 4, 'NO_ALARM'],
-    ];
-    const result: ArchiveSeriesResult = {
-      status: 'ready',
-      mode: 'binned',
-      mean: bins.map(([s, lo, hi, severity]) => ({ time: at(s), value: (lo + hi) / 2, severity })),
-      band: bins.map(([s, min, max, severity]) => ({ time: at(s), min, max, severity })),
-    };
-    const opt = mount([makeTrace()], new Map([['t1', result]]));
+    const opt = mount([makeTrace()], new Map([['t1', binnedResult]]));
     expect(seriesById(opt, 't1-band-min')!.data).toEqual([
       [at(10), 0],
       [at(20), 1],
@@ -247,6 +248,21 @@ describe('PlotArea: INVALID samples (#120)', () => {
       [at(30), null],
       [at(40), 2],
     ]);
+  });
+
+  it('min/max band on a step line: holds up to the INVALID bin like the line', () => {
+    const opt = mount([makeTrace({ lineType: 'step' })], new Map([['t1', binnedResult]]));
+    expect(seriesById(opt, 't1-band-min')!.data).toEqual([
+      [at(10), 0],
+      [at(20), 1],
+      { value: [at(30), 1], symbol: 'none' },
+      [at(30), null],
+      [at(40), 2],
+    ]);
+    expect(seriesById(opt, 't1-band-max')!.data).toContainEqual({
+      value: [at(30), 2],
+      symbol: 'none',
+    });
   });
 
   it('live points: an INVALID live sample breaks the line the same way', () => {
@@ -280,6 +296,48 @@ describe('PlotArea: INVALID samples (#120)', () => {
     expect(y1).not.toBe(y2);
     // The x-axis labels move down to clear the second lane.
     expect(opt.xAxis.axisLabel.margin).toBeGreaterThan(8);
+  });
+
+  it('caps the marker lanes so the labels stay clear of the legend', () => {
+    const ids = ['t1', 't2', 't3', 't4', 't5', 't6'];
+    const opt = mount(
+      ids.map((id) => makeTrace({ id, pvName: `AV:${id}`, displayName: `AV:${id}` })),
+      new Map(ids.map((id) => [id, rawResult(WITH_INVALID)]))
+    );
+    const ys = ids.map((id) => renderMarker(seriesById(opt, `${id}-invalid`)!, 0).shape.y);
+    expect(new Set(ys.slice(0, 4)).size).toBe(4);
+    // Traces past the last lane share it.
+    expect(ys[4]).toBe(ys[3]);
+    expect(ys[5]).toBe(ys[3]);
+    expect(opt.xAxis.axisLabel.margin).toBe(20);
+  });
+
+  it('INVALID stretches outside the window take no marker lane', () => {
+    // Live points from before the window start (retention > span).
+    const live: LiveSeriesResult = {
+      status: 'connected',
+      connected: true,
+      severity: 'NO_ALARM',
+      latest: null,
+      error: null,
+      points: points([
+        [-30, 1, 'NO_ALARM'],
+        [-20, 9, 'INVALID'],
+        [-10, 2, 'NO_ALARM'],
+        [10, 3, 'NO_ALARM'],
+      ]),
+    };
+    const opt = mount(
+      [makeTrace({ useArchive: false, useLive: true }), makeTrace({ id: 't2' })],
+      new Map([['t2', rawResult(WITH_INVALID)]]),
+      new Map([['t1', live]])
+    );
+    expect(seriesById(opt, 't1-invalid')).toBeUndefined();
+    // The line still breaks there, off-screen.
+    expect(seriesById(opt, 't1')!.data).toContainEqual([at(-20), null]);
+    // t2's stretch gets the first lane, and the labels don't move.
+    expect(opt.xAxis.axisLabel.margin).toBe(8);
+    expect(renderMarker(seriesById(opt, 't2-invalid')!, 0).shape.y).toBe(240 + 2);
   });
 
   it('tooltip: shows a non-NO_ALARM severity next to the value', () => {
