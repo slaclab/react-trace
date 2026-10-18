@@ -167,16 +167,17 @@ function sameWindow(a: TimeWindowNs, b: TimeWindowNs): boolean {
   return Math.abs(a.fromNs - b.fromNs) <= tol && Math.abs(a.toNs - b.toNs) <= tol;
 }
 
-// `win` is `prev` moved forward at the same span and still overlapping it, so
-// the answer for `prev` holds part of what `win` needs (a following window
-// drifts by at most EVAL_TIMEOUT_MS while a request is out). A jump past
-// `prev` is a new request.
-function forwardSlide(prev: TimeWindowNs, win: TimeWindowNs): boolean {
+// `win` is `prev` moved forward at the same span, and either still overlaps it
+// or has moved no further than the clock since `prev` was sent (a following
+// window shorter than Fox's latency). Waiting for that answer keeps one
+// evaluation in flight at a time. A jump further than that is a new request.
+function forwardSlide(prev: TimeWindowNs, win: TimeWindowNs, elapsedNs: number): boolean {
+  const tol = tolerance(win);
   return (
     win.toNs >= prev.toNs &&
-    win.fromNs >= prev.fromNs - tolerance(win) &&
-    win.fromNs < prev.toNs &&
-    !spanChanged(spanOf(prev), win)
+    win.fromNs >= prev.fromNs - tol &&
+    !spanChanged(spanOf(prev), win) &&
+    (win.fromNs < prev.toNs || win.toNs - prev.toNs <= elapsedNs + tol)
   );
 }
 
@@ -191,6 +192,7 @@ interface Failure {
   attempts: number;
   // Span of the request that failed.
   spanNs: number;
+  info: FormulaErrorInfo;
 }
 
 interface Internal {
@@ -200,8 +202,9 @@ interface Internal {
   // Window `data.points` were evaluated over; null until an evaluation under
   // this identity succeeds.
   cover: TimeWindowNs | null;
-  // Window of the in-flight request.
+  // Window of the in-flight request, and when it was sent (ms).
   requested: TimeWindowNs | null;
+  startedAtMs: number;
   // Latest window asked for, issued or not. Retries and catch-ups use it.
   wanted: TimeWindowNs;
   controller: AbortController | null;
@@ -250,6 +253,7 @@ export class FormulaStore {
         data: { identity, status: 'loading', points: [], decimated: false },
         cover: null,
         requested: null,
+        startedAtMs: 0,
         wanted: req.window,
         controller: null,
         timeoutTimer: null,
@@ -298,32 +302,42 @@ export class FormulaStore {
   // it only if what it has (or is about to get) doesn't serve the window. The
   // current points stay up until a new answer lands.
   private refresh(id: string, entry: Internal, win: TimeWindowNs): void {
-    const covered =
-      !!entry.cover && covers(entry.cover, entry.data.decimated, win, this.now() * 1e6);
+    const nowMs = this.now();
     if (entry.controller && entry.requested) {
       // Let an in-flight request land when it was for (nearly) this window or
       // one this window only slid forward from. EVAL_TIMEOUT_MS bounds the wait.
-      if (sameWindow(entry.requested, win) || forwardSlide(entry.requested, win)) return;
-      // Back inside what's already drawn (a pan back): that answer isn't
-      // wanted any more, and landing would swap in the wrong range.
-      if (covered) this.cancelRequest(entry);
-    }
-    if (covered) {
-      // A transient failure for some other window doesn't apply to this one.
-      if (entry.failure && !entry.failure.terminal) {
-        this.clearRetry(entry);
-        entry.failure = null;
-        const { identity, points, decimated } = entry.data;
-        entry.data = { identity, status: 'ready', points, decimated };
-        this.publish();
+      const elapsedNs = (nowMs - entry.startedAtMs) * 1e6;
+      if (sameWindow(entry.requested, win) || forwardSlide(entry.requested, win, elapsedNs)) {
+        return;
       }
-      return;
+      // That answer is for a window that's no longer wanted (a pan back, or a
+      // window that a failure blocks), and landing would swap in its range.
+      this.cancelRequest(entry);
     }
     const failure = entry.failure;
-    if (failure?.terminal && !spanChanged(failure.spanNs, win)) return;
-    // Transient failure: the retry timer re-drives the entry.
-    if (entry.retryTimer) return;
+    if (entry.cover && covers(entry.cover, entry.data.decimated, win, nowMs * 1e6)) {
+      // What's drawn serves this window, whatever failed for another one. The
+      // failure stays on record, so its backoff or terminal span still applies
+      // if the window leaves this range again.
+      this.showFailure(entry, null);
+      return;
+    }
+    // A terminal failure waits for a new span; a transient one for its retry
+    // timer, which re-drives the entry.
+    if (failure && (entry.retryTimer || (failure.terminal && !spanChanged(failure.spanNs, win)))) {
+      this.showFailure(entry, failure);
+      return;
+    }
     this.start(id, entry, win);
+  }
+
+  // Show `failure` as the entry's status, or 'ready' for null, publishing only
+  // if that changes what's shown.
+  private showFailure(entry: Internal, failure: Failure | null): void {
+    const status = failure ? 'error' : 'ready';
+    if (entry.data.status === status && entry.data.error === failure?.info) return;
+    entry.data = { ...entry.data, status, error: failure?.info };
+    this.publish();
   }
 
   private start(id: string, entry: Internal, win: TimeWindowNs): void {
@@ -332,6 +346,7 @@ export class FormulaStore {
     const controller = new AbortController();
     entry.controller = controller;
     entry.requested = win;
+    entry.startedAtMs = this.now();
     // Settled here rather than through the aborted fetch's rejection, so a
     // request that ignores its signal still can't hold the entry.
     entry.timeoutTimer = setTimeout(() => {
@@ -382,7 +397,7 @@ export class FormulaStore {
     const terminal = isTerminalError(info);
     const prev = entry.failure;
     const attempts = !terminal && prev && !prev.terminal ? prev.attempts + 1 : 1;
-    entry.failure = { terminal, attempts, spanNs: spanOf(win) };
+    entry.failure = { terminal, attempts, spanNs: spanOf(win), info };
     // Points survive only because the identity is unchanged: they are the
     // last good result for this same spec.
     entry.data = { ...entry.data, status: 'error', error: info };
