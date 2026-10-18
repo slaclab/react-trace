@@ -60,6 +60,7 @@ pnpm dev
 ```bash
 pnpm dev           # vite dev server
 pnpm build         # tsc -b && vite build
+pnpm typecheck     # tsc -b
 pnpm test          # vitest
 pnpm lint          # eslint
 pnpm format        # prettier --write
