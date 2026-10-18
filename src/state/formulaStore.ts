@@ -9,15 +9,62 @@ import type { FormulaResultDTO, FormulaSpecDTO } from '../api/types';
 // only ever shown under the spec that produced it: a new spec starts from no
 // points, and an unbound spec has no entry at all.
 //
+// Each Fox evaluation reads every raw sample in the window, so the store asks
+// for one only when the window needs it, decided per trace:
+// - a window inside the range already evaluated is drawn from what's there
+//   (pan, zoom in, and a window following "now" until it drifts past
+//   NEAR_NOW_SLACK_MS or 1% of its span);
+// - an in-flight request isn't repeated or aborted when the window only slid
+//   forward. Aborting wouldn't save Fox any work: it never cancels an
+//   evaluation the client has gone away from;
+// - a failure that will recur for the same input waits for a new spec or span;
+//   any other failure is retried on a backoff timer, not on every window move.
+//
 // `evaluate` is injected so the policy can be tested without the network, and
 // errors are duck-typed on `{ code, detail, status }` rather than tied to one
 // error class.
+
+// ── Policy ───────────────────────────────────────────────────────────────────
+
+// How far a window that tracks "now" may run ahead of the evaluated range
+// before it's re-evaluated (or 1% of its span, if larger). Matches the archive
+// store's drift interval.
+export const NEAR_NOW_SLACK_MS = 2_000;
+
+// Retry schedule for transient failures; the last step repeats. Mirrors
+// liveStore's reconnect backoff.
+export const RETRY_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 15_000];
+
+// Client-side limit on one evaluation. A timeout is treated like a terminal
+// error: Fox keeps evaluating after the client gives up, so retrying the same
+// window on a timer would re-run the whole evaluation server-side every time
+// without ever showing a result. It's retried when the spec or the span changes.
+export const EVAL_TIMEOUT_MS = 30_000;
+export const CLIENT_TIMEOUT_CODE = 'client_timeout';
+
+export function retryDelayMs(attempts: number): number {
+  return RETRY_DELAYS_MS[Math.min(Math.max(attempts, 1), RETRY_DELAYS_MS.length) - 1];
+}
 
 export interface FormulaErrorInfo {
   code: string;
   detail: string;
   status?: number;
 }
+
+// Failures the same spec over the same span would hit again: Fox's 400s
+// (parse, unsafe, circular reference), its 422s (type, dimension mismatch,
+// window too large, request validation) and a client timeout. 422
+// formula_input_missing is the exception, as in Fox's own live loop. On this
+// REST path it only comes from binned mode, which the client never requests;
+// the transient error an unbuffered PV actually produces is 404
+// pv_not_buffered. Everything else (5xx, 404, network) is transient.
+export function isTerminalError(info: FormulaErrorInfo): boolean {
+  if (info.code === CLIENT_TIMEOUT_CODE) return true;
+  return (info.status === 400 || info.status === 422) && info.code !== 'formula_input_missing';
+}
+
+// ── Entries ──────────────────────────────────────────────────────────────────
 
 export interface FormulaEntry {
   // specKey() of the spec `points` belong to.
@@ -45,6 +92,8 @@ export type EvaluateFn = (
 
 export interface FormulaStoreDeps {
   evaluate: EvaluateFn;
+  // Wall clock in ms; injected for tests. Defaults to Date.now.
+  now?: () => number;
 }
 
 export function specKey(spec: FormulaSpecDTO): string {
@@ -79,25 +128,87 @@ function toPoints(res: FormulaResultDTO): [number, number][] {
   return points;
 }
 
+// ── Window geometry ──────────────────────────────────────────────────────────
+
+const spanOf = (win: TimeWindowNs) => win.toNs - win.fromNs;
+
+// 1% of the requested span: jitter below this isn't worth an evaluation.
+function tolerance(win: TimeWindowNs): number {
+  return Math.max(1, spanOf(win) * 0.01);
+}
+
+function spanChanged(prevSpanNs: number, win: TimeWindowNs): boolean {
+  return Math.abs(spanOf(win) - prevSpanNs) > tolerance(win);
+}
+
+// The evaluated range `cover` already holds what `win` needs.
+function covers(cover: TimeWindowNs, win: TimeWindowNs, nowNs: number): boolean {
+  const tol = tolerance(win);
+  if (cover.fromNs > win.fromNs + tol) return false;
+  if (cover.toNs >= win.toNs - tol) return true;
+  // A window tracking "now" may run ahead by the slack; a historical window
+  // (panned into the past, absolute) keeps the plain tolerance.
+  const slack = Math.max(tol, NEAR_NOW_SLACK_MS * 1e6);
+  return win.toNs >= nowNs - slack && cover.toNs >= win.toNs - slack;
+}
+
+function sameWindow(a: TimeWindowNs, b: TimeWindowNs): boolean {
+  const tol = tolerance(b);
+  return Math.abs(a.fromNs - b.fromNs) <= tol && Math.abs(a.toNs - b.toNs) <= tol;
+}
+
+// `win` is `prev` moved forward at the same span, so the answer for `prev`
+// will cover most of it.
+function forwardSlide(prev: TimeWindowNs, win: TimeWindowNs): boolean {
+  return (
+    win.toNs >= prev.toNs &&
+    win.fromNs >= prev.fromNs - tolerance(win) &&
+    !spanChanged(spanOf(prev), win)
+  );
+}
+
+// ── Store ────────────────────────────────────────────────────────────────────
+
+type Timer = ReturnType<typeof setTimeout>;
+
+interface Failure {
+  // isTerminalError(): wait for a new span (a new spec is a new entry).
+  terminal: boolean;
+  // Consecutive transient failures; drives the backoff step.
+  attempts: number;
+  // Span of the request that failed.
+  spanNs: number;
+}
+
 interface Internal {
   spec: FormulaSpecDTO;
   identity: string;
   data: FormulaEntry;
-  // Window of the in-flight (or most recent) evaluation.
+  // Window `data.points` were evaluated over; null until an evaluation under
+  // this identity succeeds.
+  cover: TimeWindowNs | null;
+  // Window of the in-flight request.
   requested: TimeWindowNs | null;
+  // Latest window asked for, issued or not. Retries and catch-ups use it.
+  wanted: TimeWindowNs;
   controller: AbortController | null;
+  timeoutTimer: Timer | null;
+  failure: Failure | null;
+  retryTimer: Timer | null;
 }
 
 type Listener = () => void;
 
 export class FormulaStore {
-  private readonly deps: FormulaStoreDeps;
+  private readonly evaluate: EvaluateFn;
+  private readonly now: () => number;
   private entries = new Map<string, Internal>();
   private snapshot: ReadonlyMap<string, FormulaEntry> = new Map();
   private listeners = new Set<Listener>();
 
   constructor(deps: FormulaStoreDeps) {
-    this.deps = deps;
+    this.evaluate = deps.evaluate;
+    this.now = deps.now ?? (() => Date.now());
   }
 
   getSnapshot = (): ReadonlyMap<string, FormulaEntry> => this.snapshot;
@@ -107,8 +218,8 @@ export class FormulaStore {
     return () => this.listeners.delete(listener);
   };
 
-  // Ask for trace `id` to show `req.spec` over `req.window`. Calling it again
-  // with the same inputs is a no-op that doesn't publish.
+  // Ask for trace `id` to show `req.spec` over `req.window`. Cheap to call on
+  // every render: a request that needs no evaluation doesn't publish.
   request(id: string, req: FormulaRequest): void {
     if (!req.spec || !req.window) {
       this.release(id);
@@ -124,17 +235,22 @@ export class FormulaStore {
         spec: req.spec,
         identity,
         data: { identity, status: 'loading', points: [], decimated: false },
+        cover: null,
         requested: null,
+        wanted: req.window,
         controller: null,
+        timeoutTimer: null,
+        failure: null,
+        retryTimer: null,
       };
       this.entries.set(id, entry);
       this.start(id, entry, req.window);
       this.publish();
       return;
     }
-    if (!this.shouldEvaluate(existing, req.window)) return;
+    existing.wanted = req.window;
     // Same identity: the current points stay up until the new answer lands.
-    this.start(id, existing, req.window);
+    if (this.shouldEvaluate(existing, req.window)) this.start(id, existing, req.window);
   }
 
   // Forget a trace (deleted, no longer a formula, or not evaluable).
@@ -166,45 +282,89 @@ export class FormulaStore {
     this.entries.clear();
   }
 
-  // Re-evaluate whenever this trace's own window moves (one trace's change
-  // never touches another's request).
   private shouldEvaluate(entry: Internal, win: TimeWindowNs): boolean {
-    const prev = entry.requested;
-    return !prev || prev.fromNs !== win.fromNs || prev.toNs !== win.toNs;
+    // Let an in-flight request land when it was for (nearly) this window or
+    // one this window only slid forward from. EVAL_TIMEOUT_MS bounds the wait.
+    const inFlight = entry.controller ? entry.requested : null;
+    if (inFlight && (sameWindow(inFlight, win) || forwardSlide(inFlight, win))) return false;
+    const failure = entry.failure;
+    if (failure?.terminal && !spanChanged(failure.spanNs, win)) return false;
+    // Transient failure: the retry timer re-drives the entry.
+    if (entry.retryTimer) return false;
+    return !entry.cover || !covers(entry.cover, win, this.now() * 1e6);
   }
 
   private start(id: string, entry: Internal, win: TimeWindowNs): void {
-    entry.controller?.abort();
+    this.cancelRequest(entry);
+    this.clearRetry(entry);
     const controller = new AbortController();
     entry.controller = controller;
     entry.requested = win;
+    // Settled here rather than through the aborted fetch's rejection, so a
+    // request that ignores its signal still can't hold the entry.
+    entry.timeoutTimer = setTimeout(() => {
+      if (!this.owns(id, entry, controller)) return;
+      this.fail(
+        id,
+        entry,
+        {
+          code: CLIENT_TIMEOUT_CODE,
+          detail: `No answer from Fox within ${EVAL_TIMEOUT_MS / 1000} s`,
+        },
+        win
+      );
+      controller.abort();
+    }, EVAL_TIMEOUT_MS);
     let pending: Promise<FormulaResultDTO>;
     try {
-      pending = this.deps.evaluate(entry.spec, win.fromNs, win.toNs, controller.signal);
+      pending = this.evaluate(entry.spec, win.fromNs, win.toNs, controller.signal);
     } catch (err) {
       pending = Promise.reject(err);
     }
     pending.then(
       (res) => {
         if (!this.owns(id, entry, controller)) return;
-        entry.controller = null;
+        this.finishRequest(entry);
         entry.data = {
           identity: entry.identity,
           status: 'ready',
           points: toPoints(res),
           decimated: !!res.timeseries?.decimated,
         };
+        entry.cover = win;
+        entry.failure = null;
         this.publish();
+        // The window may have slid on while this was in flight; if nothing
+        // else asks again (a frozen or absolute window), catch up now.
+        if (this.shouldEvaluate(entry, entry.wanted)) this.start(id, entry, entry.wanted);
       },
       (err: unknown) => {
         if (!this.owns(id, entry, controller) || isAbort(err)) return;
-        entry.controller = null;
-        // Points survive only because the identity is unchanged: they are the
-        // last good result for this same spec.
-        entry.data = { ...entry.data, status: 'error', error: formulaErrorInfo(err) };
-        this.publish();
+        this.fail(id, entry, formulaErrorInfo(err), win);
       }
     );
+  }
+
+  private fail(id: string, entry: Internal, info: FormulaErrorInfo, win: TimeWindowNs): void {
+    this.finishRequest(entry);
+    const terminal = isTerminalError(info);
+    const prev = entry.failure;
+    const attempts = !terminal && prev && !prev.terminal ? prev.attempts + 1 : 1;
+    entry.failure = { terminal, attempts, spanNs: spanOf(win) };
+    // Points survive only because the identity is unchanged: they are the
+    // last good result for this same spec.
+    entry.data = { ...entry.data, status: 'error', error: info };
+    if (!terminal) this.scheduleRetry(id, entry, retryDelayMs(attempts));
+    this.publish();
+  }
+
+  private scheduleRetry(id: string, entry: Internal, delayMs: number): void {
+    this.clearRetry(entry);
+    entry.retryTimer = setTimeout(() => {
+      entry.retryTimer = null;
+      if (this.entries.get(id) !== entry) return;
+      if (this.shouldEvaluate(entry, entry.wanted)) this.start(id, entry, entry.wanted);
+    }, delayMs);
   }
 
   // The settling request is still the current one for a live entry.
@@ -212,9 +372,25 @@ export class FormulaStore {
     return this.entries.get(id) === entry && entry.controller === controller;
   }
 
-  private drop(entry: Internal): void {
-    entry.controller?.abort();
+  private finishRequest(entry: Internal): void {
+    if (entry.timeoutTimer) clearTimeout(entry.timeoutTimer);
+    entry.timeoutTimer = null;
     entry.controller = null;
+  }
+
+  private cancelRequest(entry: Internal): void {
+    entry.controller?.abort();
+    this.finishRequest(entry);
+  }
+
+  private clearRetry(entry: Internal): void {
+    if (entry.retryTimer) clearTimeout(entry.retryTimer);
+    entry.retryTimer = null;
+  }
+
+  private drop(entry: Internal): void {
+    this.cancelRequest(entry);
+    this.clearRetry(entry);
   }
 
   private publish(): void {

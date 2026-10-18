@@ -5,7 +5,7 @@
 // "following" window drifts with Date.now() on every re-render.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
-import { useEffect, useState } from 'react';
+import { StrictMode, useEffect, useState } from 'react';
 import { msToNs, type TimeWindowNs } from '../api/time';
 import type { FormulaSpecDTO } from '../api/types';
 import { resolveFormulaSpec } from '../formula';
@@ -105,6 +105,15 @@ const fixed =
   (fromMs: number, toMs: number): WindowFn =>
   () => ({ fromNs: msToNs(fromMs), toNs: msToNs(toMs) });
 
+// Relative range anchored to the last autoscroll tick, so it only moves once
+// per tick (the per-plot clock model of #97).
+const anchored =
+  (spanMs: number, tickMs: number): WindowFn =>
+  () => {
+    const toNs = msToNs(Math.floor(Date.now() / tickMs) * tickMs);
+    return { fromNs: toNs - msToNs(spanMs), toNs };
+  };
+
 // ── Probe ────────────────────────────────────────────────────────────────────
 
 interface ProbeProps {
@@ -162,8 +171,11 @@ const formula = (
   bindings: Record<string, string> = { x1: 'trace-1' }
 ) => formulaTrace(id, expression, bindings);
 
-function mount(props: Omit<ProbeProps, 'onRender'>) {
-  const view = render(<Probe {...props} onRender={record} />);
+function mount(props: Omit<ProbeProps, 'onRender'>, { strict = false } = {}) {
+  const view = render(
+    <Probe {...props} onRender={record} />,
+    strict ? { wrapper: StrictMode } : {}
+  );
   return {
     rerender: (next: Omit<ProbeProps, 'onRender'>) =>
       view.rerender(<Probe {...next} onRender={record} />),
@@ -245,5 +257,134 @@ describe('useFormulaSeries results belong to the current spec', () => {
 
     expect(callsFor('{x1}*3')).toHaveLength(1);
     expect(latest('f2')).toMatchObject({ status: 'ready', points: [[T0, 1]] });
+  });
+});
+
+describe('useFormulaSeries evaluates only when the window needs it', () => {
+  const traces = [source, formula('f1', '{x1}*2')];
+
+  it('evaluates a following hour once in 10 s when nothing else re-renders', async () => {
+    fox.auto.set('{x1}*2', { latencyMs: 200 });
+    mount({ traces, windows: { f1: following(HOUR) } });
+    await advance(10_000);
+
+    expect(callsFor('{x1}*2')).toHaveLength(1);
+    expect(latest('f1')?.status).toBe('ready');
+  });
+
+  it('evaluates a following hour once in 10 s of 10 Hz re-renders', async () => {
+    fox.auto.set('{x1}*2', { latencyMs: 200 });
+    mount({ traces, windows: { f1: following(HOUR) }, renderEveryMs: 100 });
+    await advance(10_000);
+
+    expect(callsFor('{x1}*2')).toHaveLength(1);
+  });
+
+  it('re-evaluates a following 5 minutes about every 3 s of drift', async () => {
+    fox.auto.set('{x1}*2', { latencyMs: 200 });
+    mount({ traces, windows: { f1: following(5 * MINUTE) }, renderEveryMs: 100 });
+    await advance(10_000);
+
+    // 1% of 5 minutes is 3 s: at 0, 3.1, 6.2 and 9.3 s.
+    expect(callsFor('{x1}*2')).toHaveLength(4);
+  });
+
+  it('draws the curve even when re-renders come faster than Fox answers', async () => {
+    fox.auto.set('{x1}*2', { latencyMs: 300 });
+    mount({ traces, windows: { f1: following(HOUR) }, renderEveryMs: 100 });
+    await advance(1_000);
+
+    expect(latest('f1')?.status).toBe('ready');
+    expect(callsFor('{x1}*2').filter((c) => c.signal.aborted)).toHaveLength(0);
+  });
+
+  it("doesn't let a fast formula starve a slow one", async () => {
+    fox.auto.set('{x1}*2', { latencyMs: 50 });
+    fox.auto.set('{x1}*3', { latencyMs: 400 });
+    mount({
+      traces: [source, formula('f1', '{x1}*2'), formula('f2', '{x1}*3')],
+      windows: { f1: following(HOUR), f2: following(HOUR) },
+    });
+    await advance(2_000);
+
+    expect(latest('f2')?.status).toBe('ready');
+    expect(callsFor('{x1}*3')).toHaveLength(1);
+  });
+
+  it('backs off a failing formula instead of retrying on every render', async () => {
+    fox.auto.set('{x1}*2', { latencyMs: 100, error: { code: 'buffer_at_capacity', status: 503 } });
+    mount({ traces, windows: { f1: following(5 * MINUTE) }, renderEveryMs: 100 });
+    await advance(30_000);
+
+    // At 0, 1, 3, 7 and 15 s (plus Fox's latency each time); the next is due after 30 s.
+    expect(callsFor('{x1}*2')).toHaveLength(5);
+    expect(latest('f1')).toMatchObject({ status: 'error', error: { code: 'buffer_at_capacity' } });
+  });
+
+  it("doesn't retry a 400 as the window moves, but does after a spec edit", async () => {
+    fox.auto.set('{x1}*', { latencyMs: 100, error: { code: 'formula_parse_error', status: 400 } });
+    fox.auto.set('{x1}*2', { latencyMs: 100 });
+    const windows = { f1: following(5 * MINUTE) };
+    const view = mount({ traces: [source, formula('f1', '{x1}*')], windows, renderEveryMs: 100 });
+    await advance(30_000);
+    expect(callsFor('{x1}*')).toHaveLength(1);
+
+    view.rerender({ traces: [source, formula('f1', '{x1}*2')], windows, renderEveryMs: 100 });
+    await advance(1_000);
+    expect(callsFor('{x1}*2')).toHaveLength(1);
+    expect(latest('f1')?.status).toBe('ready');
+  });
+
+  it("doesn't call Fox to zoom inside the evaluated window, but does to zoom out", async () => {
+    fox.auto.set('{x1}*2', { latencyMs: 100 });
+    const view = mount({ traces, windows: { f1: fixed(T0 - HOUR, T0) } });
+    await advance(500);
+
+    view.rerender({ traces, windows: { f1: fixed(T0 - 30 * MINUTE, T0 - 20 * MINUTE) } });
+    await advance(500);
+    expect(callsFor('{x1}*2')).toHaveLength(1);
+
+    view.rerender({ traces, windows: { f1: fixed(T0 - 2 * HOUR, T0) } });
+    await advance(500);
+    expect(callsFor('{x1}*2')).toHaveLength(2);
+  });
+
+  it('gives up on a hung evaluation after 30 s and retries it only for a new span', async () => {
+    // No auto reply: Fox never answers.
+    const view = mount({ traces, windows: { f1: following(5 * MINUTE) }, renderEveryMs: 100 });
+    await advance(30_000);
+    expect(latest('f1')).toMatchObject({ status: 'error', error: { code: 'client_timeout' } });
+
+    await advance(60_000, 500);
+    expect(callsFor('{x1}*2')).toHaveLength(1);
+
+    view.rerender({ traces, windows: { f1: following(10 * MINUTE) }, renderEveryMs: 100 });
+    await advance(100);
+    expect(callsFor('{x1}*2')).toHaveLength(2);
+  });
+
+  it('with a tick-anchored clock, evaluates an hour about every 40 s and 5 minutes every tick', async () => {
+    fox.auto.set('{x1}*2', { latencyMs: 200 });
+    fox.auto.set('{x1}*3', { latencyMs: 200 });
+    mount({
+      traces: [source, formula('f1', '{x1}*2'), formula('f2', '{x1}*3')],
+      windows: { f1: anchored(HOUR, 5_000), f2: anchored(5 * MINUTE, 5_000) },
+      renderEveryMs: 5_000,
+    });
+    await advance(120_000, 250);
+
+    // An hour's 36 s tolerance lets 7 ticks pass; 5 minutes' 3 s doesn't.
+    expect(callsFor('{x1}*2').length).toBeGreaterThanOrEqual(3);
+    expect(callsFor('{x1}*2').length).toBeLessThanOrEqual(4);
+    expect(callsFor('{x1}*3')).toHaveLength(1 + 120 / 5);
+  });
+
+  it('settles after the StrictMode double mount', async () => {
+    fox.auto.set('{x1}*2', { latencyMs: 200 });
+    mount({ traces, windows: { f1: following(HOUR) }, renderEveryMs: 100 }, { strict: true });
+    await advance(10_000);
+
+    expect(callsFor('{x1}*2').length).toBeLessThanOrEqual(2);
+    expect(latest('f1')?.status).toBe('ready');
   });
 });
