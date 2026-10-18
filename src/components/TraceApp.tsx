@@ -478,18 +478,12 @@ export function TraceApp() {
 
   // Workspace replacement invalidates every in-flight units lookup: trace and axis
   // ids collide across workspaces, so a late answer would retarget an incoming trace.
-  const abortUnitLookups = () => {
+  const abortUnitLookups = useCallback(() => {
     for (const c of unitFetchAbortRef.current.values()) c.abort();
     unitFetchAbortRef.current.clear();
-  };
-  // Unmounting abandons them too.
-  useEffect(() => {
-    const lookups = unitFetchAbortRef.current;
-    return () => {
-      for (const c of lookups.values()) c.abort();
-      lookups.clear();
-    };
   }, []);
+  // Unmounting abandons them too.
+  useEffect(() => abortUnitLookups, [abortUnitLookups]);
 
   // When a PV is chosen for a trace, look up its engineering units and move the
   // trace to the axis representing those units, creating one if none exists.

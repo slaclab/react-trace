@@ -64,7 +64,8 @@ if (!('ResizeObserver' in globalThis)) {
 }
 
 // TraceApp reports import failures and warnings through alert().
-window.alert = vi.fn();
+export const alertMock = vi.fn();
+window.alert = alertMock;
 
 // ── Captured panel props ─────────────────────────────────────────────────────
 
@@ -128,6 +129,9 @@ export function resetHarness(): void {
   captured.rightPanel = null;
   for (const list of Object.values(renders)) list.length = 0;
   pickQueue.length = 0;
+  alertMock.mockClear();
+  mocks.download.downloadBlob.mockClear();
+  mocks.download.downloadDataUrl.mockClear();
   window.localStorage.clear();
 }
 

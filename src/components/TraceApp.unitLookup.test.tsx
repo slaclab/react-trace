@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import {
+  alertMock,
   axis,
   captured,
   currentPlots,
@@ -135,7 +136,7 @@ describe('TraceApp units lookup across a workspace load', () => {
     selectPv('trace-1', 'NEXT:PV');
     await loadWorkspace('not json', 'broken.trc.json');
 
-    expect(window.alert).toHaveBeenCalledWith(expect.stringMatching(/^Failed to import/));
+    expect(alertMock).toHaveBeenCalledWith(expect.stringMatching(/^Failed to import/));
     expect(metadataCalls[0].signal.aborted).toBe(false);
     await resolveLookup(0, 'mA');
     expect(layout().axes).toEqual(['Y', 'mA']);
