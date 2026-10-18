@@ -19,7 +19,7 @@ interface FoxCall {
   t1Ns: number;
   signal: AbortSignal;
   settled: boolean;
-  resolve: (values?: number[]) => void;
+  resolve: (values?: number[], decimated?: boolean) => void;
   reject: (err: unknown) => void;
 }
 
@@ -28,7 +28,7 @@ interface FoxCall {
 // rejects a pending call with AbortError, as fetch does.
 const fox = vi.hoisted(() => {
   const calls: FoxCall[] = [];
-  const auto = new Map<string, { latencyMs: number; error?: unknown }>();
+  const auto = new Map<string, { latencyMs: number; error?: unknown; decimated?: boolean }>();
   // Signature-agnostic: spec, t0, t1 and signal are the last four arguments, so
   // this survives a leading connection argument.
   function evaluate(...args: unknown[]): Promise<unknown> {
@@ -53,7 +53,7 @@ const fox = vi.hoisted(() => {
         signal,
         settled: false,
         // One point per value, the last one at t1.
-        resolve: (values = [1]) =>
+        resolve: (values = [1], decimated = false) =>
           settle(() =>
             resolve({
               kind: 'timeseries',
@@ -62,7 +62,7 @@ const fox = vi.hoisted(() => {
                 values,
                 severity: values.map(() => 'NO_ALARM'),
                 inputs: {},
-                decimated: false,
+                decimated,
               },
             })
           ),
@@ -75,7 +75,7 @@ const fox = vi.hoisted(() => {
       const reply = auto.get(spec.expression);
       if (reply) {
         timer = setTimeout(
-          () => (reply.error ? call.reject(reply.error) : call.resolve()),
+          () => (reply.error ? call.reject(reply.error) : call.resolve(undefined, reply.decimated)),
           reply.latencyMs
         );
       }
@@ -347,6 +347,21 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
     view.rerender({ traces, windows: { f1: fixed(T0 - 2 * HOUR, T0) } });
     await advance(500);
     expect(callsFor('{x1}*2')).toHaveLength(2);
+  });
+
+  it('re-evaluates a zoom into under half of a decimated result, but not a wider one', async () => {
+    fox.auto.set('{x1}*2', { latencyMs: 100, decimated: true });
+    const view = mount({ traces, windows: { f1: fixed(T0 - HOUR, T0) } });
+    await advance(500);
+
+    view.rerender({ traces, windows: { f1: fixed(T0 - 40 * MINUTE, T0) } });
+    await advance(500);
+    expect(callsFor('{x1}*2')).toHaveLength(1);
+
+    view.rerender({ traces, windows: { f1: fixed(T0 - 30 * MINUTE, T0 - 20 * MINUTE) } });
+    await advance(500);
+    expect(callsFor('{x1}*2')).toHaveLength(2);
+    expect(latest('f1')).toMatchObject({ status: 'ready', decimated: true });
   });
 
   it('gives up on a hung evaluation after 30 s and retries it only for a new span', async () => {

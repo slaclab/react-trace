@@ -20,7 +20,7 @@ interface Call {
   signal: AbortSignal;
   // Fake clock time the request went out, relative to T0.
   atMs: number;
-  resolve: (values?: number[]) => void;
+  resolve: (values?: number[], decimated?: boolean) => void;
   reject: (err: unknown) => void;
 }
 
@@ -37,7 +37,7 @@ function fakeFox(reply?: (call: Call) => void) {
         signal,
         atMs: Date.now() - T0,
         // One point per value, the last one at t1.
-        resolve: (values = [1]) =>
+        resolve: (values = [1], decimated = false) =>
           resolve({
             kind: 'timeseries',
             timeseries: {
@@ -45,7 +45,7 @@ function fakeFox(reply?: (call: Call) => void) {
               values,
               severity: values.map(() => 'NO_ALARM'),
               inputs: {},
-              decimated: false,
+              decimated,
             },
           }),
         reject,
@@ -288,6 +288,43 @@ describe('FormulaStore coverage', () => {
     store.request('recent', { spec: spec('{x1}*2'), window: slid(recent, drift) });
     store.request('historical', { spec: spec('{x1}*3'), window: slid(historical, drift) });
     expect(fox.calls.map((c) => c.expression)).toEqual(['{x1}*2', '{x1}*3', '{x1}*3']);
+  });
+});
+
+describe('FormulaStore decimated results', () => {
+  // Evaluate the historical hour, answered with `decimated`, then zoom to `zoom`.
+  async function zoomInto(decimated: boolean, zoom: TimeWindowNs) {
+    const { fox, store } = setup((c) => c.resolve([1], decimated));
+    store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
+    await flush();
+    store.request('f1', { spec: spec('{x1}*2'), window: zoom });
+    await flush();
+    return fox.calls;
+  }
+
+  it('re-evaluates a zoom into under half of a decimated result', async () => {
+    const calls = await zoomInto(true, win(10 * MINUTE, 20 * MINUTE));
+    expect(calls).toHaveLength(2);
+    expect([calls[1].t0Ns, calls[1].t1Ns]).toEqual([10 * MINUTE * 1e6, 20 * MINUTE * 1e6]);
+  });
+
+  it('draws the same zoom from a result that was not decimated', async () => {
+    expect(await zoomInto(false, win(10 * MINUTE, 20 * MINUTE))).toHaveLength(1);
+  });
+
+  it('draws a zoom to more than half of a decimated result from what it has', async () => {
+    expect(await zoomInto(true, win(10 * MINUTE, 45 * MINUTE))).toHaveLength(1);
+  });
+
+  it('re-evaluates when zooming back out past the detailed window', async () => {
+    const { fox, store } = setup((c) => c.resolve([1], true));
+    store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
+    await flush();
+    store.request('f1', { spec: spec('{x1}*2'), window: win(10 * MINUTE, 20 * MINUTE) });
+    await flush();
+    store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
+    await flush();
+    expect(fox.calls).toHaveLength(3);
   });
 });
 

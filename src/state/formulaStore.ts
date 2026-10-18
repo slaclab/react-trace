@@ -13,7 +13,8 @@ import type { FormulaResultDTO, FormulaSpecDTO } from '../api/types';
 // for one only when the window needs it, decided per trace:
 // - a window inside the range already evaluated is drawn from what's there
 //   (pan, zoom in, and a window following "now" until it drifts past
-//   NEAR_NOW_SLACK_MS or 1% of its span);
+//   NEAR_NOW_SLACK_MS or 1% of its span), except a zoom into under half of a
+//   decimated result, which needs Fox's detail for the narrower window;
 // - an in-flight request isn't repeated or aborted when the window only slid
 //   forward. Aborting wouldn't save Fox any work: it never cancels an
 //   evaluation the client has gone away from;
@@ -141,10 +142,19 @@ function spanChanged(prevSpanNs: number, win: TimeWindowNs): boolean {
   return Math.abs(spanOf(win) - prevSpanNs) > tolerance(win);
 }
 
-// The evaluated range `cover` already holds what `win` needs.
-function covers(cover: TimeWindowNs, win: TimeWindowNs, nowNs: number): boolean {
+// The evaluated range `cover` already holds what `win` needs. `decimated` is
+// whether Fox thinned that result to its output cap.
+function covers(
+  cover: TimeWindowNs,
+  decimated: boolean,
+  win: TimeWindowNs,
+  nowNs: number
+): boolean {
   const tol = tolerance(win);
   if (cover.fromNs > win.fromNs + tol) return false;
+  // Zoomed into under half of a decimated result: the points on hand are too
+  // sparse for the narrower window, so ask Fox for its detail.
+  if (decimated && spanOf(win) < spanOf(cover) / 2) return false;
   if (cover.toNs >= win.toNs - tol) return true;
   // A window tracking "now" may run ahead by the slack; a historical window
   // (panned into the past, absolute) keeps the plain tolerance.
@@ -288,7 +298,8 @@ export class FormulaStore {
   // it only if what it has (or is about to get) doesn't serve the window. The
   // current points stay up until a new answer lands.
   private refresh(id: string, entry: Internal, win: TimeWindowNs): void {
-    const covered = !!entry.cover && covers(entry.cover, win, this.now() * 1e6);
+    const covered =
+      !!entry.cover && covers(entry.cover, entry.data.decimated, win, this.now() * 1e6);
     if (entry.controller && entry.requested) {
       // Let an in-flight request land when it was for (nearly) this window or
       // one this window only slid forward from. EVAL_TIMEOUT_MS bounds the wait.
