@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { serializeWorkspace, deserializeWorkspace } from './serialize';
 import { relativeRangeMs } from '../api/time';
 import type { Plot } from '../types';
@@ -45,6 +45,16 @@ function loadedRanges(text: string): string[] {
 }
 
 describe('deserializeWorkspace — "-1m" span', () => {
+  // serializeWorkspace stamps savedAt from the clock. Pin it after the cutoff so
+  // the round trips don't depend on the test machine's clock.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(CURRENT_SAVED_AT));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('keeps a typed 1m span as one minute across save and load', () => {
     const saved = serializeWorkspace({ theme: 'dark', plots: [spanPlot('-1m')] });
     const [plot] = deserializeWorkspace(saved).plots;
