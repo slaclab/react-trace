@@ -40,7 +40,7 @@ import { useElogConfig } from '../hooks/useElogConfig';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 const BUG_REPORT_URL = 'https://forms.office.com/r/qV7BmK2xi9';
-const DOCS_URL = 'https://github.com/slaclab/react-trace#readme';
+const DOCS_URL = 'https://fuzzy-adventure-4qvly8m.pages.github.io/';
 
 function generateMockData(
   points: number,
