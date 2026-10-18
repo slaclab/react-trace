@@ -663,10 +663,11 @@ export class ArchiveStore {
           archiver: opts.archiver,
           binning: mode.binning,
           maxPoints: mode.maxPoints,
-          // The value at the window start, for a PV archived on change. Raw
-          // only: the backend rejects it for binned requests, so a binned
-          // window can start up to one bin late. A tail's buffer has it.
-          includeLastBefore: mode.binning || tail ? undefined : true,
+          // The value at the window start, for a PV archived on change. Full
+          // raw requests only: a tail's buffer already has it, and the backend
+          // rejects it for binned ones, so a binned window has no value before
+          // its first point (one bin in, or a sparse PV's first change).
+          includeLastBefore: !tail && !mode.binning ? true : undefined,
         },
         controller.signal
       );

@@ -382,6 +382,20 @@ describe('archiveStore: value at the window start', () => {
     expect(meanOf(h)).toEqual([[win.fromNs / 1e6, 1]]);
   });
 
+  it('holds nothing when the prior sample has no numeric value', async () => {
+    const h = setup(async (_pv, params) => ({
+      ...rawDto(params),
+      samples: [
+        { tsNs: params.fromNs - 1e9, value: null, severity: 'INVALID', source: 'archive' },
+        { tsNs: params.fromNs + 1e9, value: 3, severity: 'NO_ALARM', source: 'archive' },
+      ],
+    }));
+    const win = windowAt(T0_MS, 30);
+    ask(h, win);
+    await flush();
+    expect(meanOf(h)).toEqual([[win.fromNs / 1e6 + 1000, 3]]);
+  });
+
   it('does not double a sample exactly at the window start', async () => {
     const win = windowAt(T0_MS, 30);
     const h = setup(
