@@ -1343,6 +1343,7 @@ function PlotGeneralTab({
   // its own option, or the native Select would mislead by showing the first item.
   const PRESETS = ['-1h', '-4h', '-1d', '-2d', '-1w', '-1M', 'custom'];
   const isPresetRange = PRESETS.includes(plot.xAxis.timeRange);
+  const gridOpacityPct = Math.round(plot.gridOpacity * 100);
   return (
     <div>
       <div className="prop-section">
@@ -1440,13 +1441,16 @@ function PlotGeneralTab({
           </Select>
         </div>
         <div className="prop-row">
+          {/* No number input: it doesn't fit beside the track at the default
+              panel width, so the value goes in the label instead. */}
           <Slider
             id="grid-opacity"
-            labelText="Gridline Opacity"
+            labelText={`Gridline Opacity (${gridOpacityPct}%)`}
+            hideTextInput
             min={0}
             max={100}
             step={5}
-            value={Math.round(plot.gridOpacity * 100)}
+            value={gridOpacityPct}
             onChange={({ value }) => onUpdate({ gridOpacity: value / 100 })}
           />
         </div>
