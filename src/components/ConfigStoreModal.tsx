@@ -60,6 +60,11 @@ function shareUrl(slug: string): string {
   return url.toString();
 }
 
+// How a config is named in the status line and the delete prompt.
+function configLabel(config: ConfigDTO): string {
+  return config.name || config.slug;
+}
+
 function errText(err: unknown): string {
   if (err instanceof CanopyError) return err.detail;
   return (err as Error | null)?.message ?? 'Unknown error';
@@ -136,7 +141,9 @@ export function ConfigStoreModal({
   // Each open of the modal is a session. Closing or unmounting ends it and
   // aborts a pending Load, and an operation applies its result only while its
   // session is current, so a dismissed Load can't replace the workspace after
-  // the dialog is gone.
+  // the dialog is gone. Save, Rename and Delete block dismissal, so their
+  // session ends early only if the parent closes the modal itself or unmounts
+  // it. Their outcome is then dropped, apart from Save's toast.
   const sessionRef = useRef(0);
   const loadAbortRef = useRef<AbortController | null>(null);
   const endSession = useCallback(() => {
@@ -168,9 +175,9 @@ export function ConfigStoreModal({
   }, [open, refresh, endSession, setBusy]);
 
   // Carbon's X, Escape and backdrop all call this; returning false keeps the
-  // dialog open. Save, Rename and Delete block dismissal until they settle: the
-  // server change happens either way, so closing would only hide its outcome.
-  // A Load doesn't block; closing cancels it.
+  // dialog open. Save, Rename and Delete block dismissal until their server
+  // call settles: the change happens either way, so closing would only hide
+  // its outcome. A Load doesn't block; closing cancels it.
   // This must read refs, not render state. Carbon registers its Escape listener
   // once per open and keeps the onClose from that render, when nothing was busy.
   const onCloseRef = useRef(onClose);
@@ -225,6 +232,9 @@ export function ConfigStoreModal({
       if (session !== sessionRef.current) return;
       setName('');
       setDescription('');
+      // The server call has settled. The refresh is only a read, so it doesn't
+      // hold the slot or block closing.
+      end(op);
       await refresh();
     } catch (err) {
       if (session === sessionRef.current) setError(errText(err));
@@ -234,7 +244,7 @@ export function ConfigStoreModal({
   };
 
   const handleLoad = async (config: ConfigDTO) => {
-    const op: BusyOp = { kind: 'load', slug: config.slug, label: config.name || config.slug };
+    const op: BusyOp = { kind: 'load', slug: config.slug, label: configLabel(config) };
     const session = begin(op);
     if (session === null) return;
     const abort = new AbortController();
@@ -250,6 +260,8 @@ export function ConfigStoreModal({
         title: 'Workspace loaded',
         subtitle: dto.name ? `Loaded "${dto.name}"` : `Loaded config ${config.slug}`,
       });
+      // Like requestClose, end the session before the parent sees the close.
+      endSession();
       onClose();
     } catch (err) {
       // A stale session also covers the AbortError from closing.
@@ -268,12 +280,13 @@ export function ConfigStoreModal({
     // No-op a blank rename (Save likewise omits empty names) or an unchanged one.
     const trimmed = next.trim();
     if (trimmed === '' || trimmed === (config.name ?? '')) return;
-    const op: BusyOp = { kind: 'rename', slug: config.slug, label: config.name || config.slug };
+    const op: BusyOp = { kind: 'rename', slug: config.slug, label: configLabel(config) };
     const session = begin(op);
     if (session === null) return;
     try {
       await updateConfig(config.slug, { name: trimmed });
       if (session !== sessionRef.current) return;
+      end(op);
       await refresh();
     } catch (err) {
       if (session === sessionRef.current) setError(errText(err));
@@ -284,13 +297,14 @@ export function ConfigStoreModal({
 
   const handleDelete = async (config: ConfigDTO) => {
     if (busyRef.current) return;
-    if (!window.confirm(`Delete "${config.name || config.slug}"? This cannot be undone.`)) return;
-    const op: BusyOp = { kind: 'delete', slug: config.slug, label: config.name || config.slug };
+    if (!window.confirm(`Delete "${configLabel(config)}"? This cannot be undone.`)) return;
+    const op: BusyOp = { kind: 'delete', slug: config.slug, label: configLabel(config) };
     const session = begin(op);
     if (session === null) return;
     try {
       await deleteConfig(config.slug);
       if (session !== sessionRef.current) return;
+      end(op);
       await refresh();
     } catch (err) {
       if (session === sessionRef.current) setError(errText(err));

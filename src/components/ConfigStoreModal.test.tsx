@@ -240,6 +240,17 @@ describe('ConfigStoreModal: one operation at a time', () => {
     expect(onToast).toHaveBeenCalledTimes(1);
   });
 
+  it('starts only one Load when both clicks land before React re-renders', async () => {
+    await mount();
+    // Inside one act() the second button is still enabled in the DOM, so only
+    // the slot's ref can turn the click away.
+    act(() => {
+      rowButton('Config A', 'Load').click();
+      rowButton('Config B', 'Load').click();
+    });
+    expect(api.getConfig.mock.calls.map(([slug]) => slug)).toEqual([A.slug]);
+  });
+
   it('disables every row action and Save while a Load is in flight', async () => {
     await mount();
     fireEvent.click(rowButton('Config A', 'Load'));
@@ -273,7 +284,9 @@ describe('ConfigStoreModal: one operation at a time', () => {
     expect(api.getConfig).not.toHaveBeenCalled();
   });
 
-  it("keeps A's Load disabled when a Rename clicked during it would have finished", async () => {
+  // Before the fix the Rename ran, and its `finally` re-enabled A's Load while
+  // the Load was still in flight. Now the Rename never starts.
+  it("keeps A's Load disabled after a Rename click during it", async () => {
     await mount();
     fireEvent.click(rowButton('Config A', 'Load'));
     fireEvent.click(rowButton('Config B', 'Rename'));
@@ -378,7 +391,7 @@ describe('ConfigStoreModal: dismissing cancels a Load', () => {
 
 describe('ConfigStoreModal: Save, Rename and Delete block dismissal', () => {
   it.each(PATHS)(
-    'blocks %s during a Save, then closes on it once the Save settles',
+    'blocks %s during a Save until its server call settles, then closes on it',
     async (path) => {
       await mount();
       fireEvent.click(saveButton());
@@ -386,11 +399,16 @@ describe('ConfigStoreModal: Save, Rename and Delete block dismissal', () => {
       expect(isVisible()).toBe(true);
       expect(parentClose).not.toHaveBeenCalled();
 
+      // Hold the list refresh that follows: only the server call blocks closing.
+      const list = deferred<PagedResult<ConfigDTO>>();
+      api.listConfigs.mockReturnValueOnce(list.promise);
       await settle(() => saves[0].resolve(config('slug-new', 'New', '2026-10-03T00:00:00Z')));
+      expect(api.listConfigs).toHaveBeenCalledTimes(2);
       expect(saveButton().disabled).toBe(false);
       dismiss(path);
       expect(isVisible()).toBe(false);
       expect(parentClose).toHaveBeenCalledTimes(1);
+      await settle(() => list.resolve(PAGE));
       await reopen();
       expect(isVisible()).toBe(true);
     }
@@ -406,7 +424,7 @@ describe('ConfigStoreModal: Save, Rename and Delete block dismissal', () => {
   });
 
   it.each(PATHS.flatMap((path) => (['Rename', 'Delete'] as const).map((a) => [a, path] as const)))(
-    'blocks dismissal during a %s (%s), then refreshes the list and closes',
+    'blocks dismissal during a %s (%s) until its server call settles, not the list refresh after it',
     async (action, path) => {
       await mount();
       fireEvent.click(rowButton('Config B', action));
@@ -414,13 +432,16 @@ describe('ConfigStoreModal: Save, Rename and Delete block dismissal', () => {
       expect(isVisible()).toBe(true);
       expect(parentClose).not.toHaveBeenCalled();
 
-      const listCalls = api.listConfigs.mock.calls.length;
+      // Hold the list refresh that follows: only the server call blocks closing.
+      const list = deferred<PagedResult<ConfigDTO>>();
+      api.listConfigs.mockReturnValueOnce(list.promise);
       await settle(() => (action === 'Rename' ? renames[0].resolve(B) : deletes[0].resolve()));
-      expect(api.listConfigs).toHaveBeenCalledTimes(listCalls + 1);
-      expect(rowButton('Config A', 'Load').disabled).toBe(false);
+      expect(api.listConfigs).toHaveBeenCalledTimes(2);
+      expect(screen.queryByText(/^(Renaming|Deleting) /)).toBeNull();
       dismiss(path);
       expect(isVisible()).toBe(false);
       expect(parentClose).toHaveBeenCalledTimes(1);
+      await settle(() => list.resolve(PAGE));
     }
   );
 
