@@ -157,12 +157,15 @@ function sameWindow(a: TimeWindowNs, b: TimeWindowNs): boolean {
   return Math.abs(a.fromNs - b.fromNs) <= tol && Math.abs(a.toNs - b.toNs) <= tol;
 }
 
-// `win` is `prev` moved forward at the same span, so the answer for `prev`
-// will cover most of it.
+// `win` is `prev` moved forward at the same span and still overlapping it, so
+// the answer for `prev` holds part of what `win` needs (a following window
+// drifts by at most EVAL_TIMEOUT_MS while a request is out). A jump past
+// `prev` is a new request.
 function forwardSlide(prev: TimeWindowNs, win: TimeWindowNs): boolean {
   return (
     win.toNs >= prev.toNs &&
     win.fromNs >= prev.fromNs - tolerance(win) &&
+    win.fromNs < prev.toNs &&
     !spanChanged(spanOf(prev), win)
   );
 }
@@ -249,8 +252,7 @@ export class FormulaStore {
       return;
     }
     existing.wanted = req.window;
-    // Same identity: the current points stay up until the new answer lands.
-    if (this.shouldEvaluate(existing, req.window)) this.start(id, existing, req.window);
+    this.refresh(id, existing, req.window);
   }
 
   // Forget a trace (deleted, no longer a formula, or not evaluable).
@@ -282,16 +284,35 @@ export class FormulaStore {
     this.entries.clear();
   }
 
-  private shouldEvaluate(entry: Internal, win: TimeWindowNs): boolean {
-    // Let an in-flight request land when it was for (nearly) this window or
-    // one this window only slid forward from. EVAL_TIMEOUT_MS bounds the wait.
-    const inFlight = entry.controller ? entry.requested : null;
-    if (inFlight && (sameWindow(inFlight, win) || forwardSlide(inFlight, win))) return false;
+  // Bring an entry whose identity is unchanged up to date for `win`: evaluate
+  // it only if what it has (or is about to get) doesn't serve the window. The
+  // current points stay up until a new answer lands.
+  private refresh(id: string, entry: Internal, win: TimeWindowNs): void {
+    const covered = !!entry.cover && covers(entry.cover, win, this.now() * 1e6);
+    if (entry.controller && entry.requested) {
+      // Let an in-flight request land when it was for (nearly) this window or
+      // one this window only slid forward from. EVAL_TIMEOUT_MS bounds the wait.
+      if (sameWindow(entry.requested, win) || forwardSlide(entry.requested, win)) return;
+      // Back inside what's already drawn (a pan back): that answer isn't
+      // wanted any more, and landing would swap in the wrong range.
+      if (covered) this.cancelRequest(entry);
+    }
+    if (covered) {
+      // A transient failure for some other window doesn't apply to this one.
+      if (entry.failure && !entry.failure.terminal) {
+        this.clearRetry(entry);
+        entry.failure = null;
+        const { identity, points, decimated } = entry.data;
+        entry.data = { identity, status: 'ready', points, decimated };
+        this.publish();
+      }
+      return;
+    }
     const failure = entry.failure;
-    if (failure?.terminal && !spanChanged(failure.spanNs, win)) return false;
+    if (failure?.terminal && !spanChanged(failure.spanNs, win)) return;
     // Transient failure: the retry timer re-drives the entry.
-    if (entry.retryTimer) return false;
-    return !entry.cover || !covers(entry.cover, win, this.now() * 1e6);
+    if (entry.retryTimer) return;
+    this.start(id, entry, win);
   }
 
   private start(id: string, entry: Internal, win: TimeWindowNs): void {
@@ -336,7 +357,7 @@ export class FormulaStore {
         this.publish();
         // The window may have slid on while this was in flight; if nothing
         // else asks again (a frozen or absolute window), catch up now.
-        if (this.shouldEvaluate(entry, entry.wanted)) this.start(id, entry, entry.wanted);
+        this.refresh(id, entry, entry.wanted);
       },
       (err: unknown) => {
         if (!this.owns(id, entry, controller) || isAbort(err)) return;
@@ -362,8 +383,7 @@ export class FormulaStore {
     this.clearRetry(entry);
     entry.retryTimer = setTimeout(() => {
       entry.retryTimer = null;
-      if (this.entries.get(id) !== entry) return;
-      if (this.shouldEvaluate(entry, entry.wanted)) this.start(id, entry, entry.wanted);
+      if (this.entries.get(id) === entry) this.refresh(id, entry, entry.wanted);
     }, delayMs);
   }
 

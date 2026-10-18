@@ -318,6 +318,30 @@ describe('FormulaStore in-flight requests', () => {
     expect(fox.calls.map((c) => c.signal.aborted)).toEqual([true, true, false]);
   });
 
+  it('re-sends when the window jumps forward past the in-flight one', () => {
+    const { fox, store } = setup();
+    store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
+    store.request('f1', { spec: spec('{x1}*2'), window: win(10 * 3_600_000, 11 * 3_600_000) });
+
+    expect(fox.calls.map((c) => c.signal.aborted)).toEqual([true, false]);
+  });
+
+  it('drops an in-flight request when the window comes back inside the evaluated range', async () => {
+    const { fox, store, entry } = setup();
+    store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
+    fox.calls[0].resolve([5]);
+    await flush();
+    store.request('f1', { spec: spec('{x1}*2'), window: win(3_600_000, 7_200_000) });
+    store.request('f1', { spec: spec('{x1}*2'), window: win(10 * MINUTE, 50 * MINUTE) });
+    expect(fox.calls[1].signal.aborted).toBe(true);
+
+    fox.calls[1].resolve([9]);
+    await flush();
+    expect(entry('f1')).toMatchObject({ status: 'ready', points: [[3_600_000, 5]] });
+    expect(fox.calls).toHaveLength(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('catches up after an answer when the window slid past it and then stopped', async () => {
     const { fox, store } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });
@@ -383,6 +407,26 @@ describe('FormulaStore failures', () => {
     await vi.advanceTimersByTimeAsync(100);
     expect(fox.calls).toHaveLength(2);
     expect(fox.calls[1].t1Ns).toBe(latest.toNs);
+  });
+
+  it('clears a transient failure once the window is back inside the evaluated range', async () => {
+    const { fox, store, entry } = setup((c) => {
+      if (fox.calls.length > 1) c.reject(err(503, 'buffer_at_capacity'));
+    });
+    store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
+    fox.calls[0].resolve([5]);
+    await flush();
+    store.request('f1', { spec: spec('{x1}*2'), window: win(3_600_000, 7_200_000) });
+    await flush();
+    expect(entry('f1')?.status).toBe('error');
+
+    store.request('f1', { spec: spec('{x1}*2'), window: win(10 * MINUTE, 50 * MINUTE) });
+    expect(entry('f1')?.status).toBe('ready');
+    expect(entry('f1')?.error).toBeUndefined();
+    expect(entry('f1')?.points).toEqual([[3_600_000, 5]]);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fox.calls).toHaveLength(2);
   });
 
   it('starts the backoff over after a success', async () => {
