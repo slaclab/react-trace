@@ -14,6 +14,8 @@ export interface FetchDataParams {
   binning?: BinningMode;
   maxPoints?: number;
   binSizeNs?: number;
+  // Also return the last sample before `fromNs`. Raw requests only.
+  includeLastBefore?: boolean;
 }
 
 export async function fetchData(
@@ -29,6 +31,7 @@ export async function fetchData(
       binning: params.binning,
       maxPoints: params.maxPoints,
       binSize: params.binSizeNs,
+      includeLastBefore: params.includeLastBefore,
     },
     signal,
   });

@@ -316,6 +316,124 @@ describe('archiveStore: PV not in the archiver', () => {
   });
 });
 
+// #123: a PV archived on change has no sample between the window start and its
+// first change in the window, so the trace started late (or was empty). Raw
+// requests now ask for the last sample before the window and hold its value
+// from the left edge.
+describe('archiveStore: value at the window start', () => {
+  // A PV archived on change. Honours `includeLastBefore` like Mole: samples in
+  // [from, to], plus the last one before `from` when asked.
+  function onChangeFetch(changes: Array<[tsNs: number, value: number]>): Impl {
+    return async (_pv, params) => {
+      const toNs = params.toNs ?? params.fromNs;
+      const inWindow = changes.filter(([t]) => t >= params.fromNs && t <= toNs);
+      const before = changes.filter(([t]) => t < params.fromNs).slice(-1);
+      return {
+        mode: 'raw',
+        pv: PV,
+        archiver: 'lcls',
+        from: params.fromNs,
+        to: toNs,
+        decimated: false,
+        samples: [...(params.includeLastBefore ? before : []), ...inWindow].map(
+          ([tsNs, value]) => ({
+            tsNs,
+            value,
+            severity: 'NO_ALARM' as const,
+            source: 'archive' as const,
+          })
+        ),
+      };
+    };
+  }
+
+  const T0_NS = T0_MS * 1e6;
+  const ask = (h: Harness, window: TimeWindowNs) =>
+    h.store.request('t1', { pv: PV, archiver: undefined, window });
+  const meanOf = (h: Harness) =>
+    h.store
+      .getSnapshot()
+      .get('t1')!
+      .mean.map((p) => [p.time, p.value]);
+
+  it('holds the value from before the window at its left edge', async () => {
+    // Changed to 7 a minute before the window, to 8 inside it.
+    const h = setup(
+      onChangeFetch([
+        [T0_NS - 60e9, 7],
+        [T0_NS - 10e9, 8],
+      ])
+    );
+    const win = windowAt(T0_MS, 30);
+    ask(h, win);
+    await flush();
+    expect(h.fetchData.mock.calls[0][1].includeLastBefore).toBe(true);
+    expect(meanOf(h)).toEqual([
+      [win.fromNs / 1e6, 7],
+      [T0_MS - 10_000, 8],
+    ]);
+  });
+
+  it('draws a PV that did not change in the window as its prior value', async () => {
+    const h = setup(onChangeFetch([[T0_NS - 3600e9, 1]]));
+    const win = windowAt(T0_MS, 5);
+    ask(h, win);
+    await flush();
+    expect(meanOf(h)).toEqual([[win.fromNs / 1e6, 1]]);
+  });
+
+  it('does not double a sample exactly at the window start', async () => {
+    const win = windowAt(T0_MS, 30);
+    const h = setup(
+      onChangeFetch([
+        [T0_NS - 60e9, 7],
+        [win.fromNs, 8],
+      ])
+    );
+    ask(h, win);
+    await flush();
+    expect(meanOf(h)).toEqual([[win.fromNs / 1e6, 8]]);
+  });
+
+  it('keeps the held value at the left edge as a now-tracking window slides', async () => {
+    const h = setup(
+      onChangeFetch([
+        [T0_NS - 60e9, 7],
+        [T0_NS + 3e9, 8],
+      ])
+    );
+    await drift(h, { spanS: 30, steps: 100 });
+    const calls = h.fetchData.mock.calls.map((c) => c[1]);
+    expect(calls.length).toBeGreaterThan(2);
+    // Only the full first request asks for it; tails extend a buffer that has it.
+    expect(calls.map((p) => p.includeLastBefore)).toEqual([
+      true,
+      ...calls.slice(1).map(() => undefined),
+    ]);
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.mean.map((p) => p.value)).toEqual([7, 8]);
+    expect(entry.mean[0].time).toBe(entry.coverFromNs / 1e6);
+  });
+
+  it('does not ask for it on binned requests', async () => {
+    const h = setup(async (_pv, params) => ({
+      mode: 'binned',
+      pv: PV,
+      archiver: 'lcls',
+      from: params.fromNs,
+      to: params.toNs ?? params.fromNs,
+      binning: 'auto',
+      binSizeNs: null,
+      targetBuckets: 5000,
+      points: [],
+    }));
+    ask(h, windowAt(T0_MS, 3600));
+    await flush();
+    expect(h.fetchData.mock.calls[0][1]).toMatchObject({ binning: 'auto' });
+    expect(h.fetchData.mock.calls[0][1].includeLastBefore).toBeUndefined();
+  });
+});
+
 describe('archiveStore: other failures back off', () => {
   async function failureTimes(
     error: () => Error,
@@ -493,9 +611,13 @@ describe('archiveStore: archived PV while the window tracks now', () => {
 
       const entry = h.store.getSnapshot().get('t1')!;
       expect(entry.status).toBe('ready');
-      // Sorted, no duplicates, one point per second, trimmed to the window.
+      // Sorted, no duplicates, trimmed to the window: the value held at the
+      // window start (#123), then one point per second.
       const times = entry.mean.map((p) => p.time);
-      expect(times.slice(1).every((t, i) => t - times[i] === 1000)).toBe(true);
+      expect(times[0]).toBe(entry.coverFromNs / 1e6);
+      const seconds = times[0] % 1000 === 0 ? times : times.slice(1);
+      expect(seconds[0] - times[0]).toBeLessThan(1000);
+      expect(seconds.slice(1).every((t, i) => t - seconds[i] === 1000)).toBe(true);
       expect(times[0]).toBeGreaterThanOrEqual(h.now() - 100 - spanS * 1000 - 2100);
       // Background refreshes never flip back to 'loading'.
       expect(h.published.t1.filter((st) => st === 'loading')).toHaveLength(1);

@@ -327,9 +327,28 @@ function dtoToData(
   };
 }
 
+// A raw answer asked for with `includeLastBefore` starts with the archiver's
+// last sample before the window. Move it to the window start, so a PV that is
+// archived on change has a value from the left edge, not from its first change
+// in the window (or none at all if it didn't change). Dropped if a sample sits
+// exactly at the start.
+function holdLastBefore(dto: ArchiverDataDTO, window: TimeWindowNs): ArchiverDataDTO {
+  if (dto.mode !== 'raw') return dto;
+  const samples = dto.samples;
+  let i = 0;
+  while (i < samples.length && samples[i].tsNs < window.fromNs) i++;
+  if (i === 0) return dto;
+  const inWindow = samples.slice(i);
+  if (inWindow.length > 0 && inWindow[0].tsNs === window.fromNs) {
+    return { ...dto, samples: inWindow };
+  }
+  return { ...dto, samples: [{ ...samples[i - 1], tsNs: window.fromNs }, ...inWindow] };
+}
+
 // Merge a tail fetch into the buffer: keep buffered points before the tail
-// (from the window start on), then the fetched samples. Coverage becomes
-// [window start, window end].
+// (from the window start on), then the fetched samples. The last buffered
+// point before the window start is held at the start, as `holdLastBefore`
+// does for a full fetch. Coverage becomes [window start, window end].
 function spliceTail(
   prev: ArchiveEntry,
   dto: ArchiverDataDTO,
@@ -340,10 +359,13 @@ function spliceTail(
   const fromMs = nsToMs(window.fromNs);
   const tailFromMs = nsToMs(tail.fromNs);
   const mean: ArchivePlotPoint[] = [];
+  let before: ArchivePlotPoint | undefined;
   for (const p of prev.mean) {
     if (p.time >= tailFromMs) break;
     if (p.time >= fromMs) mean.push(p);
+    else before = p;
   }
+  if (before && mean[0]?.time !== fromMs) mean.unshift({ ...before, time: fromMs });
   for (const s of dto.samples as SampleDTO[]) {
     if (typeof s.value !== 'number') continue;
     const time = nsToMs(s.tsNs);
@@ -641,6 +663,10 @@ export class ArchiveStore {
           archiver: opts.archiver,
           binning: mode.binning,
           maxPoints: mode.maxPoints,
+          // The value at the window start, for a PV archived on change. Raw
+          // only: the backend rejects it for binned requests, so a binned
+          // window can start up to one bin late. A tail's buffer has it.
+          includeLastBefore: mode.binning || tail ? undefined : true,
         },
         controller.signal
       );
@@ -652,7 +678,7 @@ export class ArchiveStore {
       const forgot = this.notArchived.delete(key);
       const data = tail
         ? spliceTail(cur.data, dto, tail, opts.window)
-        : dtoToData(dto, resolvedMode, opts.window);
+        : dtoToData(holdLastBefore(dto, opts.window), resolvedMode, opts.window);
       if (tail && data.mean.length > mode.maxPoints) {
         // The tail would take the buffer past the raw point budget (the PV
         // got busier since the last full fetch). Fetch the whole window
