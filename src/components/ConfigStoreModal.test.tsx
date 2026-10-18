@@ -3,7 +3,8 @@
 // Pins ConfigStoreModal's async lifecycle (slaclab/react-trace#92). Save and
 // every row's Load/Rename/Delete share one busy slot, so only one runs at a
 // time. Save, Rename and Delete block all three of Carbon's dismissal paths (X,
-// Escape, backdrop) until they settle.
+// Escape, backdrop) until they settle. A Load doesn't: dismissing aborts it and
+// drops its result, even a response that beat the abort.
 //
 // Every magpie call returns a promise the test settles by hand, so each case
 // controls exactly when a response lands relative to clicks and dismissals.
@@ -298,6 +299,80 @@ describe('ConfigStoreModal: one operation at a time', () => {
     expect(rowButton('Config A', 'Load').disabled).toBe(false);
     expect(isVisible()).toBe(true);
     expect(onLoaded).not.toHaveBeenCalled();
+  });
+});
+
+describe('ConfigStoreModal: dismissing cancels a Load', () => {
+  it.each(PATHS)(
+    'closes on %s during a Load and ignores a response that beat the abort',
+    async (path) => {
+      await mount();
+      fireEvent.click(rowButton('Config A', 'Load'));
+      dismiss(path);
+      expect(isVisible()).toBe(false);
+      expect(parentClose).toHaveBeenCalledTimes(1);
+
+      await settle(() => loads[0].resolve(A));
+      expect(onLoaded).not.toHaveBeenCalled();
+      expect(onToast).not.toHaveBeenCalled();
+      expect(parentClose).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it.each(PATHS)('aborts the Load request on %s and shows no error for it', async (path) => {
+    await mount();
+    fireEvent.click(rowButton('Config A', 'Load'));
+    const { signal } = loads[0];
+    dismiss(path);
+    expect(signal?.aborted).toBe(true);
+
+    await settle(() =>
+      loads[0].reject(new DOMException('The operation was aborted.', 'AbortError'))
+    );
+    await reopen();
+    expect(errorBanner()).toBeNull();
+    expect(onLoaded).not.toHaveBeenCalled();
+  });
+
+  it('re-enables Load on reopen, and the old response neither applies nor frees the new Load', async () => {
+    await mount();
+    fireEvent.click(rowButton('Config A', 'Load'));
+    dismiss('Escape');
+    await reopen();
+    expect(isVisible()).toBe(true);
+    expect(rowButton('Config A', 'Load').disabled).toBe(false);
+
+    fireEvent.click(rowButton('Config A', 'Load'));
+    await settle(() => loads[0].resolve(A));
+    expect(onLoaded).not.toHaveBeenCalled();
+    expect(isVisible()).toBe(true);
+    expect(parentClose).toHaveBeenCalledTimes(1);
+    expect(rowButton('Config A', 'Load').disabled).toBe(true);
+
+    await settle(() => loads[1].resolve(A));
+    expect(onLoaded).toHaveBeenCalledTimes(1);
+    expect(isVisible()).toBe(false);
+  });
+
+  it('shows no error from a dismissed Load that fails after a reopen', async () => {
+    await mount();
+    fireEvent.click(rowButton('Config A', 'Load'));
+    dismiss('Escape');
+    await reopen();
+    await settle(() => loads[0].reject(new CanopyError('config_not_found', 404, 'not found')));
+    expect(errorBanner()).toBeNull();
+    expect(rowButton('Config A', 'Load').disabled).toBe(false);
+  });
+
+  it('aborts an in-flight Load on unmount and drops its response', async () => {
+    const { unmount } = await mount();
+    fireEvent.click(rowButton('Config A', 'Load'));
+    const { signal } = loads[0];
+    unmount();
+    expect(signal?.aborted).toBe(true);
+    await settle(() => loads[0].resolve(A));
+    expect(onLoaded).not.toHaveBeenCalled();
+    expect(onToast).not.toHaveBeenCalled();
   });
 });
 

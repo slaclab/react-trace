@@ -133,24 +133,44 @@ export function ConfigStoreModal({
     }
   }, []);
 
+  // Each open of the modal is a session. Closing or unmounting ends it and
+  // aborts a pending Load, and an operation applies its result only while its
+  // session is current, so a dismissed Load can't replace the workspace after
+  // the dialog is gone.
+  const sessionRef = useRef(0);
+  const loadAbortRef = useRef<AbortController | null>(null);
+  const endSession = useCallback(() => {
+    sessionRef.current++;
+    loadAbortRef.current?.abort();
+    loadAbortRef.current = null;
+  }, []);
+  useEffect(() => endSession, [endSession]);
+
   // Reset the form and reload the list once per open.
   const initialized = useRef(false);
   useEffect(() => {
     if (!open) {
       initialized.current = false;
+      endSession();
       return;
     }
     if (initialized.current) return;
     initialized.current = true;
     setName('');
     setDescription('');
+    // A dismissed Load holds the slot until its request settles, which the
+    // abort doesn't guarantee. Save, Rename and Delete keep it: they block
+    // dismissal, so one only gets here through a close the parent made itself,
+    // and it is still running.
+    if (busyRef.current?.kind === 'load') setBusy(null);
     setError(null);
     void refresh();
-  }, [open, refresh]);
+  }, [open, refresh, endSession, setBusy]);
 
   // Carbon's X, Escape and backdrop all call this; returning false keeps the
   // dialog open. Save, Rename and Delete block dismissal until they settle: the
   // server change happens either way, so closing would only hide its outcome.
+  // A Load doesn't block; closing cancels it.
   // This must read refs, not render state. Carbon registers its Escape listener
   // once per open and keeps the onClose from that render, when nothing was busy.
   const onCloseRef = useRef(onClose);
@@ -160,24 +180,30 @@ export function ConfigStoreModal({
   const requestClose = useCallback(() => {
     const op = busyRef.current;
     if (op && op.kind !== 'load') return false;
+    // The `!open` effect ends the session as well, but only once React has
+    // committed the close; ending it here leaves no gap for a response.
+    endSession();
     onCloseRef.current();
-  }, []);
+  }, [endSession]);
 
-  // Claim the slot for `op`; false if another operation holds it.
-  const begin = (op: BusyOp): boolean => {
-    if (busyRef.current) return false;
+  // Claim the slot for `op`. Returns the session it runs in, or null if another
+  // operation holds the slot.
+  const begin = (op: BusyOp): number | null => {
+    if (busyRef.current) return null;
     setBusy(op);
     setError(null);
-    return true;
+    return sessionRef.current;
   };
-  // Release the slot only if `op` still holds it.
+  // Release the slot only if `op` still holds it: a reopen may have taken a
+  // dismissed Load's slot and given it to a newer operation.
   const end = (op: BusyOp) => {
     if (busyRef.current === op) setBusy(null);
   };
 
   const handleSave = async () => {
     const op: BusyOp = { kind: 'save' };
-    if (!begin(op)) return;
+    const session = begin(op);
+    if (session === null) return;
     try {
       const data = serializeConfigData({ theme, plots });
       const dto = await saveConfig(data, {
@@ -194,11 +220,14 @@ export function ConfigStoreModal({
         title: 'Workspace saved',
         subtitle: copied ? `Share link copied to clipboard (${dto.slug})` : `Share link: ${link}`,
       });
+      // The toast goes out regardless: the config exists and its link is
+      // useful. The form and the list belong to the session.
+      if (session !== sessionRef.current) return;
       setName('');
       setDescription('');
       await refresh();
     } catch (err) {
-      setError(errText(err));
+      if (session === sessionRef.current) setError(errText(err));
     } finally {
       end(op);
     }
@@ -206,9 +235,14 @@ export function ConfigStoreModal({
 
   const handleLoad = async (config: ConfigDTO) => {
     const op: BusyOp = { kind: 'load', slug: config.slug, label: config.name || config.slug };
-    if (!begin(op)) return;
+    const session = begin(op);
+    if (session === null) return;
+    const abort = new AbortController();
+    loadAbortRef.current = abort;
     try {
-      const dto = await getConfig(config.slug);
+      const dto = await getConfig(config.slug, abort.signal);
+      // Closing aborts the request, but the response may have arrived first.
+      if (session !== sessionRef.current) return;
       const result = deserializeConfigData(dto.data);
       onLoaded(result);
       onToast({
@@ -218,8 +252,10 @@ export function ConfigStoreModal({
       });
       onClose();
     } catch (err) {
-      setError(errText(err));
+      // A stale session also covers the AbortError from closing.
+      if (session === sessionRef.current) setError(errText(err));
     } finally {
+      if (loadAbortRef.current === abort) loadAbortRef.current = null;
       end(op);
     }
   };
@@ -233,12 +269,14 @@ export function ConfigStoreModal({
     const trimmed = next.trim();
     if (trimmed === '' || trimmed === (config.name ?? '')) return;
     const op: BusyOp = { kind: 'rename', slug: config.slug, label: config.name || config.slug };
-    if (!begin(op)) return;
+    const session = begin(op);
+    if (session === null) return;
     try {
       await updateConfig(config.slug, { name: trimmed });
+      if (session !== sessionRef.current) return;
       await refresh();
     } catch (err) {
-      setError(errText(err));
+      if (session === sessionRef.current) setError(errText(err));
     } finally {
       end(op);
     }
@@ -248,12 +286,14 @@ export function ConfigStoreModal({
     if (busyRef.current) return;
     if (!window.confirm(`Delete "${config.name || config.slug}"? This cannot be undone.`)) return;
     const op: BusyOp = { kind: 'delete', slug: config.slug, label: config.name || config.slug };
-    if (!begin(op)) return;
+    const session = begin(op);
+    if (session === null) return;
     try {
       await deleteConfig(config.slug);
+      if (session !== sessionRef.current) return;
       await refresh();
     } catch (err) {
-      setError(errText(err));
+      if (session === sessionRef.current) setError(errText(err));
     } finally {
       end(op);
     }
