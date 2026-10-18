@@ -15,9 +15,10 @@ import type { FormulaResultDTO, FormulaSpecDTO } from '../api/types';
 //   (pan, zoom in, and a window following "now" until it drifts past
 //   NEAR_NOW_SLACK_MS or 1% of its span), except a zoom into under half of a
 //   decimated result, which needs Fox's detail for the narrower window;
-// - an in-flight request isn't repeated or aborted when the window only slid
-//   forward. Aborting wouldn't save Fox any work: it never cancels an
-//   evaluation the client has gone away from;
+// - an in-flight request isn't repeated, nor aborted when the window only slid
+//   forward from it (still overlapping it, or following "now"). Aborting
+//   wouldn't save Fox any work: it never cancels an evaluation the client has
+//   gone away from;
 // - a failure that will recur for the same input waits for a new spec or span;
 //   any other failure is retried on a backoff timer, not on every window move.
 //
@@ -142,13 +143,14 @@ function spanChanged(prevSpanNs: number, win: TimeWindowNs): boolean {
   return Math.abs(spanOf(win) - prevSpanNs) > tolerance(win);
 }
 
-// How far behind "now" a window may end and still count as tracking it.
+// How far from "now" a window may end and still count as following it.
 function nearNowSlack(win: TimeWindowNs): number {
   return Math.max(tolerance(win), NEAR_NOW_SLACK_MS * 1e6);
 }
 
-function tracksNow(win: TimeWindowNs, nowNs: number): boolean {
-  return win.toNs >= nowNs - nearNowSlack(win);
+// `win` ended at "now" (within the slack) when it was asked for at `askedAtNs`.
+function followsNow(win: TimeWindowNs, askedAtNs: number): boolean {
+  return Math.abs(win.toNs - askedAtNs) <= nearNowSlack(win);
 }
 
 // The evaluated range `cover` already holds what `win` needs. `decimated` is
@@ -165,9 +167,10 @@ function covers(
   // sparse for the narrower window, so ask Fox for its detail.
   if (decimated && spanOf(win) < spanOf(cover) / 2) return false;
   if (cover.toNs >= win.toNs - tol) return true;
-  // A window tracking "now" may run ahead by the slack; a historical window
+  // A window reaching "now" may run ahead by the slack; a historical window
   // (panned into the past, absolute) keeps the plain tolerance.
-  return tracksNow(win, nowNs) && cover.toNs >= win.toNs - nearNowSlack(win);
+  const slack = nearNowSlack(win);
+  return win.toNs >= nowNs - slack && cover.toNs >= win.toNs - slack;
 }
 
 function sameWindow(a: TimeWindowNs, b: TimeWindowNs): boolean {
@@ -176,21 +179,20 @@ function sameWindow(a: TimeWindowNs, b: TimeWindowNs): boolean {
 }
 
 // `win` is `prev` moved forward at the same span, and either still overlaps it
-// or is the same window following "now" (`prevTrackedNow`: it did when sent),
-// just further along because Fox is slower than its span. Waiting for that
-// answer keeps one evaluation in flight at a time. Any other jump forward is a
-// new request.
+// or both follow "now" (the same live window, further along because Fox is
+// slower than its span). Waiting for that answer keeps one evaluation in
+// flight at a time. Any other jump forward is a new request.
 function forwardSlide(
   prev: TimeWindowNs,
-  prevTrackedNow: boolean,
+  prevFollowedNow: boolean,
   win: TimeWindowNs,
-  nowNs: number
+  winFollowsNow: boolean
 ): boolean {
   return (
     win.toNs >= prev.toNs &&
     win.fromNs >= prev.fromNs - tolerance(win) &&
     !spanChanged(spanOf(prev), win) &&
-    (win.fromNs < prev.toNs || (prevTrackedNow && tracksNow(win, nowNs)))
+    (win.fromNs < prev.toNs || (prevFollowedNow && winFollowsNow))
   );
 }
 
@@ -215,11 +217,13 @@ interface Internal {
   // Window `data.points` were evaluated over; null until an evaluation under
   // this identity succeeds.
   cover: TimeWindowNs | null;
-  // Window of the in-flight request, and whether it tracked "now" when sent.
+  // Window of the in-flight request, and whether it followed "now".
   requested: TimeWindowNs | null;
-  requestedTrackedNow: boolean;
-  // Latest window asked for, issued or not. Retries and catch-ups use it.
+  requestedFollowedNow: boolean;
+  // Latest window asked for (issued or not), and when. Every evaluation is
+  // for this window; retries and catch-ups re-read it.
   wanted: TimeWindowNs;
+  wantedAtMs: number;
   controller: AbortController | null;
   timeoutTimer: Timer | null;
   failure: Failure | null;
@@ -266,20 +270,22 @@ export class FormulaStore {
         data: { identity, status: 'loading', points: [], decimated: false },
         cover: null,
         requested: null,
-        requestedTrackedNow: false,
+        requestedFollowedNow: false,
         wanted: req.window,
+        wantedAtMs: this.now(),
         controller: null,
         timeoutTimer: null,
         failure: null,
         retryTimer: null,
       };
       this.entries.set(id, entry);
-      this.start(id, entry, req.window);
+      this.start(id, entry);
       this.publish();
       return;
     }
     existing.wanted = req.window;
-    this.refresh(id, existing, req.window);
+    existing.wantedAtMs = this.now();
+    this.refresh(id, existing);
   }
 
   // Forget a trace (deleted, no longer a formula, or not evaluable).
@@ -311,18 +317,21 @@ export class FormulaStore {
     this.entries.clear();
   }
 
-  // Bring an entry whose identity is unchanged up to date for `win`: evaluate
+  // Bring an entry whose identity is unchanged up to date for the window it
+  // wants: evaluate
   // it only if what it has (or is about to get) doesn't serve the window. The
   // current points stay up until a new answer lands.
-  private refresh(id: string, entry: Internal, win: TimeWindowNs): void {
+  private refresh(id: string, entry: Internal): void {
+    const win = entry.wanted;
     const nowMs = this.now();
     if (entry.controller && entry.requested) {
       // Let an in-flight request land when it was for (nearly) this window or
       // one this window only slid forward from. EVAL_TIMEOUT_MS bounds the wait.
-      const { requested, requestedTrackedNow } = entry;
+      const winFollowsNow = followsNow(win, entry.wantedAtMs * 1e6);
+      const { requested, requestedFollowedNow } = entry;
       if (
         sameWindow(requested, win) ||
-        forwardSlide(requested, requestedTrackedNow, win, nowMs * 1e6)
+        forwardSlide(requested, requestedFollowedNow, win, winFollowsNow)
       ) {
         return;
       }
@@ -344,7 +353,7 @@ export class FormulaStore {
       this.showStatus(entry, failure);
       return;
     }
-    this.start(id, entry, win);
+    this.start(id, entry);
   }
 
   // Show `failure` as the entry's status: 'error' with its info, or 'ready'
@@ -356,13 +365,17 @@ export class FormulaStore {
     this.publish();
   }
 
-  private start(id: string, entry: Internal, win: TimeWindowNs): void {
+  // Evaluate the window the entry wants.
+  private start(id: string, entry: Internal): void {
     this.cancelRequest(entry);
     this.clearRetry(entry);
+    const win = entry.wanted;
     const controller = new AbortController();
     entry.controller = controller;
     entry.requested = win;
-    entry.requestedTrackedNow = tracksNow(win, this.now() * 1e6);
+    // Judged at the time the window was asked for: a retry or catch-up can
+    // start well after that.
+    entry.requestedFollowedNow = followsNow(win, entry.wantedAtMs * 1e6);
     // Settled here rather than through the aborted fetch's rejection, so a
     // request that ignores its signal still can't hold the entry.
     entry.timeoutTimer = setTimeout(() => {
@@ -399,7 +412,7 @@ export class FormulaStore {
         this.publish();
         // The window may have slid on while this was in flight; if nothing
         // else asks again (a frozen or absolute window), catch up now.
-        this.refresh(id, entry, entry.wanted);
+        this.refresh(id, entry);
       },
       (err: unknown) => {
         if (!this.owns(id, entry, controller) || isAbort(err)) return;
@@ -425,7 +438,7 @@ export class FormulaStore {
     this.clearRetry(entry);
     entry.retryTimer = setTimeout(() => {
       entry.retryTimer = null;
-      if (this.entries.get(id) === entry) this.refresh(id, entry, entry.wanted);
+      if (this.entries.get(id) === entry) this.refresh(id, entry);
     }, delayMs);
   }
 

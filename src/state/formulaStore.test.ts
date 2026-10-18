@@ -418,6 +418,31 @@ describe('FormulaStore in-flight requests', () => {
     expect(fox.calls.map((c) => c.signal.aborted)).toEqual([true, false]);
   });
 
+  it("doesn't wait on a live request when the window jumps to end in the future", () => {
+    const { fox, store } = setup();
+    store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(10_000) });
+    store.request('f1', { spec: spec('{x1}*2'), window: win(T0 + 20_000, T0 + 30_000) });
+
+    expect(fox.calls.map((c) => c.signal.aborted)).toEqual([true, false]);
+  });
+
+  it('treats a retry of a live window as live, though it starts after the window was asked for', async () => {
+    const { fox, store } = setup((c) => {
+      if (fox.calls.length <= 3) c.reject(err(503, 'buffer_at_capacity'));
+    });
+    // Nothing re-renders while it backs off, so the retries at 1, 3 and 7 s
+    // all evaluate the window asked for at 0 s.
+    store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5_000) });
+    await vi.advanceTimersByTimeAsync(7_000);
+    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 1_000, 3_000, 7_000]);
+
+    // The next render's live window has slid past it entirely.
+    await vi.advanceTimersByTimeAsync(100);
+    store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5_000) });
+    expect(fox.calls).toHaveLength(4);
+    expect(fox.calls[3].signal.aborted).toBe(false);
+  });
+
   it('catches up after an answer when the window slid past it and then stopped', async () => {
     const { fox, store } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });
