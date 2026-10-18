@@ -21,6 +21,10 @@ export const DRIFT_MIN_INTERVAL_MS = 2_000;
 // A tail fetch re-reads this much of the buffered window, so samples the
 // archiver writes late (after the previous fetch) aren't lost.
 export const TAIL_OVERLAP_MS = 10_000;
+// Bins are sized for the window they were fetched for. Zooming into a binned
+// buffer shows fewer and fewer of them, so once the window is shorter than
+// this share of the fetched span (bins at most 2x too coarse), refetch it.
+export const ZOOM_REFETCH_RATIO = 0.5;
 
 export interface FetchMode {
   binning?: 'auto';
@@ -182,14 +186,23 @@ function coverageTolerance(win: TimeWindowNs): number {
 
 function covers(entry: InternalEntry, win: TimeWindowNs, nowNs: number): boolean {
   if (!entry.hasCover) return false;
+  const { coverFromNs, coverToNs } = entry.data;
+  // Zoomed into a binned buffer: the bins are too coarse for this window. (A
+  // binned buffer covers exactly the window its bins were fetched for.)
+  if (
+    entry.fetchSig.mode === 'binned' &&
+    win.toNs - win.fromNs < (coverToNs - coverFromNs) * ZOOM_REFETCH_RATIO
+  ) {
+    return false;
+  }
   const tol = coverageTolerance(win);
-  if (entry.data.coverFromNs > win.fromNs + tol) return false;
-  if (entry.data.coverToNs >= win.toNs - tol) return true;
+  if (coverFromNs > win.fromNs + tol) return false;
+  if (coverToNs >= win.toNs - tol) return true;
   // A window tracking "now" can be behind by up to DRIFT_MIN_INTERVAL_MS
   // before it's worth asking the archiver for the newest part. Historical
   // windows (panned into the past) keep the plain tolerance.
   const slack = Math.max(tol, DRIFT_MIN_INTERVAL_MS * 1_000_000);
-  return win.toNs >= nowNs - slack && entry.data.coverToNs >= win.toNs - slack;
+  return win.toNs >= nowNs - slack && coverToNs >= win.toNs - slack;
 }
 
 // When the buffer covers the start of `win` and only the end is new (a window
@@ -459,7 +472,9 @@ export class ArchiveStore {
    *   until the archiver answers.
    * - Same identity, same fetch signature, buffer already covers the window:
    *   free render, no fetch. A window tracking "now" counts as covered until
-   *   it's DRIFT_MIN_INTERVAL_MS (or 1% of the span, if longer) ahead.
+   *   it's DRIFT_MIN_INTERVAL_MS (or 1% of the span, if longer) ahead. A zoom
+   *   into a binned buffer past ZOOM_REFETCH_RATIO isn't covered: it refetches
+   *   with the coarse buffer still on screen and status 'ready'.
    * - Window slid forward past the buffer (raw mode): fetch only the new tail
    *   (plus TAIL_OVERLAP_MS) and splice it in, keeping status 'ready'. If that
    *   would take the buffer past the raw point budget, the whole window is

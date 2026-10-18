@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ArchiveStore, type FetchDataFn } from './archiveStore';
+import { ArchiveStore, DEFAULT_OPTIMIZED_BINS, type FetchDataFn } from './archiveStore';
 import { CanopyError } from '../api/client';
 import type { ArchiverDataDTO } from '../api/types';
 import type { TimeWindowNs } from '../api/time';
@@ -650,5 +650,114 @@ describe('archiveStore: archived PV while the window tracks now', () => {
     const spans = h.fetchData.mock.calls.map((c) => spanOf(c[1]));
     expect(spans.length).toBeGreaterThan(1);
     expect(spans.every((s) => s === 30)).toBe(true);
+  });
+});
+
+// #121: a zoom into a binned buffer used to keep drawing the bins fetched for
+// the whole range, since the fetch signature holds the bin count, not the bin
+// width. Windows here stay over 30 min, so the raw/binned flip isn't what
+// triggers the refetch.
+describe('archiveStore: zooming into a binned buffer', () => {
+  // Ten evenly spaced bins over the requested range, mean = bin index.
+  function binnedDto(params: FetchDataParams): ArchiverDataDTO {
+    const toNs = params.toNs ?? params.fromNs;
+    const binNs = (toNs - params.fromNs) / 10;
+    return {
+      mode: 'binned',
+      pv: PV,
+      archiver: 'lcls',
+      from: params.fromNs,
+      to: toNs,
+      binning: 'auto',
+      binSizeNs: null,
+      targetBuckets: params.maxPoints ?? null,
+      points: Array.from({ length: 10 }, (_, i) => ({
+        tsNs: params.fromNs + i * binNs,
+        binNs,
+        mean: i,
+        stdDev: 0,
+        min: i,
+        max: i,
+        count: 1,
+        severity: 'NO_ALARM' as const,
+      })),
+    };
+  }
+
+  const DAY_S = 86_400;
+  // The last `spanS` of `win`, as a wheel zoom anchored at the right edge.
+  const zoomTo = (win: TimeWindowNs, spanS: number): TimeWindowNs => ({
+    fromNs: win.toNs - spanS * 1e9,
+    toNs: win.toNs,
+  });
+  const ask = (h: Harness, window: TimeWindowNs) =>
+    h.store.request('t1', { pv: PV, archiver: undefined, window });
+
+  it('fetches finer bins for a 40 min zoom, keeping the coarse line until they land', async () => {
+    let resolveZoom!: () => void;
+    const h: Harness = setup((_pv, params) => {
+      if (h.fetchData.mock.calls.length === 1) return Promise.resolve(binnedDto(params));
+      return new Promise((r) => {
+        resolveZoom = () => r(binnedDto(params));
+      });
+    });
+    const day = windowAt(h.now(), DAY_S);
+    ask(h, day);
+    await flush();
+    const coarse = h.store.getSnapshot().get('t1')!.mean;
+
+    const zoom = zoomTo(day, 40 * 60);
+    ask(h, zoom);
+    ask(h, zoom); // re-render while the zoom fetch is in flight
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    expect(h.fetchData.mock.calls[1][1]).toMatchObject({
+      fromNs: zoom.fromNs,
+      toNs: zoom.toNs,
+      binning: 'auto',
+      maxPoints: DEFAULT_OPTIMIZED_BINS,
+    });
+    // Coarse buffer still on screen, and no 'loading' blink.
+    expect(h.store.getSnapshot().get('t1')!.mean).toBe(coarse);
+    expect(h.store.getSnapshot().get('t1')!.status).toBe('ready');
+
+    resolveZoom();
+    await flush();
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.mean[0].time).toBe(zoom.fromNs / 1e6);
+    expect(entry.coverFromNs).toBe(zoom.fromNs);
+    expect(h.published.t1.filter((st) => st === 'loading')).toHaveLength(1);
+
+    // Settled: re-renders of the zoomed window are free.
+    ask(h, zoom);
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+  });
+
+  it('a zoom to more than half the fetched span stays on the buffer', async () => {
+    const h = setup(async (_pv, params) => binnedDto(params));
+    const day = windowAt(h.now(), DAY_S);
+    ask(h, day);
+    await flush();
+    ask(h, zoomTo(day, 20 * 3600));
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(1);
+    ask(h, zoomTo(day, 11 * 3600));
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+  });
+
+  it('a gradual zoom refetches once per halving of the span, not per step', async () => {
+    const h = setup(async (_pv, params) => binnedDto(params));
+    const day = windowAt(h.now(), DAY_S);
+    let spanS = DAY_S;
+    // 30 settled zoom steps of 10% each: 1 day down to about 1 h.
+    for (let i = 0; i <= 30; i++) {
+      ask(h, zoomTo(day, spanS));
+      await flush();
+      spanS *= 0.9;
+    }
+    // The first fetch, then one at every 7th step (0.9^7 < 0.5 < 0.9^6).
+    expect(h.fetchData).toHaveBeenCalledTimes(5);
   });
 });
