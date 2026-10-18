@@ -519,6 +519,10 @@
   top: 40px;
   background-color: var(--cds-layer);
   z-index: 1;
+  /* Carbon's condensed tab density (8px inline padding instead of 16px) for
+     every properties tab set, so the widest one (a trace's General, Line,
+     Symbol, Code) fits the default panel width without the scroll arrow. */
+  --cds-layout-density-padding-inline: var(--cds-layout-density-padding-inline-condensed);
 }
 
 .properties-panel .cds--tab-content {
