@@ -309,6 +309,10 @@ export function SinglePlot({
     zoomTriggerRef.current = { rangeKey, following };
     const resumed = following && !prev.following;
     if (prev.rangeKey === rangeKey && !resumed) return;
+    // The reset discards the user's pan, so drop its view window if it's still
+    // debounced. Landing after the reset, it would save the old window and
+    // switch Autoscroll back off.
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     const inst = chartRef.current?.getEchartsInstance();
     if (!inst || !inst.getDom()) return;
     programmaticZoomRef.current = true;

@@ -128,4 +128,15 @@ describe('resuming after a pan or zoom', () => {
     fireEvent.keyDown(span, { key: 'Enter' });
     expectResumedAt(T0 + 10_400);
   });
+
+  it('stays resumed when Autoscroll goes back on before the pan is recorded', () => {
+    render(<TraceApp />);
+    pan();
+    expect(autoscrollOn()).toBe(false);
+
+    // Within the 400 ms view-window debounce: the pending write must not land
+    // after the reset and freeze the plot again.
+    fireEvent.click(autoscrollSwitch());
+    expectResumedAt(T0);
+  });
 });
