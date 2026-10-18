@@ -16,6 +16,7 @@ import {
   ComboBox,
   Slider,
 } from '@carbon/react';
+import type { SliderProps } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
 import { traceLabel } from '../traceLabel';
 import {
@@ -1297,6 +1298,55 @@ function AxisCodeTab({ axis }: { axis: Axis }) {
 
 // ── Plot tabs ─────────────────────────────────────────────────────────────────
 
+/**
+ * A Carbon Slider whose `value` comes from the store that its onChange writes.
+ *
+ * Carbon's Slider copies `value` into its own state in one effect and reports
+ * that state through onChange in another. Passing each store update straight
+ * back as `value` can loop: when a keypress renders in the same batch as the
+ * store update for the previous key, Carbon reports the keypress while also
+ * resetting itself to the older store value, then reports that value while
+ * resetting to the newer one, and so on, swapping two steps forever.
+ *
+ * So `value` only reaches Carbon when it changes from outside (another plot,
+ * a loaded file): that remounts the slider at the new value. When the store
+ * just catches up with what the slider reported, Carbon's `value` stays put.
+ * This relies on onChange writing the store in the same update; a deferred
+ * write (a transition, a debounce) would look like an outside change.
+ *
+ * Single handle only.
+ */
+function StoreSlider({
+  value,
+  min,
+  max,
+  onChange,
+  ...props
+}: Omit<SliderProps, 'unstable_valueUpper'>) {
+  // `seed` is what Carbon was mounted with; `seen` is the latest value either
+  // the store or the slider has reported. Carbon also resets itself to its
+  // `value` prop when min or max change, so those remount it too, at the
+  // current value rather than the stale seed.
+  const [held, setHeld] = useState({ seed: value, seen: value, min, max, key: 0 });
+  // Object.is so a NaN from a malformed workspace file doesn't reseed forever.
+  if (!Object.is(value, held.seen) || min !== held.min || max !== held.max) {
+    setHeld({ seed: value, seen: value, min, max, key: held.key + 1 });
+  }
+  return (
+    <Slider
+      key={held.key}
+      {...props}
+      min={min}
+      max={max}
+      value={held.seed}
+      onChange={(data) => {
+        setHeld((prev) => ({ ...prev, seen: data.value }));
+        onChange?.(data);
+      }}
+    />
+  );
+}
+
 function PlotGeneralTab({
   plot,
   onUpdate,
@@ -1444,7 +1494,7 @@ function PlotGeneralTab({
         <div className="prop-row">
           {/* No number input: it doesn't fit beside the track at the default
               panel width, so the value goes in the label instead. */}
-          <Slider
+          <StoreSlider
             id="grid-opacity"
             labelText={`Gridline Opacity (${gridOpacityPct}%)`}
             hideTextInput
