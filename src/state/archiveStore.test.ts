@@ -534,18 +534,47 @@ describe('archiveStore: decimated raw answers', () => {
     ]);
   });
 
-  it('remembers it across refetchAll(), not across a pv change', async () => {
+  it('remembers it per pv: other traces, release() and refetchAll() go straight to bins', async () => {
     const h = setup(decimatingFetch(RAW_CAP_S));
     const win = windowAt(h.now(), 30 * 60);
     ask(h, win, { bins: 2000 });
     await flush();
+    // Same PV on another trace, then this trace removed and re-added.
+    h.store.request('t2', { pv: PV, archiver: undefined, window: win });
+    h.store.release('t1');
+    ask(h, win);
+    await flush();
     h.store.refetchAll();
     await flush();
-    ask(h, win, { pv: 'OTHER:PV', bins: 2000 });
+    // A different PV starts over with raw.
+    h.store.request('t3', { pv: 'OTHER:PV', archiver: undefined, window: win });
     await flush();
-    expect(modes(h)).toEqual(['raw', 'auto', 'auto', 'raw', 'auto']);
-    // The trace's own bin count is used for the binned requests.
+    expect(modes(h)).toEqual(['raw', 'auto', 'auto', 'auto', 'auto', 'auto', 'raw', 'auto']);
+    // The trace's own bin count is used for the binned request.
     expect(h.fetchData.mock.calls[1][1].maxPoints).toBe(2000);
+  });
+
+  it('a decimated tail switches the window to bins too', async () => {
+    // The window's first answer fits; later ones (the tails) come back decimated.
+    const fits = decimatingFetch(Infinity);
+    const dense = decimatingFetch(0);
+    const h: Harness = setup((pv, params, signal) =>
+      (h.fetchData.mock.calls.length === 1 ? fits : dense)(pv, params, signal)
+    );
+    const thinnedShown: boolean[] = [];
+    h.store.subscribe(() => thinnedShown.push(!!h.store.getSnapshot().get('t1')?.decimated));
+    await drift(h, { spanS: 30, steps: 50 });
+    const calls = h.fetchData.mock.calls.map((c) => c[1]);
+    expect(modes(h).slice(0, 3)).toEqual(['raw', 'raw', 'auto']);
+    // The second request was a tail; the binned one is the whole window.
+    expect((calls[1].toNs! - calls[1].fromNs) / 1e9).toBeLessThan(30);
+    expect((calls[2].toNs! - calls[2].fromNs) / 1e9).toBeCloseTo(30, 3);
+    expect(
+      modes(h)
+        .slice(2)
+        .every((m) => m === 'auto')
+    ).toBe(true);
+    expect(thinnedShown).not.toContain(true);
   });
 });
 

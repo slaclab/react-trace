@@ -164,10 +164,6 @@ interface InternalEntry {
   hasCover: boolean;
   // Pending retry of `wanted` after a transient failure (see scheduleRetry).
   retryTimer: ReturnType<typeof setTimeout> | null;
-  // Shortest span whose raw answer came back decimated; Infinity until one
-  // does. Windows at least this long fetch binned. Only ever decreases while
-  // the identity stays the same (refetchAll() keeps it).
-  rawDecimatedSpanNs: number;
 }
 
 export interface RequestOpts {
@@ -276,18 +272,17 @@ interface ResolvedRequest {
   spanNs: number;
 }
 
-function resolveRequest(opts: RequestOpts, prev?: InternalEntry): ResolvedRequest {
+// `rawDecimatedSpanNs`: the shortest span whose raw answer came back decimated
+// for this (pv, archiver). A span within the coverage tolerance of it counts as
+// that span, so window jitter doesn't retry raw.
+function resolveRequest(opts: RequestOpts, rawDecimatedSpanNs = Infinity): ResolvedRequest {
   const spanNs = opts.window.toNs - opts.window.fromNs;
-  const identityKey: IdentityKey = { pv: opts.pv, archiver: opts.archiver ?? null };
-  // Within the coverage tolerance of a span that came back decimated counts as
-  // that span, so window jitter doesn't retry raw.
-  const decimatedNs =
-    prev && identityEqual(prev.identityKey, identityKey) ? prev.rawDecimatedSpanNs : Infinity;
   const mode = pickFetchMode(
     spanNs / 1_000_000,
     opts.bins,
-    (decimatedNs - coverageTolerance(opts.window)) / 1_000_000
+    (rawDecimatedSpanNs - coverageTolerance(opts.window)) / 1_000_000
   );
+  const identityKey: IdentityKey = { pv: opts.pv, archiver: opts.archiver ?? null };
   const fetchSig: FetchSig = {
     ...identityKey,
     bins: mode.maxPoints,
@@ -395,6 +390,11 @@ export class ArchiveStore {
   // Survives `release()`; cleared by `refetchAll()`, `forgetNotArchived()`, or
   // a later successful fetch of the same pair.
   private notArchived = new Map<string, ArchiveErrorInfo>();
+  // Shortest span whose raw answer came back decimated, per (pv, archiver):
+  // windows at least this long fetch binned. It reflects how densely the PV
+  // is archived, so it's shared by every trace and only ever decreases. Kept
+  // across `release()` and `refetchAll()`.
+  private rawDecimatedSpanNs = new Map<string, number>();
   private readonly fetchData: FetchDataFn;
   private readonly now: () => number;
 
@@ -455,7 +455,7 @@ export class ArchiveStore {
       this.clearRetry(entry);
 
       const opts = entry.wanted;
-      const { fetchSig, mode } = resolveRequest(opts, entry);
+      const { fetchSig, mode } = this.resolve(opts);
       const controller = new AbortController();
       entry.fetchSig = fetchSig;
       entry.requestedWindow = opts.window;
@@ -487,9 +487,9 @@ export class ArchiveStore {
    *   fetched again instead and the archiver decimates it. An
    *   in-flight fetch isn't aborted for a forward slide; once it lands, the
    *   rest of the latest window is fetched.
-   * - Raw came back decimated: refetch binned. Windows at least that long go
-   *   straight to binned until the pv or archiver changes; a shorter one tries
-   *   raw again.
+   * - Raw came back decimated: refetch binned. For this (pv, archiver),
+   *   windows at least that long then go straight to binned; a shorter one
+   *   tries raw again.
    * - Last fetch failed for another reason: no fetch until its backoff expires.
    *   Then a timer retries the latest request, so a window that never moves
    *   retries too.
@@ -505,9 +505,10 @@ export class ArchiveStore {
    * is backing off) doesn't flicker back to 'loading'.
    */
   request(traceId: string, opts: RequestOpts): void {
-    const existing = this.entries.get(traceId);
-    const { identityKey, fetchSig, mode, key, spanNs } = resolveRequest(opts, existing);
+    const { identityKey, fetchSig, mode, key, spanNs } = this.resolve(opts);
     const known = this.notArchived.get(key);
+
+    const existing = this.entries.get(traceId);
     const sameIdentity = !!existing && identityEqual(existing.identityKey, identityKey);
 
     if (existing && sameIdentity) {
@@ -592,7 +593,6 @@ export class ArchiveStore {
         failure: notArchivedFailure(known, spanNs),
         hasCover: false,
         retryTimer: null,
-        rawDecimatedSpanNs: Infinity,
       });
       this.publish();
       return;
@@ -638,12 +638,15 @@ export class ArchiveStore {
       failure: sameIdentity ? existing!.failure : null,
       hasCover: sameIdentity ? existing!.hasCover : false,
       retryTimer: null,
-      rawDecimatedSpanNs: sameIdentity ? existing!.rawDecimatedSpanNs : Infinity,
     };
     this.entries.set(traceId, entry);
     if (!keepShowing) this.publish();
 
     void this.runFetch(traceId, opts, fetchSig.mode, mode, controller, tail);
+  }
+
+  private resolve(opts: RequestOpts): ResolvedRequest {
+    return resolveRequest(opts, this.rawDecimatedSpanNs.get(registryKey(opts.pv, opts.archiver)));
   }
 
   private async runFetch(
@@ -678,15 +681,18 @@ export class ArchiveStore {
       // Raw came back thinned to maxPoints: the archiver keeps the sample
       // nearest each of maxPoints evenly spaced times, dropping spikes between
       // them. Don't keep it; re-request the window binned (the prior buffer
-      // stays on screen). Only a raw request gets here, and only a shorter
-      // window tries raw again, so this can't loop.
-      if (!tail && resolvedMode === 'raw' && dto.mode === 'raw' && dto.decimated) {
-        cur.rawDecimatedSpanNs = Math.min(
-          cur.rawDecimatedSpanNs,
-          opts.window.toNs - opts.window.fromNs
+      // stays on screen). A decimated tail means the whole window would be
+      // too. Only a raw request gets here, and only a shorter window tries raw
+      // again, so this can't loop.
+      if (resolvedMode === 'raw' && dto.mode === 'raw' && dto.decimated) {
+        const spanNs = opts.window.toNs - opts.window.fromNs;
+        this.rawDecimatedSpanNs.set(
+          key,
+          Math.min(this.rawDecimatedSpanNs.get(key) ?? Infinity, spanNs)
         );
         cur.controller = null;
         cur.failure = null;
+        if (forgot) this.publish();
         this.request(traceId, cur.wanted);
         return;
       }
