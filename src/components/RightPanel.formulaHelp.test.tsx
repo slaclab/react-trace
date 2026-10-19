@@ -89,9 +89,10 @@ describe('formula help text', () => {
         getAxisRange={() => undefined}
       />
     );
-    for (const text of ['{x1}', '{x1} + {x2}', '{var}']) {
-      const code = screen.getByText(text, { selector: 'code' });
-      expect(code.style.color).toBe('var(--cds-link-primary)');
-    }
+    const examples = ['{x1}', '{x1} + {x2}', '{var}'];
+    const colours = examples.map(
+      (text) => screen.getByText(text, { selector: 'code' }).style.color
+    );
+    expect(colours).toEqual(examples.map(() => 'var(--cds-link-primary)'));
   });
 });
