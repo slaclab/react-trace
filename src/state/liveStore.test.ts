@@ -191,37 +191,39 @@ describe('LiveStore', () => {
     ws.open();
 
     const t0 = Date.now();
-    // Push a batch of stale samples all timestamped at t0. Eviction is batched
+    // Push a batch of stale samples starting at t0 (2ms apart, so ns -> ms
+    // truncation never collapses neighbours). Eviction is batched
     // (deferred until the buffer overshoots the window by a slack margin), so
     // we push well past that margin to force a trim pass.
     const STALE = 300;
     for (let i = 0; i < STALE; i++) {
       ws.emit({
         type: 'diff',
-        data: { BAR: pvValue('BAR', i, t0) },
+        data: { BAR: pvValue('BAR', i, t0 + 2 * i) },
         count: 1,
-        timestamp: t0,
+        timestamp: t0 + 2 * i,
       });
     }
     expect(store.getSnapshot().get('t1')!.points).toHaveLength(STALE);
 
     // Advance past the retention window, then push enough fresh samples to
     // cross the slack threshold and trigger eviction of the stale batch.
-    vi.setSystemTime(new Date(t0 + 1_500));
+    const tFresh = t0 + 2_000;
+    vi.setSystemTime(new Date(tFresh + 600));
     const FRESH = 300;
     for (let i = 0; i < FRESH; i++) {
       ws.emit({
         type: 'diff',
-        data: { BAR: pvValue('BAR', 1000 + i, t0 + 1_500) },
+        data: { BAR: pvValue('BAR', 1000 + i, tFresh + 2 * i) },
         count: 1,
-        timestamp: t0 + 1_500,
+        timestamp: tFresh + 2 * i,
       });
     }
     const points = store.getSnapshot().get('t1')!.points;
-    // The t0 batch is older than 1s and has been evicted; only the fresh
-    // samples (all at t0 + 1_500) remain.
+    // The stale batch is older than 1s and has been evicted; only the fresh
+    // samples remain.
     expect(points).toHaveLength(FRESH);
-    expect(points.every((p) => p.time === t0 + 1_500)).toBe(true);
+    expect(points[0].time).toBe(tFresh);
   });
 
   it('marks PVs disconnected on socket close and re-subscribes on reopen', () => {
@@ -495,6 +497,123 @@ describe('LiveStore backfill', () => {
     // The fromNs passed to the reconnect backfill should be the last point's timestamp.
     const reconnectCall = mockFetchBackfill.mock.calls[mockFetchBackfill.mock.calls.length - 1];
     expect(reconnectCall[1]).toBe(t0 * 1e6);
+  });
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  // Connect, receive one live sample at t0, drop the socket, and advance to
+  // the reconnect. Returns the second socket (not yet opened).
+  function connectThenDrop(store: LiveStore, pv: string, t0: number): MockWebSocket {
+    store.watch('t1', pv, 60_000);
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+    ws.emit({ type: 'initial', data: { [pv]: pvValue(pv, 0, t0) }, count: 1 });
+    ws.close();
+    vi.setSystemTime(new Date(t0 + 4000));
+    vi.advanceTimersByTime(1000);
+    return MockWebSocket.instances[1];
+  }
+
+  it('fills the reconnect gap when the Hare initial frame arrives before the Vole response', async () => {
+    const t0 = Date.now();
+    const store = new LiveStore();
+    await vi.advanceTimersByTimeAsync(0);
+    const ws2 = connectThenDrop(store, 'PV:G', t0);
+
+    const pending = deferred<VoleSeriesDTO>();
+    mockFetchBackfill.mockReturnValueOnce(pending.promise);
+    ws2.open();
+    ws2.emit({ type: 'initial', data: { 'PV:G': pvValue('PV:G', 4, t0 + 4000) }, count: 1 });
+
+    pending.resolve(
+      voleResponse('PV:G', [
+        { tsNs: t0 * 1e6, value: 0 },
+        { tsNs: (t0 + 1000) * 1e6, value: 1 },
+        { tsNs: (t0 + 2000) * 1e6, value: 2 },
+        { tsNs: (t0 + 3000) * 1e6, value: 3 },
+        { tsNs: (t0 + 4000) * 1e6, value: 4 },
+      ])
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(
+      store
+        .getSnapshot()
+        .get('t1')!
+        .points.map((p) => [p.time, p.value])
+    ).toEqual([
+      [t0, 0],
+      [t0 + 1000, 1],
+      [t0 + 2000, 2],
+      [t0 + 3000, 3],
+      [t0 + 4000, 4],
+    ]);
+  });
+
+  it('does not duplicate the latest sample when Vole resolves before Hare re-sends it', async () => {
+    const t0 = Date.now();
+    const store = new LiveStore();
+    await vi.advanceTimersByTimeAsync(0);
+    const ws2 = connectThenDrop(store, 'PV:H', t0);
+
+    mockFetchBackfill.mockResolvedValueOnce(
+      voleResponse('PV:H', [
+        { tsNs: (t0 + 2000) * 1e6, value: 2 },
+        { tsNs: (t0 + 4000) * 1e6, value: 4 },
+      ])
+    );
+    ws2.open();
+    await vi.advanceTimersByTimeAsync(0);
+    ws2.emit({ type: 'initial', data: { 'PV:H': pvValue('PV:H', 4, t0 + 4000) }, count: 1 });
+
+    expect(
+      store
+        .getSnapshot()
+        .get('t1')!
+        .points.map((p) => [p.time, p.value])
+    ).toEqual([
+      [t0, 0],
+      [t0 + 2000, 2],
+      [t0 + 4000, 4],
+    ]);
+  });
+});
+
+describe('LiveStore socket lifecycle', () => {
+  it('closes the socket when the last trace is released', () => {
+    const store = new LiveStore();
+    store.watch('t1', 'PV:A', 60_000);
+    store.watch('t2', 'PV:B', 60_000);
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+
+    store.release('t1');
+    expect(ws.readyState).toBe(MockWebSocket.OPEN);
+
+    store.release('t2');
+    expect(ws.readyState).toBe(MockWebSocket.CLOSED);
+    // No reconnect is scheduled for an intentional close.
+    vi.advanceTimersByTime(30_000);
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it('opens a fresh socket and subscribes when watching again after a full release', () => {
+    const store = new LiveStore();
+    store.watch('t1', 'PV:A', 60_000);
+    MockWebSocket.instances[0].open();
+    store.release('t1');
+
+    store.watch('t2', 'PV:B', 60_000);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    const ws2 = MockWebSocket.instances[1];
+    ws2.open();
+    expect(ws2.parsedSent()).toEqual([{ type: 'subscribe', pvNames: ['PV:B'] }]);
+    expect(store.getSnapshot().get('t2')!.status).toBe('connected');
   });
 });
 

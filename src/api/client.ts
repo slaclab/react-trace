@@ -27,9 +27,7 @@ export class CanopyError extends Error {
 }
 
 export interface FetchOptions {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   query?: Record<string, string | number | boolean | null | undefined>;
-  body?: unknown;
   signal?: AbortSignal;
   // HTTP method; defaults to GET. POST is used for Fox's validate/evaluate.
   method?: 'GET' | 'POST';
@@ -50,19 +48,18 @@ function buildQuery(query: FetchOptions['query']): string {
 
 export async function canopyFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
   const url = `${BASE}${path}${buildQuery(options.query)}`;
-  const method = options.method ?? 'GET';
   const headers: Record<string, string> = { Accept: 'application/json' };
-  let reqBody: string | undefined;
+  let body: string | undefined;
   if (options.body !== undefined) {
     headers['Content-Type'] = 'application/json';
-    reqBody = JSON.stringify(options.body);
+    body = JSON.stringify(options.body);
   }
   let res: Response;
   try {
     res = await fetch(url, {
-      method,
+      method: options.method ?? 'GET',
       headers,
-      body: reqBody,
+      body,
       signal: options.signal,
     });
   } catch (err) {

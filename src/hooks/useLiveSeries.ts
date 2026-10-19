@@ -72,11 +72,18 @@ export function useLiveSeries(traces: PVTrace[]): Map<string, LiveSeriesResult> 
     for (const id of liveStore.getSnapshot().keys()) {
       if (!wanted.has(id)) liveStore.release(id);
     }
-    return () => {
-      for (const id of wanted) liveStore.release(id);
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
+
+  // Release everything on unmount only. A cleanup on the effect above would
+  // also run on every signature change, dropping all buffers and recycling the
+  // socket whenever any trace is edited. This hook is the store's only caller.
+  useEffect(
+    () => () => {
+      for (const id of liveStore.getSnapshot().keys()) liveStore.release(id);
+    },
+    []
+  );
 
   const snapshot = useSyncExternalStore(liveStore.subscribe, liveStore.getSnapshot);
 

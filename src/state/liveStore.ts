@@ -5,7 +5,7 @@
 // refcounted so two traces watching the same PV produce one outbound subscribe.
 
 import { liveWsUrl } from '../api/hare';
-import { nsToMs } from '../api/time';
+import { msToNs, nsToMs } from '../api/time';
 import { fetchBackfill, subscribeVoleBuffer } from '../api/vole';
 import { CanopyError } from '../api/client';
 import type { AlarmSeverity, PVValueDTO, WsFrame } from '../api/types';
@@ -64,9 +64,6 @@ interface PVState {
   rev: number;
   // In-flight backfill controller — aborted on release or superseded request.
   backfillController: AbortController | null;
-  // True once a successful backfill has been merged (prevents re-fetching on
-  // reconnect when the buffer already has data from the initial backfill).
-  backfilled: boolean;
 }
 
 interface TraceRef {
@@ -141,7 +138,6 @@ export class LiveStore {
         severity: null,
         rev: 0,
         backfillController: null,
-        backfilled: false,
       };
       this.pvs.set(pv, state);
     }
@@ -318,7 +314,12 @@ export class LiveStore {
     state.severity = v.severity;
     state.rev++;
     if (typeof v.value === 'number' && Number.isFinite(v.value)) {
-      state.points.push({ time: nsToMs(v.tsNs), value: v.value, severity: v.severity });
+      const time = nsToMs(v.tsNs);
+      // Skip samples at or before the newest point: Hare re-sends the current
+      // value on reconnect, and a backfill may already have covered it.
+      const last = state.points[state.points.length - 1];
+      if (last && time <= last.time) return;
+      state.points.push({ time, value: v.value, severity: v.severity });
       this.trim(state);
     }
   }
@@ -431,9 +432,8 @@ export class LiveStore {
     let maxRetention = 0;
     for (const r of state.refs.values()) if (r > maxRetention) maxRetention = r;
 
-    const lastPointNs =
-      state.points.length > 0 ? state.points[state.points.length - 1].time * 1e6 : null;
-    const fromNs = lastPointNs ?? Date.now() * 1e6 - maxRetention * 1e6;
+    const last = state.points[state.points.length - 1];
+    const fromNs = msToNs(last ? last.time : Date.now() - maxRetention);
 
     fetchBackfill(pv, fromNs, { signal: controller.signal })
       .then((res) => {
@@ -441,14 +441,15 @@ export class LiveStore {
         const current = this.pvs.get(pv);
         if (!current || current.backfillController !== controller) return;
         current.backfillController = null;
-        current.backfilled = true;
         this.mergeBackfill(current, res.samples);
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
         if ((err as { name?: string }).name === 'AbortError') return;
         if (err instanceof CanopyError && err.code === 'pv_not_buffered') {
-          subscribeVoleBuffer([pv]).catch(() => {});
+          subscribeVoleBuffer([pv]).catch((subErr) => {
+            console.warn('vole subscribe failed for', pv, subErr);
+          });
           return;
         }
         console.warn('backfill failed for', pv, err);
@@ -466,23 +467,43 @@ export class LiveStore {
     }
     if (incoming.length === 0) return;
 
-    if (state.points.length === 0) {
-      state.points.push(...incoming);
-    } else {
-      const firstExisting = state.points[0].time;
-      const lastExisting = state.points[state.points.length - 1].time;
-      // Prepend points strictly before the first existing point.
-      const before = incoming.filter((p) => p.time < firstExisting);
-      // Append points strictly after the last existing point (reconnect gap-fill).
-      const after = incoming.filter((p) => p.time > lastExisting);
-      if (before.length > 0) state.points.unshift(...before);
-      if (after.length > 0) state.points.push(...after);
-      if (before.length === 0 && after.length === 0) return;
-    }
+    const merged = mergeSorted(state.points, incoming);
+    if (merged.length === state.points.length) return;
+    state.points = merged;
     state.rev++;
     this.trim(state);
     this.markDirty();
   }
+}
+
+// Merge two time-sorted point lists. On an exact timestamp tie the existing
+// (live) sample wins. Handles both orderings of a reconnect: Hare's `initial`
+// frame landing before the Vole response, or after it.
+export function mergeSorted(
+  existing: readonly LivePoint[],
+  incoming: readonly LivePoint[]
+): LivePoint[] {
+  const out: LivePoint[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < existing.length && j < incoming.length) {
+    const a = existing[i];
+    const b = incoming[j];
+    if (a.time < b.time) {
+      out.push(a);
+      i++;
+    } else if (b.time < a.time) {
+      out.push(b);
+      j++;
+    } else {
+      out.push(a);
+      i++;
+      j++;
+    }
+  }
+  while (i < existing.length) out.push(existing[i++]);
+  while (j < incoming.length) out.push(incoming[j++]);
+  return out;
 }
 
 export const liveStore = new LiveStore();
