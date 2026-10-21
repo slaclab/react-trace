@@ -243,17 +243,17 @@ describe('postEntry', () => {
 
 describe('describeElogError', () => {
   it.each([
-    ['invalid_api_key', 401, "Canopy rejected Trace's API key."],
+    ['invalid_api_key', 401, "Canopy rejected Trace's e-log API key: boom"],
     [
       'insufficient_module_access',
       403,
-      "Trace's Canopy API key is not scoped for the e-log module (it needs elog).",
+      "Trace's e-log API key is not scoped for the e-log module (it needs elog).",
     ],
-    ['insufficient_read_access', 403, "Trace's Canopy API key lacks read access."],
+    ['insufficient_read_access', 403, "Trace's e-log API key lacks read access."],
     [
       'insufficient_write_access',
       403,
-      "Trace's Canopy API key lacks write access, which posting requires.",
+      "Trace's e-log API key lacks write access, which posting requires.",
     ],
     ['invalid_app_name', 400, "Canopy rejected Trace's e-log app name."],
     ['elog_app_not_found', 404, 'E-log posting is not set up for Trace in Canopy.'],

@@ -8,10 +8,9 @@ import type {
 } from './types';
 
 // E-log posting goes through Canopy's shared e-log module, which holds Trace's
-// elog-plus application token server-side. Requests use the same Canopy base path,
-// proxy and X-API-Key injection as Mole/Hare/Fox, so neither the Canopy key nor
-// the elog-plus token reaches the browser bundle. The key needs the `elog` module
-// scope (write, to post).
+// elog-plus application token server-side. Requests use the same Canopy base path
+// as Mole/Hare/Fox; the proxy injects a dedicated e-log key (read+write@elog), so
+// neither that key nor the elog-plus token reaches the browser bundle.
 const APP_BASE = '/elog/v1/apps/trace';
 
 export function getElogConfig(signal?: AbortSignal): Promise<ElogConfigDTO> {
@@ -109,13 +108,13 @@ export function describeElogError(err: unknown): string {
     case 'network_error':
       return withDetail("Couldn't reach Canopy", err.detail);
     case 'invalid_api_key':
-      return "Canopy rejected Trace's API key.";
+      return withDetail("Canopy rejected Trace's e-log API key", err.detail);
     case 'insufficient_module_access':
-      return "Trace's Canopy API key is not scoped for the e-log module (it needs elog).";
+      return "Trace's e-log API key is not scoped for the e-log module (it needs elog).";
     case 'insufficient_read_access':
-      return "Trace's Canopy API key lacks read access.";
+      return "Trace's e-log API key lacks read access.";
     case 'insufficient_write_access':
-      return "Trace's Canopy API key lacks write access, which posting requires.";
+      return "Trace's e-log API key lacks write access, which posting requires.";
     case 'invalid_app_name':
       return "Canopy rejected Trace's e-log app name.";
     case 'elog_app_not_found':

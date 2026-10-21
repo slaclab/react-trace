@@ -103,7 +103,7 @@ describe('PostToElogModal', () => {
     renderModal();
 
     await screen.findByText("Couldn't load logbooks");
-    screen.getByText("Trace's Canopy API key is not scoped for the e-log module (it needs elog).");
+    screen.getByText("Trace's e-log API key is not scoped for the e-log module (it needs elog).");
     fireEvent.change(screen.getByLabelText(/Title/), { target: { value: 'Beam lost' } });
     expect(postButton().disabled).toBe(true);
   });

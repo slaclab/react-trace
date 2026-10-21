@@ -14,7 +14,7 @@ In the Canopy repo, with at least one archiver configured and an API key registe
 
 ```bash
 cd ../Canopy
-CANOPY_API_KEYS="dev:read+write@mole+hare+fox+elog" \
+CANOPY_API_KEYS="dev:read+write@*" \
 CANOPY_MOLE__DEFAULT_ARCHIVER=slac \
 CANOPY_MOLE__ARCHIVERS__SLAC__TYPE=epics_archiver_appliance \
 CANOPY_MOLE__ARCHIVERS__SLAC__URL=https://archiver.example.org \
@@ -32,8 +32,17 @@ cp .env.example .env
 
 `CANOPY_API_KEY` is a server-side env var (no `VITE_` prefix). The Vite dev server proxies
 `/mole`, `/hare`, `/fox` and `/elog` to `CANOPY_BASE_URL` and injects the `X-API-Key`
-header, so the key never reaches the browser bundle. The key must be scoped to every module
-Trace uses (`@mole+hare+fox+elog`, or `@*`); posting to the e-log also needs `write`.
+header, so the key never reaches the browser bundle.
+
+Trace uses two Canopy keys:
+
+- `CANOPY_API_KEY` for Mole, Hare and Fox. Read-only is enough: `read@mole+hare+fox`.
+- `CANOPY_ELOG_API_KEY` for the e-log module: `read+write@elog`.
+
+They are separate because Canopy's `write` scope belongs to the key, not to a module: giving
+the main key `write` so it could post e-log entries would also let it write PVs through
+Hare. In local dev, leave `CANOPY_ELOG_API_KEY` unset and the `/elog` proxy reuses
+`CANOPY_API_KEY`, which covers both with a wildcard key like `dev:read+write@*`.
 
 #### E-Log posting (optional)
 
@@ -57,10 +66,12 @@ reason. Logbooks preselected in the post dialog come from `DEFAULT_LOGBOOK_IDS`.
 
 In production the Trace container reverse-proxies `/trace/api/canopy/*` to the
 in-cluster Canopy service and injects `X-API-Key`, so the browser bundle never
-receives the key. This covers the Mole, Hare, Fox and e-log HTTP routes and the
-WebSocket routes. The container's `CANOPY_API_KEY` needs the same module scopes, and
-nginx accepts request bodies up to 25 MiB so e-log attachments (20 MiB by default in
-Canopy) reach Canopy.
+receives a key. `/trace/api/canopy/elog/*` gets `CANOPY_ELOG_API_KEY`; everything
+else (the Mole, Hare and Fox HTTP and WebSocket routes) gets `CANOPY_API_KEY`.
+`CANOPY_ELOG_API_KEY` is optional: without it the container still starts, logs a
+warning, and the post dialog shows Canopy's missing-key error. The e-log location
+accepts request bodies up to 25 MiB so attachments (20 MiB by default in Canopy)
+reach Canopy.
 
 ### 3. Run the dev server
 
