@@ -1,9 +1,9 @@
 import type { ErrorEnvelope } from './types';
 
-// Vite dev server proxies /mole/* (and /fox/*) to the Canopy backend (see
-// vite.config.ts) and injects X-API-Key, so the browser bundle never sees the
-// key. In deployed builds, VITE_CANOPY_BASE_PATH is served by Trace's reverse
-// proxy, for example /trace/api/canopy.
+// Vite dev server proxies /mole/* (and /hare, /fox, /elog) to the Canopy
+// backend (see vite.config.ts) and injects X-API-Key, so the browser bundle
+// never sees the key. In deployed builds, VITE_CANOPY_BASE_PATH is served by
+// Trace's reverse proxy, for example /trace/api/canopy.
 const BASE = (import.meta.env.VITE_CANOPY_BASE_PATH ?? '').replace(/\/$/, '');
 
 export function canopyWebSocketUrl(path: string): string {
@@ -31,8 +31,20 @@ export interface FetchOptions {
   signal?: AbortSignal;
   // HTTP method; defaults to GET. POST is used for Fox's validate/evaluate.
   method?: 'GET' | 'POST';
-  // JSON request body (POST only). Serialized with a JSON content-type.
+  // Request body (POST only). FormData is sent as multipart as-is (the browser
+  // sets the boundary); anything else is serialized with a JSON content-type.
   body?: unknown;
+}
+
+// Canopy errors carry a string `detail`. FastAPI's default 422 body carries a
+// list of {loc, msg, type} instead, so join its messages.
+function readDetail(detail: unknown): string | null {
+  if (typeof detail === 'string') return detail;
+  if (!Array.isArray(detail)) return null;
+  const msgs = detail
+    .map((d) => (d as { msg?: unknown } | null)?.msg)
+    .filter((m): m is string => typeof m === 'string');
+  return msgs.length > 0 ? msgs.join('; ') : null;
 }
 
 function buildQuery(query: FetchOptions['query']): string {
@@ -49,8 +61,10 @@ function buildQuery(query: FetchOptions['query']): string {
 export async function canopyFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
   const url = `${BASE}${path}${buildQuery(options.query)}`;
   const headers: Record<string, string> = { Accept: 'application/json' };
-  let body: string | undefined;
-  if (options.body !== undefined) {
+  let body: string | FormData | undefined;
+  if (options.body instanceof FormData) {
+    body = options.body;
+  } else if (options.body !== undefined) {
     headers['Content-Type'] = 'application/json';
     body = JSON.stringify(options.body);
   }
@@ -75,7 +89,7 @@ export async function canopyFetch<T>(path: string, options: FetchOptions = {}): 
       // fall through with no envelope
     }
     const code = envelope?.code ?? 'unknown_error';
-    const detail = envelope?.detail ?? res.statusText;
+    const detail = readDetail(envelope?.detail) ?? res.statusText;
     throw new CanopyError(code, res.status, detail);
   }
 

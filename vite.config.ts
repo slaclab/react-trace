@@ -7,11 +7,6 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const target = env.CANOPY_BASE_URL ?? 'http://localhost:8000';
   const apiKey = env.CANOPY_API_KEY ?? '';
-  // E-log (elog-plus) is a separate microservice; the dev proxy injects its
-  // access token so the key never reaches the browser bundle. In prod a reverse
-  // proxy owns the same /elog -> elog-plus rewrite + header injection.
-  const elogTarget = env.ELOG_BASE_URL ?? '';
-  const elogKey = env.ELOG_API_KEY ?? '';
 
   return {
     base: env.VITE_BASE_PATH || '/',
@@ -60,20 +55,18 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
-        ...(elogTarget
-          ? {
-              '/elog': {
-                target: elogTarget,
-                changeOrigin: true,
-                rewrite: (path: string) => path.replace(/^\/elog/, ''),
-                configure: (proxy) => {
-                  proxy.on('proxyReq', (proxyReq) => {
-                    if (elogKey) proxyReq.setHeader('x-vouch-idp-accesstoken', elogKey);
-                  });
-                },
-              },
-            }
-          : {}),
+        // E-log: Canopy's shared e-log module, which holds Trace's elog-plus
+        // application token server-side. Same X-API-Key injection as above; the
+        // key needs the `elog` module scope.
+        '/elog': {
+          target,
+          changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
+            });
+          },
+        },
       },
     },
     test: {

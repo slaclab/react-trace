@@ -11,28 +11,27 @@ import {
   InlineNotification,
 } from '@carbon/react';
 
-import { postEntry } from '../api/elog';
-import type { ElogLogbook } from '../api/elog';
+import { describeElogError, listLogbooks, postEntry } from '../api/elog';
+import type { ElogEntryCreatedDTO, ElogLogbookDTO } from '../api/types';
 import { capturedToFile, type CapturedPlot } from '../io/exportPlotImage';
 
 interface PostToElogModalProps {
   open: boolean;
   /** Plots captured as PNGs at the moment the dialog opened. */
   captured: CapturedPlot[];
-  logbooks: ElogLogbook[];
-  defaultLogbooks: string[];
+  /** Logbook ids preselected once the logbook list loads (from Canopy's config). */
+  defaultLogbookIds: string[];
   /** Lazily builds the workspace config file when "Attach config" is checked. */
   buildConfigFile: () => File;
   onClose: () => void;
-  onPosted?: (entryId: string) => void;
+  onPosted?: (entry: ElogEntryCreatedDTO) => void;
   onPostFailed?: (message: string) => void;
 }
 
 export function PostToElogModal({
   open,
   captured,
-  logbooks,
-  defaultLogbooks,
+  defaultLogbookIds,
   buildConfigFile,
   onClose,
   onPosted,
@@ -40,7 +39,10 @@ export function PostToElogModal({
 }: PostToElogModalProps) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [selectedLogbooks, setSelectedLogbooks] = useState<string[]>([]);
+  // null while the logbook list is loading for this open.
+  const [logbooks, setLogbooks] = useState<ElogLogbookDTO[] | null>(null);
+  const [logbooksError, setLogbooksError] = useState<string | null>(null);
+  const [selectedLogbookIds, setSelectedLogbookIds] = useState<string[]>([]);
   const [selectedPlotIds, setSelectedPlotIds] = useState<string[]>([]);
   const [attachConfig, setAttachConfig] = useState(false);
   const [posting, setPosting] = useState(false);
@@ -52,8 +54,8 @@ export function PostToElogModal({
   // the previous post's logbook chips while our state says none are selected.
   const [openCount, setOpenCount] = useState(0);
 
-  // Initialize form state once per open. captured/defaults are snapshots taken
-  // at open time, so we don't want to clobber edits if they change underneath.
+  // Initialize form state once per open. captured is a snapshot taken at open
+  // time, so we don't want to clobber edits if it changes underneath.
   const initialized = useRef(false);
   useEffect(() => {
     if (!open) {
@@ -64,20 +66,42 @@ export function PostToElogModal({
     initialized.current = true;
     setTitle('');
     setBody('');
-    setSelectedLogbooks(defaultLogbooks);
+    setLogbooks(null);
+    setLogbooksError(null);
+    setSelectedLogbookIds([]);
     setSelectedPlotIds(captured.map((c) => c.id));
     setAttachConfig(false);
     setPosting(false);
     setError(null);
     setOpenCount((n) => n + 1);
-  }, [open, captured, defaultLogbooks]);
+  }, [open, captured]);
+
+  // Load the logbook list on each open, so a list that failed (or changed) last
+  // time is fetched again, then preselect the configured defaults it contains.
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    listLogbooks(controller.signal)
+      .then((items) => {
+        if (controller.signal.aborted) return;
+        const known = new Set(items.map((lb) => lb.id));
+        setLogbooks(items);
+        setSelectedLogbookIds(defaultLogbookIds.filter((id) => known.has(id)));
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        setLogbooks([]);
+        setLogbooksError(describeElogError(err));
+      });
+    return () => controller.abort();
+  }, [open, defaultLogbookIds]);
 
   const selectedCaptured = useMemo(
     () => captured.filter((c) => selectedPlotIds.includes(c.id)),
     [captured, selectedPlotIds]
   );
 
-  const canPost = !posting && title.trim().length > 0 && selectedLogbooks.length > 0;
+  const canPost = !posting && title.trim().length > 0 && selectedLogbookIds.length > 0;
 
   const togglePlot = (id: string, checked: boolean) => {
     setSelectedPlotIds((prev) =>
@@ -93,16 +117,16 @@ export function PostToElogModal({
       selectedCaptured.forEach((c, i) => files.push(capturedToFile(c, i)));
       if (attachConfig) files.push(buildConfigFile());
 
-      const result = await postEntry({
+      const entry = await postEntry({
         title: title.trim(),
-        body,
-        logbooks: selectedLogbooks,
+        bodyMarkdown: body,
+        logbookIds: selectedLogbookIds,
         files,
       });
-      onPosted?.(result.id);
+      onPosted?.(entry);
       onClose();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to post entry';
+      const message = describeElogError(err);
       setError(message);
       onPostFailed?.(message);
     } finally {
@@ -118,19 +142,30 @@ export function PostToElogModal({
           {error && (
             <InlineNotification kind="error" title="Error" subtitle={error} hideCloseButton />
           )}
+          {logbooksError && (
+            <InlineNotification
+              kind="error"
+              title="Couldn't load logbooks"
+              subtitle={logbooksError}
+              hideCloseButton
+            />
+          )}
 
           <FilterableMultiSelect
-            key={`elog-logbooks-${openCount}`}
+            key={`elog-logbooks-${openCount}-${logbooks ? 'loaded' : 'loading'}`}
             id="elog-logbooks"
             titleText="Logbooks"
-            items={logbooks}
-            itemToString={(lb: ElogLogbook | null) => lb?.name ?? ''}
-            initialSelectedItems={logbooks.filter((lb) => selectedLogbooks.includes(lb.name))}
-            onChange={({ selectedItems }: { selectedItems: ElogLogbook[] }) =>
-              setSelectedLogbooks(selectedItems.map((lb) => lb.name))
+            items={logbooks ?? []}
+            itemToString={(lb: ElogLogbookDTO | null) => lb?.name ?? ''}
+            initialSelectedItems={(logbooks ?? []).filter((lb) =>
+              selectedLogbookIds.includes(lb.id)
+            )}
+            onChange={({ selectedItems }: { selectedItems: ElogLogbookDTO[] }) =>
+              setSelectedLogbookIds(selectedItems.map((lb) => lb.id))
             }
-            placeholder="Select logbooks"
-            invalid={selectedLogbooks.length === 0}
+            placeholder={logbooks ? 'Select logbooks' : 'Loading logbooks...'}
+            disabled={!logbooks}
+            invalid={!!logbooks && !logbooksError && selectedLogbookIds.length === 0}
             invalidText="At least one logbook is required"
           />
 
@@ -145,7 +180,7 @@ export function PostToElogModal({
 
           <TextArea
             id="elog-body"
-            labelText="Body"
+            labelText="Body (Markdown)"
             value={body}
             onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setBody(e.target.value)}
             rows={6}
