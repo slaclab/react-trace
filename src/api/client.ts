@@ -1,6 +1,6 @@
 import type { ErrorEnvelope } from './types';
 
-// Vite dev server proxies /mole/* (and /fox/*) to the Canopy backend (see
+// Vite dev server proxies /mole/* (and /formula-engine/*) to the Canopy backend (see
 // vite.config.ts) and injects X-API-Key, so the browser bundle never sees the
 // key. In deployed builds, VITE_CANOPY_BASE_PATH is served by Trace's reverse
 // proxy, for example /trace/api/canopy.
@@ -29,7 +29,7 @@ export class CanopyError extends Error {
 export interface FetchOptions {
   query?: Record<string, string | number | boolean | null | undefined>;
   signal?: AbortSignal;
-  // HTTP method; defaults to GET. POST is used for Fox's validate/evaluate.
+  // HTTP method; defaults to GET. POST is used for the Formula Engine's validate/evaluate.
   method?: 'GET' | 'POST';
   // JSON request body (POST only). Serialized with a JSON content-type.
   body?: unknown;

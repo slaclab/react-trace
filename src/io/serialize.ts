@@ -227,7 +227,7 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
     };
   });
 
-  // Formula curves: strip the f:// prefix to get the Fox expression, and resolve
+  // Formula curves: strip the f:// prefix to get the Formula Engine expression, and resolve
   // each {var} via the legacy curveDict (variable -> PV channel name) against the
   // base curves above, so a binding points at a curve on the plot.
   const traceIdByPv = new Map<string, string>();

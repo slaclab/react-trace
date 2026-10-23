@@ -144,7 +144,7 @@ function traceLineData(
   live: LiveSeriesResult | undefined,
   formula: FormulaSeriesResult | undefined
 ): [number, number][] {
-  // Formula curves are evaluated server-side (Fox); their points are the only
+  // Formula curves are evaluated server-side (the Formula Engine); their points are the only
   // source — no archive/live merge, no mock seed.
   if (trace.kind === 'formula') {
     return formula ? formula.points : [];

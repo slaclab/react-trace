@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { evaluateFormula } from '../api/fox';
+import { evaluateFormula } from '../api/formulaEngine';
 import { CanopyError } from '../api/client';
 import { nsToMs, type TimeWindowNs } from '../api/time';
 import type { FormulaSpecDTO } from '../api/types';
@@ -17,15 +17,15 @@ export interface FormulaSeriesResult {
 const IDLE_RESULT: FormulaSeriesResult = { status: 'idle', points: [] };
 const EMPTY_SERIES = new Map<string, FormulaSeriesResult>();
 
-// Evaluates each formula trace over its plot window via Fox's one-shot REST
+// Evaluates each formula trace over its plot window via the Formula Engine's one-shot REST
 // endpoint. Mirrors useArchiveSeries' signature-gating so the work only re-fires
 // when a spec or window actually changes (TraceApp rebuilds the maps every
 // render). State is only updated from the async result callbacks; the prior
 // result is left in place while a re-evaluation is in flight, so panning doesn't
-// blank the curve. Live push updates are a follow-up (the Fox WebSocket).
+// blank the curve. Live push updates are a follow-up (the Formula Engine WebSocket).
 export function useFormulaSeries(
   traces: PVTrace[],
-  // Per-trace resolved Fox spec (bindings already mapped to PV names). `null`
+  // Per-trace resolved Formula Engine spec (bindings already mapped to PV names). `null`
   // means the formula isn't ready (empty / unbound) and is skipped.
   specByTrace: Map<string, FormulaSpecDTO | null>,
   windowByTrace: Map<string, TimeWindowNs>

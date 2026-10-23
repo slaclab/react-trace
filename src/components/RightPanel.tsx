@@ -40,7 +40,7 @@ import {
 import { ArchiverPicker } from './ArchiverPicker';
 import { usePVSearch } from '../hooks/usePVSearch';
 import { PanelRail } from './PanelRail';
-import { validateFormula } from '../api/fox';
+import { validateFormula } from '../api/formulaEngine';
 import { CanopyError } from '../api/client';
 import { extractFormulaVars, resolveBindings } from '../formula';
 
@@ -232,7 +232,7 @@ export function RightPanel({
 
 // Editor for a formula curve: an expression over {var} placeholders plus a
 // binding table mapping each variable to a PV-backed curve on the same plot.
-// Replaces PV traces' "PV Name + Data Sources" with Fox-specific controls.
+// Replaces PV traces' "PV Name + Data Sources" with formula-specific controls.
 function FormulaGeneralTab({
   trace,
   axes,
@@ -250,7 +250,7 @@ function FormulaGeneralTab({
   const unbound = vars.filter((v) => !bindings[v]);
   const hasExpr = expression.trim().length > 0;
 
-  // Debounced live validation via Fox. Sends whatever bindings are resolved so
+  // Debounced live validation via the Formula Engine. Sends whatever bindings are resolved so
   // far, so the server red-lines bad syntax (and missing bindings) as you type.
   const [validation, setValidation] = useState<{ valid: boolean; errors: string[] } | null>(null);
   // Resolve to actual PV names here and key the effect on the result. Keying on

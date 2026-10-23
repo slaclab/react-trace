@@ -44,7 +44,7 @@ optional comma-separated list of logbook names to preselect in the dialog.
 
 In production the Trace container reverse-proxies `/trace/api/canopy/*` to the
 in-cluster Canopy service and injects `X-API-Key`, so the browser bundle never
-receives the key. This covers the Mole, Hare, and Fox HTTP and WebSocket routes.
+receives the key. This covers the Mole, Hare, and Formula Engine HTTP and WebSocket routes.
 The production reverse proxy must also own the `/elog` to elog-plus rewrite and
 header injection when E-Log posting is enabled.
 
