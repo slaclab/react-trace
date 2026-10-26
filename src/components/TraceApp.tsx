@@ -318,6 +318,21 @@ export function TraceApp() {
     setDetachedPlotIds((prev) => prev.filter((id) => id !== plotId));
   };
 
+  // Escape closes the fullscreen overlay. The listener is on window, which a
+  // keydown reaches after document: a Carbon modal opened on top (e.g. Post to
+  // E-Log) handles Escape on document and calls preventDefault, so that
+  // keypress closes only the modal.
+  useEffect(() => {
+    if (!poppedOutPlot) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.preventDefault();
+      setPoppedOutPlot(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [poppedOutPlot]);
+
   const clearViewWindow = (plotId: string) => {
     setViewWindowByPlot((prev) => {
       if (!prev.has(plotId)) return prev;
