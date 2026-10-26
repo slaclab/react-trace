@@ -676,11 +676,8 @@ export function TraceApp() {
 
   const handleSave = () => {
     const json = serializeWorkspace({ theme: colorMode, plots });
-    const stamp = new Date()
-      .toISOString()
-      .replace(/[:.]/g, '-')
-      .replace(/T.*/, (m) => m.replace(/^T/, '_').slice(0, 7));
-    downloadBlob(`trace-${stamp}.trc.json`, 'application/json', json);
+    // Same local-time YYYYMMDD_HHMMSS stamp as the PNG export.
+    downloadBlob(`trace-${timestamp()}.trc.json`, 'application/json', json);
   };
 
   const handleImport = async () => {
