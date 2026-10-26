@@ -59,6 +59,7 @@ describe('grid view label', () => {
         onDetachPlot={vi.fn()}
         onReattachPlot={vi.fn()}
         viewWindowByPlot={new Map()}
+        axisEndFor={() => 0}
       />
     );
     const label = screen.getByText('Grid View (2 plots)');

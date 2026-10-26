@@ -56,6 +56,7 @@ function plotSettingsPanel(plot: Plot) {
     <RightPanel
       selectedItem={{ type: 'plot', id: plot.id, plotId: plot.id }}
       activePlot={plot}
+      nowMs={0}
       archiveResults={new Map()}
       liveResults={new Map()}
       collapsed={false}

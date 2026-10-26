@@ -1,6 +1,6 @@
-// Convert UI time-range strings into a (fromNs, toNs) pair. toNs defaults to "now".
-// Relative ranges are spans like "-1h"/"-90m"; "custom" resolves the plot's
-// absolute From/To datetime-local fields.
+// Convert UI time-range strings into a (fromNs, toNs) pair anchored to a
+// caller-supplied "now". Relative ranges are spans like "-1h"/"-90m"; "custom"
+// resolves the plot's absolute From/To datetime-local fields.
 
 const NS_PER_MS = 1_000_000n;
 
@@ -70,31 +70,34 @@ export interface ResolvedTimeWindow {
   error?: string;
 }
 
-function lastHourWindow(): TimeWindowNs {
-  const toNs = nowNs();
+function lastHourWindow(nowMs: number): TimeWindowNs {
+  const toNs = msToNs(nowMs);
   return { fromNs: toNs - msToNs(ONE_HOUR_MS), toNs };
 }
 
-// Resolve a plot's x-axis into an absolute fetch window. Relative ranges anchor
-// to "now"; "custom" reads the From/To datetime-local fields (empty To = now).
-// Invalid custom ranges fall back to the last hour and report an error string.
-export function resolveTimeWindow(xAxis: XAxisLike): ResolvedTimeWindow {
+// Resolve a plot's x-axis into an absolute fetch window. Relative ranges end at
+// `nowMs`; "custom" reads the From/To datetime-local fields (empty To = `nowMs`).
+// Invalid custom ranges fall back to the hour before `nowMs` and report an error
+// string. `nowMs` is the plot's clock (see useAutoScrollTimers), not the wall
+// clock, so a plot that isn't tracking "now" resolves to the same window on
+// every render.
+export function resolveTimeWindow(xAxis: XAxisLike, nowMs: number): ResolvedTimeWindow {
   if (xAxis.timeRange === 'custom') {
     const fromMs = xAxis.timeFrom ? new Date(xAxis.timeFrom).getTime() : NaN;
     if (!Number.isFinite(fromMs)) {
-      return { window: lastHourWindow(), error: 'Enter a valid "From" date and time.' };
+      return { window: lastHourWindow(nowMs), error: 'Enter a valid "From" date and time.' };
     }
-    const toMs = xAxis.timeTo ? new Date(xAxis.timeTo).getTime() : Date.now();
+    const toMs = xAxis.timeTo ? new Date(xAxis.timeTo).getTime() : nowMs;
     if (!Number.isFinite(toMs)) {
-      return { window: lastHourWindow(), error: 'Enter a valid "To" date and time.' };
+      return { window: lastHourWindow(nowMs), error: 'Enter a valid "To" date and time.' };
     }
     if (fromMs >= toMs) {
-      return { window: lastHourWindow(), error: '"From" must be before "To".' };
+      return { window: lastHourWindow(nowMs), error: '"From" must be before "To".' };
     }
     return { window: { fromNs: msToNs(fromMs), toNs: msToNs(toMs) } };
   }
 
   const spanMs = relativeRangeMs(xAxis.timeRange) ?? ONE_HOUR_MS;
-  const toNs = nowNs();
+  const toNs = msToNs(nowMs);
   return { window: { fromNs: toNs - msToNs(spanMs), toNs } };
 }

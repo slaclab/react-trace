@@ -9,6 +9,7 @@ import type { FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs, resolveTimeWindow } from '../api/time';
 import { echartsLineType, echartsSymbol } from '../curveStyle';
+import { isFollowing } from '../hooks/useAutoScrollTimers';
 import { traceLabel } from '../traceLabel';
 import { useColorMode } from '../state/themeStore';
 import type { PngSource } from '../io/exportPlotImage';
@@ -55,8 +56,12 @@ interface PlotAreaProps {
   onDetachPlot: (id: string) => void;
   onReattachPlot: (id: string) => void;
   onViewWindowChange?: (plotId: string, window: TimeWindowNs) => void;
+  /** A following plot was panned/zoomed; freeze it where its axis ends. */
+  onFollowStop?: (plotId: string) => void;
   /** Saved per-plot view window; seeds dataZoom across remounts (e.g. popout). */
   viewWindowByPlot: Map<string, TimeWindowNs>;
+  /** The instant each plot's time axis ends at; see axisEndMs. */
+  axisEndFor: (plotId: string) => number;
   onAxisRangesChange?: (plotId: string, ranges: Map<string, [number, number]>) => void;
   /** Commits a per-axis min/max (or autoScale flip) from a direct axis pan/zoom. */
   onUpdateAxis?: (plotId: string, axisId: string, updates: Partial<Axis>) => void;
@@ -81,6 +86,21 @@ function DetachedPlaceholder({ title, onReattach }: { title: string; onReattach:
 
 interface SinglePlotProps {
   plot: Plot;
+  /**
+   * The instant the plot's time range ends at, from the app (see axisEndMs):
+   * the plot's autoscroll clock, or the newest live sample past it while
+   * following. The chart never reads the wall clock, so a re-render can't move
+   * the axis.
+   */
+  endMs: number;
+  /** True while the plot tracks "now" (see isFollowing). */
+  following?: boolean;
+  /**
+   * Called on the first genuine pan/zoom while following, so the app can
+   * freeze the plot at `endMs` right away instead of after the view-window
+   * debounce.
+   */
+  onFollowStop?: () => void;
   archiveResults: Map<string, ArchiveSeriesResult>;
   liveResults: Map<string, LiveSeriesResult>;
   formulaResults: Map<string, FormulaSeriesResult>;
@@ -200,6 +220,9 @@ function nearestSample(
 
 export function SinglePlot({
   plot,
+  endMs,
+  following = false,
+  onFollowStop,
   archiveResults,
   liveResults,
   formulaResults,
@@ -266,18 +289,20 @@ export function SinglePlot({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- register once per mount; the callback is stable
   }, []);
 
-  // Reset the inside-zoom to full extent when the user picks a new range. This
-  // replaces the React-key remount we used to do — the chart instance survives,
-  // so dataZoom state on subsequent panning is the only thing affected. Skip
-  // the first mount: there's no zoom state to reset yet, and the chart instance
-  // may not be fully attached to the DOM.
+  // Reset the inside-zoom to full extent when the user picks a new range, or
+  // when the plot resumes following "now" (Autoscroll turned back on after a
+  // pan). This replaces the React-key remount we used to do — the chart
+  // instance survives, so dataZoom state on subsequent panning is the only
+  // thing affected. Nothing resets on the first mount (there's no zoom state
+  // yet, and the chart instance may not be fully attached to the DOM) or when
+  // the plot stops following, which would undo the user's pan.
   const rangeKey = rangeKeyFor(plot);
-  const isFirstRangeRun = useRef(true);
+  const zoomTriggerRef = useRef({ rangeKey, following });
   useEffect(() => {
-    if (isFirstRangeRun.current) {
-      isFirstRangeRun.current = false;
-      return;
-    }
+    const prev = zoomTriggerRef.current;
+    zoomTriggerRef.current = { rangeKey, following };
+    const resumed = following && !prev.following;
+    if (prev.rangeKey === rangeKey && !resumed) return;
     const inst = chartRef.current?.getEchartsInstance();
     if (!inst || !inst.getDom()) return;
     programmaticZoomRef.current = true;
@@ -291,7 +316,7 @@ export function SinglePlot({
       programmaticZoomRef.current = false;
     }, 0);
     return () => window.clearTimeout(clearTimer);
-  }, [rangeKey]);
+  }, [rangeKey, following]);
 
   // Seed the saved sub-range directly into the inside-dataZoom on first render
   // so popping a plot out (or reattaching) preserves the user's wheel-zoom.
@@ -333,13 +358,18 @@ export function SinglePlot({
   }, [onAxisRangesChange, visibleAxes]);
 
   const handleDataZoom = useCallback(() => {
-    if (!onViewWindowChange) return;
     // Ignore the zoom reset we dispatched on a range re-select; only genuine
     // user pan/zoom should record a manual window and disable autoscroll.
     if (programmaticZoomRef.current) {
       programmaticZoomRef.current = false;
       return;
     }
+    // A genuine pan/zoom takes the window over. Stop following at once (the
+    // app freezes the plot at the `endMs` it gave us), so no tick or live batch
+    // can slide the axis under the user's drag while the view window below is
+    // debounced.
+    if (following) onFollowStop?.();
+    if (!onViewWindowChange) return;
     const inst = chartRef.current?.getEchartsInstance();
     if (!inst) return;
     // Read the current x-axis extent (in ms) directly from the model — this
@@ -357,7 +387,7 @@ export function SinglePlot({
     debounceRef.current = setTimeout(() => {
       onViewWindowChange({ fromNs: msToNs(fromMs), toNs: msToNs(toMs) });
     }, 400);
-  }, [onViewWindowChange]);
+  }, [onViewWindowChange, following, onFollowStop]);
 
   // Per-Y-axis mouse interactions (issue 45): scrolling over a single axis zooms
   // only that axis; dragging an axis pans only that axis. The whole-plot X
@@ -577,7 +607,7 @@ export function SinglePlot({
   // Pin the x-axis extent to the requested time range so the axis spans the
   // full window even when archive data is sparse and clusters in a sub-range.
   // dataZoom inside the chart still sub-zooms within [min, max].
-  const requested = resolveTimeWindow(plot.xAxis).window;
+  const requested = resolveTimeWindow(plot.xAxis, endMs).window;
   const xAxisMin = nsToMs(requested.fromNs);
   const xAxisMax = nsToMs(requested.toNs);
 
@@ -915,7 +945,9 @@ export function PlotArea({
   onDetachPlot,
   onReattachPlot,
   onViewWindowChange,
+  onFollowStop,
   viewWindowByPlot,
+  axisEndFor,
   onAxisRangesChange,
   onUpdateAxis,
   onChartInstance,
@@ -1022,6 +1054,9 @@ export function PlotArea({
             <SinglePlot
               key={activePlot.id}
               plot={activePlot}
+              endMs={axisEndFor(activePlot.id)}
+              following={isFollowing(activePlot, viewWindowByPlot)}
+              onFollowStop={onFollowStop ? () => onFollowStop(activePlot.id) : undefined}
               archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
               liveResults={liveResultsByPlot.get(activePlot.id) ?? EMPTY_LIVE_RESULTS}
               formulaResults={formulaResultsByPlot.get(activePlot.id) ?? EMPTY_FORMULA_RESULTS}
@@ -1085,6 +1120,9 @@ export function PlotArea({
                 ) : (
                   <SinglePlot
                     plot={plot}
+                    endMs={axisEndFor(plot.id)}
+                    following={isFollowing(plot, viewWindowByPlot)}
+                    onFollowStop={onFollowStop ? () => onFollowStop(plot.id) : undefined}
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
                     liveResults={liveResultsByPlot.get(plot.id) ?? EMPTY_LIVE_RESULTS}
                     formulaResults={formulaResultsByPlot.get(plot.id) ?? EMPTY_FORMULA_RESULTS}

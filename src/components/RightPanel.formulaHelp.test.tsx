@@ -74,6 +74,7 @@ describe('formula help text', () => {
       <RightPanel
         selectedItem={{ type: 'trace', id: 't1', plotId: 'p1' }}
         activePlot={plot}
+        nowMs={0}
         archiveResults={new Map()}
         liveResults={new Map()}
         collapsed={false}
