@@ -16,9 +16,9 @@ import type { FormulaResultDTO, FormulaSpecDTO } from '../api/types';
 //   NEAR_NOW_SLACK_MS or 1% of its span), except a zoom into under half of a
 //   decimated result, which needs Fox's detail for the narrower window;
 // - an in-flight request isn't repeated, nor aborted when the window only slid
-//   forward from it (still overlapping it, or following "now"). Aborting
-//   wouldn't save Fox any work: it never cancels an evaluation the client has
-//   gone away from;
+//   forward from it (still overlapping it, or following "now") unless the
+//   evaluated range already serves the window. Aborting wouldn't save Fox any
+//   work: it never cancels an evaluation the client has gone away from;
 // - a failure that will recur for the same input waits for a new spec or span;
 //   any other failure is retried on a backoff timer, not on every window move.
 //
@@ -332,6 +332,16 @@ export class FormulaStore {
   private refresh(id: string, entry: Internal): void {
     const win = entry.wanted;
     const askedAtNs = entry.wantedAtMs * 1e6;
+    if (entry.cover && covers(entry.cover, entry.data.decimated, win, askedAtNs)) {
+      // What's drawn serves this window, whatever failed for another one. The
+      // failure stays on record, so its backoff or terminal span still applies
+      // if the window leaves this range again. An in-flight request is for a
+      // window the evaluated range didn't serve, so it's no longer wanted, and
+      // landing would swap in its range (even one this window slid forward from).
+      this.cancelRequest(entry);
+      this.showStatus(entry, null);
+      return;
+    }
     if (entry.controller && entry.requested) {
       // Let an in-flight request land when it was for (nearly) this window or
       // one this window only slid forward from. EVAL_TIMEOUT_MS bounds the wait.
@@ -343,16 +353,10 @@ export class FormulaStore {
       ) {
         return;
       }
-      // That answer is for a window that's no longer wanted (a pan back, or a
-      // window that a failure blocks), and landing would swap in its range.
+      // That answer is for a window that's no longer wanted (a pan back past
+      // the evaluated range, or a window that a failure blocks), and landing
+      // would swap in its range.
       this.cancelRequest(entry);
-    }
-    if (entry.cover && covers(entry.cover, entry.data.decimated, win, askedAtNs)) {
-      // What's drawn serves this window, whatever failed for another one. The
-      // failure stays on record, so its backoff or terminal span still applies
-      // if the window leaves this range again.
-      this.showStatus(entry, null);
-      return;
     }
     // A terminal failure waits for a new span; a transient one for its retry
     // timer, which re-drives the entry.

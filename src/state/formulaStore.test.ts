@@ -379,6 +379,26 @@ describe('FormulaStore in-flight requests', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('drops an in-flight request when the window slides forward back into the evaluated range', async () => {
+    const { fox, store, entry } = setup();
+    const evaluated = win(60 * MINUTE, 120 * MINUTE);
+    store.request('f1', { spec: spec('{x1}*2'), window: evaluated });
+    fox.calls[0].resolve([5]);
+    await flush();
+    // Pan back half a span, then return while that request is still out: a
+    // forward slide from it, but the evaluated range already serves it.
+    store.request('f1', { spec: spec('{x1}*2'), window: win(30 * MINUTE, 90 * MINUTE) });
+    store.request('f1', { spec: spec('{x1}*2'), window: evaluated });
+    expect(fox.calls[1].signal.aborted).toBe(true);
+    expect(entry('f1')).toMatchObject({ status: 'ready', points: [[120 * MINUTE, 5]] });
+
+    fox.calls[1].resolve([9]);
+    await flush();
+    expect(entry('f1')).toMatchObject({ status: 'ready', points: [[120 * MINUTE, 5]] });
+    expect(fox.calls).toHaveLength(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('waits for an answer slower than a short following window spans', async () => {
     const { fox, store, entry } = setup();
     // 15 s span, and Fox takes 20 s: the window passes the request entirely.
