@@ -429,6 +429,47 @@ describe('archiveStore: value at the window start', () => {
     expect(entry.mean[0].time).toBe(entry.coverFromNs / 1e6);
   });
 
+  // A 10 s window sliding 3 s: the tail's overlap reaches back past the window
+  // start, so the tail starts exactly there.
+  async function slideShortWindow(h: Harness) {
+    ask(h, windowAt(T0_MS, 10));
+    await flush();
+    h.advance(3000);
+    const win = windowAt(h.now(), 10);
+    ask(h, win);
+    await flush();
+    const calls = h.fetchData.mock.calls.map((c) => c[1]);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].fromNs).toBe(win.fromNs);
+    expect(calls[1].includeLastBefore).toBeUndefined();
+    return win.fromNs / 1e6;
+  }
+
+  it('does not double a real sample at the start of a short sliding window', async () => {
+    const h = setup(
+      onChangeFetch([
+        [T0_NS - 60e9, 7],
+        [T0_NS - 7e9, 8],
+      ])
+    );
+    const fromMs = await slideShortWindow(h);
+    expect(meanOf(h)).toEqual([[fromMs, 8]]);
+  });
+
+  it('holds the prior value in a short sliding window with no sample at the start', async () => {
+    const h = setup(
+      onChangeFetch([
+        [T0_NS - 60e9, 7],
+        [T0_NS - 5e9, 8],
+      ])
+    );
+    const fromMs = await slideShortWindow(h);
+    expect(meanOf(h)).toEqual([
+      [fromMs, 7],
+      [T0_MS - 5000, 8],
+    ]);
+  });
+
   it('does not ask for it on binned requests', async () => {
     const h = setup(async (_pv, params) => ({
       mode: 'binned',

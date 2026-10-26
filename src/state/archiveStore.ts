@@ -348,7 +348,9 @@ function holdLastBefore(dto: ArchiverDataDTO, window: TimeWindowNs): ArchiverDat
 // Merge a tail fetch into the buffer: keep buffered points before the tail
 // (from the window start on), then the fetched samples. The last buffered
 // point before the window start is held at the start, as `holdLastBefore`
-// does for a full fetch. Coverage becomes [window start, window end].
+// does for a full fetch, unless a real sample sits there. On a short window the
+// tail starts at the window start, so that check runs after the merge.
+// Coverage becomes [window start, window end].
 function spliceTail(
   prev: ArchiveEntry,
   dto: ArchiverDataDTO,
@@ -365,12 +367,12 @@ function spliceTail(
     if (p.time >= fromMs) mean.push(p);
     else before = p;
   }
-  if (before && mean[0]?.time !== fromMs) mean.unshift({ ...before, time: fromMs });
   for (const s of dto.samples as SampleDTO[]) {
     if (typeof s.value !== 'number') continue;
     const time = nsToMs(s.tsNs);
     if (time >= tailFromMs) mean.push({ time, value: s.value });
   }
+  if (before && mean[0]?.time !== fromMs) mean.unshift({ ...before, time: fromMs });
   return {
     status: 'ready',
     mean,
