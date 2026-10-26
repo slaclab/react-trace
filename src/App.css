@@ -615,6 +615,17 @@
   color: var(--cds-text-primary);
 }
 
+/* Carbon's slider track has a 200px minimum, which with its range labels is
+   wider than the panel at its default width. Let the track shrink instead; the
+   row then needs an explicit width, since Carbon's form item shrink-wraps it. */
+.properties-panel .cds--slider-container {
+  inline-size: 100%;
+}
+
+.properties-panel .cds--slider {
+  min-inline-size: 0;
+}
+
 /* Carbon Tabs in properties panel */
 .properties-panel .cds--tabs__nav-item--selected .cds--tabs__nav-link {
   border-bottom-color: var(--cds-link-primary);
