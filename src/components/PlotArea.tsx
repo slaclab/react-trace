@@ -978,7 +978,7 @@ export function PlotArea({
               </div>
             ))}
           {viewMode === 'grid' && (
-            <span style={{ fontSize: 12, color: '#c6c6c6', padding: '0 8px' }}>
+            <span style={{ fontSize: 12, color: 'var(--cds-text-secondary)', padding: '0 8px' }}>
               Grid View ({plots.length} plots)
             </span>
           )}
