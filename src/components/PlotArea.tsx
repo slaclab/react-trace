@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { DARK_CHART_THEME, LIGHT_CHART_THEME, effectiveBackground } from '../chartTheme';
 import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
@@ -159,6 +159,11 @@ function formatTimeOffset(deltaMs: number): string {
   return `${sign}${(abs / 86_400_000).toFixed(1)}d`;
 }
 
+// Anchor points per span of an extension line. A two-point line would vanish
+// under a zoom that sits inside it: weakFilter keeps a point only if it's in the
+// window, so the line needs anchors this dense to survive any zoom depth.
+const EXTENSION_ANCHORS = 2048;
+
 function traceLineData(
   trace: PVTrace,
   archive: ArchiveSeriesResult | undefined,
@@ -236,9 +241,140 @@ export function SinglePlot({
 }: SinglePlotProps) {
   const { colorMode } = useColorMode();
   const theme = colorMode === 'dark' ? DARK_CHART_THEME : LIGHT_CHART_THEME;
-  const visibleAxes = plot.axes.filter((a) => a.visible);
-  const visibleTraces = plot.traces.filter((t) => t.visible);
-  const labels = new Map(plot.traces.map((t) => [t.id, traceLabel(t, plot.traces)]));
+
+  // Everything derived from the samples and the plot's traces and axes. It's
+  // memoized apart from the display clock: while a plot scrolls (useFollowNow)
+  // it re-renders on animation frames with these inputs unchanged, so the
+  // remapped samples and the band and line series stay the same objects, and
+  // the option compare short-circuits on them. Only the x-axis extent and the
+  // extension lines depend on the clock.
+  const { visibleAxes, visibleTraces, labels, axisIndexMap, orderedTraces, traceData, baseSeries } =
+    useMemo(() => {
+      const visibleAxes = plot.axes.filter((a) => a.visible);
+      const visibleTraces = plot.traces.filter((t) => t.visible);
+      const labels = new Map(plot.traces.map((t) => [t.id, traceLabel(t, plot.traces)]));
+
+      // ECharts links series to axes by index, so we track index per axis id.
+      const axisIndexMap = new Map<string, number>();
+      visibleAxes.forEach((axis, idx) => axisIndexMap.set(axis.id, idx));
+
+      // Per-trace [time, value] arrays; series rendering and the tooltip
+      // formatter both read from this map. Sorted ascending by time.
+      const traceData = new Map<string, [number, number][]>();
+      for (const trace of visibleTraces) {
+        traceData.set(
+          trace.id,
+          traceLineData(
+            trace,
+            archiveResults.get(trace.id),
+            liveResults.get(trace.id),
+            formulaResults.get(trace.id)
+          )
+        );
+      }
+
+      // Order traces by axis (in panel order) then by their position within
+      // each axis. Earlier axis / earlier trace draws on top — assign higher
+      // `z` values to those, and pin the order with `emphasis.disabled` so
+      // hover doesn't shuffle the depth.
+      const orderedTraces: { trace: PVTrace; yAxisIndex: number; baseZ: number }[] = [];
+      for (const axis of visibleAxes) {
+        for (const trace of visibleTraces) {
+          if (trace.axisId === axis.id) {
+            orderedTraces.push({ trace, yAxisIndex: axisIndexMap.get(axis.id) ?? 0, baseZ: 0 });
+          }
+        }
+      }
+      orderedTraces.forEach((t, i) => (t.baseZ = (orderedTraces.length - i) * 10));
+
+      // Each trace's min/max band and main line.
+      const baseSeries = new Map<string, Record<string, unknown>[]>();
+      for (const { trace, yAxisIndex, baseZ } of orderedTraces) {
+        const archive = archiveResults.get(trace.id);
+        const series: Record<string, unknown>[] = [];
+
+        // Min/max band, drawn as two stacked area series so ECharts fills between them.
+        // Keep the previous band rendered while a fetch is in flight (status may
+        // be 'loading') so the band doesn't disappear during panning/zooming.
+        if (
+          trace.useArchive &&
+          trace.showArchiveBand !== false &&
+          archive &&
+          archive.mode === 'binned' &&
+          archive.band.length > 0
+        ) {
+          const stackId = `band-${trace.id}`;
+          series.push({
+            id: `${trace.id}-band-min`,
+            name: `${labels.get(trace.id)} (min)`,
+            type: 'line',
+            yAxisIndex,
+            data: archive.band.map((p) => [p.time, p.min]),
+            stack: stackId,
+            lineStyle: { opacity: 0 },
+            areaStyle: { opacity: 0 },
+            symbol: 'none',
+            showInLegend: false,
+            tooltip: { show: false },
+            silent: true,
+            animation: false,
+            z: baseZ,
+            emphasis: { disabled: true },
+          });
+          series.push({
+            id: `${trace.id}-band-max`,
+            name: `${labels.get(trace.id)} (max)`,
+            type: 'line',
+            yAxisIndex,
+            data: archive.band.map((p) => [p.time, p.max - p.min]),
+            stack: stackId,
+            lineStyle: { opacity: 0 },
+            areaStyle: { color: trace.color, opacity: 0.18 },
+            symbol: 'none',
+            showInLegend: false,
+            tooltip: { show: false },
+            silent: true,
+            animation: false,
+            z: baseZ,
+            emphasis: { disabled: true },
+          });
+        }
+
+        series.push({
+          id: trace.id,
+          name: labels.get(trace.id),
+          type: 'line',
+          yAxisIndex,
+          data: traceData.get(trace.id) ?? [],
+          step: trace.lineType === 'step' ? 'end' : false,
+          lineStyle: {
+            color: trace.color,
+            width: trace.lineWidth,
+            type: echartsLineType(trace.lineStyle),
+            opacity: trace.lineStyle === 'none' ? 0 : 1,
+          },
+          itemStyle: { color: trace.color },
+          symbol: trace.showSymbol ? echartsSymbol(trace.symbolShape) : 'none',
+          symbolSize: trace.symbolSize,
+          showSymbol: trace.showSymbol,
+          sampling: 'lttb',
+          animation: false,
+          z: baseZ + 1,
+          emphasis: { disabled: true },
+        });
+        baseSeries.set(trace.id, series);
+      }
+
+      return {
+        visibleAxes,
+        visibleTraces,
+        labels,
+        axisIndexMap,
+        orderedTraces,
+        traceData,
+        baseSeries,
+      };
+    }, [plot.traces, plot.axes, archiveResults, liveResults, formulaResults]);
 
   const chartRef = useRef<ReactECharts>(null);
   // Our own wrapper around the chart; the per-axis pointer listeners attach
@@ -608,12 +744,6 @@ export function SinglePlot({
     };
   }, []);
 
-  // Build yAxis array; ECharts links series to axes by index, so we track index per axis id
-  const axisIndexMap = new Map<string, number>();
-  visibleAxes.forEach((axis, idx) => {
-    axisIndexMap.set(axis.id, idx);
-  });
-
   // Axes sharing a side (left/right) would otherwise stack at the same spot and
   // overlap, so we offset each one outward by its position within that side.
   const sideIndexMap = new Map<string, number>();
@@ -631,20 +761,54 @@ export function SinglePlot({
   const xAxisMin = nsToMs(requested.fromNs);
   const xAxisMax = nsToMs(requested.toNs);
 
-  // Pre-compute per-trace [time, value] arrays once; series rendering and the
-  // tooltip formatter both read from this map. Sorted ascending by time.
-  const traceData = new Map<string, [number, number][]>();
-  for (const trace of visibleTraces) {
-    traceData.set(
-      trace.id,
-      traceLineData(
-        trace,
-        archiveResults.get(trace.id),
-        liveResults.get(trace.id),
-        formulaResults.get(trace.id)
-      )
-    );
-  }
+  // Extension lines: a dashed line from each trace's last sample to the right
+  // edge. The anchors cover the span-aligned bucket the window starts in plus
+  // one more span, so a scrolling window stays inside them and they're rebuilt
+  // once per span of scrolling instead of on every frame. The grid clips what
+  // lies past the axis.
+  const spanMs = Math.max(1, xAxisMax - xAxisMin);
+  const bucketStartMs = Math.floor(xAxisMin / spanMs) * spanMs;
+  const extensionSeries = useMemo(() => {
+    const out = new Map<string, Record<string, unknown>>();
+    const endMs = bucketStartMs + 2 * spanMs;
+    // Anchors at least this close, as when they spanned only the window, so
+    // weakFilter always finds in-window points at any zoom depth.
+    const stepMs = spanMs / (EXTENSION_ANCHORS - 1);
+    for (const { trace, yAxisIndex, baseZ } of orderedTraces) {
+      if (trace.showExtensionLine === false || trace.lineStyle === 'none') continue;
+      const last = traceData.get(trace.id)?.at(-1);
+      if (!last || last[0] >= endMs) continue;
+      const startMs = Math.max(last[0], bucketStartMs);
+      const count = Math.ceil((endMs - startMs) / stepMs) + 1;
+      const data = Array.from({ length: count }, (_, k): [number, number] => [
+        k === count - 1 ? endMs : startMs + k * stepMs,
+        last[1],
+      ]);
+      out.set(trace.id, {
+        id: `${trace.id}-extension`,
+        name: `${trace.displayName} (extension)`,
+        type: 'line',
+        yAxisIndex,
+        data,
+        lineStyle: {
+          color: trace.color,
+          width: trace.lineWidth,
+          type: 'dashed',
+          opacity: 0.7,
+        },
+        itemStyle: { color: trace.color },
+        symbol: 'none',
+        showSymbol: false,
+        showInLegend: false,
+        tooltip: { show: false },
+        silent: true,
+        animation: false,
+        z: baseZ + 1,
+        emphasis: { disabled: true },
+      });
+    }
+    return out;
+  }, [orderedTraces, traceData, bucketStartMs, spanMs]);
 
   // Grid insets. Named so the per-axis hit-zones (below) derive from the exact
   // same numbers ECharts lays the grid out with.
@@ -727,134 +891,11 @@ export function SinglePlot({
         lineStyle: { color: theme.splitLine, type: plot.gridStyle, opacity: plot.gridOpacity },
       },
     })),
-    series: (() => {
-      // Order traces by axis (in panel order) then by their position within
-      // each axis. Earlier axis / earlier trace draws on top — assign higher
-      // `z` values to those, and pin the order with `emphasis.disabled` so
-      // hover doesn't shuffle the depth.
-      const orderedTraces: PVTrace[] = [];
-      for (const axis of visibleAxes) {
-        for (const trace of visibleTraces) {
-          if (trace.axisId === axis.id) orderedTraces.push(trace);
-        }
-      }
-
-      const total = orderedTraces.length;
-      return orderedTraces.flatMap((trace, i) => {
-        const yAxisIndex = axisIndexMap.get(trace.axisId) ?? 0;
-        const archive = archiveResults.get(trace.id);
-        const baseZ = (total - i) * 10;
-        const series: Record<string, unknown>[] = [];
-
-        // Min/max band, drawn as two stacked area series so ECharts fills between them.
-        // Keep the previous band rendered while a fetch is in flight (status may
-        // be 'loading') so the band doesn't disappear during panning/zooming.
-        if (
-          trace.useArchive &&
-          trace.showArchiveBand !== false &&
-          archive &&
-          archive.mode === 'binned' &&
-          archive.band.length > 0
-        ) {
-          const stackId = `band-${trace.id}`;
-          series.push({
-            id: `${trace.id}-band-min`,
-            name: `${labels.get(trace.id)} (min)`,
-            type: 'line',
-            yAxisIndex,
-            data: archive.band.map((p) => [p.time, p.min]),
-            stack: stackId,
-            lineStyle: { opacity: 0 },
-            areaStyle: { opacity: 0 },
-            symbol: 'none',
-            showInLegend: false,
-            tooltip: { show: false },
-            silent: true,
-            animation: false,
-            z: baseZ,
-            emphasis: { disabled: true },
-          });
-          series.push({
-            id: `${trace.id}-band-max`,
-            name: `${labels.get(trace.id)} (max)`,
-            type: 'line',
-            yAxisIndex,
-            data: archive.band.map((p) => [p.time, p.max - p.min]),
-            stack: stackId,
-            lineStyle: { opacity: 0 },
-            areaStyle: { color: trace.color, opacity: 0.18 },
-            symbol: 'none',
-            showInLegend: false,
-            tooltip: { show: false },
-            silent: true,
-            animation: false,
-            z: baseZ,
-            emphasis: { disabled: true },
-          });
-        }
-
-        const tracePoints = traceData.get(trace.id) ?? [];
-        series.push({
-          id: trace.id,
-          name: labels.get(trace.id),
-          type: 'line',
-          yAxisIndex,
-          data: tracePoints,
-          step: trace.lineType === 'step' ? 'end' : false,
-          lineStyle: {
-            color: trace.color,
-            width: trace.lineWidth,
-            type: echartsLineType(trace.lineStyle),
-            opacity: trace.lineStyle === 'none' ? 0 : 1,
-          },
-          itemStyle: { color: trace.color },
-          symbol: trace.showSymbol ? echartsSymbol(trace.symbolShape) : 'none',
-          symbolSize: trace.symbolSize,
-          showSymbol: trace.showSymbol,
-          sampling: 'lttb',
-          animation: false,
-          z: baseZ + 1,
-          emphasis: { disabled: true },
-        });
-
-        if (trace.showExtensionLine !== false && trace.lineStyle !== 'none') {
-          const last = tracePoints.at(-1);
-          if (last && last[0] < xAxisMax) {
-            const startTime = Math.max(last[0], xAxisMin);
-            // 2048 anchors so weakFilter always finds in-window points at any zoom depth.
-            const ANCHORS = 2048;
-            const data = Array.from({ length: ANCHORS }, (_, k): [number, number] => [
-              startTime + ((xAxisMax - startTime) * k) / (ANCHORS - 1),
-              last[1],
-            ]);
-            series.push({
-              id: `${trace.id}-extension`,
-              name: `${trace.displayName} (extension)`,
-              type: 'line',
-              yAxisIndex,
-              data,
-              lineStyle: {
-                color: trace.color,
-                width: trace.lineWidth,
-                type: 'dashed',
-                opacity: 0.7,
-              },
-              itemStyle: { color: trace.color },
-              symbol: 'none',
-              showSymbol: false,
-              showInLegend: false,
-              tooltip: { show: false },
-              silent: true,
-              animation: false,
-              z: baseZ + 1,
-              emphasis: { disabled: true },
-            });
-          }
-        }
-
-        return series;
-      });
-    })(),
+    series: orderedTraces.flatMap(({ trace }) => {
+      const ext = extensionSeries.get(trace.id);
+      const base = baseSeries.get(trace.id) ?? [];
+      return ext ? [...base, ext] : base;
+    }),
     dataZoom: [
       {
         type: 'inside',

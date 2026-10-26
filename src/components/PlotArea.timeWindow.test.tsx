@@ -13,7 +13,10 @@ import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 
 const { captured, fakeInstance } = vi.hoisted(() => {
   const captured: {
-    option: { xAxis: { min: number; max: number } } | null;
+    option: {
+      xAxis: { min: number; max: number };
+      series: { id: string; data: [number, number][] }[];
+    } | null;
     onEvents: Record<string, () => void>;
   } = { option: null, onEvents: {} };
   const fakeInstance = {
@@ -342,6 +345,49 @@ describe('SinglePlot smooth scrolling', () => {
     expect(frames).toHaveLength(0);
     vi.setSystemTime(T0 + 2000);
     expect(xAxis().max).toBe(T0);
+    unmount();
+  });
+
+  const seriesData = (id: string) => captured.option!.series.find((s) => s.id === id)?.data;
+
+  it("reuses the samples' series data across frames, and rebuilds it for new samples", () => {
+    const plot = makePlot({ xAxis: { timeRange: '-30s' } });
+    const live = liveBatch(T0 - 1000);
+    const { rerender, unmount } = render(plotEl(plot, T0, live, true));
+    frameAt(T0 + 1000);
+    const line = seriesData('t1');
+    const ext = seriesData('t1-extension');
+    expect(line).toEqual([
+      [T0 - 2000, 1],
+      [T0 - 1000, 2],
+    ]);
+    frameAt(T0 + 1500);
+    expect(xAxis().max).toBe(T0 + 1500);
+    // The axis moved; the line and the extension's anchors didn't.
+    expect(seriesData('t1')).toBe(line);
+    expect(seriesData('t1-extension')).toBe(ext);
+
+    rerender(plotEl(plot, T0, liveBatch(T0 + 1000), true));
+    expect(seriesData('t1')).not.toBe(line);
+    expect(seriesData('t1-extension')).not.toBe(ext);
+    unmount();
+  });
+
+  it('runs the extension line from the last sample past the right edge as it scrolls', () => {
+    const plot = makePlot({ xAxis: { timeRange: '-30s' } });
+    const { unmount } = render(plotEl(plot, T0, liveBatch(T0 - 1000), true));
+    for (const atMs of [T0 + 1000, T0 + 29_000, T0 + 45_000]) {
+      frameAt(atMs);
+      const ext = seriesData('t1-extension')!;
+      // From the last sample (T0 - 1 s), or from no later than the left edge
+      // once that has scrolled past it, to at least the right edge.
+      expect(ext[0][0]).toBeGreaterThanOrEqual(T0 - 1000);
+      expect(ext[0][0]).toBeLessThanOrEqual(Math.max(T0 - 1000, xAxis().min));
+      expect(ext[0][1]).toBe(2);
+      expect(ext.at(-1)![0]).toBeGreaterThanOrEqual(xAxis().max);
+      // Dense enough inside the window that a zoom keeps some of it.
+      expect(ext[1][0] - ext[0][0]).toBeLessThanOrEqual(30_000 / 2047);
+    }
     unmount();
   });
 
