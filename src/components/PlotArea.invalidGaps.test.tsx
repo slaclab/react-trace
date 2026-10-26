@@ -63,21 +63,21 @@ function makeTrace(over: Partial<PVTrace> = {}): PVTrace {
   };
 }
 
-function makePlot(traces: PVTrace[]): Plot {
+const AX1: Plot['axes'][number] = {
+  id: 'ax1',
+  name: 'Y',
+  orientation: 'left',
+  autoScale: true,
+  logScale: false,
+  visible: true,
+};
+
+function makePlot(traces: PVTrace[], axes: Plot['axes'] = [AX1]): Plot {
   return {
     id: 'p1',
     title: 'Plot 1',
     traces,
-    axes: [
-      {
-        id: 'ax1',
-        name: 'Y',
-        orientation: 'left',
-        autoScale: true,
-        logScale: false,
-        visible: true,
-      },
-    ],
+    axes,
     backgroundColor: 'default',
     showLegend: false,
     showXGridlines: false,
@@ -104,11 +104,12 @@ function rawResult(pts: Pt[]): ArchiveSeriesResult {
 function mount(
   traces: PVTrace[],
   archive: Map<string, ArchiveSeriesResult>,
-  live = new Map<string, LiveSeriesResult>()
+  live = new Map<string, LiveSeriesResult>(),
+  axes?: Plot['axes']
 ): Option {
   const { unmount } = render(
     <SinglePlot
-      plot={makePlot(traces)}
+      plot={makePlot(traces, axes)}
       archiveResults={archive}
       liveResults={live}
       formulaResults={new Map()}
@@ -310,6 +311,26 @@ describe('PlotArea: INVALID samples (#120)', () => {
     expect(ys[4]).toBe(ys[3]);
     expect(ys[5]).toBe(ys[3]);
     expect(opt.xAxis.axisLabel.margin).toBe(20);
+  });
+
+  it('traces on a hidden axis take no marker lane', () => {
+    const ids = ['t1', 't2', 't3', 't4', 't5'];
+    // t1-t3 sit on a hidden axis ahead of t4 and t5 on the visible one.
+    const traces = ids.map((id, i) =>
+      makeTrace({ id, pvName: `AV:${id}`, displayName: `AV:${id}`, axisId: i < 3 ? 'ax2' : 'ax1' })
+    );
+    const opt = mount(traces, new Map(ids.map((id) => [id, rawResult(WITH_INVALID)])), new Map(), [
+      { ...AX1, id: 'ax2', visible: false },
+      AX1,
+    ]);
+    for (const id of ['t1', 't2', 't3']) {
+      expect(seriesById(opt, id)).toBeUndefined();
+      expect(seriesById(opt, `${id}-invalid`)).toBeUndefined();
+    }
+    // t4 and t5 get the first two lanes instead of sharing the capped one.
+    expect(renderMarker(seriesById(opt, 't4-invalid')!, 0).shape.y).toBe(240 + 2);
+    expect(renderMarker(seriesById(opt, 't5-invalid')!, 0).shape.y).toBe(240 + 6);
+    expect(opt.xAxis.axisLabel.margin).toBe(12);
   });
 
   it('INVALID stretches outside the window take no marker lane', () => {

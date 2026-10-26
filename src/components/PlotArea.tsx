@@ -580,20 +580,36 @@ export function SinglePlot({
   const xAxisMin = nsToMs(requested.fromNs);
   const xAxisMax = nsToMs(requested.toNs);
 
+  // The traces the series builder draws: those on visible axes, ordered by
+  // axis (in panel order) then by their position within each axis. Earlier
+  // axis / earlier trace draws on top.
+  const renderedTraces: PVTrace[] = [];
+  for (const axis of visibleAxes) {
+    for (const trace of visibleTraces) {
+      if (trace.axisId === axis.id) renderedTraces.push(trace);
+    }
+  }
+
   // Pre-compute per-trace samples once; series rendering and the tooltip
   // formatter both read from this map. Sorted ascending by time.
   const traceData = new Map<string, readonly PlotSample[]>();
-  // INVALID stretches per trace, and the marker lane each trace draws them in.
-  const invalidByTrace = new Map<string, { stretches: [number, number][]; lane: number }>();
   for (const trace of visibleTraces) {
-    const samples = traceSamples(
-      trace,
-      archiveResults.get(trace.id),
-      liveResults.get(trace.id),
-      formulaResults.get(trace.id)
+    traceData.set(
+      trace.id,
+      traceSamples(
+        trace,
+        archiveResults.get(trace.id),
+        liveResults.get(trace.id),
+        formulaResults.get(trace.id)
+      )
     );
-    traceData.set(trace.id, samples);
-    const stretches = invalidStretches(samples, xAxisMin, xAxisMax);
+  }
+  // INVALID stretches per trace, and the marker lane each trace draws them in.
+  // Only drawn traces take a lane, in draw order, so a trace on a hidden axis
+  // doesn't push the drawn ones into the shared last lane.
+  const invalidByTrace = new Map<string, { stretches: [number, number][]; lane: number }>();
+  for (const trace of renderedTraces) {
+    const stretches = invalidStretches(traceData.get(trace.id) ?? [], xAxisMin, xAxisMax);
     if (stretches.length > 0) {
       invalidByTrace.set(trace.id, { stretches, lane: invalidByTrace.size });
     }
@@ -684,19 +700,11 @@ export function SinglePlot({
       },
     })),
     series: (() => {
-      // Order traces by axis (in panel order) then by their position within
-      // each axis. Earlier axis / earlier trace draws on top — assign higher
-      // `z` values to those, and pin the order with `emphasis.disabled` so
-      // hover doesn't shuffle the depth.
-      const orderedTraces: PVTrace[] = [];
-      for (const axis of visibleAxes) {
-        for (const trace of visibleTraces) {
-          if (trace.axisId === axis.id) orderedTraces.push(trace);
-        }
-      }
-
-      const total = orderedTraces.length;
-      return orderedTraces.flatMap((trace, i) => {
+      // `renderedTraces` is in draw order: earlier traces draw on top, so
+      // assign higher `z` values to those, and pin the order with
+      // `emphasis.disabled` so hover doesn't shuffle the depth.
+      const total = renderedTraces.length;
+      return renderedTraces.flatMap((trace, i) => {
         const yAxisIndex = axisIndexMap.get(trace.axisId) ?? 0;
         const archive = archiveResults.get(trace.id);
         const baseZ = (total - i) * 10;
