@@ -584,6 +584,70 @@ describe('LiveStore backfill', () => {
   });
 });
 
+describe('LiveStore backfill window', () => {
+  it('asks for no more than the retention window after a long disconnect', async () => {
+    const t0 = Date.now();
+    const store = new LiveStore();
+    store.watch('t1', 'PV:A', 5 * 60_000);
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+    ws.emit({ type: 'initial', data: { 'PV:A': pvValue('PV:A', 1, t0) }, count: 1 });
+    ws.close();
+
+    // Two hours asleep, then the reconnect.
+    await vi.advanceTimersByTimeAsync(1000);
+    vi.setSystemTime(new Date(t0 + 2 * 3600_000));
+    MockWebSocket.instances[1].open();
+
+    const reconnectCall = mockFetchBackfill.mock.calls[mockFetchBackfill.mock.calls.length - 1];
+    // now - 5 min, not the last point two hours back.
+    expect(reconnectCall[1]).toBe((t0 + 115 * 60_000) * 1e6);
+  });
+});
+
+describe('LiveStore out-of-order samples', () => {
+  function bufferOf(store: LiveStore) {
+    return store
+      .getSnapshot()
+      .get('t1')!
+      .points.map((p) => [p.time, p.value]);
+  }
+
+  it('keeps updating after a sample stamped ahead of the live stream', () => {
+    const t0 = Date.now();
+    const store = new LiveStore();
+    store.watch('t1', 'PV:A', 60_000);
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+    // e.g. a backfill sample from a clock running 5 s ahead of Hare's.
+    ws.emit({ type: 'diff', data: { 'PV:A': pvValue('PV:A', 9, t0 + 5000) }, count: 1 });
+    ws.emit({ type: 'diff', data: { 'PV:A': pvValue('PV:A', 1, t0 + 1000) }, count: 1 });
+    ws.emit({ type: 'diff', data: { 'PV:A': pvValue('PV:A', 2, t0 + 2000) }, count: 1 });
+
+    expect(bufferOf(store)).toEqual([
+      [t0 + 1000, 1],
+      [t0 + 2000, 2],
+      [t0 + 5000, 9],
+    ]);
+  });
+
+  it('keeps two different values in the same millisecond, but not a repeat', () => {
+    const t0 = Date.now();
+    const store = new LiveStore();
+    store.watch('t1', 'PV:A', 60_000);
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+    ws.emit({ type: 'diff', data: { 'PV:A': pvValue('PV:A', 1, t0) }, count: 1 });
+    ws.emit({ type: 'diff', data: { 'PV:A': pvValue('PV:A', 2, t0) }, count: 1 });
+    ws.emit({ type: 'diff', data: { 'PV:A': pvValue('PV:A', 2, t0) }, count: 1 });
+
+    expect(bufferOf(store)).toEqual([
+      [t0, 1],
+      [t0, 2],
+    ]);
+  });
+});
+
 describe('LiveStore socket lifecycle', () => {
   it('closes the socket when the last trace is released', () => {
     const store = new LiveStore();
@@ -600,6 +664,18 @@ describe('LiveStore socket lifecycle', () => {
     // No reconnect is scheduled for an intentional close.
     vi.advanceTimersByTime(30_000);
     expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it('shows no connection error after closing a socket that is still connecting', () => {
+    const store = new LiveStore();
+    store.watch('t1', 'PV:A', 60_000);
+    const ws = MockWebSocket.instances[0];
+    store.release('t1');
+    // A browser fires `error` when a connecting socket is closed.
+    ws.onerror?.call(ws);
+
+    store.watch('t2', 'PV:B', 60_000);
+    expect(store.getSnapshot().get('t2')!.error).toBeNull();
   });
 
   it('opens a fresh socket and subscribes when watching again after a full release', () => {
@@ -630,7 +706,48 @@ describe('LiveStore vole subscribe', () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(mockSubscribeVole).toHaveBeenCalledTimes(1);
-    expect(mockSubscribeVole).toHaveBeenCalledWith(['PV:X']);
+    expect(mockSubscribeVole.mock.calls[0][0]).toEqual(['PV:X']);
+  });
+
+  it('subscribes once per watch, not again on every reconnect', async () => {
+    mockFetchBackfill.mockRejectedValue(new CanopyError('pv_not_buffered', 404, 'not buffered'));
+    mockSubscribeVole.mockClear();
+
+    const store = new LiveStore();
+    store.watch('t1', 'PV:X', 60_000);
+    MockWebSocket.instances[0].open();
+    await vi.advanceTimersByTimeAsync(0);
+    MockWebSocket.instances[0].close();
+    await vi.advanceTimersByTimeAsync(1000);
+    MockWebSocket.instances[1].open();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockSubscribeVole).toHaveBeenCalledTimes(1);
+
+    // A fresh watch after a full release asks again.
+    store.release('t1');
+    store.watch('t2', 'PV:X', 60_000);
+    MockWebSocket.instances[2].open();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockSubscribeVole).toHaveBeenCalledTimes(2);
+  });
+
+  it('aborts the subscribe POST when the PV is released', async () => {
+    mockFetchBackfill.mockRejectedValue(new CanopyError('pv_not_buffered', 404, 'not buffered'));
+    mockSubscribeVole.mockClear();
+    mockSubscribeVole.mockReturnValue(new Promise(() => {}));
+
+    const store = new LiveStore();
+    store.watch('t1', 'PV:X', 60_000);
+    MockWebSocket.instances[0].open();
+    await vi.advanceTimersByTimeAsync(0);
+    const signal = mockSubscribeVole.mock.calls[0][1]!.signal!;
+    expect(signal.aborted).toBe(false);
+
+    store.release('t1');
+
+    expect(signal.aborted).toBe(true);
   });
 
   it('does not call subscribeVoleBuffer when backfill succeeds', async () => {

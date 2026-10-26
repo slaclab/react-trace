@@ -8,7 +8,7 @@ import { liveWsUrl } from '../api/hare';
 import { msToNs, nsToMs } from '../api/time';
 import { fetchBackfill, subscribeVoleBuffer } from '../api/vole';
 import { CanopyError } from '../api/client';
-import type { AlarmSeverity, PVValueDTO, WsFrame } from '../api/types';
+import type { AlarmSeverity, PVValueDTO, SampleDTO, WsFrame } from '../api/types';
 
 export interface LivePoint {
   time: number;
@@ -82,6 +82,8 @@ export class LiveStore {
 
   private pvs = new Map<string, PVState>();
   private byTrace = new Map<string, TraceRef>();
+  // PVs we've asked Vole to buffer during their current watch.
+  private voleSubscribed = new Set<string>();
 
   // Per-PV cached entry keyed by a signature of its published inputs. Lets
   // `rebuild()` reuse the prior LiveEntry object when nothing changed, so
@@ -163,6 +165,7 @@ export class LiveStore {
       state.backfillController?.abort();
       state.backfillController = null;
       this.pvs.delete(prev.pv);
+      this.voleSubscribed.delete(prev.pv);
       this.sendUnsubscribe([prev.pv]);
     }
     return true;
@@ -182,6 +185,10 @@ export class LiveStore {
     }
     this.reconnectAttempt = 0;
     if (this.ws) {
+      // Closing a connecting socket fires `error`; don't surface it.
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
       this.ws.onclose = null;
       this.ws.close();
       this.ws = null;
@@ -314,12 +321,20 @@ export class LiveStore {
     state.severity = v.severity;
     state.rev++;
     if (typeof v.value === 'number' && Number.isFinite(v.value)) {
-      const time = nsToMs(v.tsNs);
-      // Skip samples at or before the newest point: Hare re-sends the current
-      // value on reconnect, and a backfill may already have covered it.
-      const last = state.points[state.points.length - 1];
-      if (last && time <= last.time) return;
-      state.points.push({ time, value: v.value, severity: v.severity });
+      const point = { time: nsToMs(v.tsNs), value: v.value, severity: v.severity };
+      const points = state.points;
+      const last = points[points.length - 1];
+      if (!last || point.time > last.time) {
+        points.push(point);
+      } else {
+        // Out of order (clock skew or step): insert in place so the trace keeps
+        // updating. Skip only an exact repeat, e.g. Hare's reconnect re-send.
+        let i = lowerBound(points, point.time);
+        for (; i < points.length && points[i].time === point.time; i++) {
+          if (points[i].value === point.value) return;
+        }
+        points.splice(i, 0, point);
+      }
       this.trim(state);
     }
   }
@@ -333,12 +348,10 @@ export class LiveStore {
     // buffer overshoot the window by up to TRIM_SLACK_POINTS, then evict in a
     // single pass. This amortizes eviction to O(1) per sample while never
     // exposing more than `slack` stale points to consumers.
-    let maxRetention = 0;
-    for (const r of state.refs.values()) if (r > maxRetention) maxRetention = r;
-
+    const retention = maxRetention(state);
     const points = state.points;
-    if (maxRetention > 0) {
-      const cutoff = Date.now() - maxRetention;
+    if (retention > 0) {
+      const cutoff = Date.now() - retention;
       // Only scan once enough stale points have accumulated. The newest point
       // is always within the window, so a quick check of the slack-th point
       // tells us whether a trim is even worth attempting.
@@ -429,11 +442,10 @@ export class LiveStore {
     const controller = new AbortController();
     state.backfillController = controller;
 
-    let maxRetention = 0;
-    for (const r of state.refs.values()) if (r > maxRetention) maxRetention = r;
-
+    // Fill from the newest point, but never past the retention window.
     const last = state.points[state.points.length - 1];
-    const fromNs = msToNs(last ? last.time : Date.now() - maxRetention);
+    const fromMs = Math.max(last ? last.time : -Infinity, Date.now() - maxRetention(state));
+    const fromNs = msToNs(fromMs);
 
     fetchBackfill(pv, fromNs, { signal: controller.signal })
       .then((res) => {
@@ -447,7 +459,13 @@ export class LiveStore {
         if (controller.signal.aborted) return;
         if ((err as { name?: string }).name === 'AbortError') return;
         if (err instanceof CanopyError && err.code === 'pv_not_buffered') {
-          subscribeVoleBuffer([pv]).catch((subErr) => {
+          // Ask Vole to buffer it for the next backfill, once per watch.
+          if (this.voleSubscribed.has(pv)) return;
+          this.voleSubscribed.add(pv);
+          subscribeVoleBuffer([pv], { signal: controller.signal }).catch((subErr) => {
+            // Let a later 404 try again.
+            this.voleSubscribed.delete(pv);
+            if (controller.signal.aborted) return;
             console.warn('vole subscribe failed for', pv, subErr);
           });
           return;
@@ -456,10 +474,7 @@ export class LiveStore {
       });
   }
 
-  private mergeBackfill(
-    state: PVState,
-    samples: { tsNs: number; value: number | string | boolean | null; severity: AlarmSeverity }[]
-  ): void {
+  private mergeBackfill(state: PVState, samples: SampleDTO[]): void {
     const incoming: LivePoint[] = [];
     for (const s of samples) {
       if (typeof s.value !== 'number' || !Number.isFinite(s.value)) continue;
@@ -467,18 +482,40 @@ export class LiveStore {
     }
     if (incoming.length === 0) return;
 
-    const merged = mergeSorted(state.points, incoming);
-    if (merged.length === state.points.length) return;
-    state.points = merged;
+    // Merge only the tail that overlaps the backfill, not the whole buffer.
+    const points = state.points;
+    const start = lowerBound(points, incoming[0].time);
+    const merged = mergeSorted(points.slice(start), incoming);
+    if (merged.length === points.length - start) return;
+    points.length = start;
+    for (const p of merged) points.push(p);
     state.rev++;
     this.trim(state);
     this.markDirty();
   }
 }
 
-// Merge two time-sorted point lists. On an exact timestamp tie the existing
-// (live) sample wins. Handles both orderings of a reconnect: Hare's `initial`
-// frame landing before the Vole response, or after it.
+// Longest retention requested by any trace on this PV.
+function maxRetention(state: PVState): number {
+  let max = 0;
+  for (const r of state.refs.values()) if (r > max) max = r;
+  return max;
+}
+
+// Index of the first point at or after `time`. `points` is time-sorted.
+function lowerBound(points: readonly LivePoint[], time: number): number {
+  let lo = 0;
+  let hi = points.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (points[mid].time < time) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+// Merge two time-sorted point lists, keeping a sample in both (same time and
+// value) once. Handles Hare's `initial` landing before or after the backfill.
 export function mergeSorted(
   existing: readonly LivePoint[],
   incoming: readonly LivePoint[]
@@ -498,7 +535,7 @@ export function mergeSorted(
     } else {
       out.push(a);
       i++;
-      j++;
+      if (a.value === b.value) j++;
     }
   }
   while (i < existing.length) out.push(existing[i++]);

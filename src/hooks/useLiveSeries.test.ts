@@ -92,6 +92,24 @@ describe('useLiveSeries', () => {
     expect(result.current.get('a')!.points).toHaveLength(1);
 
     unmount();
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
     expect(ws.readyState).toBe(MockWebSocket.CLOSED);
+  });
+
+  it('keeps the socket and buffers through a StrictMode remount', async () => {
+    const { result } = renderHook(() => useLiveSeries([liveTrace('a', 'PV:A')]), {
+      reactStrictMode: true,
+    });
+    const ws = MockWebSocket.instances[0];
+    await act(async () => {
+      ws.open();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(ws.readyState).toBe(MockWebSocket.OPEN);
+    expect(result.current.get('a')!.status).toBe('connected');
   });
 });

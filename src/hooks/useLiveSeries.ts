@@ -27,6 +27,9 @@ const IDLE_RESULT: LiveSeriesResult = {
 
 const EMPTY_SERIES = new Map<string, LiveSeriesResult>();
 
+// Pending unmount release; module-scoped so any remount can cancel it.
+let releaseTimer: ReturnType<typeof setTimeout> | null = null;
+
 // Cache the per-entry result keyed by the source LiveEntry. The store hands
 // back a stable LiveEntry reference when a PV is unchanged, so mapping it to a
 // memoized LiveSeriesResult keeps that stability through to PlotArea /
@@ -78,12 +81,17 @@ export function useLiveSeries(traces: PVTrace[]): Map<string, LiveSeriesResult> 
   // Release everything on unmount only. A cleanup on the effect above would
   // also run on every signature change, dropping all buffers and recycling the
   // socket whenever any trace is edited. This hook is the store's only caller.
-  useEffect(
-    () => () => {
-      for (const id of liveStore.getSnapshot().keys()) liveStore.release(id);
-    },
-    []
-  );
+  // Deferred a tick so a StrictMode remount cancels it and keeps the socket.
+  useEffect(() => {
+    if (releaseTimer) clearTimeout(releaseTimer);
+    releaseTimer = null;
+    return () => {
+      releaseTimer = setTimeout(() => {
+        releaseTimer = null;
+        for (const id of liveStore.getSnapshot().keys()) liveStore.release(id);
+      }, 0);
+    };
+  }, []);
 
   const snapshot = useSyncExternalStore(liveStore.subscribe, liveStore.getSnapshot);
 
