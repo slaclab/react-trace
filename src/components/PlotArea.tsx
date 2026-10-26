@@ -667,7 +667,9 @@ export function SinglePlot({
       type: 'time',
       min: xAxisMin,
       max: xAxisMax,
-      axisLabel: { color: theme.axisLabel, fontSize: plot.tickFontSize },
+      // ECharts keeps its time-tick spacing however narrow the chart is (e.g.
+      // grid cells), so drop labels that would overlap rather than run together.
+      axisLabel: { color: theme.axisLabel, fontSize: plot.tickFontSize, hideOverlap: true },
       axisLine: { lineStyle: { color: theme.axisLine } },
       splitLine: {
         show: plot.showXGridlines,
@@ -1008,7 +1010,7 @@ export function PlotArea({
               </div>
             ))}
           {viewMode === 'grid' && (
-            <span style={{ fontSize: 12, color: '#c6c6c6', padding: '0 8px' }}>
+            <span style={{ fontSize: 12, color: 'var(--cds-text-secondary)', padding: '0 8px' }}>
               Grid View ({plots.length} plots)
             </span>
           )}

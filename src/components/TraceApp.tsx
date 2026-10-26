@@ -40,7 +40,7 @@ import { useElogConfig } from '../hooks/useElogConfig';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 const BUG_REPORT_URL = 'https://forms.office.com/r/qV7BmK2xi9';
-const DOCS_URL = 'https://github.com/slaclab/react-trace#readme';
+const DOCS_URL = 'https://fuzzy-adventure-4qvly8m.pages.github.io/';
 
 function generateMockData(
   points: number,
@@ -103,6 +103,9 @@ export function TraceApp() {
   // Plots detached into their own browser windows. Their charts render there
   // via a portal; the main window shows a reattach placeholder in their place.
   const [detachedPlotIds, setDetachedPlotIds] = useState<string[]>([]);
+  // What the browser last refused to open as a pop-up (a plot title or "Data
+  // Insight"), shown in a toast. DetachedWindow reattaches it on its own.
+  const [blockedPopup, setBlockedPopup] = useState<string | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   // Data Insight Tool: a dockable panel that can be minimized or popped out into
@@ -321,6 +324,10 @@ export function TraceApp() {
     ]);
     clock.resync([id]);
     setActivePlotId(id);
+    // Select the new plot's settings too: Properties resolves a trace/axis
+    // selection only within the active plot, so a stale one from the previous
+    // plot would leave it empty.
+    setSelectedItem({ type: 'plot', id, plotId: id });
   };
 
   const removePlot = (plotId: string) => {
@@ -343,6 +350,21 @@ export function TraceApp() {
   const reattachPlot = (plotId: string) => {
     setDetachedPlotIds((prev) => prev.filter((id) => id !== plotId));
   };
+
+  // Escape closes the fullscreen overlay. The listener is on window, which a
+  // keydown reaches after document: a Carbon modal opened on top (e.g. Post to
+  // E-Log) handles Escape on document and calls preventDefault, so that
+  // keypress closes only the modal.
+  useEffect(() => {
+    if (!poppedOutPlot) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.preventDefault();
+      setPoppedOutPlot(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [poppedOutPlot]);
 
   const clearViewWindow = (plotId: string) => {
     setViewWindowByPlot((prev) => {
@@ -513,6 +535,15 @@ export function TraceApp() {
     );
   };
 
+  // Workspace replacement invalidates every in-flight units lookup: trace and axis
+  // ids collide across workspaces, so a late answer would retarget an incoming trace.
+  const abortUnitLookups = useCallback(() => {
+    for (const c of unitFetchAbortRef.current.values()) c.abort();
+    unitFetchAbortRef.current.clear();
+  }, []);
+  // Unmounting abandons them too.
+  useEffect(() => abortUnitLookups, [abortUnitLookups]);
+
   // When a PV is chosen for a trace, look up its engineering units and move the
   // trace to the axis representing those units, creating one if none exists.
   // This is a best-effort default the user can override with the axis dropdown
@@ -549,10 +580,10 @@ export function TraceApp() {
     setPlots((prev) =>
       prev.map((p) => {
         if (p.id !== plotId) return p;
-        // The user moved the trace to a different axis while we were fetching;
-        // respect that manual choice and skip the auto-assign entirely.
+        // The user moved the trace to a different axis (or gave it another PV)
+        // while we were fetching; respect that and skip the auto-assign entirely.
         const current = p.traces.find((t) => t.id === traceId);
-        if (!current || current.axisId !== axisIdAtFetch) return p;
+        if (!current || current.axisId !== axisIdAtFetch || current.pvName !== pvName) return p;
         const norm = (s: string | undefined) => (s ?? '').trim().toLowerCase();
         // Match an axis by recorded units, or by name as a fallback for axes
         // that predate unit tracking. The name fallback matches the unit only
@@ -689,11 +720,8 @@ export function TraceApp() {
 
   const handleSave = () => {
     const json = serializeWorkspace({ theme: colorMode, plots });
-    const stamp = new Date()
-      .toISOString()
-      .replace(/[:.]/g, '-')
-      .replace(/T.*/, (m) => m.replace(/^T/, '_').slice(0, 7));
-    downloadBlob(`trace-${stamp}.trc.json`, 'application/json', json);
+    // Same local-time YYYYMMDD_HHMMSS stamp as the PNG export.
+    downloadBlob(`trace-${timestamp()}.trc.json`, 'application/json', json);
   };
 
   const handleImport = async () => {
@@ -712,6 +740,7 @@ export function TraceApp() {
       alert(`Failed to import: ${(err as Error).message}`);
       return;
     }
+    abortUnitLookups();
     setPlots(result.plots);
     clock.resync(result.plots.map((p) => p.id));
     if (result.plots.length > 0) setActivePlotId(result.plots[0].id);
@@ -1140,6 +1169,28 @@ export function TraceApp() {
           );
         })()}
 
+      {/* Notice for a detach the browser blocked (DetachedWindow onBlocked). */}
+      {blockedPopup &&
+        createPortal(
+          <div
+            style={{ position: 'fixed', top: 56, right: 16, zIndex: 9999 }}
+            role="status"
+            aria-live="polite"
+          >
+            <ToastNotification
+              kind="warning"
+              title="Pop-up blocked"
+              subtitle={`${blockedPopup} couldn't open in a new window. Allow pop-ups for this site in your browser, then try again.`}
+              timeout={0}
+              onClose={() => {
+                setBlockedPopup(null);
+                return true;
+              }}
+            />
+          </div>,
+          document.body
+        )}
+
       {/* Detached plots — each renders into its own browser window via portal. */}
       {detachedPlotIds.map((id) => {
         const plot = plots.find((p) => p.id === id);
@@ -1149,6 +1200,7 @@ export function TraceApp() {
             key={id}
             name={`trace-plot-${id}`}
             title={`${plot.title} — Trace`}
+            onBlocked={() => setBlockedPopup(plot.title || 'This plot')}
             onClose={() => reattachPlot(id)}
           >
             <Theme
@@ -1222,6 +1274,7 @@ export function TraceApp() {
           title="Data Insight Tool"
           width={720}
           height={560}
+          onBlocked={() => setBlockedPopup('Data Insight')}
           onClose={() => setInsight((p) => ({ ...p, detached: false }))}
         >
           <Theme

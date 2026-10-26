@@ -16,6 +16,7 @@ import {
   ComboBox,
   Slider,
 } from '@carbon/react';
+import type { SliderProps } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
 import { traceLabel } from '../traceLabel';
 import {
@@ -336,10 +337,11 @@ function FormulaGeneralTab({
       <div className="prop-section">
         <div className="prop-section__title">Formula</div>
         <p style={{ fontSize: 11, color: 'var(--cds-text-helper)', marginBottom: 8 }}>
-          Combine curves with <code style={{ color: '#78a9ff' }}>{'{x1}'}</code>-style variables,
-          e.g. <code style={{ color: '#78a9ff' }}>{'{x1} + {x2}'}</code>. Supports arithmetic and
-          math functions (<code>mean</code>, <code>ln</code>, <code>abs</code>, <code>sqrt</code>,
-          …).
+          Combine curves with <code style={{ color: 'var(--cds-link-primary)' }}>{'{x1}'}</code>
+          -style variables, e.g.{' '}
+          <code style={{ color: 'var(--cds-link-primary)' }}>{'{x1} + {x2}'}</code>. Supports
+          arithmetic and math functions (<code>mean</code>, <code>ln</code>, <code>abs</code>,{' '}
+          <code>sqrt</code>, …).
         </p>
         <textarea
           className="prop-code-area"
@@ -368,8 +370,8 @@ function FormulaGeneralTab({
         <div className="prop-section__title">Variables</div>
         {vars.length === 0 ? (
           <p style={{ fontSize: 11, color: 'var(--cds-text-helper)' }}>
-            Add a <code style={{ color: '#78a9ff' }}>{'{var}'}</code> to the formula to bind it to a
-            curve.
+            Add a <code style={{ color: 'var(--cds-link-primary)' }}>{'{var}'}</code> to the formula
+            to bind it to a curve.
           </p>
         ) : bindableTraces.length === 0 ? (
           <p style={{ fontSize: 11, color: 'var(--cds-text-helper)' }}>
@@ -1304,6 +1306,55 @@ function AxisCodeTab({ axis }: { axis: Axis }) {
 
 // ── Plot tabs ─────────────────────────────────────────────────────────────────
 
+/**
+ * A Carbon Slider whose `value` comes from the store that its onChange writes.
+ *
+ * Carbon's Slider copies `value` into its own state in one effect and reports
+ * that state through onChange in another. Passing each store update straight
+ * back as `value` can loop: when a keypress renders in the same batch as the
+ * store update for the previous key, Carbon reports the keypress while also
+ * resetting itself to the older store value, then reports that value while
+ * resetting to the newer one, and so on, swapping two steps forever.
+ *
+ * So `value` only reaches Carbon when it changes from outside (another plot,
+ * a loaded file): that remounts the slider at the new value. When the store
+ * just catches up with what the slider reported, Carbon's `value` stays put.
+ * This relies on onChange writing the store in the same update; a deferred
+ * write (a transition, a debounce) would look like an outside change.
+ *
+ * Single handle only.
+ */
+function StoreSlider({
+  value,
+  min,
+  max,
+  onChange,
+  ...props
+}: Omit<SliderProps, 'unstable_valueUpper'>) {
+  // `seed` is what Carbon was mounted with; `seen` is the latest value either
+  // the store or the slider has reported. Carbon also resets itself to its
+  // `value` prop when min or max change, so those remount it too, at the
+  // current value rather than the stale seed.
+  const [held, setHeld] = useState({ seed: value, seen: value, min, max, key: 0 });
+  // Object.is so a NaN from a malformed workspace file doesn't reseed forever.
+  if (!Object.is(value, held.seen) || min !== held.min || max !== held.max) {
+    setHeld({ seed: value, seen: value, min, max, key: held.key + 1 });
+  }
+  return (
+    <Slider
+      key={held.key}
+      {...props}
+      min={min}
+      max={max}
+      value={held.seed}
+      onChange={(data) => {
+        setHeld((prev) => ({ ...prev, seen: data.value }));
+        onChange?.(data);
+      }}
+    />
+  );
+}
+
 function PlotGeneralTab({
   plot,
   nowMs,
@@ -1353,6 +1404,7 @@ function PlotGeneralTab({
   // its own option, or the native Select would mislead by showing the first item.
   const PRESETS = ['-1h', '-4h', '-1d', '-2d', '-1w', '-1M', 'custom'];
   const isPresetRange = PRESETS.includes(plot.xAxis.timeRange);
+  const gridOpacityPct = Math.round(plot.gridOpacity * 100);
   return (
     <div>
       <div className="prop-section">
@@ -1450,13 +1502,16 @@ function PlotGeneralTab({
           </Select>
         </div>
         <div className="prop-row">
-          <Slider
+          {/* No number input: it doesn't fit beside the track at the default
+              panel width, so the value goes in the label instead. */}
+          <StoreSlider
             id="grid-opacity"
-            labelText="Gridline Opacity"
+            labelText={`Gridline Opacity (${gridOpacityPct}%)`}
+            hideTextInput
             min={0}
             max={100}
             step={5}
-            value={Math.round(plot.gridOpacity * 100)}
+            value={gridOpacityPct}
             onChange={({ value }) => onUpdate({ gridOpacity: value / 100 })}
           />
         </div>
