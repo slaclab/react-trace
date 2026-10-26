@@ -328,10 +328,11 @@ function FormulaGeneralTab({
       <div className="prop-section">
         <div className="prop-section__title">Formula</div>
         <p style={{ fontSize: 11, color: 'var(--cds-text-helper)', marginBottom: 8 }}>
-          Combine curves with <code style={{ color: '#78a9ff' }}>{'{x1}'}</code>-style variables,
-          e.g. <code style={{ color: '#78a9ff' }}>{'{x1} + {x2}'}</code>. Supports arithmetic and
-          math functions (<code>mean</code>, <code>ln</code>, <code>abs</code>, <code>sqrt</code>,
-          …).
+          Combine curves with <code style={{ color: 'var(--cds-link-primary)' }}>{'{x1}'}</code>
+          -style variables, e.g.{' '}
+          <code style={{ color: 'var(--cds-link-primary)' }}>{'{x1} + {x2}'}</code>. Supports
+          arithmetic and math functions (<code>mean</code>, <code>ln</code>, <code>abs</code>,{' '}
+          <code>sqrt</code>, …).
         </p>
         <textarea
           className="prop-code-area"
@@ -360,8 +361,8 @@ function FormulaGeneralTab({
         <div className="prop-section__title">Variables</div>
         {vars.length === 0 ? (
           <p style={{ fontSize: 11, color: 'var(--cds-text-helper)' }}>
-            Add a <code style={{ color: '#78a9ff' }}>{'{var}'}</code> to the formula to bind it to a
-            curve.
+            Add a <code style={{ color: 'var(--cds-link-primary)' }}>{'{var}'}</code> to the formula
+            to bind it to a curve.
           </p>
         ) : bindableTraces.length === 0 ? (
           <p style={{ fontSize: 11, color: 'var(--cds-text-helper)' }}>
