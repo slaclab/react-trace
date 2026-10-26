@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import {
+  axisEndMs,
   followingEndMs,
   isFollowing,
   liveEdgeMs,
@@ -106,6 +107,13 @@ describe('liveEdgeMs / followingEndMs', () => {
     expect(followingEndMs(plot, T0, live([['a', T0 - 500]]))).toBe(T0);
     expect(followingEndMs(plot, T0, live([['a', T0 + 1500]]))).toBe(T0 + 1500);
     expect(followingEndMs(plot, T0, live([['a', T0 + 60_000]]))).toBe(T0 + 2000);
+  });
+
+  it('axisEndMs: a following plot ends at the live edge, a frozen one at its anchor', () => {
+    const plot = makePlot('p', { traces: [trace('a')], refreshIntervalS: 5 });
+    const ahead = live([['a', T0 + 1500]]);
+    expect(axisEndMs(plot, T0, true, ahead)).toBe(T0 + 1500);
+    expect(axisEndMs(plot, T0, false, ahead)).toBe(T0);
   });
 });
 

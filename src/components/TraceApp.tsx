@@ -19,7 +19,7 @@ import { Toolbar } from './Toolbar';
 import { useArchiveSeries, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { useLiveSeries, type LiveSeriesResult } from '../hooks/useLiveSeries';
 import { archiveStore } from '../state/archiveStore';
-import { followingEndMs, isFollowing, useAutoScrollTimers } from '../hooks/useAutoScrollTimers';
+import { axisEndMs, isFollowing, useAutoScrollTimers } from '../hooks/useAutoScrollTimers';
 import { useFormulaSeries, type FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
 import { resolveTimeWindow } from '../api/time';
@@ -150,10 +150,10 @@ export function TraceApp() {
 
   // Each plot's fetch window: a pan/zoom view window takes precedence,
   // otherwise the plot's time range resolved at its anchor. It feeds the
-  // archive, formula and Data Insight queries; the chart gets the anchor and
-  // resolves the full requested range itself (a view window is a sub-zoom of
-  // that range, not the axis extent). Each trace takes its plot's fetch
-  // window: the time range is plot-level — traces don't carry their own.
+  // archive, formula and Data Insight queries; the chart gets the axis end (see
+  // axisEndFor) and resolves the full requested range itself (a view window is
+  // a sub-zoom of that range, not the axis extent). Each trace takes its plot's
+  // fetch window: the time range is plot-level — traces don't carry their own.
   const fetchWindowByPlot = new Map<string, TimeWindowNs>();
   const windowByTrace = new Map<string, TimeWindowNs>();
   // Each trace inherits its plot's default archiver unless it sets its own.
@@ -226,21 +226,23 @@ export function TraceApp() {
     };
   }, [plots, archiveResults, liveResults, formulaResults]);
 
-  // A pan/zoom started on a following plot: freeze it where its axis ends
-  // (SinglePlot reports that instant) before the view window is debounced in.
-  const handleFollowStop = (plotId: string, atMs: number) => {
-    clock.resync([plotId], atMs);
-    setPlots((prev) => prev.map((p) => (p.id === plotId ? { ...p, autoScroll: false } : p)));
+  // Where each plot's time axis ends (see axisEndMs). The chart draws to this,
+  // and stopping Autoscroll or a pan freezes the plot here, so both agree.
+  const axisEndFor = (plotId: string): number => {
+    const plot = plots.find((p) => p.id === plotId);
+    const anchorMs = clock.nowFor(plotId);
+    if (!plot) return anchorMs;
+    const live = liveResultsByPlot.get(plotId) ?? new Map<string, LiveSeriesResult>();
+    return axisEndMs(plot, anchorMs, isFollowing(plot, viewWindowByPlot), live);
   };
 
   // When a following plot stops following, pin its anchor where its axis ends
-  // right now (it may be ahead of the anchor; see followingEndMs) so freezing
+  // right now (it may be ahead of the anchor; see axisEndMs) so freezing
   // doesn't pull the axis back.
   const freezeAtDisplayedEnd = (plotId: string) => {
     const plot = plots.find((p) => p.id === plotId);
     if (!plot || !isFollowing(plot, viewWindowByPlot)) return;
-    const live = liveResultsByPlot.get(plotId) ?? new Map<string, LiveSeriesResult>();
-    clock.resync([plotId], followingEndMs(plot, clock.nowFor(plotId), live));
+    clock.resync([plotId], axisEndFor(plotId));
   };
 
   // Selecting an item also focuses its plot, so RightPanel / Data Insight (which
@@ -370,6 +372,10 @@ export function TraceApp() {
       clock.resync([plotId]);
     }
   };
+
+  // A pan/zoom started on a following plot: stop following the same way the
+  // Autoscroll toggle does, before the view window is debounced in.
+  const handleFollowStop = (plotId: string) => updatePlot(plotId, { autoScroll: false });
 
   // ── Trace operations ─────────────────────────────────────────────────────────
 
@@ -970,7 +976,7 @@ export function TraceApp() {
                   onViewWindowChange={handleViewWindowChange}
                   onFollowStop={handleFollowStop}
                   viewWindowByPlot={viewWindowByPlot}
-                  nowFor={clock.nowFor}
+                  axisEndFor={axisEndFor}
                   onAxisRangesChange={handleAxisRangesChange}
                   onUpdateAxis={updateAxisInPlot}
                   onChartInstance={handleChartInstance}
@@ -1115,9 +1121,9 @@ export function TraceApp() {
                 <div style={{ flex: 1, overflow: 'hidden' }}>
                   <SinglePlot
                     plot={plot}
-                    nowMs={clock.nowFor(plot.id)}
+                    endMs={axisEndFor(plot.id)}
                     following={isFollowing(plot, viewWindowByPlot)}
-                    onFollowStop={(at) => handleFollowStop(plot.id, at)}
+                    onFollowStop={() => handleFollowStop(plot.id)}
                     fullscreen
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
                     liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
@@ -1191,9 +1197,9 @@ export function TraceApp() {
               <div style={{ flex: 1, minHeight: 0 }}>
                 <SinglePlot
                   plot={plot}
-                  nowMs={clock.nowFor(plot.id)}
+                  endMs={axisEndFor(plot.id)}
                   following={isFollowing(plot, viewWindowByPlot)}
-                  onFollowStop={(at) => handleFollowStop(plot.id, at)}
+                  onFollowStop={() => handleFollowStop(plot.id)}
                   archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
                   liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
                   formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}

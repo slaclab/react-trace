@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 //
 // Pins where SinglePlot's time axis comes from (issue 95). The extent must
-// derive from the `nowMs` clock prop, never the wall clock read during render:
-// before the fix every live batch re-render moved the axis to the current time,
-// even with Autoscroll off.
+// derive from the plot's clock (passed in as `endMs`, see axisEndMs), never the
+// wall clock read during render: before the fix every live batch re-render
+// moved the axis to the current time, even with Autoscroll off.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { SinglePlot } from './PlotArea';
+import { axisEndMs } from '../hooks/useAutoScrollTimers';
 import type { Plot } from '../types';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 
@@ -114,17 +115,19 @@ function liveBatch(latestMs: number): Map<string, LiveSeriesResult> {
   ]);
 }
 
+// Mounts the plot the way TraceApp does: the axis end is worked out from the
+// clock and live data by axisEndMs and passed in.
 function plotEl(
   plot: Plot,
   nowMs: number,
   live: Map<string, LiveSeriesResult>,
   following = plot.autoScroll !== false,
-  onFollowStop?: (atMs: number) => void
+  onFollowStop?: () => void
 ) {
   return (
     <SinglePlot
       plot={plot}
-      nowMs={nowMs}
+      endMs={axisEndMs(plot, nowMs, following, live)}
       following={following}
       onFollowStop={onFollowStop}
       archiveResults={new Map()}
@@ -260,14 +263,13 @@ describe('SinglePlot zoom reset', () => {
 describe('SinglePlot pan while following', () => {
   beforeEach(() => fakeInstance.dispatchAction.mockClear());
 
-  it('reports the end the axis shows on the first genuine pan', () => {
+  it('stops following on the first genuine pan', () => {
     const onFollowStop = vi.fn();
     const plot = makePlot({ refreshIntervalS: 5 });
     const { unmount } = render(plotEl(plot, T0, liveBatch(T0 + 2000), true, onFollowStop));
     captured.onEvents.datazoom();
+    // The app freezes the plot at the end it passed in.
     expect(onFollowStop).toHaveBeenCalledTimes(1);
-    // The live edge, not the clock: freezing there doesn't pull the axis back.
-    expect(onFollowStop).toHaveBeenCalledWith(T0 + 2000);
     unmount();
   });
 

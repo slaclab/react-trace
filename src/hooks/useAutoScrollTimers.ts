@@ -51,6 +51,19 @@ export function followingEndMs(
   return Math.min(Math.max(anchorMs, liveEdgeMs(plot, liveResults)), capMs);
 }
 
+// Where the plot's time axis ends: a frozen plot ends exactly at its anchor; a
+// following one keeps up with live samples between ticks (see followingEndMs).
+// The one place this is worked out, so the chart draws to the same instant
+// that stopping Autoscroll or a pan freezes the plot at.
+export function axisEndMs(
+  plot: Plot,
+  anchorMs: number,
+  following: boolean,
+  liveResults: Map<string, LiveSeriesResult>
+): number {
+  return following ? followingEndMs(plot, anchorMs, liveResults) : anchorMs;
+}
+
 interface ClockState {
   // Per-plot anchor ("now") in epoch ms.
   byPlot: ReadonlyMap<string, number>;
@@ -60,8 +73,9 @@ interface ClockState {
 }
 
 export interface PlotClock {
-  // The instant this plot's time range ends at ("now" for a relative range or a
-  // custom range with a blank To). Read this instead of the wall clock.
+  // The plot's anchor: "now" for its relative range or a custom range with a
+  // blank To. Read this instead of the wall clock. A following plot's axis may
+  // end a little past it (see axisEndMs).
   nowFor: (plotId: string) => number;
   // Set the given plots' anchors to `atMs` (default: the current time). Call it
   // from event handlers when a plot appears, resumes following, or freezes at a
