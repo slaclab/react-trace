@@ -181,6 +181,17 @@ describe('useAutoScrollTimers', () => {
     expect(result.current.nowFor('slow')).toBe(T0 + 5000);
   });
 
+  it('advances plots whose ids contain | or :', () => {
+    // Native imports keep plot ids exactly as saved.
+    const { result } = mount([
+      makePlot('a|b', { refreshIntervalS: 5 }),
+      makePlot('p:1', { refreshIntervalS: 5 }),
+    ]);
+    advance(5000);
+    expect(result.current.nowFor('a|b')).toBe(T0 + 5000);
+    expect(result.current.nowFor('p:1')).toBe(T0 + 5000);
+  });
+
   it('clamps the interval to the 1-60 s range', () => {
     const { result } = mount([makePlot('a', { refreshIntervalS: 0.1 })]);
     advance(999);

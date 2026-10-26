@@ -96,19 +96,18 @@ export function useAutoScrollTimers(
     });
   }, []);
 
-  // Following plots and their cadence in ms. The effect parses this string back
-  // so it re-subscribes only when the following set or an interval changes.
-  const signature = plots
-    .filter((p) => isFollowing(p, viewWindowByPlot))
-    .map((p) => `${p.id}:${clampInterval(p.refreshIntervalS) * 1000}`)
-    .join('|');
+  // Following plots and their cadence in ms, as `[id, ms]` pairs in JSON. The
+  // effect parses it back so it re-subscribes only when the following set or an
+  // interval changes. JSON keeps any plot id intact (imports keep ids as saved).
+  const signature = JSON.stringify(
+    plots
+      .filter((p) => isFollowing(p, viewWindowByPlot))
+      .map((p) => [p.id, clampInterval(p.refreshIntervalS) * 1000])
+  );
 
   useEffect(() => {
-    if (!signature) return;
-    const cadence = signature.split('|').map((entry) => {
-      const i = entry.lastIndexOf(':');
-      return [entry.slice(0, i), Number(entry.slice(i + 1))] as const;
-    });
+    const cadence = JSON.parse(signature) as [string, number][];
+    if (cadence.length === 0) return;
     const anchorOf = (state: ClockState, id: string) => state.byPlot.get(id) ?? state.lastWriteMs;
     let nextDue = Infinity;
     for (const [id, ms] of cadence) nextDue = Math.min(nextDue, anchorOf(clock, id) + ms);
