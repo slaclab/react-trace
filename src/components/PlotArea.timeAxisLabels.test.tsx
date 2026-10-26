@@ -63,6 +63,7 @@ describe('time axis labels', () => {
     render(
       <SinglePlot
         plot={makePlot()}
+        endMs={0}
         archiveResults={new Map()}
         liveResults={new Map()}
         formulaResults={new Map()}
