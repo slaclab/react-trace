@@ -298,6 +298,10 @@ export function TraceApp() {
       },
     ]);
     setActivePlotId(id);
+    // Select the new plot's settings too: Properties resolves a trace/axis
+    // selection only within the active plot, so a stale one from the previous
+    // plot would leave it empty.
+    setSelectedItem({ type: 'plot', id, plotId: id });
   };
 
   const removePlot = (plotId: string) => {
