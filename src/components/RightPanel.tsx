@@ -503,7 +503,10 @@ function TraceGeneralTab({
     archiveStatusLabel = 'Loading…';
     archiveStatusColor = 'var(--cds-link-primary)';
   } else if (archiveResult.status === 'error') {
-    archiveStatusLabel = archiveResult.error?.code ?? 'Error';
+    archiveStatusLabel =
+      archiveResult.error?.code === 'pv_not_found_in_archiver'
+        ? 'Not in archiver'
+        : (archiveResult.error?.code ?? 'Error');
     archiveStatusColor = 'var(--cds-text-error)';
   } else {
     archiveStatusLabel = `Loaded${archiveResult.mode === 'binned' ? ' (binned)' : ' (raw)'}${archiveResult.decimated ? ' · decimated' : ''}`;
