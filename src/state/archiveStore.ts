@@ -454,7 +454,9 @@ export class ArchiveStore {
    *   free render, no fetch. A window tracking "now" counts as covered until
    *   it's DRIFT_MIN_INTERVAL_MS (or 1% of the span, if longer) ahead.
    * - Window slid forward past the buffer (raw mode): fetch only the new tail
-   *   (plus TAIL_OVERLAP_MS) and splice it in, keeping status 'ready'. An
+   *   (plus TAIL_OVERLAP_MS) and splice it in, keeping status 'ready'. If that
+   *   would take the buffer past the raw point budget, the whole window is
+   *   fetched again instead and the archiver decimates it. An
    *   in-flight fetch isn't aborted for a forward slide; once it lands, the
    *   rest of the latest window is fetched.
    * - Last fetch failed for another reason: no fetch until its backoff expires.
@@ -637,14 +639,26 @@ export class ArchiveStore {
       const cur = this.entries.get(traceId);
       // Bail if the trace was released or superseded mid-flight.
       if (!cur || cur.controller !== controller) return;
-      cur.data = tail
+      // The archiver has this pair after all (e.g. archiving started since).
+      const forgot = this.notArchived.delete(key);
+      const data = tail
         ? spliceTail(cur.data, dto, tail, opts.window)
         : dtoToData(dto, resolvedMode, opts.window);
+      if (tail && data.mean.length > mode.maxPoints) {
+        // The tail would take the buffer past the raw point budget (the PV
+        // got busier since the last full fetch). Fetch the whole window
+        // instead, which the archiver decimates; the current buffer stays on
+        // screen meanwhile.
+        const full = new AbortController();
+        cur.controller = full;
+        if (forgot) this.publish();
+        void this.runFetch(traceId, opts, resolvedMode, mode, full, null);
+        return;
+      }
+      cur.data = data;
       cur.controller = null;
       cur.failure = null;
       cur.hasCover = true;
-      // The archiver has this pair after all (e.g. archiving started since).
-      this.notArchived.delete(key);
       this.publish();
       // The window may have moved on while this was in flight (a forward pan
       // doesn't abort it). One that then stays put gets no other request(),

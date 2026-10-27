@@ -545,6 +545,41 @@ describe('archiveStore: archived PV while the window tracks now', () => {
     });
   }
 
+  it('refetches the whole window when tails would pass the raw point budget', async () => {
+    // Quiet for the first fetch, then 200 Hz. Like the archiver, answer with at
+    // most maxPoints samples, flagged decimated when there were more.
+    const busyFromMs = T0_MS + 1_000;
+    const h = setup(async (_pv, params) => {
+      const first = Math.max(0, Math.ceil((params.fromNs / 1e6 - busyFromMs) / 5));
+      const last = Math.floor(((params.toNs ?? params.fromNs) / 1e6 - busyFromMs) / 5);
+      const stride = Math.max(1, Math.ceil((last - first + 1) / (params.maxPoints ?? Infinity)));
+      const samples = [];
+      for (let k = first; k <= last; k += stride) {
+        samples.push({
+          tsNs: (busyFromMs + 5 * k) * 1e6,
+          value: k,
+          severity: 'NO_ALARM' as const,
+          source: 'archive' as const,
+        });
+      }
+      return { ...secondsDto(params), decimated: stride > 1, samples };
+    });
+    let maxBuffered = 0;
+    h.store.subscribe(() => {
+      const n = h.store.getSnapshot().get('t1')?.mean.length ?? 0;
+      maxBuffered = Math.max(maxBuffered, n);
+    });
+
+    await drift(h, { spanS: 1200, stepMs: 200, steps: 450 });
+    const spans = h.fetchData.mock.calls.map((c) => spanOf(c[1]));
+    expect(spans[0]).toBe(1200);
+    // Tails while the buffer fits, then the whole window once it wouldn't.
+    expect(spans[1]).toBeLessThan(1200);
+    expect(spans.slice(2)).toContain(1200);
+    expect(maxBuffered).toBeLessThanOrEqual(8000);
+    expect(h.store.getSnapshot().get('t1')?.decimated).toBe(true);
+  });
+
   it('binned (1 h): full-window refetch only after 1% of the span', async () => {
     const h = setup(async (_pv, params) => ({
       mode: 'binned',
