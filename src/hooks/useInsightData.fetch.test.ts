@@ -104,6 +104,17 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 }
 
+// Let time pass in one-second steps without re-rendering: a fixed or panned
+// window, which nothing else moves.
+async function wait(seconds: number): Promise<void> {
+  for (let i = 0; i < seconds; i++) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    await act(settle);
+  }
+}
+
 function loadingAfterFirstSettled(statuses: InsightStatus[]): number {
   const first = statuses.findIndex((s) => s === 'ready' || s === 'error');
   return first < 0 ? 0 : statuses.slice(first).filter((s) => s === 'loading').length;
@@ -124,7 +135,7 @@ const META: PVMetadataDTO = {
 };
 
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
   vi.setSystemTime(T0_MS);
   dataMock.mockReset();
   metaMock.mockReset();
@@ -261,6 +272,41 @@ describe('useInsightData: other failures', () => {
     expect(h.result.current.refreshing).toBe(false);
     expect(loadingAfterFirstSettled(h.statuses)).toBe(0);
   });
+
+  const FIXED = windowAt(T0_MS - 3_600_000);
+
+  function failing(): number[] {
+    const times: number[] = [];
+    dataMock.mockImplementation(async () => {
+      times.push((Date.now() - T0_MS) / 1000);
+      throw new CanopyError('archiver_unavailable', 503, 'Appliance returned HTTP 503');
+    });
+    return times;
+  }
+
+  it('retries a fixed window when the backoff expires', async () => {
+    const times = failing();
+    const h = mount({ window: FIXED });
+    await act(settle);
+    await wait(20);
+
+    expect(times).toEqual([0, 1, 3, 7, 15]);
+    expect(h.result.current.status).toBe('error');
+    expect(loadingAfterFirstSettled(h.statuses)).toBe(0);
+  });
+
+  for (const stop of ['unmount', 'Archive off'] as const) {
+    it(`stops retrying on ${stop}`, async () => {
+      const times = failing();
+      const h = mount({ window: FIXED });
+      await act(settle);
+      if (stop === 'unmount') h.unmount();
+      else await h.update({ archive: false });
+      await wait(20);
+
+      expect(times).toEqual([0]);
+    });
+  }
 
   it('Refresh bypasses the backoff', async () => {
     dataMock.mockRejectedValue(new CanopyError('archiver_timeout', 504, 'timed out'));

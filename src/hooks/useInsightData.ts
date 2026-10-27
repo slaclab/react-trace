@@ -113,7 +113,8 @@ export function mergeLive(
  * (pv, archiver) the archive store already knows isn't archived (learned by the
  * plot or by an earlier query here); the rows are then the live samples alone.
  * Refresh asks again. Other failures retry on the archive store's backoff
- * schedule rather than every time the window crosses a second.
+ * schedule rather than every time the window crosses a second, and a window
+ * that doesn't move retries too.
  */
 export function useInsightData(
   pv: string | undefined,
@@ -130,6 +131,8 @@ export function useInsightData(
   const [decimated, setDecimated] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Bumped when a backoff expires, to retry a window that hasn't moved.
+  const [retryKey, setRetryKey] = useState(0);
   // PV whose archive rows are currently loaded, used to suppress the loading
   // flash on background refetches (see below).
   const loadedPvRef = useRef<string | undefined>(undefined);
@@ -201,9 +204,18 @@ export function useInsightData(
     const key = `${pv}\u0000${archiver ?? ''}`;
     if (backoffRef.current && backoffRef.current.key !== key) backoffRef.current = null;
     const backoff = backoffRef.current;
+    // Re-runs this effect when a backoff expires. Cleared with the effect, so
+    // a new selection, Archive off or unmount cancels it.
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const retryAt = (atMs: number) => {
+      retryTimer = setTimeout(() => setRetryKey((k) => k + 1), atMs - Date.now());
+    };
     // The last attempt failed: keep showing that error until the backoff
     // expires, however often the window crosses a second.
-    if (backoff && !forced && Date.now() < backoff.retryAtMs) return;
+    if (backoff && !forced && Date.now() < backoff.retryAtMs) {
+      retryAt(backoff.retryAtMs);
+      return () => clearTimeout(retryTimer);
+    }
 
     const controller = new AbortController();
     // Stale-while-revalidate: only flash the loading state on the first load for
@@ -259,15 +271,20 @@ export function useInsightData(
           return;
         }
         const attempts = (backoff?.attempts ?? 0) + 1;
-        backoffRef.current = { key, attempts, retryAtMs: Date.now() + retryDelayMs(attempts) };
+        const retryAtMs = Date.now() + retryDelayMs(attempts);
+        backoffRef.current = { key, attempts, retryAtMs };
+        retryAt(retryAtMs);
         setError(info.detail);
         setStatus('error');
         setRefreshing(false);
       }
     })();
 
-    return () => controller.abort();
-  }, [pv, archiver, fromSec, toSec, refreshKey, archiveEnabled, notArchived]);
+    return () => {
+      controller.abort();
+      clearTimeout(retryTimer);
+    };
+  }, [pv, archiver, fromSec, toSec, refreshKey, retryKey, archiveEnabled, notArchived]);
 
   // Read the trace's live buffer. Subscribing here only adds a store listener;
   // the actual PV watch/subscribe is owned by the app-level useLiveSeries, so a
