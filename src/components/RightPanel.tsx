@@ -37,6 +37,7 @@ import {
   MIN_REFRESH_S,
   MAX_REFRESH_S,
   clampInterval,
+  refreshIntervalMs,
 } from '../hooks/useAutoScrollTimers';
 import { ArchiverPicker } from './ArchiverPicker';
 import { usePVSearch } from '../hooks/usePVSearch';
@@ -1418,6 +1419,13 @@ function PlotGeneralTab({
     'custom',
   ];
   const isPresetRange = PRESETS.includes(plot.xAxis.timeRange);
+  // A short span caps the refresh interval (see refreshIntervalMs); say so,
+  // since the field still shows the interval the user set.
+  const refreshMs = refreshIntervalMs(plot);
+  const refreshCapped = refreshMs < clampInterval(plot.refreshIntervalS) * 1000;
+  const refreshHelp = refreshCapped
+    ? `Archive and formula data refresh every ${+(refreshMs / 1000).toFixed(1)} s at this span (at most a sixth of it), so the scrolling axis doesn't outrun them.`
+    : 'How often archive and formula data refresh. The axis scrolls continuously.';
   const gridOpacityPct = Math.round(plot.gridOpacity * 100);
   return (
     <div>
@@ -1652,7 +1660,7 @@ function PlotGeneralTab({
               <NumberInput
                 id="refresh-interval"
                 label="Refresh interval (s)"
-                helperText="How often archive and formula data refresh. The axis scrolls continuously."
+                helperText={refreshHelp}
                 min={MIN_REFRESH_S}
                 max={MAX_REFRESH_S}
                 step={1}

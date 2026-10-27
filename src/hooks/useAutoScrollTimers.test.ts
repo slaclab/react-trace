@@ -6,6 +6,7 @@ import {
   followingEndMs,
   isFollowing,
   liveEdgeMs,
+  refreshIntervalMs,
   useAutoScrollTimers,
 } from './useAutoScrollTimers';
 import type { LiveSeriesResult } from './useLiveSeries';
@@ -66,6 +67,32 @@ describe('isFollowing', () => {
   });
 });
 
+describe('refreshIntervalMs', () => {
+  const interval = (timeRange: string, refreshIntervalS?: number) =>
+    refreshIntervalMs(makePlot('p', { xAxis: { timeRange }, refreshIntervalS }));
+
+  it('is the clamped refresh interval on a span six or more times longer', () => {
+    expect(interval('-1h', 60)).toBe(60_000);
+    expect(interval('-1h')).toBe(5000);
+    expect(interval('-30s')).toBe(5000);
+    expect(interval('-6m', 60)).toBe(60_000);
+  });
+
+  it('is at most a sixth of a shorter span', () => {
+    expect(interval('-30s', 60)).toBe(5000);
+    expect(interval('-1m', 60)).toBe(10_000);
+    expect(interval('-45s', 10)).toBe(7500);
+  });
+
+  it('never drops under the 1 s minimum', () => {
+    expect(interval('-2s', 5)).toBe(1000);
+  });
+
+  it('leaves a custom range alone', () => {
+    expect(interval('custom', 60)).toBe(60_000);
+  });
+});
+
 describe('liveEdgeMs / followingEndMs', () => {
   const live = (pairs: [string, number][]) =>
     new Map<string, LiveSeriesResult>(
@@ -107,6 +134,15 @@ describe('liveEdgeMs / followingEndMs', () => {
     expect(followingEndMs(plot, T0, live([['a', T0 - 500]]))).toBe(T0);
     expect(followingEndMs(plot, T0, live([['a', T0 + 1500]]))).toBe(T0 + 1500);
     expect(followingEndMs(plot, T0, live([['a', T0 + 60_000]]))).toBe(T0 + 2000);
+  });
+
+  it('caps the lead at the interval a short span allows', () => {
+    const plot = makePlot('p', {
+      traces: [trace('a')],
+      xAxis: { timeRange: '-30s' },
+      refreshIntervalS: 60,
+    });
+    expect(followingEndMs(plot, T0, live([['a', T0 + 60_000]]))).toBe(T0 + 5000);
   });
 
   it('axisEndMs: a following plot ends at the live edge, a frozen one at its anchor', () => {
@@ -206,6 +242,18 @@ describe('useAutoScrollTimers', () => {
     expect(result.current.nowFor('a')).toBe(T0);
     advance(1);
     expect(result.current.nowFor('a')).toBe(T0 + 1000);
+  });
+
+  it('advances a short span at most every sixth of it, whatever the interval', () => {
+    // At -30s a 60 s interval would let the scrolling axis run past every
+    // archive and formula sample before the next refresh.
+    const { result } = mount([
+      makePlot('a', { xAxis: { timeRange: '-30s' }, refreshIntervalS: 60 }),
+    ]);
+    advance(4999);
+    expect(result.current.nowFor('a')).toBe(T0);
+    advance(1);
+    expect(result.current.nowFor('a')).toBe(T0 + 5000);
   });
 
   it('resync re-anchors a plot to now, or to a given instant', () => {
