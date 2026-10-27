@@ -364,18 +364,22 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
     expect(latest('f1')).toMatchObject({ status: 'ready', decimated: true });
   });
 
-  it('gives up on a hung evaluation after 30 s and retries it only for a new span', async () => {
+  it('gives up on a hung evaluation after 30 s, retries it twice, then only for a new span', async () => {
     // No auto reply: Fox never answers.
     const view = mount({ traces, windows: { f1: following(5 * MINUTE) }, renderEveryMs: 100 });
     await advance(30_000);
     expect(latest('f1')).toMatchObject({ status: 'error', error: { code: 'client_timeout' } });
-
-    await advance(60_000, 500);
     expect(callsFor('{x1}*2')).toHaveLength(1);
+
+    // Retried at 45 and 90 s; the third timeout, at 120 s, ends it for this span.
+    await advance(30_000, 500);
+    expect(callsFor('{x1}*2')).toHaveLength(2);
+    await advance(120_000, 500);
+    expect(callsFor('{x1}*2')).toHaveLength(3);
 
     view.rerender({ traces, windows: { f1: following(10 * MINUTE) }, renderEveryMs: 100 });
     await advance(100);
-    expect(callsFor('{x1}*2')).toHaveLength(2);
+    expect(callsFor('{x1}*2')).toHaveLength(4);
   });
 
   it('with a tick-anchored clock, evaluates an hour about every 40 s and 5 minutes every tick', async () => {

@@ -4,6 +4,7 @@ import type { FormulaResultDTO, FormulaSpecDTO } from '../api/types';
 import {
   EVAL_TIMEOUT_MS,
   FormulaStore,
+  MAX_CLIENT_TIMEOUTS,
   NEAR_NOW_SLACK_MS,
   isTerminalError,
   type EvaluateFn,
@@ -526,8 +527,8 @@ describe('FormulaStore failures', () => {
     expect(isTerminalError(err(status, code))).toBe(terminal);
   });
 
-  it('classifies a client timeout as terminal and an unknown failure as transient', () => {
-    expect(isTerminalError({ code: 'client_timeout', detail: '' })).toBe(true);
+  it('classifies a client timeout and an unknown failure as transient', () => {
+    expect(isTerminalError({ code: 'client_timeout', detail: '' })).toBe(false);
     expect(isTerminalError({ code: 'unknown_error', detail: 'Failed to fetch' })).toBe(false);
   });
 
@@ -607,7 +608,7 @@ describe('FormulaStore failures', () => {
     expect(fox.calls.map((c) => c.atMs)).toEqual([0, 0, 1_000, 3_000]);
   });
 
-  it('shows ready over a terminal failure for another window, and the failure again on its span', async () => {
+  it('shows ready over a failure for another window, and the failure again on its span', async () => {
     // A decimated hour, then a 10-minute zoom whose detail request times out.
     const { fox, store, entry } = setup((c) => {
       if (fox.calls.length === 1) c.resolve([1], true);
@@ -627,13 +628,15 @@ describe('FormulaStore failures', () => {
   });
 
   it('drops an in-flight request for another window when a terminal failure blocks the new one', async () => {
-    const { fox, store, entry } = setup();
+    const { fox, store, entry } = setup((c) => {
+      if (fox.calls.length === 1) c.reject(err(422, 'window_too_large'));
+    });
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
-    await vi.advanceTimersByTimeAsync(EVAL_TIMEOUT_MS);
+    await flush();
     store.request('f1', { spec: spec('{x1}*2'), window: win(0, 10 * MINUTE) });
     expect(fox.calls).toHaveLength(2);
 
-    // Back to a 1-hour span, the one that timed out.
+    // Back to a 1-hour span, the one that failed.
     store.request('f1', { spec: spec('{x1}*2'), window: win(3_600_000, 7_200_000) });
     expect(fox.calls[1].signal.aborted).toBe(true);
     fox.calls[1].resolve([9]);
@@ -642,7 +645,7 @@ describe('FormulaStore failures', () => {
     expect(entry('f1')).toMatchObject({
       status: 'error',
       points: [],
-      error: { code: 'client_timeout' },
+      error: { code: 'window_too_large' },
     });
   });
 
@@ -720,22 +723,67 @@ describe('FormulaStore client timeout', () => {
     });
   });
 
-  it("isn't retried on a timer or as the window drifts; a new span or spec retries", async () => {
-    const { fox, store } = setup();
+  it('retries at the last backoff step, and gives up on its span after MAX_CLIENT_TIMEOUTS', async () => {
+    const { fox, store, entry } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });
-    await vi.advanceTimersByTimeAsync(EVAL_TIMEOUT_MS);
-    expect(vi.getTimerCount()).toBe(0);
-
-    for (let s = 1; s <= 60; s++) {
+    for (let s = 1; s <= 180; s++) {
       await vi.advanceTimersByTimeAsync(1_000);
       store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });
     }
-    expect(fox.calls).toHaveLength(1);
+    // Each attempt times out after 30 s, and the next goes out 15 s later.
+    expect(fox.calls).toHaveLength(MAX_CLIENT_TIMEOUTS);
+    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 45_000, 90_000]);
+    expect(entry('f1')).toMatchObject({ status: 'error', error: { code: 'client_timeout' } });
+    expect(vi.getTimerCount()).toBe(0);
 
+    // A new span starts the count over.
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(10 * MINUTE) });
-    expect(fox.calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 45_000, 90_000, 180_000, 225_000]);
+
     store.request('f1', { spec: spec('{x1}*3'), window: lastSpan(10 * MINUTE) });
-    expect(fox.calls).toHaveLength(3);
+    expect(fox.calls).toHaveLength(6);
+  });
+
+  it('recovers a following window from a one-off hang', async () => {
+    // The first evaluation hangs; Fox answers the rest right away.
+    const { fox, store, entry } = setup((c) => {
+      if (fox.calls.length > 1) c.resolve([7]);
+    });
+    const render = () =>
+      store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(60 * MINUTE) });
+    render();
+    for (let s = 1; s <= 60; s++) {
+      await vi.advanceTimersByTimeAsync(1_000);
+      render();
+    }
+    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 45_000]);
+    expect(entry('f1')?.status).toBe('ready');
+    expect(entry('f1')?.error).toBeUndefined();
+
+    // Then it follows "now" as usual: re-evaluated once it drifts more than
+    // 36 s (1%) past the range evaluated at 45 s, which ends at 44 s.
+    for (let s = 61; s <= 110; s++) {
+      await vi.advanceTimersByTimeAsync(1_000);
+      render();
+    }
+    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 45_000, 81_000]);
+  });
+
+  it('keeps retrying at the last backoff step after a timeout, until a success', async () => {
+    // Hangs, fails twice with a 503, then answers; a later failure fails once.
+    const { fox, store } = setup((c) => {
+      const n = fox.calls.length;
+      if (n === 2 || n === 3 || n === 5) c.reject(err(503, 'buffer_at_capacity'));
+      else if (n !== 1) c.resolve();
+    });
+    store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 45_000, 60_000, 75_000]);
+
+    store.request('f1', { spec: spec('{x1}*2'), window: win(0, 7_200_000) });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 45_000, 60_000, 75_000, 75_000, 76_000]);
   });
 });
 

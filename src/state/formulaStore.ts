@@ -21,6 +21,7 @@ import type { FormulaResultDTO, FormulaSpecDTO } from '../api/types';
 //   work: it never cancels an evaluation the client has gone away from;
 // - a failure that will recur for the same input waits for a new spec or span;
 //   any other failure is retried on a backoff timer, not on every window move.
+//   A client timeout is retried too, but only a few times per span.
 //
 // `evaluate` is injected so the policy can be tested without the network, and
 // errors are duck-typed on `{ code, detail, status }` rather than tied to one
@@ -38,12 +39,15 @@ export const NEAR_NOW_SLACK_MS = 2_000;
 // liveStore's reconnect backoff.
 export const RETRY_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 15_000];
 
-// Client-side limit on one evaluation. A timeout is treated like a terminal
-// error: Fox keeps evaluating after the client gives up, so retrying the same
-// window on a timer would re-run the whole evaluation server-side every time
-// without ever showing a result. It's retried when the spec or the span changes.
+// Client-side limit on one evaluation. One hang may be a brief Fox overload, so
+// a timeout is retried, starting at the last backoff step. But Fox keeps
+// evaluating after the client gives up, so each timeout leaves a full
+// evaluation running server-side. After MAX_CLIENT_TIMEOUTS at one span (at
+// most that many abandoned evaluations per spec and span, about 45 s apart) it's
+// terminal for that span, and retried when the spec or the span changes.
 export const EVAL_TIMEOUT_MS = 30_000;
 export const CLIENT_TIMEOUT_CODE = 'client_timeout';
+export const MAX_CLIENT_TIMEOUTS = 3;
 
 export function retryDelayMs(attempts: number): number {
   return RETRY_DELAYS_MS[Math.min(Math.max(attempts, 1), RETRY_DELAYS_MS.length) - 1];
@@ -56,14 +60,14 @@ export interface FormulaErrorInfo {
 }
 
 // Failures the same spec over the same span would hit again: Fox's 400s
-// (parse, unsafe, circular reference), its 422s (type, dimension mismatch,
-// window too large, request validation) and a client timeout. 422
-// formula_input_missing is the exception, as in Fox's own live loop. On this
-// REST path it only comes from binned mode, which the client never requests;
-// the transient error an unbuffered PV actually produces is 404
-// pv_not_buffered. Everything else (5xx, 404, network) is transient.
+// (parse, unsafe, circular reference) and its 422s (type, dimension mismatch,
+// window too large, request validation). 422 formula_input_missing is the
+// exception, as in Fox's own live loop. On this REST path it only comes from
+// binned mode, which the client never requests; the transient error an
+// unbuffered PV actually produces is 404 pv_not_buffered. Everything else (5xx,
+// 404, network, a client timeout) is transient; see MAX_CLIENT_TIMEOUTS for
+// when timeouts stop being retried.
 export function isTerminalError(info: FormulaErrorInfo): boolean {
-  if (info.code === CLIENT_TIMEOUT_CODE) return true;
   return (info.status === 400 || info.status === 422) && info.code !== 'formula_input_missing';
 }
 
@@ -210,10 +214,13 @@ function forwardSlide(
 type Timer = ReturnType<typeof setTimeout>;
 
 interface Failure {
-  // isTerminalError(): wait for a new span (a new spec is a new entry).
+  // isTerminalError(), or MAX_CLIENT_TIMEOUTS reached: wait for a new span (a
+  // new spec is a new entry).
   terminal: boolean;
   // Consecutive transient failures; drives the backoff step.
   attempts: number;
+  // Client timeouts at this span since the last success.
+  timeouts: number;
   // Span of the request that failed.
   spanNs: number;
   info: FormulaErrorInfo;
@@ -435,10 +442,19 @@ export class FormulaStore {
 
   private fail(id: string, entry: Internal, info: FormulaErrorInfo, win: TimeWindowNs): void {
     this.finishRequest(entry);
-    const terminal = isTerminalError(info);
     const prev = entry.failure;
-    const attempts = !terminal && prev && !prev.terminal ? prev.attempts + 1 : 1;
-    entry.failure = { terminal, attempts, spanNs: spanOf(win), info };
+    const timedOut = info.code === CLIENT_TIMEOUT_CODE;
+    // Timeouts since the last success, counted per span. A request after a
+    // terminal failure is for a new span, so it starts over too.
+    const priorTimeouts =
+      prev && !prev.terminal && !spanChanged(prev.spanNs, win) ? prev.timeouts : 0;
+    const timeouts = priorTimeouts + (timedOut ? 1 : 0);
+    const terminal = isTerminalError(info) || timeouts >= MAX_CLIENT_TIMEOUTS;
+    let attempts = !terminal && prev && !prev.terminal ? prev.attempts + 1 : 1;
+    // A timeout already waited EVAL_TIMEOUT_MS on an overloaded Fox: retry it,
+    // and anything after it until a success, at the last backoff step.
+    if (timedOut) attempts = Math.max(attempts, RETRY_DELAYS_MS.length);
+    entry.failure = { terminal, attempts, timeouts, spanNs: spanOf(win), info };
     // Points survive only because the identity is unchanged: they are the
     // last good result for this same spec.
     entry.data = { ...entry.data, status: 'error', error: info };
