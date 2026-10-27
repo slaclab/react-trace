@@ -24,6 +24,15 @@ if each `@slaclab/canopy-*` package grants this repository read access under
 **Package settings → Manage Actions access**. See the
 [canopy-sdk-js install notes](https://github.com/slaclab/canopy-sdk-js#installing-consumers).
 
+The container image build gets the same token through swapps-ci-helpers'
+`npm-github-packages` input. It is a BuildKit secret named `npmrc` that `docker/Dockerfile`
+mounts as `/root/.npmrc` for the `pnpm install` step only, so it never lands in an image
+layer. To build the image locally, pass your user-level config:
+
+```bash
+docker build --secret id=npmrc,src=$HOME/.npmrc -f docker/Dockerfile .
+```
+
 ## Local dev
 
 ### 1. Run the Canopy backend
