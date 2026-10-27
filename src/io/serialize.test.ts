@@ -25,9 +25,7 @@ function trcWithFormula(curveDict: Record<string, string>): string {
 
 describe('deserializeWorkspace — legacy .trc formula import', () => {
   it('imports a formula curve and resolves bindings to base curves', () => {
-    const result = deserializeWorkspace(
-      trcWithFormula({ x1: 'TEST:SINE', x2: 'TEST:COUNTER' })
-    );
+    const result = deserializeWorkspace(trcWithFormula({ x1: 'TEST:SINE', x2: 'TEST:COUNTER' }));
     const traces = result.plots[0].traces;
     expect(traces).toHaveLength(3);
 
@@ -46,9 +44,7 @@ describe('deserializeWorkspace — legacy .trc formula import', () => {
   });
 
   it('warns and omits a binding when a variable references a PV not on the plot', () => {
-    const result = deserializeWorkspace(
-      trcWithFormula({ x1: 'TEST:SINE', x2: 'NOT:ON:PLOT' })
-    );
+    const result = deserializeWorkspace(trcWithFormula({ x1: 'TEST:SINE', x2: 'NOT:ON:PLOT' }));
     const traces = result.plots[0].traces;
     const formula = traces.find((t) => t.kind === 'formula')!;
     const a = traces.find((t) => t.pvName === 'TEST:SINE')!;

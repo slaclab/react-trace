@@ -110,6 +110,7 @@ function mount(
   const { unmount } = render(
     <SinglePlot
       plot={makePlot(traces, axes)}
+      endMs={TO_MS}
       archiveResults={archive}
       liveResults={live}
       formulaResults={new Map()}
@@ -120,6 +121,13 @@ function mount(
 }
 
 const seriesById = (opt: Option, id: string) => opt.series.find((s) => s.id === id);
+
+// Series data as [t, v] pairs. Lines without an INVALID sample and extension
+// lines are flat [t0, v0, t1, v1, ...] typed arrays.
+function pairs(data: unknown): unknown[] {
+  if (!(data instanceof Float64Array)) return data as unknown[];
+  return Array.from({ length: data.length / 2 }, (_, i) => [data[2 * i], data[2 * i + 1]]);
+}
 
 // Good samples at 10 s and 20 s, INVALID at 30 s and 35 s, good again from 40 s.
 const WITH_INVALID: Pt[] = [
@@ -201,14 +209,14 @@ describe('PlotArea: INVALID samples (#120)', () => {
     const clean = WITH_INVALID.filter(([, , sev]) => sev !== 'INVALID');
     const opt = mount([makeTrace()], new Map([['t1', rawResult(clean)]]));
     expect(seriesById(opt, 't1-invalid')).toBeUndefined();
-    expect(seriesById(opt, 't1')!.data).toEqual(clean.map(([s, v]) => [at(s), v]));
+    expect(pairs(seriesById(opt, 't1')!.data)).toEqual(clean.map(([s, v]) => [at(s), v]));
     expect(opt.xAxis.axisLabel.margin).toBe(8);
   });
 
   it('extension line: drawn from the last good sample, not across a trailing INVALID stretch', () => {
     const ok = mount([makeTrace()], new Map([['t1', rawResult(WITH_INVALID)]]));
     const ext = seriesById(ok, 't1-extension')!;
-    expect((ext.data as [number, number][])[0]).toEqual([at(50), 4]);
+    expect(pairs(ext.data)[0]).toEqual([at(50), 4]);
 
     const endsInvalid: Pt[] = [...WITH_INVALID, [55, 97, 'INVALID']];
     for (const lineType of ['direct', 'step'] as const) {

@@ -389,6 +389,32 @@ describe('archiveStore: other failures back off', () => {
     });
   });
 
+  it('drops the backoff once the window is back on the buffer', async () => {
+    const pastToMs = T0_MS - 3_600_000;
+    const covered = windowAt(pastToMs, 30);
+    const failing = windowAt(pastToMs + 600_000, 30);
+    const h = setup(async (_pv, params) => {
+      if (params.fromNs === failing.fromNs) throw unavailable();
+      return rawDto(params);
+    });
+    h.store.request('t1', { pv: PV, archiver: undefined, window: covered });
+    await flush();
+    h.store.request('t1', { pv: PV, archiver: undefined, window: failing });
+    await flush();
+    expect(h.store.getSnapshot().get('t1')?.status).toBe('error');
+    // Back on the buffer: shown as ready, and the 503 no longer applies.
+    h.store.request('t1', { pv: PV, archiver: undefined, window: covered });
+    await flush();
+    expect(h.store.getSnapshot().get('t1')?.status).toBe('ready');
+    // A new window inside the old backoff is fetched right away.
+    const fresh = windowAt(pastToMs - 600_000, 30);
+    h.store.request('t1', { pv: PV, archiver: undefined, window: fresh });
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+    expect(h.fetchData.mock.calls[2][1]).toMatchObject({ fromNs: fresh.fromNs, toNs: fresh.toNs });
+    expect(h.store.getSnapshot().get('t1')?.status).toBe('ready');
+  });
+
   it('drops a scheduled retry on release() and refetchAll()', async () => {
     const times: number[] = [];
     const h: Harness = setup(async () => {

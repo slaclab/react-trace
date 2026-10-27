@@ -521,6 +521,13 @@ export class ArchiveStore {
 
       const sameSig = fetchSigEqual(existing.fetchSig, fetchSig);
       if (sameSig && covers(existing, opts.window, this.now() * 1_000_000)) {
+        // Back on the buffer, so the transient failure is behind us: drop its
+        // backoff, or it would hold up the next uncovered window. A failed
+        // re-ask after a verdict stays, so the verdict isn't adopted over it.
+        if (failure && !failure.revalidating) {
+          this.clearRetry(existing);
+          existing.failure = null;
+        }
         if (existing.data.status !== 'ready') {
           existing.data = { ...existing.data, status: 'ready', error: undefined };
           this.publish();
