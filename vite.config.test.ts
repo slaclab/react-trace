@@ -37,4 +37,34 @@ describe('canopyProxyOptions', () => {
     expect(Object.keys(withElog)).toContain('^/elog(?=[/?#]|$)');
     expect(withElog['^/elog(?=[/?#]|$)'].target).toBe('http://elog.test');
   });
+
+  // The headers the /elog route sets on a same-origin request: its configure()
+  // registers a proxyReq handler, which drops cookies and injects the token.
+  function elogRequestHeaders(env: Record<string, string>): Record<string, string> {
+    const route = canopyDevProxy(canopyProxyOptions(env))['^/elog(?=[/?#]|$)'];
+    const handlers: Record<string, (proxyReq: unknown, req: unknown) => void> = {};
+    const proxy = {
+      on: (event: string, handler: (typeof handlers)[string]) => (handlers[event] = handler),
+    };
+    (route.configure as (proxy: unknown, options: unknown) => void)(proxy, route);
+    const set: Record<string, string> = {};
+    const proxyReq = {
+      removeHeader: () => {},
+      setHeader: (name: string, value: string) => (set[name] = value),
+    };
+    handlers.proxyReq(proxyReq, { headers: {} });
+    return set;
+  }
+
+  it('sends the e-log token in ELOG_TOKEN_HEADER when it is set', () => {
+    const env = { ...base, ELOG_BASE_URL: 'http://elog.test', ELOG_API_KEY: 't' };
+    expect(elogRequestHeaders({ ...env, ELOG_TOKEN_HEADER: 'x-custom-token' })).toEqual({
+      'x-custom-token': 't',
+    });
+    // Unset or empty (`ELOG_TOKEN_HEADER=` in .env) keeps the default header.
+    expect(elogRequestHeaders(env)).toEqual({ 'x-vouch-idp-accesstoken': 't' });
+    expect(elogRequestHeaders({ ...env, ELOG_TOKEN_HEADER: '' })).toEqual({
+      'x-vouch-idp-accesstoken': 't',
+    });
+  });
 });

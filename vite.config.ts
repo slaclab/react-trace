@@ -19,8 +19,13 @@ export function canopyProxyOptions(env: Record<string, string>): CanopyDevProxyO
     target: env.CANOPY_BASE_URL,
     apiKey: env.CANOPY_API_KEY,
     ...(basePath ? { basePath } : { modules: ['/mole', '/hare', '/fox'] }),
-    // Left out when ELOG_BASE_URL is unset, which hides e-log posting.
-    elog: { target: env.ELOG_BASE_URL, accessToken: env.ELOG_API_KEY },
+    // Left out when ELOG_BASE_URL is unset, which hides e-log posting. An
+    // empty ELOG_TOKEN_HEADER keeps the SDK's x-vouch-idp-accesstoken.
+    elog: {
+      target: env.ELOG_BASE_URL,
+      accessToken: env.ELOG_API_KEY,
+      accessTokenHeader: env.ELOG_TOKEN_HEADER,
+    },
   };
 }
 
