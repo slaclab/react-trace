@@ -279,6 +279,41 @@ describe('archiveStore: PV not in the archiver', () => {
     expect(h.store.getSnapshot().get('t1')?.status).toBe('ready');
     expect(h.store.getNotArchived(PV, undefined)).toBeUndefined();
   });
+
+  it('keeps retrying when the re-ask after a span change fails transiently', async () => {
+    let answer: 'notFound' | 'unavailable' = 'notFound';
+    const h = setup(async () => {
+      throw answer === 'notFound' ? notFound() : unavailable();
+    });
+    await drift(h, { spanS: 30, steps: 10 });
+    expect(h.fetchData).toHaveBeenCalledTimes(1);
+
+    // New range at 1 s: the re-ask gets a 503. That isn't an answer, so it
+    // backs off (2 s, 4 s) instead of falling back on the older verdict.
+    answer = 'unavailable';
+    await drift(h, { spanS: 3600, steps: 40 });
+    expect(h.fetchData).toHaveBeenCalledTimes(4);
+    expect(h.store.getSnapshot().get('t1')?.error?.code).toBe('archiver_unavailable');
+    // The shared verdict stands meanwhile, for other traces and the Data Insight Tool.
+    expect(h.store.getNotArchived(PV, undefined)).toBeDefined();
+
+    // The archiver answers at 8 s: sticky again.
+    answer = 'notFound';
+    await drift(h, { spanS: 3600, steps: 600 });
+    expect(h.fetchData).toHaveBeenCalledTimes(5);
+    expect(h.store.getSnapshot().get('t1')?.error?.code).toBe('pv_not_found_in_archiver');
+  });
+
+  it('adopts a verdict learned elsewhere over its own earlier 503', async () => {
+    const h = setup(async () => {
+      throw unavailable();
+    });
+    await drift(h, { spanS: 30, steps: 5 });
+    h.store.markNotArchived(PV, undefined, notFound());
+    await drift(h, { spanS: 30, steps: 600 });
+    expect(h.fetchData).toHaveBeenCalledTimes(1);
+    expect(h.store.getSnapshot().get('t1')?.error?.code).toBe('pv_not_found_in_archiver');
+  });
 });
 
 describe('archiveStore: other failures back off', () => {

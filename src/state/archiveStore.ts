@@ -129,6 +129,10 @@ interface Failure extends ArchiveErrorInfo {
   // Span of the request that failed. A different span (a new time range or a
   // zoom) retries a not-archived entry once.
   spanNs: number;
+  // Transient only: this failure came from asking again, after a span change,
+  // about a pair with a not-archived verdict. It's newer than the verdict, so
+  // the entry keeps retrying instead of adopting it.
+  revalidating: boolean;
 }
 
 interface InternalEntry {
@@ -279,6 +283,7 @@ function notArchivedFailure(info: ArchiveErrorInfo, spanNs: number): Failure {
     attempts: 0,
     retryAtMs: 0,
     spanNs,
+    revalidating: false,
   };
 }
 
@@ -449,7 +454,9 @@ export class ArchiveStore {
    *   to keep showing.
    * - The archiver doesn't have this (pv, archiver): no fetch, whatever the
    *   window does. Asked again once when the span changes (a new time range or
-   *   a zoom), or after `refetchAll()` / `forgetNotArchived()`.
+   *   a zoom), or after `refetchAll()` / `forgetNotArchived()`. If asking
+   *   again fails some other way (a 503, a timeout), it backs off and retries
+   *   until the archiver answers.
    * - Same identity, same fetch signature, buffer already covers the window:
    *   free render, no fetch. A window tracking "now" counts as covered until
    *   it's DRIFT_MIN_INTERVAL_MS (or 1% of the span, if longer) ahead.
@@ -492,7 +499,7 @@ export class ArchiveStore {
         } else if (existing.controller) {
           // A fetch is in flight; its answer settles it.
           return;
-        } else {
+        } else if (!failure?.revalidating) {
           // Another trace or the Data Insight Tool learned it first: adopt the
           // verdict instead of sending our own 404.
           this.clearRetry(existing);
@@ -502,6 +509,8 @@ export class ArchiveStore {
           this.publish();
           return;
         }
+        // Otherwise this entry asked again after the verdict and got a
+        // transient failure, which is newer: back off and retry below.
       }
 
       const sameSig = fetchSigEqual(existing.fetchSig, fetchSig);
@@ -674,13 +683,16 @@ export class ArchiveStore {
         cur.failure = notArchivedFailure(info, spanNs);
         this.setNotArchived(key, info);
       } else {
-        const attempts = (cur.failure && !cur.failure.notArchived ? cur.failure.attempts : 0) + 1;
+        // The failure this request was issued with.
+        const prev = cur.failure;
+        const attempts = (prev && !prev.notArchived ? prev.attempts : 0) + 1;
         cur.failure = {
           ...info,
           notArchived: false,
           attempts,
           retryAtMs: this.now() + retryDelayMs(attempts),
           spanNs,
+          revalidating: !!prev && (prev.notArchived || prev.revalidating),
         };
       }
       cur.data = { ...cur.data, status: 'error', error: info };
