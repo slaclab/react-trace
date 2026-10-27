@@ -65,6 +65,11 @@ See Canopy's e-log module docs for the full settings. Trace reads
 "Post to E-Log" toolbar button (and Ctrl/Cmd+E) hides and the browser console logs the
 reason. Logbooks preselected in the post dialog come from `DEFAULT_LOGBOOK_IDS`.
 
+Migrating from the direct elog-plus setup: `DEFAULT_LOGBOOK_IDS` takes logbook **ids**,
+not the logbook **names** `VITE_ELOG_DEFAULT_LOGBOOKS` took. Names match nothing, so
+copying them over silently preselects no logbook. `ELOG_BASE_URL`, `ELOG_API_KEY` and
+`VITE_ELOG_DEFAULT_LOGBOOKS` are no longer read.
+
 In production the Trace container reverse-proxies `/trace/api/canopy/*` to the
 in-cluster Canopy service and injects `X-API-Key`, so the browser bundle never
 receives a key. `/trace/api/canopy/elog/v1/apps/trace/*` gets `CANOPY_ELOG_API_KEY`;
