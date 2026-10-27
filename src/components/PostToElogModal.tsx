@@ -87,6 +87,8 @@ export function PostToElogModal({
 
   // Load the logbook list on each open, so a list that failed (or changed) last
   // time is fetched again, then preselect the configured defaults it contains.
+  // Canopy lists only the logbooks Trace's token can post to, so a default that
+  // is gone or read-only isn't preselected.
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
@@ -109,6 +111,9 @@ export function PostToElogModal({
     () => captured.filter((c) => selectedPlotIds.includes(c.id)),
     [captured, selectedPlotIds]
   );
+
+  // Loaded fine, but Trace can't post to any logbook.
+  const noLogbooks = logbooks?.length === 0 && !logbooksError;
 
   const canPost = !posting && title.trim().length > 0 && selectedLogbookIds.length > 0;
 
@@ -169,6 +174,14 @@ export function PostToElogModal({
               hideCloseButton
             />
           )}
+          {noLogbooks && (
+            <InlineNotification
+              kind="warning"
+              title="No logbooks available"
+              subtitle="Trace can't post to any logbook. An e-log admin needs to give Trace write access to one."
+              hideCloseButton
+            />
+          )}
 
           <FilterableMultiSelect
             key={`elog-logbooks-${openCount}-${logbooks ? 'loaded' : 'loading'}`}
@@ -183,8 +196,8 @@ export function PostToElogModal({
               setSelectedLogbookIds(selectedItems.map((lb) => lb.id))
             }
             placeholder={logbooks ? 'Select logbooks' : 'Loading logbooks...'}
-            disabled={!logbooks}
-            invalid={!!logbooks && !logbooksError && selectedLogbookIds.length === 0}
+            disabled={!logbooks || noLogbooks}
+            invalid={!!logbooks && !logbooksError && !noLogbooks && selectedLogbookIds.length === 0}
             invalidText="At least one logbook is required"
           />
 

@@ -63,7 +63,9 @@ uv run uvicorn canopy.main:app --reload --port 8000
 See Canopy's e-log module docs for the full settings. Trace reads
 `/elog/v1/apps/trace/config` at startup: when Canopy reports e-log disabled, the
 "Post to E-Log" toolbar button (and Ctrl/Cmd+E) hides and the browser console logs the
-reason. Logbooks preselected in the post dialog come from `DEFAULT_LOGBOOK_IDS`.
+reason. Logbooks preselected in the post dialog come from `DEFAULT_LOGBOOK_IDS`. Canopy
+lists only the logbooks Trace's token can post to, so a default Trace can't post to isn't
+preselected.
 
 Migrating from the direct elog-plus setup: `DEFAULT_LOGBOOK_IDS` takes logbook **ids**,
 not the logbook **names** `VITE_ELOG_DEFAULT_LOGBOOKS` took. Names match nothing, so

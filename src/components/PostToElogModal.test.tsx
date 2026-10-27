@@ -87,7 +87,8 @@ describe('PostToElogModal', () => {
     ]);
     const file = (calls[1].init?.body as FormData).get('file') as File;
     expect(file.name).toBe('trace_config.json');
-    // The stale default id that is not in the loaded list is dropped.
+    // A default id that isn't in the loaded list (gone, or one Trace can't post
+    // to) is dropped.
     expect(JSON.parse(calls[2].init?.body as string)).toEqual({
       logbookIds: ['lb-2'],
       title: 'Beam lost',
@@ -106,6 +107,16 @@ describe('PostToElogModal', () => {
     screen.getByText("Trace's e-log API key is not scoped for the e-log module (it needs elog).");
     fireEvent.change(screen.getByLabelText(/Title/), { target: { value: 'Beam lost' } });
     expect(postButton().disabled).toBe(true);
+  });
+
+  it('says so when there is no logbook Trace can post to', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse([]));
+    renderModal();
+
+    await screen.findByText('No logbooks available');
+    fireEvent.change(screen.getByLabelText(/Title/), { target: { value: 'Beam lost' } });
+    expect(postButton().disabled).toBe(true);
+    expect(screen.queryByText('At least one logbook is required')).toBeNull();
   });
 
   it('reports a failed post as a readable message', async () => {
