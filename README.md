@@ -31,8 +31,9 @@ cp .env.example .env
 ```
 
 `CANOPY_API_KEY` is a server-side env var (no `VITE_` prefix). The Vite dev server proxies
-`/mole`, `/hare`, `/fox` and `/elog` to `CANOPY_BASE_URL` and injects the `X-API-Key`
-header, so the key never reaches the browser bundle.
+`/mole`, `/hare`, `/fox` and Trace's e-log app path (`/elog/v1/apps/trace/`) to
+`CANOPY_BASE_URL` and injects the `X-API-Key` header, so the key never reaches the browser
+bundle.
 
 Trace uses two Canopy keys:
 
@@ -41,7 +42,7 @@ Trace uses two Canopy keys:
 
 They are separate because Canopy's `write` scope belongs to the key, not to a module: giving
 the main key `write` so it could post e-log entries would also let it write PVs through
-Hare. In local dev, leave `CANOPY_ELOG_API_KEY` unset and the `/elog` proxy reuses
+Hare. In local dev, leave `CANOPY_ELOG_API_KEY` unset and the e-log proxy reuses
 `CANOPY_API_KEY`, which covers both with a wildcard key like `dev:read+write@*`.
 
 #### E-Log posting (optional)
@@ -66,8 +67,10 @@ reason. Logbooks preselected in the post dialog come from `DEFAULT_LOGBOOK_IDS`.
 
 In production the Trace container reverse-proxies `/trace/api/canopy/*` to the
 in-cluster Canopy service and injects `X-API-Key`, so the browser bundle never
-receives a key. `/trace/api/canopy/elog/*` gets `CANOPY_ELOG_API_KEY`; everything
-else (the Mole, Hare and Fox HTTP and WebSocket routes) gets `CANOPY_API_KEY`.
+receives a key. `/trace/api/canopy/elog/v1/apps/trace/*` gets `CANOPY_ELOG_API_KEY`;
+everything else (the Mole, Hare and Fox HTTP and WebSocket routes, and any other e-log
+path) gets `CANOPY_API_KEY`. The e-log key stays on Trace's own app path because Canopy
+doesn't bind keys to apps: on a wider path it could post as any app configured in Canopy.
 `CANOPY_ELOG_API_KEY` is optional: without it the container still starts, logs a
 warning, and the post dialog shows Canopy's missing-key error. The e-log location
 accepts request bodies up to 25 MiB so attachments (20 MiB by default in Canopy)

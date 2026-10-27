@@ -29,14 +29,17 @@ http {
 
         # E-log gets its own key (read+write@elog) so the key above can stay
         # read-only: Canopy's write scope is per key, so a shared key with write
-        # would also allow PV writes through Hare. The longer prefix wins over
-        # /api/canopy/ for these requests.
-        location /api/canopy/elog/ {
+        # would also allow PV writes through Hare. The location is scoped to
+        # Trace's own app: Canopy doesn't bind keys to apps ({app} only picks the
+        # server-side elog-plus token), so a wider prefix would let a browser post
+        # as any configured app. Other /api/canopy/elog/ paths fall through to
+        # /api/canopy/ and get the read-only key, which has no e-log access.
+        location /api/canopy/elog/v1/apps/trace/ {
             # Canopy caps attachments at 20 MiB by default. Leave room for
             # multipart overhead so Canopy, not nginx, rejects an oversized file
             # (with its JSON 413).
             client_max_body_size 25m;
-            proxy_pass ${CANOPY_UPSTREAM}/elog/;
+            proxy_pass ${CANOPY_UPSTREAM}/elog/v1/apps/trace/;
             proxy_http_version 1.1;
             proxy_set_header X-API-Key "${CANOPY_ELOG_API_KEY}";
             proxy_set_header Host $host;

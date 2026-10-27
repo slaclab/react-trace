@@ -1,6 +1,6 @@
 import type { ErrorEnvelope } from './types';
 
-// Vite dev server proxies /mole/* (and /hare, /fox, /elog) to the Canopy
+// Vite dev server proxies /mole/* (and /hare, /fox, /elog/v1/apps/trace) to the Canopy
 // backend (see vite.config.ts) and injects X-API-Key, so the browser bundle
 // never sees the key. In deployed builds, VITE_CANOPY_BASE_PATH is served by
 // Trace's reverse proxy, for example /trace/api/canopy.

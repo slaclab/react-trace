@@ -12,6 +12,8 @@ export default defineConfig(({ mode }) => {
   // writes through Hare. Local dev keys are usually @*, so fall back to
   // CANOPY_API_KEY when CANOPY_ELOG_API_KEY is unset.
   const elogApiKey = env.CANOPY_ELOG_API_KEY || apiKey;
+  // Trace's app in Canopy's e-log module, the only e-log path the proxy forwards.
+  const elogAppPath = '/elog/v1/apps/trace/';
 
   return {
     base: env.VITE_BASE_PATH || '/',
@@ -61,13 +63,22 @@ export default defineConfig(({ mode }) => {
           },
         },
         // E-log: Canopy's shared e-log module, which holds Trace's elog-plus
-        // application token server-side. Injects the dedicated e-log key.
-        '/elog': {
+        // application token server-side. Injects the dedicated e-log key, scoped
+        // to Trace's own app: Canopy doesn't bind keys to apps ({app} only picks
+        // the server-side elog-plus token), so a wider prefix would let the key
+        // post as any configured app. Other /elog paths aren't proxied.
+        [elogAppPath]: {
           target,
           changeOrigin: true,
           configure: (proxy) => {
             proxy.on('proxyReq', (proxyReq) => {
-              if (elogApiKey) proxyReq.setHeader('X-API-Key', elogApiKey);
+              // Vite matches the prefix against the raw URL, so
+              // /elog/v1/apps/trace/../other/ gets here too. Check the path with
+              // `..` (and %2e%2e) resolved, as it reaches Canopy.
+              const path = new URL(proxyReq.path, 'http://localhost').pathname;
+              if (elogApiKey && path.startsWith(elogAppPath)) {
+                proxyReq.setHeader('X-API-Key', elogApiKey);
+              }
             });
           },
         },
