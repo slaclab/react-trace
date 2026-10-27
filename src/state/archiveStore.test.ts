@@ -515,6 +515,36 @@ describe('archiveStore: archived PV while the window tracks now', () => {
     expect(spanOf(h.fetchData.mock.calls[1][1])).toBeCloseTo(11, 3);
   });
 
+  for (const panS of [10, 60]) {
+    it(`fetches a historical window panned ${panS} s forward during a fetch`, async () => {
+      const pending: (() => void)[] = [];
+      const h = setup(
+        (_pv, params) => new Promise((r) => pending.push(() => r(secondsDto(params))))
+      );
+      const pastToMs = T0_MS - 3_600_000;
+      const panned = windowAt(pastToMs + panS * 1000, 30);
+      h.store.request('t1', { pv: PV, archiver: undefined, window: windowAt(pastToMs, 30) });
+      await flush();
+      h.store.request('t1', { pv: PV, archiver: undefined, window: panned });
+      await flush();
+      // The pending fetch isn't aborted for a forward move...
+      expect(h.fetchData).toHaveBeenCalledTimes(1);
+      pending[0]();
+      await flush();
+      // ...and once it lands, the rest of the new window is fetched without
+      // another request().
+      expect(h.fetchData).toHaveBeenCalledTimes(2);
+      expect(h.fetchData.mock.calls[1][1].toNs).toBe(panned.toNs);
+      pending[1]();
+      await flush();
+
+      const entry = h.store.getSnapshot().get('t1')!;
+      expect(entry.status).toBe('ready');
+      expect(entry.mean[0].time).toBe(panned.fromNs / 1e6);
+      expect(entry.mean[entry.mean.length - 1].time).toBe(panned.toNs / 1e6);
+    });
+  }
+
   it('binned (1 h): full-window refetch only after 1% of the span', async () => {
     const h = setup(async (_pv, params) => ({
       mode: 'binned',

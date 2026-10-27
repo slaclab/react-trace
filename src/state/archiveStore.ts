@@ -455,7 +455,8 @@ export class ArchiveStore {
    *   it's DRIFT_MIN_INTERVAL_MS (or 1% of the span, if longer) ahead.
    * - Window slid forward past the buffer (raw mode): fetch only the new tail
    *   (plus TAIL_OVERLAP_MS) and splice it in, keeping status 'ready'. An
-   *   in-flight fetch isn't aborted for a forward slide.
+   *   in-flight fetch isn't aborted for a forward slide; once it lands, the
+   *   rest of the latest window is fetched.
    * - Last fetch failed for another reason: no fetch until its backoff expires.
    *   Then a timer retries the latest request, so a window that never moves
    *   retries too.
@@ -645,6 +646,10 @@ export class ArchiveStore {
       // The archiver has this pair after all (e.g. archiving started since).
       this.notArchived.delete(key);
       this.publish();
+      // The window may have moved on while this was in flight (a forward pan
+      // doesn't abort it). One that then stays put gets no other request(),
+      // so fetch whatever of the latest window is still missing.
+      this.request(traceId, cur.wanted);
     } catch (err) {
       if ((err as { name?: string }).name === 'AbortError') return;
       const cur = this.entries.get(traceId);
