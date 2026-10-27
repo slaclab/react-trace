@@ -30,7 +30,7 @@ const dataMock = vi.mocked(fetchData);
 const metaMock = vi.mocked(fetchMetadata);
 
 const notFound = () =>
-  new CanopyError('pv_not_found_in_archiver', 404, `PV '${PV}' not in archiver 'lcls' (HTTP 404)`);
+  new CanopyError('pv_not_found_in_archiver', 404, `PV '${PV}' not in archiver 'test' (HTTP 404)`);
 
 function windowAt(nowMs: number): TimeWindowNs {
   const toNs = nowMs * 1e6;
@@ -122,7 +122,7 @@ function loadingAfterFirstSettled(statuses: InsightStatus[]): number {
 
 const META: PVMetadataDTO = {
   pv: PV,
-  archiver: 'lcls',
+  archiver: 'test',
   description: 'BPM X',
   units: 'mm',
   precision: 3,
@@ -236,7 +236,7 @@ describe('useInsightData: Archive off', () => {
     dataMock.mockResolvedValue({
       mode: 'raw',
       pv: PV,
-      archiver: 'lcls',
+      archiver: 'test',
       from: 0,
       to: 0,
       decimated: false,

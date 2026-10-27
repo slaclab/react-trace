@@ -15,7 +15,7 @@ const T0_MS = 1_700_000_000_000;
 const PV = 'TEST:PV';
 
 const notFound = () =>
-  new CanopyError('pv_not_found_in_archiver', 404, `PV '${PV}' not in archiver 'lcls' (HTTP 404)`);
+  new CanopyError('pv_not_found_in_archiver', 404, `PV '${PV}' not in archiver 'test' (HTTP 404)`);
 const unavailable = () =>
   new CanopyError('archiver_unavailable', 503, 'Appliance returned HTTP 503');
 
@@ -23,7 +23,7 @@ function rawDto(params: FetchDataParams): ArchiverDataDTO {
   return {
     mode: 'raw',
     pv: PV,
-    archiver: 'lcls',
+    archiver: 'test',
     from: params.fromNs,
     to: params.toNs ?? params.fromNs,
     decimated: false,
@@ -164,12 +164,12 @@ describe('archiveStore: PV not in the archiver', () => {
     await drift(h, { spanS: 30, steps: 20 });
     await drift(h, { spanS: 30, steps: 20, pv: 'OTHER:PV' });
     expect(h.fetchData).toHaveBeenCalledTimes(2);
-    await drift(h, { spanS: 30, steps: 20, pv: 'OTHER:PV', archiver: 'facet' });
+    await drift(h, { spanS: 30, steps: 20, pv: 'OTHER:PV', archiver: 'other' });
     expect(h.fetchData).toHaveBeenCalledTimes(3);
     expect(h.fetchData.mock.calls.map((c) => [c[0], c[1].archiver])).toEqual([
       [PV, undefined],
       ['OTHER:PV', undefined],
-      ['OTHER:PV', 'facet'],
+      ['OTHER:PV', 'other'],
     ]);
   });
 
@@ -469,7 +469,7 @@ describe('archiveStore: archived PV while the window tracks now', () => {
     return {
       mode: 'raw',
       pv: PV,
-      archiver: 'lcls',
+      archiver: 'test',
       from: params.fromNs,
       to: toNs,
       decimated,
@@ -619,7 +619,7 @@ describe('archiveStore: archived PV while the window tracks now', () => {
     const h = setup(async (_pv, params) => ({
       mode: 'binned',
       pv: PV,
-      archiver: 'lcls',
+      archiver: 'test',
       from: params.fromNs,
       to: params.toNs ?? params.fromNs,
       binning: 'auto',
