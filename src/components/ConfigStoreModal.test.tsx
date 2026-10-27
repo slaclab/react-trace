@@ -3,8 +3,8 @@
 // Pins ConfigStoreModal's async lifecycle (slaclab/react-trace#92). Save and
 // every row's Load/Rename/Delete share one busy slot, so only one runs at a
 // time. Save, Rename and Delete block all three of Carbon's dismissal paths (X,
-// Escape, backdrop) until they settle. A Load doesn't: dismissing aborts it and
-// drops its result, even a response that beat the abort.
+// Escape, backdrop) until their server call settles. A Load doesn't: dismissing
+// aborts it and drops its result, even a response that beat the abort.
 //
 // Every magpie call returns a promise the test settles by hand, so each case
 // controls exactly when a response lands relative to clicks and dismissals.
@@ -169,6 +169,15 @@ function dismiss(path: DismissPath) {
   }
 }
 
+// jsdom has no clipboard API, so a Save's share-link copy normally fails at
+// once. Cases that need a pending or rejected copy install one; afterEach
+// removes it.
+function stubClipboard(writeText: (text: string) => Promise<void>) {
+  const clipboard = { writeText: vi.fn(writeText) };
+  Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true });
+  return clipboard;
+}
+
 beforeAll(() => {
   // Carbon's icon-button tooltips observe their size; jsdom has no ResizeObserver.
   vi.stubGlobal(
@@ -218,6 +227,7 @@ beforeEach(() => {
 afterEach(() => {
   // No vitest globals, so RTL can't register its own cleanup.
   cleanup();
+  Reflect.deleteProperty(navigator, 'clipboard');
   vi.restoreAllMocks();
   vi.clearAllMocks();
 });
@@ -464,5 +474,60 @@ describe('ConfigStoreModal: Save, Rename and Delete block dismissal', () => {
     await settle(() => saves[0].resolve(config('slug-new', 'New', '2026-10-03T00:00:00Z')));
     expect(saveButton().disabled).toBe(false);
     expect(errorBanner()).toBeNull();
+  });
+});
+
+describe('ConfigStoreModal: the share-link copy does not hold the Save slot', () => {
+  const NEW = config('slug-new', 'New', '2026-10-03T00:00:00Z');
+
+  it.each(PATHS)(
+    'frees every action and allows %s once the Save lands, while the copy is pending',
+    async (path) => {
+      const copy = deferred<void>();
+      const clipboard = stubClipboard(() => copy.promise);
+      await mount();
+      fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Mine' } });
+      fireEvent.click(saveButton());
+      await settle(() => saves[0].resolve(NEW));
+      expect(clipboard.writeText).toHaveBeenCalledWith(expect.stringMatching(/config=slug-new$/));
+      expect(saveButton().disabled).toBe(false);
+      expect(allRowButtons().map((b) => b.disabled)).toEqual(Array(6).fill(false));
+      expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('');
+      expect(api.listConfigs).toHaveBeenCalledTimes(2);
+      expect(onToast).not.toHaveBeenCalled();
+
+      dismiss(path);
+      expect(isVisible()).toBe(false);
+      expect(parentClose).toHaveBeenCalledTimes(1);
+
+      // The toast still reports the copy after the dialog has gone.
+      await settle(() => copy.resolve());
+      expect(onToast).toHaveBeenCalledWith({
+        kind: 'success',
+        title: 'Workspace saved',
+        subtitle: 'Share link copied to clipboard (slug-new)',
+      });
+    }
+  );
+
+  it('lets another operation start while the copy is pending', async () => {
+    stubClipboard(() => new Promise<void>(() => {}));
+    await mount();
+    fireEvent.click(saveButton());
+    await settle(() => saves[0].resolve(NEW));
+    fireEvent.click(rowButton('Config A', 'Load'));
+    expect(api.getConfig.mock.calls.map(([slug]) => slug)).toEqual([A.slug]);
+  });
+
+  it('shows the link itself when the copy is rejected', async () => {
+    stubClipboard(() => Promise.reject(new DOMException('Denied', 'NotAllowedError')));
+    await mount();
+    fireEvent.click(saveButton());
+    await settle(() => saves[0].resolve(NEW));
+    expect(onToast).toHaveBeenCalledWith({
+      kind: 'success',
+      title: 'Workspace saved',
+      subtitle: expect.stringMatching(/^Share link: .*\?config=slug-new$/),
+    });
   });
 });

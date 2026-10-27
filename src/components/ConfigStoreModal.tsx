@@ -141,9 +141,10 @@ export function ConfigStoreModal({
   // Each open of the modal is a session. Closing or unmounting ends it and
   // aborts a pending Load, and an operation applies its result only while its
   // session is current, so a dismissed Load can't replace the workspace after
-  // the dialog is gone. Save, Rename and Delete block dismissal, so their
-  // session ends early only if the parent closes the modal itself or unmounts
-  // it. Their outcome is then dropped, apart from Save's toast.
+  // the dialog is gone. Save, Rename and Delete block dismissal until their
+  // server call settles, so their session ends before that only if the parent
+  // closes the modal itself or unmounts it. Their outcome is then dropped, apart
+  // from Save's toast, which also outlives a close during the share-link copy.
   const sessionRef = useRef(0);
   const loadAbortRef = useRef<AbortController | null>(null);
   const endSession = useCallback(() => {
@@ -217,25 +218,28 @@ export function ConfigStoreModal({
         name: name.trim() || undefined,
         description: description.trim() || undefined,
       });
+      // The server call has settled. Neither the refresh nor the clipboard write
+      // is part of the save, so neither holds the slot or blocks closing: a
+      // pending clipboard permission prompt would otherwise lock the dialog.
+      end(op);
+      // The form and the list belong to the session.
+      if (session === sessionRef.current) {
+        setName('');
+        setDescription('');
+        void refresh();
+      }
       // Don't claim a copy that didn't happen: the clipboard API is absent on a
       // non-secure origin and rejects when permission is denied or the document
       // isn't focused. Show the link itself so it can still be copied by hand.
       const link = shareUrl(dto.slug);
       const copied = await copyToClipboard(link);
+      // The toast goes out regardless, even if the dialog has closed since: the
+      // config exists and its link is useful.
       onToast({
         kind: 'success',
         title: 'Workspace saved',
         subtitle: copied ? `Share link copied to clipboard (${dto.slug})` : `Share link: ${link}`,
       });
-      // The toast goes out regardless: the config exists and its link is
-      // useful. The form and the list belong to the session.
-      if (session !== sessionRef.current) return;
-      setName('');
-      setDescription('');
-      // The server call has settled. The refresh is only a read, so it doesn't
-      // hold the slot or block closing.
-      end(op);
-      await refresh();
     } catch (err) {
       if (session === sessionRef.current) setError(errText(err));
     } finally {
