@@ -782,4 +782,105 @@ describe('archiveStore: zooming into a binned buffer', () => {
       [day.fromNs, day.toNs],
     ]);
   });
+
+  it('a zoom back out before the finer bins land cancels their fetch', async () => {
+    let resolveZoom!: () => void;
+    const h: Harness = setup((_pv, params) => {
+      if (h.fetchData.mock.calls.length !== 2) return Promise.resolve(binnedDto(params));
+      return new Promise((r) => {
+        resolveZoom = () => r(binnedDto(params));
+      });
+    });
+    const day = windowAt(h.now(), DAY_S);
+    ask(h, day);
+    await flush();
+    const coarse = h.store.getSnapshot().get('t1')!.mean;
+
+    const zoom = zoomTo(day, 40 * 60);
+    ask(h, zoom);
+    await flush();
+    ask(h, day); // restored while the zoom fetch is in flight
+    resolveZoom();
+    await flush();
+    // Still the whole day, not 40 min of it.
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.mean).toBe(coarse);
+    expect(entry.coverFromNs).toBe(day.fromNs);
+    expect(h.fetchData.mock.calls[1][2]?.aborted).toBe(true);
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    expect(h.published.t1).toEqual(['loading', 'ready']);
+
+    // The cancelled request doesn't count as fetched: the same zoom asks again.
+    ask(h, zoom);
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+    expect(h.fetchData.mock.calls[2][1]).toMatchObject({ fromNs: zoom.fromNs, toNs: zoom.toNs });
+  });
+});
+
+// A request back inside the buffer is a free render, but a fetch issued for
+// the window in between may still be in flight. Its answer replaces the whole
+// buffer, so it must not land unless it covers the window now on screen.
+describe('archiveStore: back inside the buffer while a fetch is in flight', () => {
+  const ask = (h: Harness, window: TimeWindowNs) =>
+    h.store.request('t1', { pv: PV, archiver: undefined, window });
+
+  // Answers every fetch at once except the second, which waits for release().
+  function holdSecond() {
+    let release!: () => void;
+    const h: Harness = setup((_pv, params) => {
+      if (h.fetchData.mock.calls.length !== 2) return Promise.resolve(rawDto(params));
+      return new Promise((r) => {
+        release = () => r(rawDto(params));
+      });
+    });
+    return { h, release: () => release() };
+  }
+
+  // `win` moved by `byS` seconds (negative: into the past).
+  const shift = (win: TimeWindowNs, byS: number): TimeWindowNs => ({
+    fromNs: win.fromNs + byS * 1e9,
+    toNs: win.toNs + byS * 1e9,
+  });
+
+  it('a pan back cancels the fetch for the window panned to', async () => {
+    const { h, release } = holdSecond();
+    const here = windowAt(h.now() - 3_600_000, 600);
+    ask(h, here);
+    await flush();
+    const before = h.store.getSnapshot().get('t1')!.mean;
+
+    ask(h, shift(here, -600));
+    await flush();
+    ask(h, here);
+    release();
+    await flush();
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.mean).toBe(before);
+    expect(entry.coverFromNs).toBe(here.fromNs);
+    expect(h.fetchData.mock.calls[1][2]?.aborted).toBe(true);
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps an in-flight fetch whose answer covers the window too', async () => {
+    const { h, release } = holdSecond();
+    const here = windowAt(h.now() - 3_600_000, 600);
+    ask(h, here);
+    await flush();
+
+    const there = shift(here, -300);
+    ask(h, there);
+    await flush();
+    // Zoom into the overlap: drawn from the buffer, and the pending answer
+    // covers it as well.
+    const overlap = { fromNs: here.fromNs + 60e9, toNs: there.toNs - 60e9 };
+    ask(h, overlap);
+    release();
+    await flush();
+    expect(h.fetchData.mock.calls[1][2]?.aborted).toBe(false);
+    expect(h.store.getSnapshot().get('t1')!.coverFromNs).toBe(there.fromNs);
+    ask(h, overlap);
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+  });
 });

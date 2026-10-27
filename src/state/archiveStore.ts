@@ -145,7 +145,8 @@ interface InternalEntry {
   data: ArchiveEntry;
   // Most recently *issued* window. We only fetch when a new request lands
   // outside this (with tolerance). The in-flight promise covers `requestedWindow`.
-  // Null for an entry created already knowing the PV isn't archived.
+  // Null for an entry created already knowing the PV isn't archived, and after
+  // a fetch is cancelled because the window came back inside the buffer.
   requestedWindow: TimeWindowNs | null;
   // Most recent request, issued or not. `refetchAll()` re-issues this one so a
   // manual refresh uses the current window, not one from before a long sticky
@@ -186,23 +187,33 @@ function coverageTolerance(win: TimeWindowNs): number {
 
 function covers(entry: InternalEntry, win: TimeWindowNs, nowNs: number): boolean {
   if (!entry.hasCover) return false;
-  const { coverFromNs, coverToNs } = entry.data;
+  const cover = { fromNs: entry.data.coverFromNs, toNs: entry.data.coverToNs };
+  return coverDraws(cover, entry.fetchSig.mode, win, nowNs);
+}
+
+// Whether a buffer fetched in `mode` and covering `cover` can draw `win`.
+function coverDraws(
+  cover: TimeWindowNs,
+  mode: 'raw' | 'binned',
+  win: TimeWindowNs,
+  nowNs: number
+): boolean {
   // Zoomed into a binned buffer: the bins are too coarse for this window. (A
   // binned buffer covers exactly the window its bins were fetched for.)
   if (
-    entry.fetchSig.mode === 'binned' &&
-    win.toNs - win.fromNs < (coverToNs - coverFromNs) * ZOOM_REFETCH_RATIO
+    mode === 'binned' &&
+    win.toNs - win.fromNs < (cover.toNs - cover.fromNs) * ZOOM_REFETCH_RATIO
   ) {
     return false;
   }
   const tol = coverageTolerance(win);
-  if (coverFromNs > win.fromNs + tol) return false;
-  if (coverToNs >= win.toNs - tol) return true;
+  if (cover.fromNs > win.fromNs + tol) return false;
+  if (cover.toNs >= win.toNs - tol) return true;
   // A window tracking "now" can be behind by up to DRIFT_MIN_INTERVAL_MS
   // before it's worth asking the archiver for the newest part. Historical
   // windows (panned into the past) keep the plain tolerance.
   const slack = Math.max(tol, DRIFT_MIN_INTERVAL_MS * 1_000_000);
-  return win.toNs >= nowNs - slack && coverToNs >= win.toNs - slack;
+  return win.toNs >= nowNs - slack && cover.toNs >= win.toNs - slack;
 }
 
 // When the buffer covers the start of `win` and only the end is new (a window
@@ -474,7 +485,9 @@ export class ArchiveStore {
    *   free render, no fetch. A window tracking "now" counts as covered until
    *   it's DRIFT_MIN_INTERVAL_MS (or 1% of the span, if longer) ahead. A zoom
    *   into a binned buffer past ZOOM_REFETCH_RATIO isn't covered: it refetches
-   *   with the coarse buffer still on screen and status 'ready'.
+   *   with the coarse buffer still on screen and status 'ready'. Coming back
+   *   inside the buffer (zooming back out, panning back) cancels a fetch still
+   *   in flight for a window that doesn't cover this one.
    * - Window slid forward past the buffer (raw mode): fetch only the new tail
    *   (plus TAIL_OVERLAP_MS) and splice it in, keeping status 'ready'. If that
    *   would take the buffer past the raw point budget, the whole window is
@@ -529,7 +542,21 @@ export class ArchiveStore {
       }
 
       const sameSig = fetchSigEqual(existing.fetchSig, fetchSig);
-      if (sameSig && covers(existing, opts.window, this.now() * 1_000_000)) {
+      const nowNs = this.now() * 1_000_000;
+      if (sameSig && covers(existing, opts.window, nowNs)) {
+        // Back inside the buffer (zoomed back out, or panned back) before the
+        // fetch for the window in between answered. Its answer would replace
+        // the buffer on screen, so cancel it unless it covers this window too,
+        // and forget its window so asking for it again fetches.
+        if (
+          existing.controller &&
+          existing.requestedWindow &&
+          !coverDraws(existing.requestedWindow, fetchSig.mode, opts.window, nowNs)
+        ) {
+          existing.controller.abort();
+          existing.controller = null;
+          existing.requestedWindow = null;
+        }
         if (existing.data.status !== 'ready') {
           existing.data = { ...existing.data, status: 'ready', error: undefined };
           this.publish();
