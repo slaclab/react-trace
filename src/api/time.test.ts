@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { parseSpanMs, relativeRangeMs, resolveTimeWindow, toDatetimeLocal, msToNs } from './time';
 
-const MIN = 60 * 1000;
+const SEC = 1000;
+const MIN = 60 * SEC;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 
 describe('parseSpanMs', () => {
   it('parses each unit', () => {
+    expect(parseSpanMs('30s')).toBe(30 * SEC);
     expect(parseSpanMs('30m')).toBe(30 * MIN);
     expect(parseSpanMs('2h')).toBe(2 * HOUR);
     expect(parseSpanMs('1d')).toBe(DAY);
@@ -16,6 +18,8 @@ describe('parseSpanMs', () => {
 
   it('parses decimals and tolerates surrounding space', () => {
     expect(parseSpanMs('1.5h')).toBe(1.5 * HOUR);
+    expect(parseSpanMs('2.5s')).toBe(2.5 * SEC);
+    expect(parseSpanMs(' 90s ')).toBe(90 * SEC);
     expect(parseSpanMs('  90m ')).toBe(90 * MIN);
   });
 
@@ -23,7 +27,8 @@ describe('parseSpanMs', () => {
     expect(parseSpanMs('')).toBeNull();
     expect(parseSpanMs('h')).toBeNull();
     expect(parseSpanMs('10')).toBeNull();
-    expect(parseSpanMs('10s')).toBeNull();
+    expect(parseSpanMs('10S')).toBeNull();
+    expect(parseSpanMs('10x')).toBeNull();
     expect(parseSpanMs('0h')).toBeNull();
     expect(parseSpanMs('-5h')).toBeNull();
     expect(parseSpanMs('abc')).toBeNull();
@@ -32,6 +37,8 @@ describe('parseSpanMs', () => {
 
 describe('relativeRangeMs', () => {
   it('resolves the standard presets', () => {
+    expect(relativeRangeMs('-30s')).toBe(30 * SEC);
+    expect(relativeRangeMs('-60s')).toBe(MIN);
     expect(relativeRangeMs('-1h')).toBe(HOUR);
     expect(relativeRangeMs('-1w')).toBe(7 * DAY);
     expect(relativeRangeMs('-1M')).toBe(30 * DAY);
@@ -64,6 +71,12 @@ describe('resolveTimeWindow', () => {
     expect(resolveTimeWindow({ timeRange: '-30m' }, NOW + 5000).window.toNs).toBe(
       msToNs(NOW + 5000)
     );
+  });
+
+  it('resolves a seconds span exactly', () => {
+    const { window } = resolveTimeWindow({ timeRange: '-30s' }, NOW);
+    expect(window.toNs).toBe(msToNs(NOW));
+    expect(window.fromNs).toBe(msToNs(NOW) - msToNs(30 * SEC));
   });
 
   it('falls back to one hour for an unknown range', () => {

@@ -240,12 +240,14 @@ export function TraceApp() {
   };
 
   // When a following plot stops following, pin its anchor where its axis ends
-  // right now (it may be ahead of the anchor; see axisEndMs) so freezing
-  // doesn't pull the axis back.
+  // right now so freezing doesn't pull the axis back: at axisEndFor (it may be
+  // ahead of the anchor; see axisEndMs), or later, since a following axis also
+  // scrolls on animation frames to within a pixel of the current time
+  // (useFollowNow).
   const freezeAtDisplayedEnd = (plotId: string) => {
     const plot = plots.find((p) => p.id === plotId);
     if (!plot || !isFollowing(plot, viewWindowByPlot)) return;
-    clock.resync([plotId], axisEndFor(plotId));
+    clock.resync([plotId], Math.max(Date.now(), axisEndFor(plotId)));
   };
 
   // Selecting an item also focuses its plot, so RightPanel / Data Insight (which

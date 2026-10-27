@@ -37,6 +37,7 @@ import {
   MIN_REFRESH_S,
   MAX_REFRESH_S,
   clampInterval,
+  refreshIntervalMs,
 } from '../hooks/useAutoScrollTimers';
 import { ArchiverPicker } from './ArchiverPicker';
 import { usePVSearch } from '../hooks/usePVSearch';
@@ -1369,7 +1370,7 @@ function PlotGeneralTab({
   // The Plot-tab picker controls the global default palette (persisted), so new
   // traces follow it; the button additionally recolors existing traces now.
   const { paletteId, setPaletteId } = usePaletteId();
-  // Free-text span field (e.g. "90m", "1.5h"). Seeded from the relative range
+  // Free-text span field (e.g. "30s", "90m", "1.5h"). Seeded from the relative range
   // minus its leading "-"; commits a normalized "-<span>" range on Enter/blur.
   const isCustom = plot.xAxis.timeRange === 'custom';
   const spanFromRange = isCustom ? '' : plot.xAxis.timeRange.replace(/^-/, '');
@@ -1393,7 +1394,7 @@ function PlotGeneralTab({
       return;
     }
     if (parseSpanMs(trimmed) === null) {
-      setSpanError('Use a number plus m, h, d, w, or M (e.g. 90m, 1.5h, 2w).');
+      setSpanError('Use a number plus s, m, h, d, w, or M (e.g. 30s, 90m, 1.5h, 2w).');
       return;
     }
     setSpanError(undefined);
@@ -1402,8 +1403,27 @@ function PlotGeneralTab({
   const customError = isCustom ? resolveTimeWindow(plot.xAxis, nowMs).error : undefined;
   // A relative range that isn't one of the dropdown presets (e.g. "-30m") needs
   // its own option, or the native Select would mislead by showing the first item.
-  const PRESETS = ['-1h', '-4h', '-1d', '-2d', '-1w', '-1M', 'custom'];
+  const PRESETS = [
+    '-30s',
+    '-1m',
+    '-5m',
+    '-15m',
+    '-1h',
+    '-4h',
+    '-1d',
+    '-2d',
+    '-1w',
+    '-1M',
+    'custom',
+  ];
   const isPresetRange = PRESETS.includes(plot.xAxis.timeRange);
+  // A short span caps the refresh interval (see refreshIntervalMs); say so,
+  // since the field still shows the interval the user set.
+  const refreshMs = refreshIntervalMs(plot);
+  const refreshCapped = refreshMs < clampInterval(plot.refreshIntervalS) * 1000;
+  const refreshHelp = refreshCapped
+    ? `Archive and formula data refresh every ${+(refreshMs / 1000).toFixed(1)} s at this span (at most a sixth of it), so the scrolling axis doesn't outrun them.`
+    : 'How often archive and formula data refresh. The axis scrolls continuously.';
   const gridOpacityPct = Math.round(plot.gridOpacity * 100);
   return (
     <div>
@@ -1587,6 +1607,10 @@ function PlotGeneralTab({
             }}
             size="sm"
           >
+            <SelectItem value="-30s" text="Last 30 Seconds" />
+            <SelectItem value="-1m" text="Last 1 Minute" />
+            <SelectItem value="-5m" text="Last 5 Minutes" />
+            <SelectItem value="-15m" text="Last 15 Minutes" />
             <SelectItem value="-1h" text="Last 1 Hour" />
             <SelectItem value="-4h" text="Last 4 Hours" />
             <SelectItem value="-1d" text="Last 1 Day" />
@@ -1607,7 +1631,7 @@ function PlotGeneralTab({
             <div className="prop-row">
               <TextInput
                 id="time-span"
-                labelText="Span (e.g. 90m, 1.5h, 2w)"
+                labelText="Span (e.g. 30s, 90m, 1.5h, 2w)"
                 value={spanText}
                 invalid={!!spanError}
                 invalidText={spanError}
@@ -1634,6 +1658,7 @@ function PlotGeneralTab({
               <NumberInput
                 id="refresh-interval"
                 label="Refresh interval (s)"
+                helperText={refreshHelp}
                 min={MIN_REFRESH_S}
                 max={MAX_REFRESH_S}
                 step={1}

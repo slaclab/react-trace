@@ -5,7 +5,7 @@
 // wall clock read during render: before the fix every live batch re-render
 // moved the axis to the current time, even with Autoscroll off.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import { SinglePlot } from './PlotArea';
 import { axisEndMs } from '../hooks/useAutoScrollTimers';
 import type { Plot } from '../types';
@@ -13,7 +13,10 @@ import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 
 const { captured, fakeInstance } = vi.hoisted(() => {
   const captured: {
-    option: { xAxis: { min: number; max: number } } | null;
+    option: {
+      xAxis: { min: number; max: number };
+      series: { id: string; data: Float64Array }[];
+    } | null;
     onEvents: Record<string, () => void>;
   } = { option: null, onEvents: {} };
   const fakeInstance = {
@@ -292,6 +295,125 @@ describe('SinglePlot pan while following', () => {
     const { unmount } = render(plotEl(plot, T0, new Map(), false, onFollowStop));
     captured.onEvents.datazoom();
     expect(onFollowStop).not.toHaveBeenCalled();
+    unmount();
+  });
+});
+
+describe('SinglePlot smooth scrolling', () => {
+  // SinglePlot drives its display clock from the chart's own window
+  // (ownerDocument.defaultView), which in jsdom isn't the global that fake
+  // timers patch, so queue that window's animation frames by hand.
+  let frames: FrameRequestCallback[] = [];
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(T0);
+    frames = [];
+    const win = document.defaultView!;
+    vi.spyOn(win, 'requestAnimationFrame').mockImplementation((cb) => frames.push(cb));
+    vi.spyOn(win, 'cancelAnimationFrame').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  // Run the pending animation frame(s) at wall time `atMs`.
+  function frameAt(atMs: number) {
+    vi.setSystemTime(atMs);
+    const pending = frames;
+    frames = [];
+    act(() => {
+      for (const cb of pending) cb(atMs);
+    });
+  }
+
+  it('scrolls a following plot on animation frames between clock ticks', () => {
+    const plot = makePlot({ xAxis: { timeRange: '-30s' } });
+    const { unmount } = render(plotEl(plot, T0, new Map(), true));
+    expect(xAxis().max).toBe(T0);
+    frameAt(T0 + 1000);
+    expect(xAxis().max).toBe(T0 + 1000);
+    expect(xAxis().min).toBe(T0 + 1000 - 30_000);
+    frameAt(T0 + 1500);
+    expect(xAxis().max).toBe(T0 + 1500);
+    unmount();
+  });
+
+  it('keeps a frozen plot on its clock and schedules no frames', () => {
+    const plot = makePlot({ xAxis: { timeRange: '-30s' }, autoScroll: false });
+    const { unmount } = render(plotEl(plot, T0, new Map(), false));
+    expect(frames).toHaveLength(0);
+    vi.setSystemTime(T0 + 2000);
+    expect(xAxis().max).toBe(T0);
+    unmount();
+  });
+
+  const seriesData = (id: string) => captured.option!.series.find((s) => s.id === id)?.data;
+  // A series' flat [t0, v0, t1, v1, ...] data as [t, v] pairs.
+  const points = (id: string) => {
+    const flat = Array.from(seriesData(id)!);
+    return Array.from({ length: flat.length / 2 }, (_, i) => [flat[2 * i], flat[2 * i + 1]]);
+  };
+
+  it("reuses the samples' series data across frames, and rebuilds it for new samples", () => {
+    const plot = makePlot({ xAxis: { timeRange: '-30s' } });
+    const live = liveBatch(T0 - 1000);
+    const { rerender, unmount } = render(plotEl(plot, T0, live, true));
+    frameAt(T0 + 1000);
+    const line = seriesData('t1');
+    // Typed, so ECharts doesn't deep-clone and walk every point on each update.
+    expect(line).toBeInstanceOf(Float64Array);
+    expect(points('t1')).toEqual([
+      [T0 - 2000, 1],
+      [T0 - 1000, 2],
+    ]);
+    frameAt(T0 + 1500);
+    expect(xAxis().max).toBe(T0 + 1500);
+    // The axis moved; the line didn't.
+    expect(seriesData('t1')).toBe(line);
+
+    rerender(plotEl(plot, T0, liveBatch(T0 + 1000), true));
+    expect(seriesData('t1')).not.toBe(line);
+    unmount();
+  });
+
+  it('runs a two-point extension from the last sample to the right edge as it scrolls', () => {
+    const plot = makePlot({ xAxis: { timeRange: '-30s' } });
+    const { unmount } = render(plotEl(plot, T0, liveBatch(T0 - 1000), true));
+    for (const atMs of [T0 + 1000, T0 + 29_000, T0 + 45_000]) {
+      frameAt(atMs);
+      // From the last sample (T0 - 1 s), or from the left edge once that has
+      // scrolled past it, to exactly the right edge: a point past it would be
+      // filtered out.
+      expect(points('t1-extension')).toEqual([
+        [Math.max(T0 - 1000, xAxis().min), 2],
+        [xAxis().max, 2],
+      ]);
+    }
+    unmount();
+  });
+
+  it("gives a frozen plot's extension anchors dense enough to survive a zoom", () => {
+    const plot = makePlot({ xAxis: { timeRange: '-30s' }, autoScroll: false });
+    const { unmount } = render(plotEl(plot, T0, liveBatch(T0 - 1000), false));
+    const ext = points('t1-extension');
+    expect(ext).toHaveLength(2048);
+    expect(ext[0]).toEqual([T0 - 1000, 2]);
+    expect(ext.at(-1)).toEqual([T0, 2]);
+    expect(ext[1][0] - ext[0][0]).toBeCloseTo(1000 / 2047, 3);
+    unmount();
+  });
+
+  it('stops following on a pan after scrolling past the last clock tick', () => {
+    const onFollowStop = vi.fn();
+    const plot = makePlot({ xAxis: { timeRange: '-30s' } });
+    const { unmount } = render(plotEl(plot, T0, new Map(), true, onFollowStop));
+    frameAt(T0 + 1200);
+    expect(xAxis().max).toBe(T0 + 1200);
+    // TraceApp freezes the plot at the current time or later (see
+    // freezeAtDisplayedEnd), so the axis doesn't jump back to the tick.
+    captured.onEvents.datazoom();
+    expect(onFollowStop).toHaveBeenCalledTimes(1);
     unmount();
   });
 });

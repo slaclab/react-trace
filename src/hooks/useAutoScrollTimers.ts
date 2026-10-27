@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Plot } from '../types';
 import type { TimeWindowNs } from '../api/time';
+import { relativeRangeMs } from '../api/time';
 import type { LiveSeriesResult } from './useLiveSeries';
 
 export const DEFAULT_REFRESH_INTERVAL_S = 5;
 export const MIN_REFRESH_S = 1;
 export const MAX_REFRESH_S = 60;
+
+// Longest refresh interval a following plot gets, as a fraction of its span.
+// Only its axis scrolls between refreshes (useFollowNow), so archive and
+// formula samples end where the last refresh left them: at -30s with a 60 s
+// interval the axis would scroll past all of them before the next one. A sixth
+// leaves the default 5 s at -30s alone and caps -1m at 10 s and -5m at 50 s.
+const MAX_REFRESH_SPAN_FRACTION = 1 / 6;
 
 // Treat a plot as due this many ms before its interval elapses, so a timer that
 // fires a hair early still advances it instead of rescheduling a 1ms timeout.
@@ -13,6 +21,16 @@ const DUE_SLOP_MS = 5;
 
 export function clampInterval(s: number | undefined): number {
   return Math.min(MAX_REFRESH_S, Math.max(MIN_REFRESH_S, s ?? DEFAULT_REFRESH_INTERVAL_S));
+}
+
+// How often a following plot's clock advances, in ms: its refresh interval
+// (clamped), but no longer than MAX_REFRESH_SPAN_FRACTION of a relative range's
+// span, and never under MIN_REFRESH_S.
+export function refreshIntervalMs(plot: Plot): number {
+  const ms = clampInterval(plot.refreshIntervalS) * 1000;
+  const spanMs = relativeRangeMs(plot.xAxis.timeRange);
+  if (spanMs === null) return ms;
+  return Math.min(ms, Math.max(MIN_REFRESH_S * 1000, spanMs * MAX_REFRESH_SPAN_FRACTION));
 }
 
 // A plot tracks "now" only with autoscroll on, a relative range (not custom),
@@ -47,7 +65,7 @@ export function followingEndMs(
   anchorMs: number,
   liveResults: Map<string, LiveSeriesResult>
 ): number {
-  const capMs = anchorMs + clampInterval(plot.refreshIntervalS) * 1000;
+  const capMs = anchorMs + refreshIntervalMs(plot);
   return Math.min(Math.max(anchorMs, liveEdgeMs(plot, liveResults)), capMs);
 }
 
@@ -114,9 +132,7 @@ export function useAutoScrollTimers(
   // effect parses it back so it re-subscribes only when the following set or an
   // interval changes. JSON keeps any plot id intact (imports keep ids as saved).
   const signature = JSON.stringify(
-    plots
-      .filter((p) => isFollowing(p, viewWindowByPlot))
-      .map((p) => [p.id, clampInterval(p.refreshIntervalS) * 1000])
+    plots.filter((p) => isFollowing(p, viewWindowByPlot)).map((p) => [p.id, refreshIntervalMs(p)])
   );
 
   useEffect(() => {

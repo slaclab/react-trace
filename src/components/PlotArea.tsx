@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { DARK_CHART_THEME, LIGHT_CHART_THEME, effectiveBackground } from '../chartTheme';
 import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
@@ -10,6 +10,7 @@ import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs, resolveTimeWindow } from '../api/time';
 import { echartsLineType, echartsSymbol } from '../curveStyle';
 import { isFollowing } from '../hooks/useAutoScrollTimers';
+import { useFollowNow } from '../hooks/useFollowNow';
 import { traceLabel } from '../traceLabel';
 import { useColorMode } from '../state/themeStore';
 import type { PngSource } from '../io/exportPlotImage';
@@ -158,6 +159,25 @@ function formatTimeOffset(deltaMs: number): string {
   return `${sign}${(abs / 86_400_000).toFixed(1)}d`;
 }
 
+// Anchor points of a frozen plot's extension line. A two-point line would vanish
+// under a zoom that sits inside it: weakFilter keeps a point only if it's in the
+// window, so the line needs anchors this dense to survive any zoom depth.
+const EXTENSION_ANCHORS = 2048;
+
+// Line series data as a flat [t0, v0, t1, v1, ...] typed array. ECharts treats
+// typed-array data as primitive, so setOption neither deep-clones it nor runs
+// each point through its option preprocessors. With plain [t, v] pairs that was
+// most of the cost of an update, and a following plot updates on every scroll
+// step as well as on every live batch.
+function xyData(points: readonly [number, number][]): Float64Array {
+  const out = new Float64Array(points.length * 2);
+  for (let i = 0; i < points.length; i++) {
+    out[2 * i] = points[i][0];
+    out[2 * i + 1] = points[i][1];
+  }
+  return out;
+}
+
 function traceLineData(
   trace: PVTrace,
   archive: ArchiveSeriesResult | undefined,
@@ -235,9 +255,140 @@ export function SinglePlot({
 }: SinglePlotProps) {
   const { colorMode } = useColorMode();
   const theme = colorMode === 'dark' ? DARK_CHART_THEME : LIGHT_CHART_THEME;
-  const visibleAxes = plot.axes.filter((a) => a.visible);
-  const visibleTraces = plot.traces.filter((t) => t.visible);
-  const labels = new Map(plot.traces.map((t) => [t.id, traceLabel(t, plot.traces)]));
+
+  // Everything derived from the samples and the plot's traces and axes. It's
+  // memoized apart from the display clock: while a plot scrolls (useFollowNow)
+  // it re-renders on animation frames with these inputs unchanged, so the
+  // remapped samples and the band and line series stay the same objects, and
+  // the option compare short-circuits on them. Only the x-axis extent and the
+  // extension lines depend on the clock.
+  const { visibleAxes, visibleTraces, labels, axisIndexMap, orderedTraces, traceData, baseSeries } =
+    useMemo(() => {
+      const visibleAxes = plot.axes.filter((a) => a.visible);
+      const visibleTraces = plot.traces.filter((t) => t.visible);
+      const labels = new Map(plot.traces.map((t) => [t.id, traceLabel(t, plot.traces)]));
+
+      // ECharts links series to axes by index, so we track index per axis id.
+      const axisIndexMap = new Map<string, number>();
+      visibleAxes.forEach((axis, idx) => axisIndexMap.set(axis.id, idx));
+
+      // Per-trace [time, value] arrays; series rendering and the tooltip
+      // formatter both read from this map. Sorted ascending by time.
+      const traceData = new Map<string, [number, number][]>();
+      for (const trace of visibleTraces) {
+        traceData.set(
+          trace.id,
+          traceLineData(
+            trace,
+            archiveResults.get(trace.id),
+            liveResults.get(trace.id),
+            formulaResults.get(trace.id)
+          )
+        );
+      }
+
+      // Order traces by axis (in panel order) then by their position within
+      // each axis. Earlier axis / earlier trace draws on top — assign higher
+      // `z` values to those, and pin the order with `emphasis.disabled` so
+      // hover doesn't shuffle the depth.
+      const orderedTraces: { trace: PVTrace; yAxisIndex: number; baseZ: number }[] = [];
+      for (const axis of visibleAxes) {
+        for (const trace of visibleTraces) {
+          if (trace.axisId === axis.id) {
+            orderedTraces.push({ trace, yAxisIndex: axisIndexMap.get(axis.id) ?? 0, baseZ: 0 });
+          }
+        }
+      }
+      orderedTraces.forEach((t, i) => (t.baseZ = (orderedTraces.length - i) * 10));
+
+      // Each trace's min/max band and main line.
+      const baseSeries = new Map<string, Record<string, unknown>[]>();
+      for (const { trace, yAxisIndex, baseZ } of orderedTraces) {
+        const archive = archiveResults.get(trace.id);
+        const series: Record<string, unknown>[] = [];
+
+        // Min/max band, drawn as two stacked area series so ECharts fills between them.
+        // Keep the previous band rendered while a fetch is in flight (status may
+        // be 'loading') so the band doesn't disappear during panning/zooming.
+        if (
+          trace.useArchive &&
+          trace.showArchiveBand !== false &&
+          archive &&
+          archive.mode === 'binned' &&
+          archive.band.length > 0
+        ) {
+          const stackId = `band-${trace.id}`;
+          series.push({
+            id: `${trace.id}-band-min`,
+            name: `${labels.get(trace.id)} (min)`,
+            type: 'line',
+            yAxisIndex,
+            data: archive.band.map((p) => [p.time, p.min]),
+            stack: stackId,
+            lineStyle: { opacity: 0 },
+            areaStyle: { opacity: 0 },
+            symbol: 'none',
+            showInLegend: false,
+            tooltip: { show: false },
+            silent: true,
+            animation: false,
+            z: baseZ,
+            emphasis: { disabled: true },
+          });
+          series.push({
+            id: `${trace.id}-band-max`,
+            name: `${labels.get(trace.id)} (max)`,
+            type: 'line',
+            yAxisIndex,
+            data: archive.band.map((p) => [p.time, p.max - p.min]),
+            stack: stackId,
+            lineStyle: { opacity: 0 },
+            areaStyle: { color: trace.color, opacity: 0.18 },
+            symbol: 'none',
+            showInLegend: false,
+            tooltip: { show: false },
+            silent: true,
+            animation: false,
+            z: baseZ,
+            emphasis: { disabled: true },
+          });
+        }
+
+        series.push({
+          id: trace.id,
+          name: labels.get(trace.id),
+          type: 'line',
+          yAxisIndex,
+          data: xyData(traceData.get(trace.id) ?? []),
+          step: trace.lineType === 'step' ? 'end' : false,
+          lineStyle: {
+            color: trace.color,
+            width: trace.lineWidth,
+            type: echartsLineType(trace.lineStyle),
+            opacity: trace.lineStyle === 'none' ? 0 : 1,
+          },
+          itemStyle: { color: trace.color },
+          symbol: trace.showSymbol ? echartsSymbol(trace.symbolShape) : 'none',
+          symbolSize: trace.symbolSize,
+          showSymbol: trace.showSymbol,
+          sampling: 'lttb',
+          animation: false,
+          z: baseZ + 1,
+          emphasis: { disabled: true },
+        });
+        baseSeries.set(trace.id, series);
+      }
+
+      return {
+        visibleAxes,
+        visibleTraces,
+        labels,
+        axisIndexMap,
+        orderedTraces,
+        traceData,
+        baseSeries,
+      };
+    }, [plot.traces, plot.axes, archiveResults, liveResults, formulaResults]);
 
   const chartRef = useRef<ReactECharts>(null);
   // Our own wrapper around the chart; the per-axis pointer listeners attach
@@ -257,6 +408,25 @@ export function SinglePlot({
   const gridBandRef = useRef<GridBand>({ top: 40, bottom: 60, left: 70, right: 20 });
   // Latest onUpdateAxis, so the mount-once listeners always call the current one.
   const onUpdateAxisRef = useRef(onUpdateAxis);
+
+  // Where the time axis is drawn to. `endMs` comes from the app (see
+  // axisEndMs): the plot's clock, or its newest live sample while following. A
+  // following plot also scrolls smoothly on animation frames between clock
+  // ticks (useFollowNow), so slow PVs don't wait for the next tick either.
+  const spanWindow = resolveTimeWindow(plot.xAxis, endMs).window;
+  const getWindow = useCallback(() => wrapRef.current?.ownerDocument.defaultView ?? null, []);
+  const getWidthPx = useCallback(
+    () =>
+      (wrapRef.current?.clientWidth ?? 0) - gridBandRef.current.left - gridBandRef.current.right,
+    []
+  );
+  const shownEndMs = useFollowNow({
+    following,
+    anchorMs: endMs,
+    spanMs: nsToMs(spanWindow.toNs - spanWindow.fromNs),
+    getWindow,
+    getWidthPx,
+  });
   // In-flight axis drag; null when not dragging. min/max/pxMin/pxMax are a frozen
   // snapshot of the extent and its pixel mapping captured at mousedown.
   const dragRef = useRef<{
@@ -588,12 +758,6 @@ export function SinglePlot({
     };
   }, []);
 
-  // Build yAxis array; ECharts links series to axes by index, so we track index per axis id
-  const axisIndexMap = new Map<string, number>();
-  visibleAxes.forEach((axis, idx) => {
-    axisIndexMap.set(axis.id, idx);
-  });
-
   // Axes sharing a side (left/right) would otherwise stack at the same spot and
   // overlap, so we offset each one outward by its position within that side.
   const sideIndexMap = new Map<string, number>();
@@ -607,24 +771,56 @@ export function SinglePlot({
   // Pin the x-axis extent to the requested time range so the axis spans the
   // full window even when archive data is sparse and clusters in a sub-range.
   // dataZoom inside the chart still sub-zooms within [min, max].
-  const requested = resolveTimeWindow(plot.xAxis, endMs).window;
+  const requested = resolveTimeWindow(plot.xAxis, shownEndMs).window;
   const xAxisMin = nsToMs(requested.fromNs);
   const xAxisMax = nsToMs(requested.toNs);
 
-  // Pre-compute per-trace [time, value] arrays once; series rendering and the
-  // tooltip formatter both read from this map. Sorted ascending by time.
-  const traceData = new Map<string, [number, number][]>();
-  for (const trace of visibleTraces) {
-    traceData.set(
-      trace.id,
-      traceLineData(
-        trace,
-        archiveResults.get(trace.id),
-        liveResults.get(trace.id),
-        formulaResults.get(trace.id)
-      )
-    );
-  }
+  // Extension lines: a dashed line from each trace's last sample to the right
+  // edge. A following plot is never zoomed (a pan or zoom stops it following),
+  // so two points do, and moving them as the axis scrolls costs nothing. A
+  // frozen plot can be zoomed, so it gets the dense anchors; its axis holds
+  // still, so they're only rebuilt when the samples change.
+  const extensionSeries = useMemo(() => {
+    const out = new Map<string, Record<string, unknown>>();
+    const anchors = following ? 2 : EXTENSION_ANCHORS;
+    for (const { trace, yAxisIndex, baseZ } of orderedTraces) {
+      if (trace.showExtensionLine === false || trace.lineStyle === 'none') continue;
+      const last = traceData.get(trace.id)?.at(-1);
+      if (!last || last[0] >= xAxisMax) continue;
+      const startMs = Math.max(last[0], xAxisMin);
+      const data = new Float64Array(anchors * 2);
+      for (let k = 0; k < anchors; k++) {
+        // The last anchor sits exactly on the edge; a rounding step past it
+        // would be filtered out and take a two-point line with it.
+        data[2 * k] =
+          k === anchors - 1 ? xAxisMax : startMs + ((xAxisMax - startMs) * k) / (anchors - 1);
+        data[2 * k + 1] = last[1];
+      }
+      out.set(trace.id, {
+        id: `${trace.id}-extension`,
+        name: `${trace.displayName} (extension)`,
+        type: 'line',
+        yAxisIndex,
+        data,
+        lineStyle: {
+          color: trace.color,
+          width: trace.lineWidth,
+          type: 'dashed',
+          opacity: 0.7,
+        },
+        itemStyle: { color: trace.color },
+        symbol: 'none',
+        showSymbol: false,
+        showInLegend: false,
+        tooltip: { show: false },
+        silent: true,
+        animation: false,
+        z: baseZ + 1,
+        emphasis: { disabled: true },
+      });
+    }
+    return out;
+  }, [orderedTraces, traceData, xAxisMin, xAxisMax, following]);
 
   // Grid insets. Named so the per-axis hit-zones (below) derive from the exact
   // same numbers ECharts lays the grid out with.
@@ -707,134 +903,11 @@ export function SinglePlot({
         lineStyle: { color: theme.splitLine, type: plot.gridStyle, opacity: plot.gridOpacity },
       },
     })),
-    series: (() => {
-      // Order traces by axis (in panel order) then by their position within
-      // each axis. Earlier axis / earlier trace draws on top — assign higher
-      // `z` values to those, and pin the order with `emphasis.disabled` so
-      // hover doesn't shuffle the depth.
-      const orderedTraces: PVTrace[] = [];
-      for (const axis of visibleAxes) {
-        for (const trace of visibleTraces) {
-          if (trace.axisId === axis.id) orderedTraces.push(trace);
-        }
-      }
-
-      const total = orderedTraces.length;
-      return orderedTraces.flatMap((trace, i) => {
-        const yAxisIndex = axisIndexMap.get(trace.axisId) ?? 0;
-        const archive = archiveResults.get(trace.id);
-        const baseZ = (total - i) * 10;
-        const series: Record<string, unknown>[] = [];
-
-        // Min/max band, drawn as two stacked area series so ECharts fills between them.
-        // Keep the previous band rendered while a fetch is in flight (status may
-        // be 'loading') so the band doesn't disappear during panning/zooming.
-        if (
-          trace.useArchive &&
-          trace.showArchiveBand !== false &&
-          archive &&
-          archive.mode === 'binned' &&
-          archive.band.length > 0
-        ) {
-          const stackId = `band-${trace.id}`;
-          series.push({
-            id: `${trace.id}-band-min`,
-            name: `${labels.get(trace.id)} (min)`,
-            type: 'line',
-            yAxisIndex,
-            data: archive.band.map((p) => [p.time, p.min]),
-            stack: stackId,
-            lineStyle: { opacity: 0 },
-            areaStyle: { opacity: 0 },
-            symbol: 'none',
-            showInLegend: false,
-            tooltip: { show: false },
-            silent: true,
-            animation: false,
-            z: baseZ,
-            emphasis: { disabled: true },
-          });
-          series.push({
-            id: `${trace.id}-band-max`,
-            name: `${labels.get(trace.id)} (max)`,
-            type: 'line',
-            yAxisIndex,
-            data: archive.band.map((p) => [p.time, p.max - p.min]),
-            stack: stackId,
-            lineStyle: { opacity: 0 },
-            areaStyle: { color: trace.color, opacity: 0.18 },
-            symbol: 'none',
-            showInLegend: false,
-            tooltip: { show: false },
-            silent: true,
-            animation: false,
-            z: baseZ,
-            emphasis: { disabled: true },
-          });
-        }
-
-        const tracePoints = traceData.get(trace.id) ?? [];
-        series.push({
-          id: trace.id,
-          name: labels.get(trace.id),
-          type: 'line',
-          yAxisIndex,
-          data: tracePoints,
-          step: trace.lineType === 'step' ? 'end' : false,
-          lineStyle: {
-            color: trace.color,
-            width: trace.lineWidth,
-            type: echartsLineType(trace.lineStyle),
-            opacity: trace.lineStyle === 'none' ? 0 : 1,
-          },
-          itemStyle: { color: trace.color },
-          symbol: trace.showSymbol ? echartsSymbol(trace.symbolShape) : 'none',
-          symbolSize: trace.symbolSize,
-          showSymbol: trace.showSymbol,
-          sampling: 'lttb',
-          animation: false,
-          z: baseZ + 1,
-          emphasis: { disabled: true },
-        });
-
-        if (trace.showExtensionLine !== false && trace.lineStyle !== 'none') {
-          const last = tracePoints.at(-1);
-          if (last && last[0] < xAxisMax) {
-            const startTime = Math.max(last[0], xAxisMin);
-            // 2048 anchors so weakFilter always finds in-window points at any zoom depth.
-            const ANCHORS = 2048;
-            const data = Array.from({ length: ANCHORS }, (_, k): [number, number] => [
-              startTime + ((xAxisMax - startTime) * k) / (ANCHORS - 1),
-              last[1],
-            ]);
-            series.push({
-              id: `${trace.id}-extension`,
-              name: `${trace.displayName} (extension)`,
-              type: 'line',
-              yAxisIndex,
-              data,
-              lineStyle: {
-                color: trace.color,
-                width: trace.lineWidth,
-                type: 'dashed',
-                opacity: 0.7,
-              },
-              itemStyle: { color: trace.color },
-              symbol: 'none',
-              showSymbol: false,
-              showInLegend: false,
-              tooltip: { show: false },
-              silent: true,
-              animation: false,
-              z: baseZ + 1,
-              emphasis: { disabled: true },
-            });
-          }
-        }
-
-        return series;
-      });
-    })(),
+    series: orderedTraces.flatMap(({ trace }) => {
+      const ext = extensionSeries.get(trace.id);
+      const base = baseSeries.get(trace.id) ?? [];
+      return ext ? [...base, ext] : base;
+    }),
     dataZoom: [
       {
         type: 'inside',

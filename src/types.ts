@@ -96,8 +96,9 @@ export interface Plot {
     timeTo?: string;
   };
   // Autoscroll keeps "now" pinned to the right edge by advancing the plot's
-  // clock every `refreshIntervalS` seconds (see useAutoScrollTimers). With it
-  // off the clock holds still, freezing the axis and the fetch windows.
+  // clock every `refreshIntervalS` seconds, or more often on a short span (see
+  // refreshIntervalMs). With it off the clock holds still, freezing the axis
+  // and the fetch windows.
   // Undefined autoScroll is treated as on, so plots created before this field
   // still track.
   autoScroll?: boolean;
