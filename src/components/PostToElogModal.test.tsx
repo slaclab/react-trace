@@ -124,4 +124,42 @@ describe('PostToElogModal', () => {
     expect(props.onPostFailed).toHaveBeenCalledWith('The e-log service timed out. Try again.');
     expect(props.onClose).not.toHaveBeenCalled();
   });
+
+  it('reuses the uploaded attachments when a failed post is retried', async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    let uploads = 0;
+    let entries = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/logbooks')) return jsonResponse(LOGBOOKS);
+      if (String(url).endsWith('/attachments')) return jsonResponse({ id: `att-${++uploads}` });
+      if (++entries === 1) {
+        return jsonResponse({ code: 'elog_upstream_timeout', detail: 'timed out' }, false, 504);
+      }
+      return jsonResponse({ id: 'entry-1', url: null });
+    });
+    const props = renderModal({
+      captured: [{ id: 'p1', title: 'Plot 1', dataUrl: 'data:image/png;base64,AQID' }],
+    });
+
+    await waitFor(() => expect(calls.map((c) => c.url)).toContain('/elog/v1/apps/trace/logbooks'));
+    fireEvent.change(screen.getByLabelText(/Title/), { target: { value: 'Beam lost' } });
+    fireEvent.click(screen.getByLabelText(/Attach current configuration/));
+    await waitFor(() => expect(postButton().disabled).toBe(false));
+    fireEvent.click(postButton());
+    await screen.findByText('The e-log service timed out. Try again.');
+
+    await waitFor(() => expect(postButton().disabled).toBe(false));
+    fireEvent.click(postButton());
+    await waitFor(() => expect(props.onPosted).toHaveBeenCalledWith({ id: 'entry-1', url: null }));
+
+    const entryBodies = calls
+      .filter((c) => c.url.endsWith('/entries'))
+      .map((c) => JSON.parse(c.init?.body as string).attachmentIds);
+    expect(uploads).toBe(2);
+    expect(entryBodies).toEqual([
+      ['att-1', 'att-2'],
+      ['att-1', 'att-2'],
+    ]);
+  });
 });

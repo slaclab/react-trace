@@ -166,6 +166,34 @@ describe('postEntry', () => {
     expect(fetchMock).toHaveBeenCalledWith('/elog/v1/apps/trace/entries', expect.anything());
   });
 
+  it('reuses attachment ids from an earlier attempt and records new uploads', async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/attachments')) return jsonResponse({ id: 'att-new' });
+      return jsonResponse({ id: 'entry-1', url: null });
+    });
+    const earlier = png('trace_plot_1.png');
+    const added = png('trace_plot_2.png');
+    const uploaded = new Map([[earlier, 'att-old']]);
+
+    await postEntry({
+      title: 't',
+      bodyMarkdown: '',
+      logbookIds: ['lb-1'],
+      files: [earlier, added],
+      uploaded,
+    });
+
+    expect(calls.map((c) => c.url)).toEqual([
+      '/elog/v1/apps/trace/attachments',
+      '/elog/v1/apps/trace/entries',
+    ]);
+    expect(((calls[0].init?.body as FormData).get('file') as File).name).toBe('trace_plot_2.png');
+    expect(JSON.parse(calls[1].init?.body as string).attachmentIds).toEqual(['att-old', 'att-new']);
+    expect(uploaded.get(added)).toBe('att-new');
+  });
+
   it('stops at a failed upload and names the file', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
@@ -173,12 +201,15 @@ describe('postEntry', () => {
       .mockResolvedValueOnce(
         jsonResponse({ code: 'elog_attachment_too_large', detail: 'limit is 20 MiB' }, false, 413)
       );
+    const files = [png('trace_plot_1.png'), png('trace_plot_2_big.png')];
+    const uploaded = new Map<File, string>();
 
     const err = await postEntry({
       title: 't',
       bodyMarkdown: '',
       logbookIds: ['lb-1'],
-      files: [png('trace_plot_1.png'), png('trace_plot_2_big.png')],
+      files,
+      uploaded,
     }).catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(ElogAttachmentError);
@@ -192,6 +223,30 @@ describe('postEntry', () => {
     );
     // No entry is created after a failed upload.
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    // The file uploaded before the failure is kept for a retry.
+    expect([...uploaded]).toEqual([[files[0], 'att-1']]);
+  });
+
+  it.each([
+    ['invalid_api_key', 401, "Canopy rejected Trace's e-log API key: boom"],
+    [
+      'insufficient_write_access',
+      403,
+      "Trace's e-log API key lacks write access, which posting requires.",
+    ],
+  ])('reports %s on the first upload as the key error, not the file', async (code, status, msg) => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ code, detail: 'boom' }, false, status)
+    );
+    const err = await postEntry({
+      title: 't',
+      bodyMarkdown: '',
+      logbookIds: ['lb-1'],
+      files: [png('trace_plot_1.png')],
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CanopyError);
+    expect(err).not.toBeInstanceOf(ElogAttachmentError);
+    expect(describeElogError(err)).toBe(msg);
   });
 
   it("names the file when a proxy's non-JSON 413 rejects the upload", async () => {

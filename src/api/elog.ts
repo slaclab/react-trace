@@ -50,6 +50,11 @@ export interface PostEntryParams {
   bodyMarkdown: string;
   logbookIds: string[];
   files: File[];
+  // Attachment ids already uploaded for these File objects. postEntry skips the
+  // files in it and adds each one it uploads, so a retry after a failed post
+  // reuses them instead of uploading again (elog-plus only drops unreferenced
+  // attachments after two days).
+  uploaded?: Map<File, string>;
 }
 
 // Raised when uploading one of the entry's files fails, so the message can name
@@ -70,14 +75,23 @@ export async function postEntry(
   params: PostEntryParams,
   signal?: AbortSignal
 ): Promise<ElogEntryCreatedDTO> {
+  const uploaded = params.uploaded ?? new Map<File, string>();
   const attachmentIds: string[] = [];
   for (const file of params.files) {
-    try {
-      attachmentIds.push(await uploadAttachment(file, signal));
-    } catch (err) {
-      if ((err as { name?: string }).name === 'AbortError') throw err;
-      throw new ElogAttachmentError(file.name, err);
+    let id = uploaded.get(file);
+    if (id === undefined) {
+      try {
+        id = await uploadAttachment(file, signal);
+      } catch (err) {
+        if ((err as { name?: string }).name === 'AbortError') throw err;
+        // A bad key or missing write access fails on the first upload. Report it
+        // as the key error, not as a problem with this file.
+        if (err instanceof CanopyError && (err.status === 401 || err.status === 403)) throw err;
+        throw new ElogAttachmentError(file.name, err);
+      }
+      uploaded.set(file, id);
     }
+    attachmentIds.push(id);
   }
   return createEntry(
     {

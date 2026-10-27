@@ -54,6 +54,13 @@ export function PostToElogModal({
   // the previous post's logbook chips while our state says none are selected.
   const [openCount, setOpenCount] = useState(0);
 
+  // Files built and attachments uploaded by earlier attempts in this open, so a
+  // retry after a failed post reuses them instead of uploading them again. Plot
+  // files are keyed by index too because the name embeds the plot's position
+  // among the selected ones.
+  const builtFiles = useRef(new Map<string, File>());
+  const uploaded = useRef(new Map<File, string>());
+
   // Initialize form state once per open. captured is a snapshot taken at open
   // time, so we don't want to clobber edits if it changes underneath.
   const initialized = useRef(false);
@@ -74,6 +81,8 @@ export function PostToElogModal({
     setPosting(false);
     setError(null);
     setOpenCount((n) => n + 1);
+    builtFiles.current.clear();
+    uploaded.current.clear();
   }, [open, captured]);
 
   // Load the logbook list on each open, so a list that failed (or changed) last
@@ -113,15 +122,25 @@ export function PostToElogModal({
     setPosting(true);
     setError(null);
     try {
-      const files: File[] = [];
-      selectedCaptured.forEach((c, i) => files.push(capturedToFile(c, i)));
-      if (attachConfig) files.push(buildConfigFile());
+      const fileFor = (key: string, build: () => File): File => {
+        let file = builtFiles.current.get(key);
+        if (!file) {
+          file = build();
+          builtFiles.current.set(key, file);
+        }
+        return file;
+      };
+      const files = selectedCaptured.map((c, i) =>
+        fileFor(`plot:${c.id}:${i}`, () => capturedToFile(c, i))
+      );
+      if (attachConfig) files.push(fileFor('config', buildConfigFile));
 
       const entry = await postEntry({
         title: title.trim(),
         bodyMarkdown: body,
         logbookIds: selectedLogbookIds,
         files,
+        uploaded: uploaded.current,
       });
       onPosted?.(entry);
       onClose();
