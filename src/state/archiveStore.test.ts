@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ArchiveStore, type FetchDataFn } from './archiveStore';
 import { CanopyError } from '../api/client';
 import type { ArchiverDataDTO } from '../api/types';
@@ -37,6 +37,9 @@ function rawDto(params: FetchDataParams): ArchiverDataDTO {
 type Impl = (pv: string, params: FetchDataParams, signal?: AbortSignal) => Promise<ArchiverDataDTO>;
 
 function setup(impl: Impl) {
+  // Retries are scheduled with setTimeout. Fake it and advance it in lockstep
+  // with the injected clock.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   let nowMs = T0_MS;
   const fetchData = vi.fn(impl);
   const store = new ArchiveStore({ fetchData: fetchData as FetchDataFn, now: () => nowMs });
@@ -52,9 +55,17 @@ function setup(impl: Impl) {
     now: () => nowMs,
     advance: (ms: number) => {
       nowMs += ms;
+      vi.advanceTimersByTime(ms);
     },
   };
 }
+
+// Each test builds its own store; drop its pending retries so none fires in
+// the next test.
+afterEach(() => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
+});
 
 type Harness = ReturnType<typeof setup>;
 
@@ -89,6 +100,16 @@ async function drift(h: Harness, o: DriftOpts): Promise<void> {
     await flush();
     h.advance(o.stepMs ?? 100);
   }
+}
+
+// Let the clock run with no further request(): a plot whose range doesn't
+// move, with nothing else re-running useArchiveSeries.
+async function idle(h: Harness, ms: number, stepMs = 100): Promise<void> {
+  for (let t = 0; t < ms; t += stepMs) {
+    await flush();
+    h.advance(stepMs);
+  }
+  await flush();
 }
 
 function loadingAfterFirstError(statuses: string[] = []): number {
@@ -278,7 +299,8 @@ describe('archiveStore: other failures back off', () => {
     return { h, times };
   }
 
-  const SCHEDULE = [0, 1, 3, 7, 15, 30, 45];
+  // Over 60 s, counting the retry the clock reaches at the end.
+  const SCHEDULE = [0, 1, 3, 7, 15, 30, 45, 60];
 
   it('retries a 503 on the backoff schedule, not on window drift', async () => {
     const { h, times } = await failureTimes(unavailable, { spanS: 30 });
@@ -300,6 +322,56 @@ describe('archiveStore: other failures back off', () => {
     expect(times).toEqual(SCHEDULE);
   });
 
+  it('retries a fixed window on its own when the backoff expires', async () => {
+    const times: number[] = [];
+    const h: Harness = setup(async () => {
+      times.push((h.now() - T0_MS) / 1000);
+      throw unavailable();
+    });
+    h.store.request('t1', { pv: PV, archiver: undefined, window: windowAt(T0_MS, 3600) });
+    await idle(h, 60_000);
+    expect(times).toEqual(SCHEDULE);
+    expect(loadingAfterFirstError(h.published.t1)).toBe(0);
+  });
+
+  it('retries the latest window, not the one that failed', async () => {
+    const h = setup(async () => {
+      throw unavailable();
+    });
+    const pastToMs = T0_MS - 3_600_000;
+    h.store.request('t1', { pv: PV, archiver: undefined, window: windowAt(pastToMs, 30) });
+    await idle(h, 500);
+    // Panned during the backoff: nothing fetched until it expires.
+    const panned = windowAt(pastToMs + 60_000, 30);
+    h.store.request('t1', { pv: PV, archiver: undefined, window: panned });
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(1);
+    await idle(h, 600);
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    expect(h.fetchData.mock.calls[1][1]).toMatchObject({
+      fromNs: panned.fromNs,
+      toNs: panned.toNs,
+    });
+  });
+
+  it('drops a scheduled retry on release() and refetchAll()', async () => {
+    const times: number[] = [];
+    const h: Harness = setup(async () => {
+      times.push((h.now() - T0_MS) / 1000);
+      throw unavailable();
+    });
+    h.store.request('t1', { pv: PV, archiver: undefined, window: windowAt(T0_MS, 30) });
+    h.store.request('t2', { pv: PV, archiver: undefined, window: windowAt(T0_MS, 30) });
+    await flush();
+    h.store.release('t1');
+    await idle(h, 500);
+    h.store.refetchAll();
+    await idle(h, 1_200);
+    // t1 and t2 at 0; t2 again on refetchAll() at 0.5 s, then 1 s after that
+    // failure. Neither 0 s failure retries at 1 s.
+    expect(times).toEqual([0, 0, 0.5, 1.5]);
+  });
+
   it('recovers when the archiver comes back, and resets the backoff', async () => {
     let up = false;
     let failures = 0;
@@ -317,10 +389,10 @@ describe('archiveStore: other failures back off', () => {
     expect(h.store.getSnapshot().get('t1')?.status).toBe('ready');
 
     // The next failure (once drift uncovers the window) backs off from the
-    // first step again: two attempts within 4 s, not one per 15 s.
+    // first step again: two attempts within 3 s, not one per 15 s.
     up = false;
     failures = 0;
-    await drift(h, { spanS: 30, steps: 40 });
+    await drift(h, { spanS: 30, steps: 30 });
     expect(failures).toBe(2);
   });
 

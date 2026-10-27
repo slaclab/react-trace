@@ -123,7 +123,8 @@ interface Failure extends ArchiveErrorInfo {
   notArchived: boolean;
   // Consecutive transient failures; drives the backoff step.
   attempts: number;
-  // Transient only: no automatic retry before this wall-clock time (ms).
+  // Transient only: retried at this wall-clock time (ms), by a timer or by
+  // the first request() after it.
   retryAtMs: number;
   // Span of the request that failed. A different span (a new time range or a
   // zoom) retries a not-archived entry once.
@@ -148,6 +149,8 @@ interface InternalEntry {
   // coverage. Distinguishes an archived PV with no samples in the window
   // (covered, empty) from one never loaded.
   hasCover: boolean;
+  // Pending retry of `wanted` after a transient failure (see scheduleRetry).
+  retryTimer: ReturnType<typeof setTimeout> | null;
 }
 
 export interface RequestOpts {
@@ -405,6 +408,7 @@ export class ArchiveStore {
     const entry = this.entries.get(traceId);
     if (!entry) return;
     entry.controller?.abort();
+    this.clearRetry(entry);
     this.entries.delete(traceId);
     this.publish();
   }
@@ -422,6 +426,7 @@ export class ArchiveStore {
     this.notArchived.clear();
     for (const [traceId, entry] of this.entries) {
       entry.controller?.abort();
+      this.clearRetry(entry);
 
       const opts = entry.wanted;
       const { fetchSig, mode } = resolveRequest(opts);
@@ -452,6 +457,8 @@ export class ArchiveStore {
    *   (plus TAIL_OVERLAP_MS) and splice it in, keeping status 'ready'. An
    *   in-flight fetch isn't aborted for a forward slide.
    * - Last fetch failed for another reason: no fetch until its backoff expires.
+   *   Then a timer retries the latest request, so a window that never moves
+   *   retries too.
    * - Same identity, fetch signature or window changed: keep the prior buffer
    *   on screen, flip status to 'loading', fire a new fetch. Mode flips
    *   (binned ↔ raw) live in this branch — they refetch but don't wipe, so
@@ -485,6 +492,7 @@ export class ArchiveStore {
         } else {
           // Another trace or the Data Insight Tool learned it first: adopt the
           // verdict instead of sending our own 404.
+          this.clearRetry(existing);
           existing.fetchSig = fetchSig;
           existing.failure = notArchivedFailure(known, spanNs);
           existing.data = { ...existing.data, status: 'error', error: { ...known } };
@@ -525,7 +533,10 @@ export class ArchiveStore {
     } else if (known) {
       // New trace (or new identity) for a pair already known not to be
       // archived: show that straight away, no fetch.
-      existing?.controller?.abort();
+      if (existing) {
+        existing.controller?.abort();
+        this.clearRetry(existing);
+      }
       this.entries.set(traceId, {
         identityKey,
         fetchSig,
@@ -545,12 +556,16 @@ export class ArchiveStore {
         controller: null,
         failure: notArchivedFailure(known, spanNs),
         hasCover: false,
+        retryTimer: null,
       });
       this.publish();
       return;
     }
 
-    if (existing) existing.controller?.abort();
+    if (existing) {
+      existing.controller?.abort();
+      this.clearRetry(existing);
+    }
 
     const prevData = sameIdentity ? existing!.data : undefined;
     const sigUnchanged = sameIdentity && fetchSigEqual(existing!.fetchSig, fetchSig);
@@ -586,6 +601,7 @@ export class ArchiveStore {
       controller,
       failure: sameIdentity ? existing!.failure : null,
       hasCover: sameIdentity ? existing!.hasCover : false,
+      retryTimer: null,
     };
     this.entries.set(traceId, entry);
     if (!keepShowing) this.publish();
@@ -650,8 +666,34 @@ export class ArchiveStore {
       }
       cur.data = { ...cur.data, status: 'error', error: info };
       cur.controller = null;
+      this.scheduleRetry(traceId, cur);
       this.publish();
     }
+  }
+
+  // After a transient failure, retry the latest request once the backoff
+  // expires. A window that never moves (a fixed range, or one panned into the
+  // past) gets no other request() to retry it.
+  private scheduleRetry(traceId: string, entry: InternalEntry): void {
+    this.clearRetry(entry);
+    const failure = entry.failure;
+    if (!failure || failure.notArchived) return;
+    entry.retryTimer = setTimeout(() => {
+      entry.retryTimer = null;
+      // Released, refreshed, or answered since.
+      if (this.entries.get(traceId) !== entry || entry.failure !== failure || entry.controller) {
+        return;
+      }
+      // Early by the injected clock: wait out the rest.
+      if (this.now() < failure.retryAtMs) this.scheduleRetry(traceId, entry);
+      else this.request(traceId, entry.wanted);
+    }, failure.retryAtMs - this.now());
+  }
+
+  private clearRetry(entry: InternalEntry): void {
+    if (entry.retryTimer === null) return;
+    clearTimeout(entry.retryTimer);
+    entry.retryTimer = null;
   }
 
   // True when the registry changed (the caller publishes).
