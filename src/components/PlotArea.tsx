@@ -15,6 +15,14 @@ import { traceLabel } from '../traceLabel';
 import { useColorMode } from '../state/themeStore';
 import type { PngSource } from '../io/exportPlotImage';
 import {
+  gappedLineData,
+  invalidMarkerSeries,
+  invalidStretches,
+  isInvalid,
+  xAxisLabelMargin,
+  type PlotSample,
+} from './invalidGaps';
+import {
   AXIS_OFFSET,
   hitTestAxis,
   panExtent,
@@ -169,42 +177,37 @@ const EXTENSION_ANCHORS = 2048;
 // each point through its option preprocessors. With plain [t, v] pairs that was
 // most of the cost of an update, and a following plot updates on every scroll
 // step as well as on every live batch.
-function xyData(points: readonly [number, number][]): Float64Array {
+function xyData(points: readonly PlotSample[]): Float64Array {
   const out = new Float64Array(points.length * 2);
   for (let i = 0; i < points.length; i++) {
-    out[2 * i] = points[i][0];
-    out[2 * i + 1] = points[i][1];
+    out[2 * i] = points[i].time;
+    out[2 * i + 1] = points[i].value;
   }
   return out;
 }
 
-function traceLineData(
+function traceSamples(
   trace: PVTrace,
   archive: ArchiveSeriesResult | undefined,
   live: LiveSeriesResult | undefined,
   formula: FormulaSeriesResult | undefined
-): [number, number][] {
+): readonly PlotSample[] {
   // Formula curves are evaluated server-side (Fox); their points are the only
   // source — no archive/live merge, no mock seed.
   if (trace.kind === 'formula') {
-    return formula ? formula.points : [];
+    return formula ? formula.points.map(([time, value]) => ({ time, value })) : [];
   }
   // Mirror old Trace's independent toggles. Archive feeds the past, live
   // feeds the present; with both on, archive runs up to the last archive
-  // sample and live takes over afterwards (de-duped at the seam).
-  const archivePts =
-    trace.useArchive && archive && archive.mean.length > 0
-      ? archive.mean.map((p): [number, number] => [p.time, p.value])
-      : null;
-  const livePts =
-    trace.useLive && live && live.points.length > 0
-      ? live.points.map((p): [number, number] => [p.time, p.value])
-      : null;
+  // sample and live takes over afterwards (de-duped at the seam). Both keep
+  // their per-sample severity.
+  const archivePts = trace.useArchive && archive && archive.mean.length > 0 ? archive.mean : null;
+  const livePts = trace.useLive && live && live.points.length > 0 ? live.points : null;
 
   if (archivePts && livePts) {
-    const seamMs = archivePts[archivePts.length - 1][0];
+    const seamMs = archivePts[archivePts.length - 1].time;
     let head = 0;
-    while (head < livePts.length && livePts[head][0] <= seamMs) head++;
+    while (head < livePts.length && livePts[head].time <= seamMs) head++;
     return head === 0 ? archivePts.concat(livePts) : archivePts.concat(livePts.slice(head));
   }
   if (archivePts) return archivePts;
@@ -213,29 +216,25 @@ function traceLineData(
   // no archive: render nothing rather than the mock seed. Mock data stays
   // for traces with neither toggle on, since there's no other source to show.
   if (trace.useLive || trace.useArchive) return [];
-  return trace.data.map((p) => [p.time, p.value]);
+  return trace.data;
 }
 
 // Binary search for the sample whose `time` is nearest to `tMs`. Series are
 // always sorted ascending by time (archive buffer + mock generator both honor
 // this), so we don't sort here.
-function nearestSample(
-  data: [number, number][],
-  tMs: number
-): { time: number; value: number } | undefined {
+function nearestSample(data: readonly PlotSample[], tMs: number): PlotSample | undefined {
   if (data.length === 0) return undefined;
   let lo = 0;
   let hi = data.length - 1;
-  if (tMs <= data[lo][0]) return { time: data[lo][0], value: data[lo][1] };
-  if (tMs >= data[hi][0]) return { time: data[hi][0], value: data[hi][1] };
+  if (tMs <= data[lo].time) return data[lo];
+  if (tMs >= data[hi].time) return data[hi];
   while (hi - lo > 1) {
     const mid = (lo + hi) >> 1;
-    if (data[mid][0] <= tMs) lo = mid;
+    if (data[mid].time <= tMs) lo = mid;
     else hi = mid;
   }
-  const pickHi = data[hi][0] - tMs < tMs - data[lo][0];
-  const idx = pickHi ? hi : lo;
-  return { time: data[idx][0], value: data[idx][1] };
+  const pickHi = data[hi].time - tMs < tMs - data[lo].time;
+  return pickHi ? data[hi] : data[lo];
 }
 
 export function SinglePlot({
@@ -260,135 +259,155 @@ export function SinglePlot({
   // memoized apart from the display clock: while a plot scrolls (useFollowNow)
   // it re-renders on animation frames with these inputs unchanged, so the
   // remapped samples and the band and line series stay the same objects, and
-  // the option compare short-circuits on them. Only the x-axis extent and the
-  // extension lines depend on the clock.
-  const { visibleAxes, visibleTraces, labels, axisIndexMap, orderedTraces, traceData, baseSeries } =
-    useMemo(() => {
-      const visibleAxes = plot.axes.filter((a) => a.visible);
-      const visibleTraces = plot.traces.filter((t) => t.visible);
-      const labels = new Map(plot.traces.map((t) => [t.id, traceLabel(t, plot.traces)]));
+  // the option compare short-circuits on them. Only the x-axis extent, the
+  // extension lines and the INVALID markers depend on the clock.
+  const {
+    visibleAxes,
+    visibleTraces,
+    labels,
+    axisIndexMap,
+    orderedTraces,
+    traceData,
+    baseSeries,
+    tracesWithInvalid,
+  } = useMemo(() => {
+    const visibleAxes = plot.axes.filter((a) => a.visible);
+    const visibleTraces = plot.traces.filter((t) => t.visible);
+    const labels = new Map(plot.traces.map((t) => [t.id, traceLabel(t, plot.traces)]));
 
-      // ECharts links series to axes by index, so we track index per axis id.
-      const axisIndexMap = new Map<string, number>();
-      visibleAxes.forEach((axis, idx) => axisIndexMap.set(axis.id, idx));
+    // ECharts links series to axes by index, so we track index per axis id.
+    const axisIndexMap = new Map<string, number>();
+    visibleAxes.forEach((axis, idx) => axisIndexMap.set(axis.id, idx));
 
-      // Per-trace [time, value] arrays; series rendering and the tooltip
-      // formatter both read from this map. Sorted ascending by time.
-      const traceData = new Map<string, [number, number][]>();
+    // Per-trace samples; series rendering and the tooltip formatter both
+    // read from this map. Sorted ascending by time.
+    const traceData = new Map<string, readonly PlotSample[]>();
+    for (const trace of visibleTraces) {
+      traceData.set(
+        trace.id,
+        traceSamples(
+          trace,
+          archiveResults.get(trace.id),
+          liveResults.get(trace.id),
+          formulaResults.get(trace.id)
+        )
+      );
+    }
+
+    // Order traces by axis (in panel order) then by their position within
+    // each axis. Earlier axis / earlier trace draws on top — assign higher
+    // `z` values to those, and pin the order with `emphasis.disabled` so
+    // hover doesn't shuffle the depth.
+    const orderedTraces: { trace: PVTrace; yAxisIndex: number; baseZ: number }[] = [];
+    for (const axis of visibleAxes) {
       for (const trace of visibleTraces) {
-        traceData.set(
-          trace.id,
-          traceLineData(
-            trace,
-            archiveResults.get(trace.id),
-            liveResults.get(trace.id),
-            formulaResults.get(trace.id)
-          )
-        );
-      }
-
-      // Order traces by axis (in panel order) then by their position within
-      // each axis. Earlier axis / earlier trace draws on top — assign higher
-      // `z` values to those, and pin the order with `emphasis.disabled` so
-      // hover doesn't shuffle the depth.
-      const orderedTraces: { trace: PVTrace; yAxisIndex: number; baseZ: number }[] = [];
-      for (const axis of visibleAxes) {
-        for (const trace of visibleTraces) {
-          if (trace.axisId === axis.id) {
-            orderedTraces.push({ trace, yAxisIndex: axisIndexMap.get(axis.id) ?? 0, baseZ: 0 });
-          }
+        if (trace.axisId === axis.id) {
+          orderedTraces.push({ trace, yAxisIndex: axisIndexMap.get(axis.id) ?? 0, baseZ: 0 });
         }
       }
-      orderedTraces.forEach((t, i) => (t.baseZ = (orderedTraces.length - i) * 10));
+    }
+    orderedTraces.forEach((t, i) => (t.baseZ = (orderedTraces.length - i) * 10));
 
-      // Each trace's min/max band and main line.
-      const baseSeries = new Map<string, Record<string, unknown>[]>();
-      for (const { trace, yAxisIndex, baseZ } of orderedTraces) {
-        const archive = archiveResults.get(trace.id);
-        const series: Record<string, unknown>[] = [];
+    // Each trace's min/max band and main line.
+    const baseSeries = new Map<string, Record<string, unknown>[]>();
+    // Drawn traces with an INVALID sample, the only ones whose stretches the
+    // marker lanes below need to scan for on each frame.
+    const tracesWithInvalid = new Set<string>();
+    for (const { trace, yAxisIndex, baseZ } of orderedTraces) {
+      const archive = archiveResults.get(trace.id);
+      const points = traceData.get(trace.id) ?? [];
+      const step = trace.lineType === 'step';
+      const series: Record<string, unknown>[] = [];
+      if (points.some(isInvalid)) tracesWithInvalid.add(trace.id);
 
-        // Min/max band, drawn as two stacked area series so ECharts fills between them.
-        // Keep the previous band rendered while a fetch is in flight (status may
-        // be 'loading') so the band doesn't disappear during panning/zooming.
-        if (
-          trace.useArchive &&
-          trace.showArchiveBand !== false &&
-          archive &&
-          archive.mode === 'binned' &&
-          archive.band.length > 0
-        ) {
-          const stackId = `band-${trace.id}`;
-          series.push({
-            id: `${trace.id}-band-min`,
-            name: `${labels.get(trace.id)} (min)`,
-            type: 'line',
-            yAxisIndex,
-            data: archive.band.map((p) => [p.time, p.min]),
-            stack: stackId,
-            lineStyle: { opacity: 0 },
-            areaStyle: { opacity: 0 },
-            symbol: 'none',
-            showInLegend: false,
-            tooltip: { show: false },
-            silent: true,
-            animation: false,
-            z: baseZ,
-            emphasis: { disabled: true },
-          });
-          series.push({
-            id: `${trace.id}-band-max`,
-            name: `${labels.get(trace.id)} (max)`,
-            type: 'line',
-            yAxisIndex,
-            data: archive.band.map((p) => [p.time, p.max - p.min]),
-            stack: stackId,
-            lineStyle: { opacity: 0 },
-            areaStyle: { color: trace.color, opacity: 0.18 },
-            symbol: 'none',
-            showInLegend: false,
-            tooltip: { show: false },
-            silent: true,
-            animation: false,
-            z: baseZ,
-            emphasis: { disabled: true },
-          });
-        }
-
+      // Min/max band, drawn as two stacked area series so ECharts fills between them.
+      // Keep the previous band rendered while a fetch is in flight (status may
+      // be 'loading') so the band doesn't disappear during panning/zooming.
+      // Both break at the same INVALID points as the line (and hold like it).
+      if (
+        trace.useArchive &&
+        trace.showArchiveBand !== false &&
+        archive &&
+        archive.mode === 'binned' &&
+        archive.band.length > 0
+      ) {
+        const stackId = `band-${trace.id}`;
         series.push({
-          id: trace.id,
-          name: labels.get(trace.id),
+          id: `${trace.id}-band-min`,
+          name: `${labels.get(trace.id)} (min)`,
           type: 'line',
           yAxisIndex,
-          data: xyData(traceData.get(trace.id) ?? []),
-          step: trace.lineType === 'step' ? 'end' : false,
-          lineStyle: {
-            color: trace.color,
-            width: trace.lineWidth,
-            type: echartsLineType(trace.lineStyle),
-            opacity: trace.lineStyle === 'none' ? 0 : 1,
-          },
-          itemStyle: { color: trace.color },
-          symbol: trace.showSymbol ? echartsSymbol(trace.symbolShape) : 'none',
-          symbolSize: trace.symbolSize,
-          showSymbol: trace.showSymbol,
-          sampling: 'lttb',
+          data: gappedLineData(archive.band, (p) => p.min, step),
+          stack: stackId,
+          lineStyle: { opacity: 0 },
+          areaStyle: { opacity: 0 },
+          symbol: 'none',
+          showInLegend: false,
+          tooltip: { show: false },
+          silent: true,
           animation: false,
-          z: baseZ + 1,
+          z: baseZ,
           emphasis: { disabled: true },
         });
-        baseSeries.set(trace.id, series);
+        series.push({
+          id: `${trace.id}-band-max`,
+          name: `${labels.get(trace.id)} (max)`,
+          type: 'line',
+          yAxisIndex,
+          data: gappedLineData(archive.band, (p) => p.max - p.min, step),
+          stack: stackId,
+          lineStyle: { opacity: 0 },
+          areaStyle: { color: trace.color, opacity: 0.18 },
+          symbol: 'none',
+          showInLegend: false,
+          tooltip: { show: false },
+          silent: true,
+          animation: false,
+          z: baseZ,
+          emphasis: { disabled: true },
+        });
       }
 
-      return {
-        visibleAxes,
-        visibleTraces,
-        labels,
-        axisIndexMap,
-        orderedTraces,
-        traceData,
-        baseSeries,
-      };
-    }, [plot.traces, plot.axes, archiveResults, liveResults, formulaResults]);
+      series.push({
+        id: trace.id,
+        name: labels.get(trace.id),
+        type: 'line',
+        yAxisIndex,
+        // Typed unless it has to break at an INVALID sample: the nulls and
+        // step-line hold points need plain point data.
+        data: tracesWithInvalid.has(trace.id)
+          ? gappedLineData(points, (p) => p.value, step)
+          : xyData(points),
+        step: step ? 'end' : false,
+        lineStyle: {
+          color: trace.color,
+          width: trace.lineWidth,
+          type: echartsLineType(trace.lineStyle),
+          opacity: trace.lineStyle === 'none' ? 0 : 1,
+        },
+        itemStyle: { color: trace.color },
+        symbol: trace.showSymbol ? echartsSymbol(trace.symbolShape) : 'none',
+        symbolSize: trace.symbolSize,
+        showSymbol: trace.showSymbol,
+        sampling: 'lttb',
+        animation: false,
+        z: baseZ + 1,
+        emphasis: { disabled: true },
+      });
+      baseSeries.set(trace.id, series);
+    }
+
+    return {
+      visibleAxes,
+      visibleTraces,
+      labels,
+      axisIndexMap,
+      orderedTraces,
+      traceData,
+      baseSeries,
+      tracesWithInvalid,
+    };
+  }, [plot.traces, plot.axes, archiveResults, liveResults, formulaResults]);
 
   const chartRef = useRef<ReactECharts>(null);
   // Our own wrapper around the chart; the per-axis pointer listeners attach
@@ -775,26 +794,42 @@ export function SinglePlot({
   const xAxisMin = nsToMs(requested.fromNs);
   const xAxisMax = nsToMs(requested.toNs);
 
+  // INVALID stretches per trace, and the marker lane each trace draws them in.
+  // Only drawn traces take a lane, in draw order, so a trace on a hidden axis
+  // doesn't push the drawn ones into the shared last lane. Stretches outside
+  // the window take none, and an open one runs to the right edge, so this
+  // follows the axis as it scrolls.
+  const invalidByTrace = useMemo(() => {
+    const out = new Map<string, { stretches: [number, number][]; lane: number }>();
+    for (const { trace } of orderedTraces) {
+      if (!tracesWithInvalid.has(trace.id)) continue;
+      const stretches = invalidStretches(traceData.get(trace.id) ?? [], xAxisMin, xAxisMax);
+      if (stretches.length > 0) out.set(trace.id, { stretches, lane: out.size });
+    }
+    return out;
+  }, [orderedTraces, traceData, tracesWithInvalid, xAxisMin, xAxisMax]);
+
   // Extension lines: a dashed line from each trace's last sample to the right
   // edge. A following plot is never zoomed (a pan or zoom stops it following),
   // so two points do, and moving them as the axis scrolls costs nothing. A
   // frozen plot can be zoomed, so it gets the dense anchors; its axis holds
-  // still, so they're only rebuilt when the samples change.
+  // still, so they're only rebuilt when the samples change. None from an
+  // INVALID last sample: the marker covers that stretch.
   const extensionSeries = useMemo(() => {
     const out = new Map<string, Record<string, unknown>>();
     const anchors = following ? 2 : EXTENSION_ANCHORS;
     for (const { trace, yAxisIndex, baseZ } of orderedTraces) {
       if (trace.showExtensionLine === false || trace.lineStyle === 'none') continue;
       const last = traceData.get(trace.id)?.at(-1);
-      if (!last || last[0] >= xAxisMax) continue;
-      const startMs = Math.max(last[0], xAxisMin);
+      if (!last || isInvalid(last) || last.time >= xAxisMax) continue;
+      const startMs = Math.max(last.time, xAxisMin);
       const data = new Float64Array(anchors * 2);
       for (let k = 0; k < anchors; k++) {
         // The last anchor sits exactly on the edge; a rounding step past it
         // would be filtered out and take a two-point line with it.
         data[2 * k] =
           k === anchors - 1 ? xAxisMax : startMs + ((xAxisMax - startMs) * k) / (anchors - 1);
-        data[2 * k + 1] = last[1];
+        data[2 * k + 1] = last.value;
       }
       out.set(trace.id, {
         id: `${trace.id}-extension`,
@@ -865,7 +900,13 @@ export function SinglePlot({
       max: xAxisMax,
       // ECharts keeps its time-tick spacing however narrow the chart is (e.g.
       // grid cells), so drop labels that would overlap rather than run together.
-      axisLabel: { color: theme.axisLabel, fontSize: plot.tickFontSize, hideOverlap: true },
+      axisLabel: {
+        color: theme.axisLabel,
+        fontSize: plot.tickFontSize,
+        hideOverlap: true,
+        // Clear the INVALID markers drawn under the axis.
+        margin: xAxisLabelMargin(invalidByTrace.size),
+      },
       axisLine: { lineStyle: { color: theme.axisLine } },
       splitLine: {
         show: plot.showXGridlines,
@@ -903,10 +944,25 @@ export function SinglePlot({
         lineStyle: { color: theme.splitLine, type: plot.gridStyle, opacity: plot.gridOpacity },
       },
     })),
-    series: orderedTraces.flatMap(({ trace }) => {
+    series: orderedTraces.flatMap(({ trace, yAxisIndex, baseZ }) => {
+      const out = [...(baseSeries.get(trace.id) ?? [])];
+      const invalid = invalidByTrace.get(trace.id);
+      if (invalid) {
+        out.push(
+          invalidMarkerSeries({
+            id: `${trace.id}-invalid`,
+            name: `${labels.get(trace.id)} (invalid)`,
+            color: trace.color,
+            yAxisIndex,
+            lane: invalid.lane,
+            stretches: invalid.stretches,
+            z: baseZ + 1,
+          })
+        );
+      }
       const ext = extensionSeries.get(trace.id);
-      const base = baseSeries.get(trace.id) ?? [];
-      return ext ? [...base, ext] : base;
+      if (ext) out.push(ext);
+      return out;
     }),
     dataZoom: [
       {
@@ -954,8 +1010,10 @@ export function SinglePlot({
         for (const trace of visibleTraces) {
           const data = traceData.get(trace.id);
           const sample = data ? nearestSample(data, cursorMs) : undefined;
+          const severity =
+            sample?.severity && sample.severity !== 'NO_ALARM' ? ` ${sample.severity}` : '';
           const valueCell = sample
-            ? `${formatTooltipValue(sample.value)} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
+            ? `${formatTooltipValue(sample.value)}${severity} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
             : `<span style="color:${theme.tooltipMuted}">no data</span>`;
           lines.push(
             `<span style="color:${trace.color}">${labels.get(trace.id)}</span>: ${valueCell}`
