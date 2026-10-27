@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 //
-// The Plot tab's X-Axis (Time) section: the refresh interval's helper text
-// says when a short span caps the interval (see refreshIntervalMs), since the
-// field still shows the interval the user set.
+// The Plot tab's X-Axis (Time) section: the time range presets, and the
+// refresh interval's helper text, which says when a short span caps the
+// interval (see refreshIntervalMs) since the field still shows the one the
+// user set.
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { RightPanel } from './RightPanel';
@@ -65,10 +66,10 @@ function plotSettingsPanel(plot: Plot) {
   );
 }
 
-describe('Refresh interval helper text', () => {
-  afterEach(cleanup);
-  afterAll(() => vi.unstubAllGlobals());
+afterEach(cleanup);
+afterAll(() => vi.unstubAllGlobals());
 
+describe('Refresh interval helper text', () => {
   it('says what the interval controls when the span allows it', () => {
     render(plotSettingsPanel(makePlot({ refreshIntervalS: 60 })));
     expect(
@@ -81,5 +82,17 @@ describe('Refresh interval helper text', () => {
     expect(screen.getByText(/refresh every 5 s at this span/)).toBeTruthy();
     // The field keeps the interval the user set.
     expect((screen.getByLabelText('Refresh interval (s)') as HTMLInputElement).value).toBe('60');
+  });
+});
+
+describe('Time Range presets', () => {
+  // A typed "1m" span commits "-1m", the same value as the preset, so the
+  // dropdown shows Last 1 Minute instead of a separate "Last 1m" option.
+  it('selects Last 1 Minute for a -1m range, with no extra option', () => {
+    render(plotSettingsPanel(makePlot({ xAxis: { timeRange: '-1m' } })));
+    const select = screen.getByLabelText('Time Range') as HTMLSelectElement;
+    expect(select.value).toBe('-1m');
+    expect(select.selectedOptions[0].textContent).toBe('Last 1 Minute');
+    expect([...select.options].filter((o) => o.value === '-1m')).toHaveLength(1);
   });
 });
