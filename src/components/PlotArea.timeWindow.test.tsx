@@ -15,7 +15,7 @@ const { captured, fakeInstance } = vi.hoisted(() => {
   const captured: {
     option: {
       xAxis: { min: number; max: number };
-      series: { id: string; data: [number, number][] }[];
+      series: { id: string; data: Float64Array }[];
     } | null;
     onEvents: Record<string, () => void>;
   } = { option: null, onEvents: {} };
@@ -349,6 +349,11 @@ describe('SinglePlot smooth scrolling', () => {
   });
 
   const seriesData = (id: string) => captured.option!.series.find((s) => s.id === id)?.data;
+  // A series' flat [t0, v0, t1, v1, ...] data as [t, v] pairs.
+  const points = (id: string) => {
+    const flat = Array.from(seriesData(id)!);
+    return Array.from({ length: flat.length / 2 }, (_, i) => [flat[2 * i], flat[2 * i + 1]]);
+  };
 
   it("reuses the samples' series data across frames, and rebuilds it for new samples", () => {
     const plot = makePlot({ xAxis: { timeRange: '-30s' } });
@@ -356,38 +361,46 @@ describe('SinglePlot smooth scrolling', () => {
     const { rerender, unmount } = render(plotEl(plot, T0, live, true));
     frameAt(T0 + 1000);
     const line = seriesData('t1');
-    const ext = seriesData('t1-extension');
-    expect(line).toEqual([
+    // Typed, so ECharts doesn't deep-clone and walk every point on each update.
+    expect(line).toBeInstanceOf(Float64Array);
+    expect(points('t1')).toEqual([
       [T0 - 2000, 1],
       [T0 - 1000, 2],
     ]);
     frameAt(T0 + 1500);
     expect(xAxis().max).toBe(T0 + 1500);
-    // The axis moved; the line and the extension's anchors didn't.
+    // The axis moved; the line didn't.
     expect(seriesData('t1')).toBe(line);
-    expect(seriesData('t1-extension')).toBe(ext);
 
     rerender(plotEl(plot, T0, liveBatch(T0 + 1000), true));
     expect(seriesData('t1')).not.toBe(line);
-    expect(seriesData('t1-extension')).not.toBe(ext);
     unmount();
   });
 
-  it('runs the extension line from the last sample past the right edge as it scrolls', () => {
+  it('runs a two-point extension from the last sample to the right edge as it scrolls', () => {
     const plot = makePlot({ xAxis: { timeRange: '-30s' } });
     const { unmount } = render(plotEl(plot, T0, liveBatch(T0 - 1000), true));
     for (const atMs of [T0 + 1000, T0 + 29_000, T0 + 45_000]) {
       frameAt(atMs);
-      const ext = seriesData('t1-extension')!;
-      // From the last sample (T0 - 1 s), or from no later than the left edge
-      // once that has scrolled past it, to at least the right edge.
-      expect(ext[0][0]).toBeGreaterThanOrEqual(T0 - 1000);
-      expect(ext[0][0]).toBeLessThanOrEqual(Math.max(T0 - 1000, xAxis().min));
-      expect(ext[0][1]).toBe(2);
-      expect(ext.at(-1)![0]).toBeGreaterThanOrEqual(xAxis().max);
-      // Dense enough inside the window that a zoom keeps some of it.
-      expect(ext[1][0] - ext[0][0]).toBeLessThanOrEqual(30_000 / 2047);
+      // From the last sample (T0 - 1 s), or from the left edge once that has
+      // scrolled past it, to exactly the right edge: a point past it would be
+      // filtered out.
+      expect(points('t1-extension')).toEqual([
+        [Math.max(T0 - 1000, xAxis().min), 2],
+        [xAxis().max, 2],
+      ]);
     }
+    unmount();
+  });
+
+  it("gives a frozen plot's extension anchors dense enough to survive a zoom", () => {
+    const plot = makePlot({ xAxis: { timeRange: '-30s' }, autoScroll: false });
+    const { unmount } = render(plotEl(plot, T0, liveBatch(T0 - 1000), false));
+    const ext = points('t1-extension');
+    expect(ext).toHaveLength(2048);
+    expect(ext[0]).toEqual([T0 - 1000, 2]);
+    expect(ext.at(-1)).toEqual([T0, 2]);
+    expect(ext[1][0] - ext[0][0]).toBeCloseTo(1000 / 2047, 3);
     unmount();
   });
 

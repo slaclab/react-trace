@@ -159,10 +159,24 @@ function formatTimeOffset(deltaMs: number): string {
   return `${sign}${(abs / 86_400_000).toFixed(1)}d`;
 }
 
-// Anchor points per span of an extension line. A two-point line would vanish
+// Anchor points of a frozen plot's extension line. A two-point line would vanish
 // under a zoom that sits inside it: weakFilter keeps a point only if it's in the
 // window, so the line needs anchors this dense to survive any zoom depth.
 const EXTENSION_ANCHORS = 2048;
+
+// Line series data as a flat [t0, v0, t1, v1, ...] typed array. ECharts treats
+// typed-array data as primitive, so setOption neither deep-clones it nor runs
+// each point through its option preprocessors. With plain [t, v] pairs that was
+// most of the cost of an update, and a following plot updates on every scroll
+// step as well as on every live batch.
+function xyData(points: readonly [number, number][]): Float64Array {
+  const out = new Float64Array(points.length * 2);
+  for (let i = 0; i < points.length; i++) {
+    out[2 * i] = points[i][0];
+    out[2 * i + 1] = points[i][1];
+  }
+  return out;
+}
 
 function traceLineData(
   trace: PVTrace,
@@ -345,7 +359,7 @@ export function SinglePlot({
           name: labels.get(trace.id),
           type: 'line',
           yAxisIndex,
-          data: traceData.get(trace.id) ?? [],
+          data: xyData(traceData.get(trace.id) ?? []),
           step: trace.lineType === 'step' ? 'end' : false,
           lineStyle: {
             color: trace.color,
@@ -762,28 +776,26 @@ export function SinglePlot({
   const xAxisMax = nsToMs(requested.toNs);
 
   // Extension lines: a dashed line from each trace's last sample to the right
-  // edge. The anchors cover the span-aligned bucket the window starts in plus
-  // one more span, so a scrolling window stays inside them and they're rebuilt
-  // once per span of scrolling instead of on every frame. The grid clips what
-  // lies past the axis.
-  const spanMs = Math.max(1, xAxisMax - xAxisMin);
-  const bucketStartMs = Math.floor(xAxisMin / spanMs) * spanMs;
+  // edge. A following plot is never zoomed (a pan or zoom stops it following),
+  // so two points do, and moving them as the axis scrolls costs nothing. A
+  // frozen plot can be zoomed, so it gets the dense anchors; its axis holds
+  // still, so they're only rebuilt when the samples change.
   const extensionSeries = useMemo(() => {
     const out = new Map<string, Record<string, unknown>>();
-    const endMs = bucketStartMs + 2 * spanMs;
-    // Anchors at least this close, as when they spanned only the window, so
-    // weakFilter always finds in-window points at any zoom depth.
-    const stepMs = spanMs / (EXTENSION_ANCHORS - 1);
+    const anchors = following ? 2 : EXTENSION_ANCHORS;
     for (const { trace, yAxisIndex, baseZ } of orderedTraces) {
       if (trace.showExtensionLine === false || trace.lineStyle === 'none') continue;
       const last = traceData.get(trace.id)?.at(-1);
-      if (!last || last[0] >= endMs) continue;
-      const startMs = Math.max(last[0], bucketStartMs);
-      const count = Math.ceil((endMs - startMs) / stepMs) + 1;
-      const data = Array.from({ length: count }, (_, k): [number, number] => [
-        k === count - 1 ? endMs : startMs + k * stepMs,
-        last[1],
-      ]);
+      if (!last || last[0] >= xAxisMax) continue;
+      const startMs = Math.max(last[0], xAxisMin);
+      const data = new Float64Array(anchors * 2);
+      for (let k = 0; k < anchors; k++) {
+        // The last anchor sits exactly on the edge; a rounding step past it
+        // would be filtered out and take a two-point line with it.
+        data[2 * k] =
+          k === anchors - 1 ? xAxisMax : startMs + ((xAxisMax - startMs) * k) / (anchors - 1);
+        data[2 * k + 1] = last[1];
+      }
       out.set(trace.id, {
         id: `${trace.id}-extension`,
         name: `${trace.displayName} (extension)`,
@@ -808,7 +820,7 @@ export function SinglePlot({
       });
     }
     return out;
-  }, [orderedTraces, traceData, bucketStartMs, spanMs]);
+  }, [orderedTraces, traceData, xAxisMin, xAxisMax, following]);
 
   // Grid insets. Named so the per-axis hit-zones (below) derive from the exact
   // same numbers ECharts lays the grid out with.
