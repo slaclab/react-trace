@@ -13,7 +13,7 @@ vi.mock('../api/magpie', () => ({
   deleteConfig: vi.fn(),
 }));
 
-import { deleteConfig, listConfigs, saveConfig } from '../api/magpie';
+import { deleteConfig, getConfig, listConfigs, saveConfig } from '../api/magpie';
 
 const plot: Plot = {
   id: 'plot-1',
@@ -49,14 +49,20 @@ const listedConfig: ConfigDTO = {
   name: 'Test config',
 };
 
-function renderModal(onToast = vi.fn()) {
+const secondListedConfig: ConfigDTO = {
+  ...listedConfig,
+  slug: 'second-config',
+  name: 'Second config',
+};
+
+function renderModal(onToast = vi.fn(), onLoaded = vi.fn()) {
   return render(
     <ConfigStoreModal
       open
       plots={[plot]}
       theme="dark"
       onClose={vi.fn()}
-      onLoaded={vi.fn()}
+      onLoaded={onLoaded}
       onToast={onToast}
     />
   );
@@ -161,5 +167,66 @@ describe('ConfigStoreModal', () => {
 
     await waitFor(() => expect(deleteConfig).toHaveBeenCalledWith('test-config'));
     await screen.findByText('No saved configs yet.');
+  });
+
+  it('aborts superseded loads and only applies the latest response', async () => {
+    vi.mocked(listConfigs).mockResolvedValue({
+      results: [listedConfig, secondListedConfig],
+      continuationToken: null,
+      totalCount: 2,
+    });
+    const requests: {
+      signal: AbortSignal;
+      resolve: (value: ConfigDTO) => void;
+    }[] = [];
+    vi.mocked(getConfig).mockImplementation(
+      (_slug, signal) =>
+        new Promise((resolve) => {
+          requests.push({ signal: signal!, resolve });
+        })
+    );
+    const onLoaded = vi.fn();
+    renderModal(undefined, onLoaded);
+    await screen.findByText('test-config');
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Load' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Load' })[1]);
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0].signal.aborted).toBe(true);
+
+    const data = { schemaVersion: 1, plots: [plot] };
+    requests[0].resolve({ ...listedConfig, data });
+    requests[1].resolve({ ...secondListedConfig, data });
+
+    await waitFor(() => expect(onLoaded).toHaveBeenCalledTimes(1));
+    expect(onLoaded).toHaveBeenCalledWith(
+      expect.objectContaining({ plots: [expect.objectContaining({ id: 'plot-1' })] })
+    );
+  });
+
+  it('aborts a pending load when the modal unmounts', async () => {
+    vi.mocked(listConfigs).mockResolvedValue({
+      results: [listedConfig],
+      continuationToken: null,
+      totalCount: 1,
+    });
+    vi.mocked(getConfig).mockImplementation(
+      (_slug, signal) =>
+        new Promise(() => {
+          expect(signal).toBeDefined();
+        })
+    );
+    const onLoaded = vi.fn();
+    const view = renderModal(undefined, onLoaded);
+    await screen.findByText('test-config');
+    fireEvent.click(screen.getByRole('button', { name: 'Load' }));
+    await waitFor(() => expect(getConfig).toHaveBeenCalled());
+
+    const signal = vi.mocked(getConfig).mock.calls.at(-1)?.[1];
+    view.unmount();
+
+    expect(signal?.aborted).toBe(true);
+    expect(onLoaded).not.toHaveBeenCalled();
   });
 });

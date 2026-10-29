@@ -131,6 +131,13 @@ function assertPlotShape(p: unknown, i: number): asserts p is Plot {
     const trace = t as Record<string, unknown>;
     if (typeof trace.id !== 'string' || trace.id === '')
       throw new Error(`Invalid workspace: ${where}.traces[${j}] is missing an id`);
+    if (
+      trace.kind === 'formula' &&
+      trace.expression !== undefined &&
+      typeof trace.expression !== 'string'
+    ) {
+      throw new Error(`Invalid workspace: ${where}.traces[${j}].expression must be a string`);
+    }
     if (trace.data !== undefined) {
       if (!Array.isArray(trace.data))
         throw new Error(`Invalid workspace: ${where}.traces[${j}].data is not an array`);

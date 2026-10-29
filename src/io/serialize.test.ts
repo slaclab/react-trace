@@ -104,6 +104,11 @@ describe('deserializeConfigData — native workspace', () => {
     ['null trace', { ...validPlot, traces: [null] }, /traces\[0\] is not an object/],
     ['trace missing id', { ...validPlot, traces: [{}] }, /traces\[0\] is missing an id/],
     [
+      'formula trace with a non-string expression',
+      { ...validPlot, traces: [{ id: 'formula-1', kind: 'formula', expression: {} }] },
+      /traces\[0\]\.expression must be a string/,
+    ],
+    [
       'trace with non-array data',
       { ...validPlot, traces: [{ id: 'trace-1', data: 'nope' }] },
       /traces\[0\]\.data is not an array/,

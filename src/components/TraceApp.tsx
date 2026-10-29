@@ -159,6 +159,7 @@ export function TraceApp() {
   const [viewWindowByPlot, setViewWindowByPlot] = useState<Map<string, TimeWindowNs>>(
     () => new Map()
   );
+  const [workspaceGeneration, setWorkspaceGeneration] = useState(0);
   const leftPanelRef = usePanelRef();
   const rightPanelRef = usePanelRef();
   // In-flight units lookups per trace, so a rapid PV re-selection aborts the
@@ -762,6 +763,7 @@ export function TraceApp() {
       }
       abortUnitLookups();
       setPlots(result.plots);
+      setWorkspaceGeneration((generation) => generation + 1);
       setActivePlotId(result.plots[0].id);
       resyncClock(result.plots.map((p) => p.id));
       if (result.theme) setColorMode(result.theme);
@@ -1084,6 +1086,7 @@ export function TraceApp() {
             <div className="plot-and-insight">
               <div className="plot-and-insight__plot">
                 <PlotArea
+                  key={workspaceGeneration}
                   plots={plots}
                   activePlotId={activePlotId}
                   viewMode={viewMode}

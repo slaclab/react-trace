@@ -92,6 +92,7 @@ export function ConfigStoreModal({
   // Slug currently undergoing a row action (delete/load), to disable its buttons.
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ConfigDTO | null>(null);
+  const loadAbortRef = useRef<AbortController | null>(null);
   // Monotonic refresh id. A Save/Delete fires its own refresh while the open
   // refresh may still be in flight; without this, the slower (older) response
   // could land last and overwrite the newer post-mutation list. Only the latest
@@ -126,6 +127,14 @@ export function ConfigStoreModal({
     if (open) void Promise.resolve().then(refresh);
   }, [open, refresh]);
 
+  useEffect(
+    () => () => {
+      loadAbortRef.current?.abort();
+      loadAbortRef.current = null;
+    },
+    []
+  );
+
   const handleSave = async () => {
     setSaving(true);
     setError(null);
@@ -157,10 +166,14 @@ export function ConfigStoreModal({
   };
 
   const handleLoad = async (slug: string) => {
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
     setBusySlug(slug);
     setError(null);
     try {
-      const dto = await getConfig(slug);
+      const dto = await getConfig(slug, controller.signal);
+      if (controller.signal.aborted || loadAbortRef.current !== controller) return;
       const result = deserializeConfigData(dto.data);
       onLoaded(result);
       onToast({
@@ -174,9 +187,14 @@ export function ConfigStoreModal({
       });
       onClose();
     } catch (err) {
-      setError(errText(err));
+      if (!controller.signal.aborted && loadAbortRef.current === controller) {
+        setError(errText(err));
+      }
     } finally {
-      setBusySlug(null);
+      if (loadAbortRef.current === controller) {
+        loadAbortRef.current = null;
+        setBusySlug(null);
+      }
     }
   };
 
