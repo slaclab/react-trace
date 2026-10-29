@@ -223,34 +223,19 @@ export function ConfigStoreModal({
   };
 
   return (
-    <ComposedModal
-      open={open}
-      onClose={() => {
-        if (saving || (deleteTarget && busySlug === deleteTarget.slug)) return false;
-        onClose();
-      }}
-      size="lg"
-    >
-      <ModalHeader title={deleteTarget ? 'Delete config?' : 'Config store'} />
-      <ModalBody hasScrollingContent>
-        {deleteTarget ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {error && (
-              <InlineNotification
-                kind="error"
-                title="Could not delete config"
-                subtitle={error}
-                onCloseButtonClick={() => setError(null)}
-              />
-            )}
-            <p>
-              Delete <strong>{deleteTarget.name || deleteTarget.slug}</strong>? This will break any
-              shared links to it. This action cannot be undone.
-            </p>
-          </div>
-        ) : (
+    <>
+      <ComposedModal
+        open={open}
+        onClose={() => {
+          if (saving || deleteTarget) return false;
+          onClose();
+        }}
+        size="lg"
+      >
+        <ModalHeader title="Config store" />
+        <ModalBody hasScrollingContent>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 4 }}>
-            {error && (
+            {error && !deleteTarget && (
               <InlineNotification
                 kind="error"
                 title="Error"
@@ -382,23 +367,50 @@ export function ConfigStoreModal({
               )}
             </div>
           </div>
+        </ModalBody>
+      </ComposedModal>
+
+      <ComposedModal
+        open={Boolean(deleteTarget)}
+        onClose={() => {
+          if (deleteTarget && busySlug === deleteTarget.slug) return false;
+          setDeleteTarget(null);
+        }}
+        size="sm"
+        danger
+      >
+        <ModalHeader title="Delete config?" />
+        <ModalBody>
+          {error && (
+            <InlineNotification
+              kind="error"
+              title="Could not delete config"
+              subtitle={error}
+              onCloseButtonClick={() => setError(null)}
+            />
+          )}
+          {deleteTarget && (
+            <p>
+              Delete <strong>{deleteTarget.name || deleteTarget.slug}</strong>? This will break any
+              shared links to it. This action cannot be undone.
+            </p>
+          )}
+        </ModalBody>
+        {deleteTarget && (
+          <ModalFooter
+            dangerDescription="This will permanently delete the config and break its shared links."
+            secondaryButtonText="Cancel"
+            primaryButtonText={busySlug === deleteTarget.slug ? 'Deleting…' : 'Delete'}
+            primaryButtonDisabled={busySlug === deleteTarget.slug}
+            onRequestClose={() => {
+              if (busySlug !== deleteTarget.slug) setDeleteTarget(null);
+            }}
+            onRequestSubmit={() => void handleDelete()}
+          >
+            {null}
+          </ModalFooter>
         )}
-      </ModalBody>
-      {deleteTarget && (
-        <ModalFooter
-          danger
-          dangerDescription="This will permanently delete the config and break its shared links."
-          secondaryButtonText="Cancel"
-          primaryButtonText={busySlug === deleteTarget.slug ? 'Deleting…' : 'Delete'}
-          primaryButtonDisabled={busySlug === deleteTarget.slug}
-          onRequestClose={() => {
-            if (busySlug !== deleteTarget.slug) setDeleteTarget(null);
-          }}
-          onRequestSubmit={() => void handleDelete()}
-        >
-          {null}
-        </ModalFooter>
-      )}
-    </ComposedModal>
+      </ComposedModal>
+    </>
   );
 }

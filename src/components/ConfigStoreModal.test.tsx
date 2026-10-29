@@ -125,8 +125,10 @@ describe('ConfigStoreModal', () => {
     renderModal();
 
     await screen.findByText('test-config');
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0]);
 
+    expect(document.querySelectorAll('.cds--modal.is-visible')).toHaveLength(2);
+    expect(screen.getByText('Save current workspace')).toBeTruthy();
     expect(
       screen.getByText(/This will break any shared links to it\. This action cannot be undone\./)
     ).toBeTruthy();
@@ -134,6 +136,7 @@ describe('ConfigStoreModal', () => {
     expect(deleteConfig).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(document.querySelectorAll('.cds--modal.is-visible')).toHaveLength(1);
     await screen.findByText('test-config');
   });
 
@@ -153,8 +156,8 @@ describe('ConfigStoreModal', () => {
     renderModal();
 
     await screen.findByText('test-config');
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0]);
+    fireEvent.click(document.querySelector('.cds--modal--danger .cds--btn--danger')!);
 
     await waitFor(() => expect(deleteConfig).toHaveBeenCalledWith('test-config'));
     await screen.findByText('No saved configs yet.');
