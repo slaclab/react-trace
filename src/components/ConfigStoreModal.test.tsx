@@ -13,7 +13,7 @@ vi.mock('../api/magpie', () => ({
   deleteConfig: vi.fn(),
 }));
 
-import { listConfigs, saveConfig } from '../api/magpie';
+import { deleteConfig, listConfigs, saveConfig } from '../api/magpie';
 
 const plot: Plot = {
   id: 'plot-1',
@@ -41,6 +41,12 @@ const savedConfig: ConfigDTO = {
   createdBy: null,
   createdDate: '2026-10-01T00:00:00Z',
   lastModifiedDate: '2026-10-01T00:00:00Z',
+};
+
+const listedConfig: ConfigDTO = {
+  ...savedConfig,
+  slug: 'test-config',
+  name: 'Test config',
 };
 
 function renderModal(onToast = vi.fn()) {
@@ -107,5 +113,50 @@ describe('ConfigStoreModal', () => {
         })
       );
     });
+  });
+
+  it('uses a Carbon dialog to confirm deletion and explain the shared-link impact', async () => {
+    vi.mocked(listConfigs).mockResolvedValue({
+      results: [listedConfig],
+      continuationToken: null,
+      totalCount: 1,
+    });
+    const nativeConfirm = vi.spyOn(window, 'confirm');
+    renderModal();
+
+    await screen.findByText('test-config');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    expect(
+      screen.getByText(/This will break any shared links to it\. This action cannot be undone\./)
+    ).toBeTruthy();
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    expect(deleteConfig).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await screen.findByText('test-config');
+  });
+
+  it('deletes the config only after confirming in the Carbon dialog', async () => {
+    vi.mocked(listConfigs)
+      .mockResolvedValueOnce({
+        results: [listedConfig],
+        continuationToken: null,
+        totalCount: 1,
+      })
+      .mockResolvedValue({
+        results: [],
+        continuationToken: null,
+        totalCount: 0,
+      });
+    vi.mocked(deleteConfig).mockResolvedValue();
+    renderModal();
+
+    await screen.findByText('test-config');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(deleteConfig).toHaveBeenCalledWith('test-config'));
+    await screen.findByText('No saved configs yet.');
   });
 });

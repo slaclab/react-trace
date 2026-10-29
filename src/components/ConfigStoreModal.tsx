@@ -3,6 +3,7 @@ import {
   ComposedModal,
   ModalHeader,
   ModalBody,
+  ModalFooter,
   TextInput,
   TextArea,
   Button,
@@ -90,6 +91,7 @@ export function ConfigStoreModal({
   const [listing, setListing] = useState(false);
   // Slug currently undergoing a row action (delete/load), to disable its buttons.
   const [busySlug, setBusySlug] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ConfigDTO | null>(null);
   // Monotonic refresh id. A Save/Delete fires its own refresh while the open
   // refresh may still be in flight; without this, the slower (older) response
   // could land last and overwrite the newer post-mutation list. Only the latest
@@ -196,17 +198,13 @@ export function ConfigStoreModal({
     }
   };
 
-  const handleDelete = async (config: ConfigDTO) => {
-    if (
-      !window.confirm(
-        `Delete "${config.name || config.slug}"? This will break any shared links to it and cannot be undone.`
-      )
-    )
-      return;
-    setBusySlug(config.slug);
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setBusySlug(deleteTarget.slug);
     setError(null);
     try {
-      await deleteConfig(config.slug);
+      await deleteConfig(deleteTarget.slug);
+      setDeleteTarget(null);
       await refresh();
     } catch (err) {
       setError(errText(err));
@@ -228,142 +226,179 @@ export function ConfigStoreModal({
     <ComposedModal
       open={open}
       onClose={() => {
-        if (saving) return false;
+        if (saving || (deleteTarget && busySlug === deleteTarget.slug)) return false;
         onClose();
       }}
       size="lg"
     >
-      <ModalHeader title="Config store" />
+      <ModalHeader title={deleteTarget ? 'Delete config?' : 'Config store'} />
       <ModalBody hasScrollingContent>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 4 }}>
-          {error && (
-            <InlineNotification
-              kind="error"
-              title="Error"
-              subtitle={error}
-              onCloseButtonClick={() => setError(null)}
-            />
-          )}
-
-          {/* Save the current workspace */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <span className="cds--label" style={{ marginBottom: 0 }}>
-              Save current workspace
-            </span>
-            <TextInput
-              id="config-name"
-              labelText="Name"
-              value={name}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
-              placeholder="e.g. LI22 klystron overview"
-              maxLength={255}
-            />
-            <TextArea
-              id="config-description"
-              labelText="Description (optional)"
-              value={description}
-              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                setDescription(e.target.value)
-              }
-              rows={2}
-            />
-            <div>
-              <Button onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving…' : 'Save & copy share link'}
-              </Button>
-            </div>
-          </div>
-
-          {/* Browse / manage saved configs */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className="cds--label" style={{ marginBottom: 0 }}>
-                Saved configs
-                {totalCount !== null && totalCount > configs.length
-                  ? ` (showing ${configs.length} of ${totalCount})`
-                  : ''}
-              </span>
-              <Button
-                kind="ghost"
-                size="sm"
-                hasIconOnly
-                iconDescription="Refresh"
-                renderIcon={Renew}
-                onClick={() => void refresh()}
-                disabled={listing}
+        {deleteTarget ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {error && (
+              <InlineNotification
+                kind="error"
+                title="Could not delete config"
+                subtitle={error}
+                onCloseButtonClick={() => setError(null)}
               />
+            )}
+            <p>
+              Delete <strong>{deleteTarget.name || deleteTarget.slug}</strong>? This will break any
+              shared links to it. This action cannot be undone.
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 4 }}>
+            {error && (
+              <InlineNotification
+                kind="error"
+                title="Error"
+                subtitle={error}
+                onCloseButtonClick={() => setError(null)}
+              />
+            )}
+
+            {/* Save the current workspace */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <span className="cds--label" style={{ marginBottom: 0 }}>
+                Save current workspace
+              </span>
+              <TextInput
+                id="config-name"
+                labelText="Name"
+                value={name}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
+                placeholder="e.g. LI22 klystron overview"
+                maxLength={255}
+              />
+              <TextArea
+                id="config-description"
+                labelText="Description (optional)"
+                value={description}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                  setDescription(e.target.value)
+                }
+                rows={2}
+              />
+              <div>
+                <Button onClick={handleSave} disabled={saving}>
+                  {saving ? 'Saving…' : 'Save & copy share link'}
+                </Button>
+              </div>
             </div>
 
-            {listing ? (
-              <InlineLoading description="Loading configs…" />
-            ) : configs.length === 0 ? (
-              <p style={{ color: 'var(--cds-text-secondary)' }}>No saved configs yet.</p>
-            ) : (
-              <StructuredListWrapper isCondensed>
-                <StructuredListHead>
-                  <StructuredListRow head>
-                    <StructuredListCell head>Name</StructuredListCell>
-                    <StructuredListCell head>Created</StructuredListCell>
-                    <StructuredListCell head>Actions</StructuredListCell>
-                  </StructuredListRow>
-                </StructuredListHead>
-                <StructuredListBody>
-                  {configs.map((c) => (
-                    <StructuredListRow key={c.slug}>
-                      <StructuredListCell>
-                        {c.name || <em style={{ color: 'var(--cds-text-secondary)' }}>untitled</em>}
-                        <div style={{ fontSize: 12, color: 'var(--cds-text-secondary)' }}>
-                          {c.slug}
-                        </div>
-                      </StructuredListCell>
-                      <StructuredListCell>
-                        {new Date(c.createdDate).toLocaleString()}
-                      </StructuredListCell>
-                      <StructuredListCell>
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                          <Button
-                            size="sm"
-                            kind="tertiary"
-                            onClick={() => void handleLoad(c.slug)}
-                            disabled={busySlug === c.slug}
-                          >
-                            Load
-                          </Button>
-                          <Button
-                            size="sm"
-                            kind="ghost"
-                            onClick={() => void handleRename(c)}
-                            disabled={busySlug === c.slug}
-                          >
-                            Rename
-                          </Button>
-                          <Button
-                            size="sm"
-                            kind="ghost"
-                            hasIconOnly
-                            iconDescription="Copy share link"
-                            renderIcon={Copy}
-                            onClick={() => void handleCopyLink(c.slug)}
-                          />
-                          <Button
-                            size="sm"
-                            kind="danger--ghost"
-                            hasIconOnly
-                            iconDescription="Delete"
-                            renderIcon={TrashCan}
-                            onClick={() => void handleDelete(c)}
-                            disabled={busySlug === c.slug}
-                          />
-                        </div>
-                      </StructuredListCell>
+            {/* Browse / manage saved configs */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="cds--label" style={{ marginBottom: 0 }}>
+                  Saved configs
+                  {totalCount !== null && totalCount > configs.length
+                    ? ` (showing ${configs.length} of ${totalCount})`
+                    : ''}
+                </span>
+                <Button
+                  kind="ghost"
+                  size="sm"
+                  hasIconOnly
+                  iconDescription="Refresh"
+                  renderIcon={Renew}
+                  onClick={() => void refresh()}
+                  disabled={listing}
+                />
+              </div>
+
+              {listing ? (
+                <InlineLoading description="Loading configs…" />
+              ) : configs.length === 0 ? (
+                <p style={{ color: 'var(--cds-text-secondary)' }}>No saved configs yet.</p>
+              ) : (
+                <StructuredListWrapper isCondensed>
+                  <StructuredListHead>
+                    <StructuredListRow head>
+                      <StructuredListCell head>Name</StructuredListCell>
+                      <StructuredListCell head>Created</StructuredListCell>
+                      <StructuredListCell head>Actions</StructuredListCell>
                     </StructuredListRow>
-                  ))}
-                </StructuredListBody>
-              </StructuredListWrapper>
-            )}
+                  </StructuredListHead>
+                  <StructuredListBody>
+                    {configs.map((c) => (
+                      <StructuredListRow key={c.slug}>
+                        <StructuredListCell>
+                          {c.name || (
+                            <em style={{ color: 'var(--cds-text-secondary)' }}>untitled</em>
+                          )}
+                          <div style={{ fontSize: 12, color: 'var(--cds-text-secondary)' }}>
+                            {c.slug}
+                          </div>
+                        </StructuredListCell>
+                        <StructuredListCell>
+                          {new Date(c.createdDate).toLocaleString()}
+                        </StructuredListCell>
+                        <StructuredListCell>
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            <Button
+                              size="sm"
+                              kind="tertiary"
+                              onClick={() => void handleLoad(c.slug)}
+                              disabled={busySlug === c.slug}
+                            >
+                              Load
+                            </Button>
+                            <Button
+                              size="sm"
+                              kind="ghost"
+                              onClick={() => void handleRename(c)}
+                              disabled={busySlug === c.slug}
+                            >
+                              Rename
+                            </Button>
+                            <Button
+                              size="sm"
+                              kind="ghost"
+                              hasIconOnly
+                              iconDescription="Copy share link"
+                              renderIcon={Copy}
+                              onClick={() => void handleCopyLink(c.slug)}
+                            />
+                            <Button
+                              size="sm"
+                              kind="danger--ghost"
+                              hasIconOnly
+                              iconDescription="Delete"
+                              renderIcon={TrashCan}
+                              onClick={() => {
+                                setError(null);
+                                setDeleteTarget(c);
+                              }}
+                              disabled={busySlug === c.slug}
+                            />
+                          </div>
+                        </StructuredListCell>
+                      </StructuredListRow>
+                    ))}
+                  </StructuredListBody>
+                </StructuredListWrapper>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </ModalBody>
+      {deleteTarget && (
+        <ModalFooter
+          danger
+          dangerDescription="This will permanently delete the config and break its shared links."
+          secondaryButtonText="Cancel"
+          primaryButtonText={busySlug === deleteTarget.slug ? 'Deleting…' : 'Delete'}
+          primaryButtonDisabled={busySlug === deleteTarget.slug}
+          onRequestClose={() => {
+            if (busySlug !== deleteTarget.slug) setDeleteTarget(null);
+          }}
+          onRequestSubmit={() => void handleDelete()}
+        >
+          {null}
+        </ModalFooter>
+      )}
     </ComposedModal>
   );
 }
