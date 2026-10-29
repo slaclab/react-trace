@@ -89,6 +89,7 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       passWithNoTests: true,
+      setupFiles: ['./src/test/setup.ts'],
     },
   };
 });

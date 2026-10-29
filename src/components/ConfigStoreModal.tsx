@@ -36,7 +36,12 @@ interface ConfigStoreModalProps {
   /** Apply a loaded workspace to app state (shared with file import + ?config=). */
   onLoaded: (result: DeserializeResult) => void;
   /** Emit a success/error toast in the parent. */
-  onToast: (t: { kind: 'success' | 'error'; title: string; subtitle?: string }) => void;
+  onToast: (t: {
+    kind: 'success' | 'error';
+    title: string;
+    subtitle?: string;
+    timeout?: number;
+  }) => void;
 }
 
 // One unpaginated page. Truncation is surfaced in the list header rather than
@@ -115,20 +120,8 @@ export function ConfigStoreModal({
     }
   }, []);
 
-  // Reset the form and reload the list once per open.
-  const initialized = useRef(false);
   useEffect(() => {
-    if (!open) {
-      initialized.current = false;
-      return;
-    }
-    if (initialized.current) return;
-    initialized.current = true;
-    setName('');
-    setDescription('');
-    setSaving(false);
-    setError(null);
-    void refresh();
+    if (open) void Promise.resolve().then(refresh);
   }, [open, refresh]);
 
   const handleSave = async () => {
@@ -149,6 +142,7 @@ export function ConfigStoreModal({
         kind: 'success',
         title: 'Workspace saved',
         subtitle: copied ? `Share link copied to clipboard (${dto.slug})` : `Share link: ${link}`,
+        timeout: copied ? undefined : 0,
       });
       setName('');
       setDescription('');
@@ -170,7 +164,11 @@ export function ConfigStoreModal({
       onToast({
         kind: 'success',
         title: 'Workspace loaded',
-        subtitle: dto.name ? `Loaded "${dto.name}"` : `Loaded config ${slug}`,
+        subtitle: [
+          dto.name ? `Loaded "${dto.name}"` : `Loaded config ${slug}`,
+          ...result.warnings,
+        ].join('\n'),
+        timeout: result.warnings.length > 0 ? 0 : undefined,
       });
       onClose();
     } catch (err) {
@@ -199,7 +197,12 @@ export function ConfigStoreModal({
   };
 
   const handleDelete = async (config: ConfigDTO) => {
-    if (!window.confirm(`Delete "${config.name || config.slug}"? This cannot be undone.`)) return;
+    if (
+      !window.confirm(
+        `Delete "${config.name || config.slug}"? This will break any shared links to it and cannot be undone.`
+      )
+    )
+      return;
     setBusySlug(config.slug);
     setError(null);
     try {
@@ -222,7 +225,14 @@ export function ConfigStoreModal({
   };
 
   return (
-    <ComposedModal open={open} onClose={saving ? undefined : onClose} size="lg">
+    <ComposedModal
+      open={open}
+      onClose={() => {
+        if (saving) return false;
+        onClose();
+      }}
+      size="lg"
+    >
       <ModalHeader title="Config store" />
       <ModalBody hasScrollingContent>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 4 }}>

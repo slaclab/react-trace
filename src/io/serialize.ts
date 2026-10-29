@@ -70,7 +70,14 @@ export function deserializeConfigData(data: unknown): DeserializeResult {
       );
     }
     const rawPlots = Array.isArray(obj.plots) ? obj.plots : [];
-    rawPlots.forEach(assertPlotShape);
+    const plotIds = new Set<string>();
+    rawPlots.forEach((rawPlot, i) => {
+      assertPlotShape(rawPlot, i);
+      if (plotIds.has(rawPlot.id)) {
+        throw new Error(`Invalid workspace: duplicate plot id '${rawPlot.id}'`);
+      }
+      plotIds.add(rawPlot.id);
+    });
     let plots = (rawPlots as Plot[]).map(rehydratePlot);
     // Migrate the old workspace-level default archiver onto each plot that
     // doesn't already carry one (the default is now per-plot).
@@ -78,6 +85,8 @@ export function deserializeConfigData(data: unknown): DeserializeResult {
       const legacyDefault = obj.globalArchiver;
       plots = plots.map((p) => (p.archiver === undefined ? { ...p, archiver: legacyDefault } : p));
     }
+    // Saves from before the month preset rename used "-1m" for one month.
+    if (isMonthEraSave(obj.savedAt)) plots = plots.map(migrateMonthPreset);
     return {
       source: 'native',
       // Narrow to the supported literals; an untrusted theme (e.g. "sepia" from a
@@ -145,11 +154,8 @@ function rehydratePlot(p: Plot): Plot {
   // opacity / tick font size. Migrate the old flag to both X and Y toggles and
   // default the rest so loaded plots render the same as before.
   const legacy = p as Plot & { showGridlines?: boolean };
-  // The month preset value changed from "-1m" (ambiguous with minutes) to "-1M".
-  const xAxis = p.xAxis?.timeRange === '-1m' ? { ...p.xAxis, timeRange: '-1M' } : p.xAxis;
   return {
     ...p,
-    xAxis,
     // Older saved workspaces predate showLegend; default to shown.
     showLegend: p.showLegend ?? true,
     showCrosshair: p.showCrosshair ?? true,
@@ -159,6 +165,27 @@ function rehydratePlot(p: Plot): Plot {
     tickFontSize: p.tickFontSize ?? 11,
     traces: (p.traces ?? []).map((t) => ({ ...t, data: t.data ?? [] })),
   };
+}
+
+// #66 (b92fbf1) renamed the month preset from "-1m" to "-1M" and made lowercase
+// m mean minutes; the cutoff is #66's GitHub mergedAt. Before it, "-1m" in a
+// native file could only be the month preset; after it, "-1m" is a typed
+// one-minute span.
+// Every native save stamps savedAt (since 98e35fe), which tells the two apart.
+// Merge time, not deploy time: builds from this instant on already saved typed
+// minutes as "-1m", so a later cutoff would turn those into months.
+const MONTH_PRESET_RENAMED_AT_MS = Date.parse('2026-07-17T16:15:54Z');
+
+// A missing or unparseable savedAt (e.g. a hand-written file) gets today's
+// meaning: minutes.
+function isMonthEraSave(savedAt: unknown): boolean {
+  if (typeof savedAt !== 'string') return false;
+  const ms = Date.parse(savedAt);
+  return Number.isFinite(ms) && ms < MONTH_PRESET_RENAMED_AT_MS;
+}
+
+function migrateMonthPreset(p: Plot): Plot {
+  return p.xAxis?.timeRange === '-1m' ? { ...p, xAxis: { ...p.xAxis, timeRange: '-1M' } } : p;
 }
 
 interface LegacyAxis {
