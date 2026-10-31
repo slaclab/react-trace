@@ -1,0 +1,281 @@
+/* The statistics pattern: the docked panel under a tool's chart,
+   its readout table and strip charts, and the Metrics editor in the sidebar.
+   Chrome tokens only (var(--cds-*), var(--canopy-*)); no colour or font
+   literals (scripts/check-chrome-literals.mjs guards this file). */
+
+/* ── Canvas column ──────────────────────────────────────────────────────
+   A tool's canvas is a column: whatever sits above (health line), the chart
+   stage flexing to the remainder, the panel docked at the bottom. */
+
+.stats-canvas {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+.stats-canvas__stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+}
+
+/* A chart box that fills the stage whatever its own content asks for, so a
+   `height: 100%` chart inside it is definite. */
+.stats-canvas__fill {
+  position: absolute;
+  inset: 0;
+}
+
+/* ── Panel ─────────────────────────────────────────────────────────────── */
+
+.stats-panel {
+  flex: 0 0 auto;
+  max-height: 45%;
+  min-height: 0;
+  overflow: auto;
+  box-sizing: border-box;
+  border-top: 1px solid var(--cds-border-subtle);
+  background-color: var(--cds-background);
+  color: var(--cds-text-primary);
+  font-size: 13px;
+}
+
+/* ── Readout table ─────────────────────────────────────────────────────── */
+
+.stats-readout {
+  margin: 0;
+  padding: 4px 8px 8px;
+  overflow-x: auto;
+}
+
+.stats-readout table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: var(--cds-text-primary);
+}
+
+.stats-readout th,
+.stats-readout td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--cds-border-subtle);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-readout thead th {
+  background-color: var(--cds-layer-accent);
+  color: var(--cds-text-secondary);
+  font-weight: 600;
+}
+
+.stats-readout thead th[title] {
+  cursor: help;
+}
+
+.stats-readout__invalid {
+  color: var(--cds-text-error);
+  text-decoration: underline dotted;
+}
+
+.stats-readout th:first-child {
+  text-align: left;
+}
+
+.stats-readout tbody th {
+  font-weight: 400;
+  font-family: var(--canopy-font-mono);
+}
+
+/* ── Distribution ──────────────────────────────────────────────────────── */
+
+.stats-dist {
+  padding: 0 8px 8px;
+}
+
+.stats-dist__chart + .stats-dist__chart {
+  margin-top: 4px;
+}
+
+.stats-dist__empty {
+  margin: 0;
+  padding: 4px 0;
+  color: var(--cds-text-secondary);
+  font-size: 12px;
+}
+
+/* ── Strips ────────────────────────────────────────────────────────────── */
+
+.stats-strips {
+  padding: 0 8px 8px;
+}
+
+.stats-strips__chart + .stats-strips__chart {
+  margin-top: 4px;
+}
+
+/* ── Metrics editor (sidebar, 280–360 px) ──────────────────────────────── */
+
+.stats-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.stats-metrics__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--cds-border-subtle);
+}
+
+.stats-metrics__item {
+  border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.stats-metrics__item--open {
+  background: var(--cds-layer-01);
+}
+
+.stats-metrics__row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 1.75rem;
+  min-width: 0;
+}
+
+/* Carbon's checkbox wrapper carries form-item margins; the row owns spacing. */
+.stats-metrics__row .cds--checkbox-wrapper,
+.stats-metrics__row .cds--form-item {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.stats-metrics__text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.1;
+}
+
+.stats-metrics__label,
+.stats-metrics__expr {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-metrics__label {
+  color: var(--cds-text-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.stats-metrics__expr {
+  color: var(--cds-text-secondary);
+  font-family: var(--canopy-font-mono);
+  font-size: 0.6875rem;
+}
+
+.stats-metrics__error {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--cds-support-error);
+}
+
+.stats-metrics__icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cds-icon-secondary);
+  cursor: pointer;
+}
+
+.stats-metrics__icon:hover {
+  background: var(--cds-layer-hover-01);
+}
+
+.stats-metrics__icon:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+
+.stats-metrics__icon[aria-pressed='true'] {
+  color: var(--cds-interactive);
+}
+
+.stats-metrics__icon:disabled {
+  color: var(--cds-icon-disabled);
+  cursor: not-allowed;
+}
+
+.stats-metrics__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.25rem 0.25rem 0.5rem 1.75rem;
+  min-width: 0;
+}
+
+.stats-metrics__mono input {
+  font-family: var(--canopy-font-mono);
+}
+
+.stats-metrics__code {
+  font-family: var(--canopy-font-mono);
+  overflow-wrap: anywhere;
+}
+
+.stats-metrics__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.stats-metrics__footer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.stats-metrics__help summary {
+  cursor: pointer;
+  color: var(--cds-link-primary);
+  font-size: 0.75rem;
+}
+
+.stats-metrics__help summary:focus-visible {
+  outline: 2px solid var(--cds-focus);
+}
+
+.stats-metrics__reference {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.25rem 0 0;
+  font-size: 0.6875rem;
+}
+
+.stats-metrics__ref dt {
+  color: var(--cds-text-primary);
+  font-family: var(--canopy-font-mono);
+  overflow-wrap: anywhere;
+}
+
+.stats-metrics__ref dd {
+  margin: 0 0 0 0.75rem;
+  color: var(--cds-text-secondary);
+}
