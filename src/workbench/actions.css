@@ -1,0 +1,51 @@
+/* The tool's actions bar. Chrome tokens only: colours from the Carbon
+ * theme variables, no hex or font literal. Imported by workbench.css. */
+
+.workbench-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.125rem;
+  min-height: 2.5rem;
+  padding: 0 0.25rem;
+  background-color: var(--cds-layer);
+  border-bottom: 1px solid var(--cds-border-subtle);
+  color: var(--cds-icon-primary);
+}
+
+.workbench-actions:empty {
+  display: none;
+}
+
+/* A disabled action stays hoverable and focusable (its tooltip carries the
+ * reason) but reads as unavailable. */
+.workbench-actions .workbench-actions__button--disabled,
+.workbench-actions .workbench-actions__button--disabled:hover {
+  background-color: transparent;
+  color: var(--cds-icon-disabled);
+  cursor: not-allowed;
+}
+
+.workbench-actions .workbench-actions__button--disabled svg {
+  fill: var(--cds-icon-disabled);
+}
+
+/* Under a host the bar and its icon buttons take the contract's small control
+ * height, as the retired Carbon header and its actions did. The bar sizes its
+ * content box, so its 1px rule sits outside the control height and a wrapped
+ * second line of actions still grows it. */
+html[data-canopy-host] .workbench-actions {
+  box-sizing: content-box;
+  min-block-size: var(--canopy-control-h-sm);
+}
+
+html[data-canopy-host] .workbench-actions .cds--btn--icon-only {
+  block-size: var(--canopy-control-h-sm);
+  min-block-size: var(--canopy-control-h-sm);
+  inline-size: var(--canopy-control-h-sm);
+  min-inline-size: var(--canopy-control-h-sm);
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+}

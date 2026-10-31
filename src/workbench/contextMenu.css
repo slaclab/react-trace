@@ -1,0 +1,80 @@
+/* Right-click menus (contextMenu/ContextMenuHost.tsx): the header line, the
+   "Copied …" toast and the PV info dialog. Carbon draws the menu itself. */
+
+.wb-context-menu__header {
+  max-width: 320px;
+  padding: 6px 16px 4px;
+  overflow: hidden;
+  color: var(--cds-text-secondary);
+  font-family: var(--canopy-font-mono);
+  font-size: var(--canopy-text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  list-style: none;
+  cursor: default;
+  user-select: text;
+}
+
+.wb-context-toast {
+  position: fixed;
+  bottom: 48px;
+  left: 50%;
+  z-index: 9000;
+  display: flex;
+  max-width: calc(100% - 32px);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 2px;
+  background: var(--cds-background-inverse);
+  box-shadow: 0 2px 6px var(--cds-shadow);
+  color: var(--cds-text-inverse);
+  font-size: var(--canopy-text-md);
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.wb-context-toast__mark {
+  color: var(--cds-support-success-inverse);
+  font-weight: 600;
+}
+
+.wb-context-toast--error .wb-context-toast__mark {
+  color: var(--cds-support-error-inverse);
+}
+
+.wb-context-toast__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-pv-info__list {
+  display: grid;
+  margin: 0;
+  gap: 4px;
+}
+
+.wb-pv-info__row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
+}
+
+.wb-pv-info__row dt {
+  color: var(--cds-text-secondary);
+}
+
+.wb-pv-info__row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.wb-card--picked > .wb-card__head {
+  background: var(--cds-layer-selected);
+}
+
+/* Remove reads as destructive at rest, as the mock-up draws it. */
+.wb-context-menu .cds--menu-item--danger:not(:hover, :focus) {
+  color: var(--cds-text-error);
+}

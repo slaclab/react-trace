@@ -1,0 +1,52 @@
+/* The workbench stylesheet entry: the one sheet a tool's page
+ * loads (WorkbenchLayout imports it); it imports every component sheet.
+ * Chrome tokens only: colours from the canopy contract and Carbon theme
+ * variables, no hex or font literal. */
+
+@import './sidebar.css';
+@import './outline.css';
+@import './fields.css';
+@import './panel.css';
+@import './actions.css';
+@import './contextMenu.css';
+
+.wb-workbench {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background-color: var(--cds-background);
+  color: var(--cds-text-primary);
+}
+
+.wb-workbench__actions {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.wb-workbench__body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.wb-workbench__body > * {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wb-workbench__canvas {
+  position: relative;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Root Escape moves the focus here; the pane itself shows no ring. */
+.wb-workbench__properties {
+  min-height: 100%;
+}
+
+.wb-workbench__properties:focus {
+  outline: none;
+}

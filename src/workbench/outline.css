@@ -1,0 +1,433 @@
+/* The Outline. Chrome tokens only: colours from
+ * the Carbon theme variables, no hex or font literal. Imported by
+ * workbench.css. */
+
+/* ------------------------------------------------------------ add row -- */
+
+/* One add row per section. The PV field takes the row. */
+.wb-outline-add {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 8px 2px 4px;
+}
+
+.wb-outline-add__field .pv-combo {
+  min-width: 0;
+}
+
+/* Carbon's ComboBox paints its field and bottom border on the list box and
+   leaves the input transparent at the list box's own 2rem. The input is the
+   element a host restyles as a text input (the contract's control height and
+   field colour), so it carries them itself and the list box only sizes to it.
+   Every tool's add row needs this, and a tool page that never loads
+   components/panels.css (Correlation, Waveform) would otherwise lose it. */
+.wb-outline-add__field .pv-combo .cds--list-box,
+.wb-outline-add__field .pv-combo .cds--list-box--sm {
+  block-size: var(--canopy-control-h-sm);
+  max-block-size: var(--canopy-control-h-sm);
+  border-block-end: none;
+}
+
+.wb-outline-add__field .pv-combo .cds--list-box .cds--text-input {
+  block-size: var(--canopy-control-h-sm);
+  background-color: var(--canopy-bg-field);
+}
+
+.wb-outline-add__field .pv-combo .cds--list-box:hover .cds--text-input {
+  background-color: var(--cds-field-hover);
+}
+
+/* The suggestions scroll inside the panel instead of running past it. */
+.wb-outline-add__field .cds--list-box__menu {
+  max-block-size: 12rem;
+  overflow-y: auto;
+}
+
+/* The field while an add is in flight: read-only, and reads as waiting. */
+.wb-outline-add__field input[aria-busy='true'] {
+  cursor: progress;
+  color: var(--cds-text-secondary);
+}
+
+/* Status lines under the row: the check in flight, a refusal, a reason the
+ * row is disabled, and the note that replaces the row of a full section. */
+.wb-outline-add__status,
+.wb-outline-add__note,
+.wb-outline-add__full {
+  margin: 0 4px;
+  font-size: var(--canopy-text-sm);
+  color: var(--cds-text-helper);
+}
+
+.wb-outline-add__full {
+  padding: 4px 8px;
+}
+
+.wb-outline-add__refusal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0 4px;
+  font-size: var(--canopy-text-sm);
+  color: var(--cds-text-error);
+}
+
+/* ------------------------------------------------------------ outline -- */
+
+/* Sections, rows and footer. */
+.wb-outline {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.wb-outline-section + .wb-outline-section {
+  border-top: 1px solid var(--cds-border-subtle);
+}
+
+/* A muted section (its visibility is off) reads dimmed, controls included. */
+.wb-outline-section--muted .wb-outline-section__title,
+.wb-outline-section--muted .wb-outline-section__unit,
+.wb-outline-section--muted .wb-outline-section__count,
+.wb-outline-section--muted .wb-outline-row__name {
+  color: var(--cds-text-disabled);
+}
+
+/* ------------------------------------------------------------- header -- */
+
+/* A section sub-heading is the collapse target. Its toggle carries the shell's
+ * `.canopy-section-heading` recipe (text-sm, weight 600), so it inherits only
+ * the family here. */
+.wb-outline-section__header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.wb-outline-section__header--section:hover {
+  background: var(--cds-layer-hover);
+}
+
+/* A group heading (Signals, Reference, Drawings…): the panel's top-level label. */
+.wb-outline-section__header--group {
+  cursor: default;
+  padding-inline: 12px 8px;
+}
+
+.wb-outline-section__toggle {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cds-text-primary);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wb-outline-section__toggle:focus-visible,
+.wb-outline-row__name:focus-visible,
+.wb-outline-row__remove:focus-visible,
+.wb-outline__footer-action:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+
+.wb-outline-section__chevron {
+  flex: none;
+  fill: var(--cds-icon-secondary);
+}
+
+/* The unit tag sits before the title. */
+.wb-outline-section__unit {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--cds-layer-accent);
+  color: var(--cds-text-secondary);
+  font-size: var(--canopy-text-sm);
+  font-weight: 400;
+}
+
+.wb-outline-section__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-outline-section__count {
+  flex: none;
+  color: var(--cds-text-secondary);
+  font-size: var(--canopy-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-outline-section__control {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  cursor: default;
+}
+
+/* --------------------------------------------------------------- rows -- */
+
+/* A row carries the shell's `.canopy-row` recipe (text-md at control-h-xs, the
+ * screen tree's density) and its name `.canopy-row__label`; only the layout
+ * extras live here. */
+
+.wb-outline-section__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-outline-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 24px;
+  cursor: pointer;
+}
+
+.wb-outline-row:hover {
+  background: var(--cds-layer-hover);
+}
+
+/* The status dot: live status in the row (it replaces the header counts). */
+.wb-outline-row__status {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cds-support-success);
+}
+
+.wb-outline-row__status--pending {
+  background: var(--cds-support-info);
+}
+
+.wb-outline-row__status--stale {
+  background: var(--cds-support-warning);
+}
+
+.wb-outline-row__status--error,
+.wb-outline-row__status--refused {
+  background: var(--cds-support-error);
+}
+
+.wb-outline-row__slot {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  cursor: default;
+}
+
+/* The Colour field's modified dot, riding on the small swatch. */
+.wb-outline-row__modified {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--canopy-accent, var(--cds-interactive));
+  pointer-events: none;
+}
+
+.wb-outline-row__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cds-text-primary);
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* A hidden row (its eye off) reads muted. */
+.wb-card--muted .wb-outline-row__name {
+  color: var(--cds-text-disabled);
+}
+
+.wb-card--muted .wb-outline-row__swatch {
+  opacity: 0.4;
+}
+
+/* Show/hide, lock and remove are revealed on hover and focus-within; an
+ * eye that is off and a lock that is on stay visible so the row says so at
+ * rest. */
+.wb-outline-row__eye,
+.wb-outline-row__lock,
+.wb-outline-row__remove {
+  opacity: 0;
+}
+
+.wb-outline-row:hover .wb-outline-row__eye,
+.wb-outline-row:hover .wb-outline-row__lock,
+.wb-outline-row:hover .wb-outline-row__remove,
+.wb-outline-row:focus-within .wb-outline-row__eye,
+.wb-outline-row:focus-within .wb-outline-row__lock,
+.wb-outline-row:focus-within .wb-outline-row__remove,
+.wb-outline-row__eye--off,
+.wb-outline-row__lock--on {
+  opacity: 1;
+}
+
+/* The lock glyph, styled like the eye (fields.css `.wb-eye`). */
+.wb-outline-row__lock-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.125rem;
+  border: 0;
+  background: transparent;
+  color: var(--cds-icon-secondary);
+  cursor: pointer;
+}
+
+.wb-outline-row__lock-button svg {
+  fill: currentColor;
+}
+
+.wb-outline-row__lock--on .wb-outline-row__lock-button {
+  color: var(--cds-icon-primary);
+}
+
+.wb-outline-row__lock-button:disabled {
+  color: var(--cds-icon-disabled);
+  cursor: not-allowed;
+}
+
+.wb-outline-row__lock-button:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+
+.wb-outline-row__remove {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cds-icon-secondary);
+  cursor: pointer;
+}
+
+.wb-outline-row__remove svg {
+  fill: currentColor;
+}
+
+.wb-outline-row__remove:hover {
+  color: var(--cds-support-error);
+}
+
+/* ------------------------------------------------------------- footer -- */
+
+/* Footer actions below the last section; a disabled one stays visible with
+ * its reason in the tooltip. */
+.wb-outline__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+  border-top: 1px solid var(--cds-border-subtle);
+}
+
+.wb-outline__footer-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: var(--cds-link-primary);
+  font: inherit;
+  font-size: var(--canopy-text-md);
+  cursor: pointer;
+}
+
+.wb-outline__footer-action svg {
+  fill: currentColor;
+}
+
+.wb-outline__footer-action:hover {
+  background: var(--cds-layer-hover);
+}
+
+.wb-outline__footer-action--disabled {
+  color: var(--cds-text-disabled);
+  cursor: not-allowed;
+}
+
+.wb-outline__footer-action--disabled:hover {
+  background: none;
+}
+
+/* --------------------------------------------------------------- row drag -- */
+
+/* Row drag between sections: the dragged row dims in place while a
+ * ghost follows the pointer; the section under it shows whether it takes the
+ * row. A refused section shows a "no drop" state with the tool's reason. */
+.wb-outline-row:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+
+.wb-outline-row--dragging {
+  opacity: 0.4;
+}
+
+.wb-outline-section--drop {
+  background: var(--cds-layer-selected);
+  box-shadow: inset 0 0 0 2px var(--cds-focus);
+}
+
+.wb-outline-section--no-drop {
+  background: var(--cds-layer-01);
+  box-shadow: inset 0 0 0 2px var(--cds-support-error);
+  cursor: no-drop;
+}
+
+.wb-outline-section__no-drop {
+  margin: 0;
+  padding: 2px 8px 4px;
+  color: var(--cds-text-error);
+  font-size: var(--canopy-text-sm);
+  line-height: 1.33;
+}
+
+.wb-outline__ghost {
+  display: inline-block;
+  max-width: 240px;
+  padding: 4px 8px;
+  overflow: hidden;
+  border: 1px solid var(--cds-border-strong-01);
+  background: var(--cds-layer-02);
+  box-shadow: 0 2px 6px var(--cds-shadow);
+  color: var(--cds-text-primary);
+  font-size: var(--canopy-text-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: grabbing;
+}
