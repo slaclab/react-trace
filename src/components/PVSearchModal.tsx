@@ -23,6 +23,8 @@ export const PV_SEARCH_LIMIT = 500;
 // KLYS:LI21:2 lists before KLYS:LI21:11.
 const collator = new Intl.Collator(undefined, { numeric: true });
 
+const EMPTY_SELECTION: ReadonlySet<string> = new Set();
+
 interface PVSearchModalProps {
   open: boolean;
   /** Every plot: the target picker lists them and marks PVs already on the target. */
@@ -42,13 +44,23 @@ interface PVSearchModalProps {
 export function PVSearchModal({ open, plots, initialPlotId, onAdd, onClose }: PVSearchModalProps) {
   const [pattern, setPattern] = useState('');
   const [targetPlotId, setTargetPlotId] = useState(initialPlotId);
-  // Insertion-ordered: PVs are added in the order they were ticked.
-  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
+  // Ticks name PVs on the archiver that listed them, which another archiver
+  // may not have, so the selection remembers its archiver and counts for
+  // nothing once the target reads from a different one. Insertion-ordered:
+  // PVs are added in the order they were ticked.
+  const [selection, setSelection] = useState<{
+    archiver: string | undefined;
+    pvs: ReadonlySet<string>;
+  }>(() => ({ archiver: plots.find((p) => p.id === initialPlotId)?.archiver, pvs: new Set() }));
 
   const target = plots.find((p) => p.id === targetPlotId) ?? plots[0];
   // Search the target plot's archiver: that is where the new traces will read.
   // A closed dialog searches nothing, even if its pattern or plot changes.
   const search = usePVSearch(open ? pattern : '', target?.archiver, 300, PV_SEARCH_LIMIT);
+  const selected = selection.archiver === target?.archiver ? selection.pvs : EMPTY_SELECTION;
+  // Every change starts from the effective selection, so a stale one is dropped.
+  const setSelected = (update: (prev: ReadonlySet<string>) => ReadonlySet<string>) =>
+    setSelection({ archiver: target?.archiver, pvs: update(selected) });
 
   const rows = [...search.pvs].sort(collator.compare);
   const chosen = [...selected];
@@ -115,11 +127,7 @@ export function PVSearchModal({ open, plots, initialPlotId, onAdd, onClose }: PV
             itemToString={(p: Plot | null) => p?.title ?? ''}
             selectedItem={target}
             onChange={({ selectedItem }: { selectedItem?: Plot | null }) => {
-              if (!selectedItem) return;
-              // Ticks name PVs on the archiver searched; another archiver may
-              // not have them, so drop the ticks with the matches.
-              if (selectedItem.archiver !== target?.archiver) setSelected(new Set());
-              setTargetPlotId(selectedItem.id);
+              if (selectedItem) setTargetPlotId(selectedItem.id);
             }}
           />
         )}
@@ -133,32 +141,13 @@ export function PVSearchModal({ open, plots, initialPlotId, onAdd, onClose }: PV
         />
         <div
           className="pv-search__status"
+          role="status"
           style={{
             color: search.status === 'error' ? 'var(--cds-text-error)' : 'var(--cds-text-helper)',
           }}
         >
           {status}
         </div>
-        {chosen.length > 0 && (
-          <div className="pv-search__selected">
-            <span className="pv-search__selected-label">Selected ({chosen.length})</span>
-            <div className="pv-search__selected-tags">
-              {chosen.map((pv) => (
-                <DismissibleTag
-                  key={pv}
-                  size="sm"
-                  type="blue"
-                  text={pv}
-                  title={`Remove ${pv}`}
-                  onClose={() => remove(pv)}
-                />
-              ))}
-            </div>
-            <Button kind="ghost" size="sm" onClick={() => setSelected(new Set())}>
-              Clear
-            </Button>
-          </div>
-        )}
         {/* The results keep their place while empty so the footer never jumps. */}
         <div className="pv-search__results">
           {rows.length > 0 && (
@@ -196,6 +185,28 @@ export function PVSearchModal({ open, plots, initialPlotId, onAdd, onClose }: PV
             </>
           )}
         </div>
+        {/* Below the list so that appearing never moves a row under the pointer
+            between the two clicks of a double-click. */}
+        {chosen.length > 0 && (
+          <div className="pv-search__selected">
+            <span className="pv-search__selected-label">Selected ({chosen.length})</span>
+            <div className="pv-search__selected-tags">
+              {chosen.map((pv) => (
+                <DismissibleTag
+                  key={pv}
+                  size="sm"
+                  type="blue"
+                  text={pv}
+                  title={`Remove ${pv}`}
+                  onClose={() => remove(pv)}
+                />
+              ))}
+            </div>
+            <Button kind="ghost" size="sm" onClick={() => setSelected(() => new Set())}>
+              Clear
+            </Button>
+          </div>
+        )}
       </ModalBody>
       <ModalFooter
         secondaryButtonText="Cancel"

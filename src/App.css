@@ -954,11 +954,14 @@
   inline-size: 100%;
 }
 
-/* Selected strip: every tick in view, whatever search produced it. */
+/* Selected strip: every tick in view, whatever search produced it. Sits under
+   the list so the rows never move when it appears. */
 .pv-search__selected {
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--cds-border-subtle);
 }
 
 .pv-search__selected-label {

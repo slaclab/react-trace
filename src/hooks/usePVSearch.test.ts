@@ -38,6 +38,9 @@ describe('toSearchRegex', () => {
     ['PDES$', '.*(?:PDES$)'],
     ['KLYS:LI2[0-9]:', '.*(?:KLYS:LI2[0-9]:).*'],
     ['KLYS|FOO', '.*(?:KLYS|FOO).*'],
+    // Regex group prefixes survive; `?*` means one character then any.
+    ['^KLYS(?:A|B).*$', '(?:^KLYS(?:A|B).*$)'],
+    ['KLYS:LI2?*:PDES', '.*(?:KLYS:LI2..*:PDES).*'],
   ])('%j becomes %j', (text, regex) => {
     expect(toSearchRegex(text)).toBe(regex);
   });

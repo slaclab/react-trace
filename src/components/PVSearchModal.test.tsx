@@ -78,7 +78,7 @@ const plot3 = makePlot('plot-3', 'Plot 3', { archiver: 'lcls' });
 function renderModal(props: Partial<ComponentProps<typeof PVSearchModal>> = {}) {
   const onAdd = vi.fn();
   const onClose = vi.fn();
-  render(
+  const element = (next: Partial<ComponentProps<typeof PVSearchModal>>) => (
     <PVSearchModal
       open
       plots={[plot1]}
@@ -86,9 +86,13 @@ function renderModal(props: Partial<ComponentProps<typeof PVSearchModal>> = {}) 
       onAdd={onAdd}
       onClose={onClose}
       {...props}
+      {...next}
     />
   );
-  return { onAdd, onClose };
+  const view = render(element({}));
+  const rerender = (next: Partial<ComponentProps<typeof PVSearchModal>>) =>
+    view.rerender(element(next));
+  return { onAdd, onClose, rerender };
 }
 
 async function typePattern(text: string) {
@@ -146,7 +150,8 @@ describe('PVSearchModal', () => {
     expect(searchCalls[0].options).toEqual({ archiver: 'lcls', limit: PV_SEARCH_LIMIT });
 
     await resolveSearch(0, ['KLYS:A', 'KLYS:B', 'KLYS:C']);
-    expect(screen.getByText('3 matches')).toBeTruthy();
+    // The status line is a live region, so the count is announced.
+    expect(screen.getByRole('status').textContent).toBe('3 matches');
     expect(listed()).toEqual(['KLYS:A', 'KLYS:B', 'KLYS:C']);
   });
 
@@ -305,6 +310,27 @@ describe('PVSearchModal', () => {
     tick('KLYS:F');
     fireEvent.click(addButton());
     expect(onAdd).toHaveBeenCalledWith('plot-2', ['KLYS:F']);
+  });
+
+  it('drops the ticks when the target plot itself moves to another archiver', async () => {
+    const { onAdd, rerender } = renderModal();
+    await typePattern('KLYS');
+    await resolveSearch(0, ['KLYS:A', 'KLYS:B']);
+    tick('KLYS:A');
+    expect(addButton().textContent).toContain('Add 1 PV');
+
+    rerender({ plots: [makePlot('plot-1', 'Plot 1', { archiver: 'facet' })] });
+    expect(addButton().disabled).toBe(true);
+    expect(screen.queryByText(/^Selected/)).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    await resolveSearch(1, ['KLYS:A']);
+    expect((screen.getByLabelText('KLYS:A') as HTMLInputElement).checked).toBe(false);
+    tick('KLYS:A');
+    fireEvent.click(addButton());
+    expect(onAdd).toHaveBeenCalledWith('plot-1', ['KLYS:A']);
   });
 
   it("keeps the matches and ticks when the new target's archiver is the same", async () => {

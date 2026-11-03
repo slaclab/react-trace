@@ -33,11 +33,11 @@ interface Stored {
 // `KLYS.*` and `^KLYS` keep meaning what they say. The group keeps an
 // alternation such as `KLYS|FOO` inside the wrap.
 export function toSearchRegex(text: string): string {
+  // One pass, so a converted character is never read again: `(?` keeps its
+  // group prefix, an explicit `.*` stays as typed, and `?*` becomes `..*`.
   const body = text
     .trim()
-    .replace(/\?/g, '.')
-    .replace(/%/g, '.*')
-    .replace(/(?<!\.)\*/g, '.*');
+    .replace(/\(\?|\.\*|[?*%]/g, (m) => (m === '(?' || m === '.*' ? m : m === '?' ? '.' : '.*'));
   const lead = body.startsWith('^') || body.startsWith('.*') ? '' : '.*';
   const tail = body.endsWith('$') || body.endsWith('.*') ? '' : '.*';
   return `${lead}(?:${body})${tail}`;
