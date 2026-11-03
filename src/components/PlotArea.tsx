@@ -186,6 +186,12 @@ function xyData(points: readonly PlotSample[]): Float64Array {
   return out;
 }
 
+// Declared on every typed-array series. ECharts infers [x, y] from the
+// cartesian coordinate system in its production build, but its development
+// build asserts that `dimensions` is given for TypedArray data, so without
+// this the dev server throws on the first plotted sample.
+const XY_DIMENSIONS = ['x', 'y'];
+
 function traceSamples(
   trace: PVTrace,
   archive: ArchiveSeriesResult | undefined,
@@ -373,6 +379,7 @@ export function SinglePlot({
         name: labels.get(trace.id),
         type: 'line',
         yAxisIndex,
+        dimensions: XY_DIMENSIONS,
         // Typed unless it has to break at an INVALID sample: the nulls and
         // step-line hold points need plain point data.
         data: tracesWithInvalid.has(trace.id)
@@ -836,6 +843,7 @@ export function SinglePlot({
         name: `${trace.displayName} (extension)`,
         type: 'line',
         yAxisIndex,
+        dimensions: XY_DIMENSIONS,
         data,
         lineStyle: {
           color: trace.color,
