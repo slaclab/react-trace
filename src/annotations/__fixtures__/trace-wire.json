@@ -1,0 +1,2807 @@
+{
+  "format": 1,
+  "links": [
+    {
+      "name": "no drawings",
+      "query": "pv=SR:A:X&pv=SR:B:Y&pv=SR:C:Z&range=-1h",
+      "page": true,
+      "parsed": {
+        "pvs": ["SR:A:X", "SR:B:Y", "SR:C:Z"],
+        "xAxis": {
+          "timeRange": "-1h"
+        }
+      },
+      "plot": {
+        "title": "Plot 1",
+        "showLegend": true,
+        "showXGridlines": true,
+        "showYGridlines": true,
+        "showCrosshair": false,
+        "gridStyle": "solid",
+        "gridOpacity": 1,
+        "tickFontSize": 11,
+        "refreshIntervalS": 5,
+        "id": "plot-1",
+        "xAxis": {
+          "timeRange": "-1h"
+        },
+        "autoScroll": true,
+        "axes": [
+          {
+            "id": "y-axis-1",
+            "name": "Y-Axis 1",
+            "orientation": "left",
+            "autoScale": true,
+            "logScale": false,
+            "visible": true
+          }
+        ],
+        "traces": [
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-1",
+            "pvName": "SR:A:X",
+            "color": "#008CF9",
+            "axisId": "y-axis-1",
+            "data": []
+          },
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-2",
+            "pvName": "SR:B:Y",
+            "color": "#006E00",
+            "axisId": "y-axis-1",
+            "data": []
+          },
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-3",
+            "pvName": "SR:C:Z",
+            "color": "#B80058",
+            "axisId": "y-axis-1",
+            "data": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "every kind, defaults",
+      "query": "pv=SR:A:X&pv=SR:B:Y&pv=SR:C:Z&range=-1h&plot={%22v%22:1,%22drawings%22:[[0,[4.14159],0,null],[1,[1800000002000],0,null],[2,[1800000003000,1800000063000],0,null],[3,[1800000004000,5.5,1800000064000,-6.25],0,null],[4,[1800000005000,6.5,1800000065000,-7.25],0,null],[5,[1800000006000,7.5],0,null],[6,[1800000007000,8.5,1800000067000,-9.25],0,null]]}",
+      "page": true,
+      "parsed": {
+        "pvs": ["SR:A:X", "SR:B:Y", "SR:C:Z"],
+        "xAxis": {
+          "timeRange": "-1h"
+        },
+        "plot": {
+          "v": 1,
+          "drawings": [
+            [0, [4.14159], 0, null],
+            [1, [1800000002000], 0, null],
+            [2, [1800000003000, 1800000063000], 0, null],
+            [3, [1800000004000, 5.5, 1800000064000, -6.25], 0, null],
+            [4, [1800000005000, 6.5, 1800000065000, -7.25], 0, null],
+            [5, [1800000006000, 7.5], 0, null],
+            [6, [1800000007000, 8.5, 1800000067000, -9.25], 0, null]
+          ]
+        }
+      },
+      "plot": {
+        "title": "Plot 1",
+        "showLegend": true,
+        "showXGridlines": true,
+        "showYGridlines": true,
+        "showCrosshair": false,
+        "gridStyle": "solid",
+        "gridOpacity": 1,
+        "tickFontSize": 11,
+        "refreshIntervalS": 5,
+        "id": "plot-1",
+        "xAxis": {
+          "timeRange": "-1h"
+        },
+        "autoScroll": true,
+        "axes": [
+          {
+            "id": "y-axis-1",
+            "name": "Y-Axis 1",
+            "orientation": "left",
+            "autoScale": true,
+            "logScale": false,
+            "visible": true
+          }
+        ],
+        "traces": [
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-1",
+            "pvName": "SR:A:X",
+            "color": "#008CF9",
+            "axisId": "y-axis-1",
+            "data": []
+          },
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-2",
+            "pvName": "SR:B:Y",
+            "color": "#006E00",
+            "axisId": "y-axis-1",
+            "data": []
+          },
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-3",
+            "pvName": "SR:C:Z",
+            "color": "#B80058",
+            "axisId": "y-axis-1",
+            "data": []
+          }
+        ],
+        "annotations": [
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 4.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "vline",
+            "points": [
+              {
+                "t": 1800000002000,
+                "v": 0
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "trange",
+            "points": [
+              {
+                "t": 1800000003000,
+                "v": 0
+              },
+              {
+                "t": 1800000063000,
+                "v": 0
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "trend",
+            "points": [
+              {
+                "t": 1800000004000,
+                "v": 5.5
+              },
+              {
+                "t": 1800000064000,
+                "v": -6.25
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "box",
+            "points": [
+              {
+                "t": 1800000005000,
+                "v": 6.5
+              },
+              {
+                "t": 1800000065000,
+                "v": -7.25
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000006000,
+                "v": 7.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "measure",
+            "points": [
+              {
+                "t": 1800000007000,
+                "v": 8.5
+              },
+              {
+                "t": 1800000067000,
+                "v": -9.25
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "every flag",
+      "query": "pv=SR:A:X&pv=SR:B:Y&pv=SR:C:Z&range=-1h&plot={%22v%22:1,%22axes%22:[{},{%22name%22:%22Second%22,%22orientation%22:%22right%22}],%22drawings%22:[[3,[1800000008000,9.5,1800000068000,-10.25],0,null,%22%22,%22%22,%22lw1.5%22],[3,[1800000009000,10.5,1800000069000,-11.25],0,null,%22%22,%22%22,%22h%22],[3,[1800000010000,11.5,1800000070000,-12.25],0,null,%22%22,%22%22,%22d%22],[3,[1800000011000,12.5,1800000071000,-13.25],0,null,%22%22,%22%22,%22r%22],[3,[1800000012000,13.5,1800000072000,-14.25],0,null,%22%22,%22%22,%22b%22],[4,[1800000013000,14.5,1800000073000,-15.25],0,null,%22%22,%22%22,%22w1%22],[6,[1800000014000,15.5,1800000074000,-16.25],0,null,%22%22,%22%22,%22w2%22],[0,[18.14159],0,null,%22%22,%22%22,%22w3%22],[3,[1800000016000,17.5,1800000076000,-18.25],1,null,%22%22,%22%22,%22lhdbw3%22],[1,[1800000017000],0,null,%22%22,%22%22,%22lhdw1%22]]}",
+      "page": true,
+      "parsed": {
+        "pvs": ["SR:A:X", "SR:B:Y", "SR:C:Z"],
+        "xAxis": {
+          "timeRange": "-1h"
+        },
+        "plot": {
+          "v": 1,
+          "drawings": [
+            [3, [1800000008000, 9.5, 1800000068000, -10.25], 0, null, "", "", "lw1.5"],
+            [3, [1800000009000, 10.5, 1800000069000, -11.25], 0, null, "", "", "h"],
+            [3, [1800000010000, 11.5, 1800000070000, -12.25], 0, null, "", "", "d"],
+            [3, [1800000011000, 12.5, 1800000071000, -13.25], 0, null, "", "", "r"],
+            [3, [1800000012000, 13.5, 1800000072000, -14.25], 0, null, "", "", "b"],
+            [4, [1800000013000, 14.5, 1800000073000, -15.25], 0, null, "", "", "w1"],
+            [6, [1800000014000, 15.5, 1800000074000, -16.25], 0, null, "", "", "w2"],
+            [0, [18.14159], 0, null, "", "", "w3"],
+            [3, [1800000016000, 17.5, 1800000076000, -18.25], 1, null, "", "", "lhdbw3"],
+            [1, [1800000017000], 0, null, "", "", "lhdw1"]
+          ],
+          "axes": [
+            {},
+            {
+              "name": "Second",
+              "orientation": "right"
+            }
+          ]
+        }
+      },
+      "plot": {
+        "title": "Plot 1",
+        "showLegend": true,
+        "showXGridlines": true,
+        "showYGridlines": true,
+        "showCrosshair": false,
+        "gridStyle": "solid",
+        "gridOpacity": 1,
+        "tickFontSize": 11,
+        "refreshIntervalS": 5,
+        "id": "plot-1",
+        "xAxis": {
+          "timeRange": "-1h"
+        },
+        "autoScroll": true,
+        "axes": [
+          {
+            "id": "y-axis-1",
+            "name": "Y-Axis 1",
+            "orientation": "left",
+            "autoScale": true,
+            "logScale": false,
+            "visible": true
+          },
+          {
+            "id": "y-axis-2",
+            "name": "Second",
+            "orientation": "right",
+            "autoScale": true,
+            "logScale": false,
+            "visible": true
+          }
+        ],
+        "traces": [
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-1",
+            "pvName": "SR:A:X",
+            "color": "#008CF9",
+            "axisId": "y-axis-1",
+            "data": []
+          },
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-2",
+            "pvName": "SR:B:Y",
+            "color": "#006E00",
+            "axisId": "y-axis-1",
+            "data": []
+          },
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-3",
+            "pvName": "SR:C:Z",
+            "color": "#B80058",
+            "axisId": "y-axis-1",
+            "data": []
+          }
+        ],
+        "annotations": [
+          {
+            "kind": "trend",
+            "points": [
+              {
+                "t": 1800000008000,
+                "v": 9.5
+              },
+              {
+                "t": 1800000068000,
+                "v": -10.25
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 1.5,
+            "text": "",
+            "locked": true
+          },
+          {
+            "kind": "trend",
+            "points": [
+              {
+                "t": 1800000009000,
+                "v": 10.5
+              },
+              {
+                "t": 1800000069000,
+                "v": -11.25
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": "",
+            "hidden": true
+          },
+          {
+            "kind": "trend",
+            "points": [
+              {
+                "t": 1800000010000,
+                "v": 11.5
+              },
+              {
+                "t": 1800000070000,
+                "v": -12.25
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": "",
+            "dash": true
+          },
+          {
+            "kind": "trend",
+            "points": [
+              {
+                "t": 1800000011000,
+                "v": 12.5
+              },
+              {
+                "t": 1800000071000,
+                "v": -13.25
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": "",
+            "extend": "right"
+          },
+          {
+            "kind": "trend",
+            "points": [
+              {
+                "t": 1800000012000,
+                "v": 13.5
+              },
+              {
+                "t": 1800000072000,
+                "v": -14.25
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": "",
+            "extend": "both"
+          },
+          {
+            "kind": "box",
+            "points": [
+              {
+                "t": 1800000013000,
+                "v": 14.5
+              },
+              {
+                "t": 1800000073000,
+                "v": -15.25
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 1,
+            "text": ""
+          },
+          {
+            "kind": "measure",
+            "points": [
+              {
+                "t": 1800000014000,
+                "v": 15.5
+              },
+              {
+                "t": 1800000074000,
+                "v": -16.25
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 2,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 18.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 3,
+            "text": ""
+          },
+          {
+            "kind": "trend",
+            "points": [
+              {
+                "t": 1800000016000,
+                "v": 17.5
+              },
+              {
+                "t": 1800000076000,
+                "v": -18.25
+              }
+            ],
+            "axisId": "y-axis-2",
+            "color": "#d12771",
+            "width": 3,
+            "text": "",
+            "locked": true,
+            "hidden": true,
+            "dash": true,
+            "extend": "both"
+          },
+          {
+            "kind": "vline",
+            "points": [
+              {
+                "t": 1800000017000,
+                "v": 0
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 1,
+            "text": "",
+            "locked": true,
+            "hidden": true,
+            "dash": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "colour cases",
+      "query": "pv=SR:A:X&pv=SR:B:Y&pv=SR:C:Z&range=-1h&plot={%22v%22:1,%22drawings%22:[[0,[21.14159],0,null],[1,[1800000019000],0,null,%22%234589ff%22],[3,[1800000020000,21.5,1800000080000,-22.25],0,null,%22%23123456%22],[4,[1800000021000,22.5,1800000081000,-23.25],0,null,%22%23abc%22],[5,[1800000022000,23.5],0,null,%22rgb(1,%202,%203)%22,%22rgb%20note%22],[6,[1800000023000,24.5,1800000083000,-25.25],0,null,%22rgba(10,%2020,%2030,%200.5)%22,%22%22,%22d%22],[2,[1800000024000,1800000084000],0,null,%22%2324a148%22]]}",
+      "page": true,
+      "parsed": {
+        "pvs": ["SR:A:X", "SR:B:Y", "SR:C:Z"],
+        "xAxis": {
+          "timeRange": "-1h"
+        },
+        "plot": {
+          "v": 1,
+          "drawings": [
+            [0, [21.14159], 0, null],
+            [1, [1800000019000], 0, null, "#4589ff"],
+            [3, [1800000020000, 21.5, 1800000080000, -22.25], 0, null, "#123456"],
+            [4, [1800000021000, 22.5, 1800000081000, -23.25], 0, null, "#abc"],
+            [5, [1800000022000, 23.5], 0, null, "rgb(1, 2, 3)", "rgb note"],
+            [
+              6,
+              [1800000023000, 24.5, 1800000083000, -25.25],
+              0,
+              null,
+              "rgba(10, 20, 30, 0.5)",
+              "",
+              "d"
+            ],
+            [2, [1800000024000, 1800000084000], 0, null, "#24a148"]
+          ]
+        }
+      },
+      "plot": {
+        "title": "Plot 1",
+        "showLegend": true,
+        "showXGridlines": true,
+        "showYGridlines": true,
+        "showCrosshair": false,
+        "gridStyle": "solid",
+        "gridOpacity": 1,
+        "tickFontSize": 11,
+        "refreshIntervalS": 5,
+        "id": "plot-1",
+        "xAxis": {
+          "timeRange": "-1h"
+        },
+        "autoScroll": true,
+        "axes": [
+          {
+            "id": "y-axis-1",
+            "name": "Y-Axis 1",
+            "orientation": "left",
+            "autoScale": true,
+            "logScale": false,
+            "visible": true
+          }
+        ],
+        "traces": [
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-1",
+            "pvName": "SR:A:X",
+            "color": "#008CF9",
+            "axisId": "y-axis-1",
+            "data": []
+          },
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-2",
+            "pvName": "SR:B:Y",
+            "color": "#006E00",
+            "axisId": "y-axis-1",
+            "data": []
+          },
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-3",
+            "pvName": "SR:C:Z",
+            "color": "#B80058",
+            "axisId": "y-axis-1",
+            "data": []
+          }
+        ],
+        "annotations": [
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 21.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "vline",
+            "points": [
+              {
+                "t": 1800000019000,
+                "v": 0
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "trend",
+            "points": [
+              {
+                "t": 1800000020000,
+                "v": 21.5
+              },
+              {
+                "t": 1800000080000,
+                "v": -22.25
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#123456",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "box",
+            "points": [
+              {
+                "t": 1800000021000,
+                "v": 22.5
+              },
+              {
+                "t": 1800000081000,
+                "v": -23.25
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#abc",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000022000,
+                "v": 23.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "rgb(1, 2, 3)",
+            "width": 0.75,
+            "text": "rgb note"
+          },
+          {
+            "kind": "measure",
+            "points": [
+              {
+                "t": 1800000023000,
+                "v": 24.5
+              },
+              {
+                "t": 1800000083000,
+                "v": -25.25
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "rgba(10, 20, 30, 0.5)",
+            "width": 0.75,
+            "text": "",
+            "dash": true
+          },
+          {
+            "kind": "trange",
+            "points": [
+              {
+                "t": 1800000024000,
+                "v": 0
+              },
+              {
+                "t": 1800000084000,
+                "v": 0
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "axes, traces and text",
+      "query": "pv=SR:A:X&pv=SR:B:Y&pv=SR:C:Z&range=-1h&plot={%22v%22:1,%22axes%22:[{},{%22name%22:%22Second%22,%22orientation%22:%22right%22}],%22drawings%22:[[3,[1800000025000,26.5,1800000085000,-27.25],1,2],[5,[1800000026000,27.5],0,0,%22%22,%22Beam%20dump%20%26%20refill:%2050%25%20%5C%22quoted%5C%22%20%E2%82%AC%22],[4,[1800000027000,28.5,1800000087000,-29.25],1,null,%22%22,%22boxed%22],[0,[31.14159],0,1,%22%22,%22limit%22],[5,[1800000029000,30.5],0,null,%22%22,%22%22,%22l%22]]}",
+      "page": true,
+      "parsed": {
+        "pvs": ["SR:A:X", "SR:B:Y", "SR:C:Z"],
+        "xAxis": {
+          "timeRange": "-1h"
+        },
+        "plot": {
+          "v": 1,
+          "drawings": [
+            [3, [1800000025000, 26.5, 1800000085000, -27.25], 1, 2],
+            [5, [1800000026000, 27.5], 0, 0, "", "Beam dump & refill: 50% \"quoted\" €"],
+            [4, [1800000027000, 28.5, 1800000087000, -29.25], 1, null, "", "boxed"],
+            [0, [31.14159], 0, 1, "", "limit"],
+            [5, [1800000029000, 30.5], 0, null, "", "", "l"]
+          ],
+          "axes": [
+            {},
+            {
+              "name": "Second",
+              "orientation": "right"
+            }
+          ]
+        }
+      },
+      "plot": {
+        "title": "Plot 1",
+        "showLegend": true,
+        "showXGridlines": true,
+        "showYGridlines": true,
+        "showCrosshair": false,
+        "gridStyle": "solid",
+        "gridOpacity": 1,
+        "tickFontSize": 11,
+        "refreshIntervalS": 5,
+        "id": "plot-1",
+        "xAxis": {
+          "timeRange": "-1h"
+        },
+        "autoScroll": true,
+        "axes": [
+          {
+            "id": "y-axis-1",
+            "name": "Y-Axis 1",
+            "orientation": "left",
+            "autoScale": true,
+            "logScale": false,
+            "visible": true
+          },
+          {
+            "id": "y-axis-2",
+            "name": "Second",
+            "orientation": "right",
+            "autoScale": true,
+            "logScale": false,
+            "visible": true
+          }
+        ],
+        "traces": [
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-1",
+            "pvName": "SR:A:X",
+            "color": "#008CF9",
+            "axisId": "y-axis-1",
+            "data": []
+          },
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-2",
+            "pvName": "SR:B:Y",
+            "color": "#006E00",
+            "axisId": "y-axis-1",
+            "data": []
+          },
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-3",
+            "pvName": "SR:C:Z",
+            "color": "#B80058",
+            "axisId": "y-axis-1",
+            "data": []
+          }
+        ],
+        "annotations": [
+          {
+            "kind": "trend",
+            "points": [
+              {
+                "t": 1800000025000,
+                "v": 26.5
+              },
+              {
+                "t": 1800000085000,
+                "v": -27.25
+              }
+            ],
+            "axisId": "y-axis-2",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": "",
+            "traceId": "trace-3"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000026000,
+                "v": 27.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": "Beam dump & refill: 50% \"quoted\" €",
+            "traceId": "trace-1"
+          },
+          {
+            "kind": "box",
+            "points": [
+              {
+                "t": 1800000027000,
+                "v": 28.5
+              },
+              {
+                "t": 1800000087000,
+                "v": -29.25
+              }
+            ],
+            "axisId": "y-axis-2",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": "boxed"
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 31.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": "limit",
+            "traceId": "trace-2"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000029000,
+                "v": 30.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": "",
+            "locked": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "custom range",
+      "query": "pv=SR:A:X&range=-1h&plot={%22v%22:1,%22drawings%22:[[1,[1800000030000],0,null],[2,[1800000031000,1800000091000],0,null,%22%22,%22%22,%22h%22]]}",
+      "page": true,
+      "parsed": {
+        "pvs": ["SR:A:X"],
+        "xAxis": {
+          "timeRange": "-1h"
+        },
+        "plot": {
+          "v": 1,
+          "drawings": [
+            [1, [1800000030000], 0, null],
+            [2, [1800000031000, 1800000091000], 0, null, "", "", "h"]
+          ]
+        }
+      },
+      "plot": {
+        "title": "Plot 1",
+        "showLegend": true,
+        "showXGridlines": true,
+        "showYGridlines": true,
+        "showCrosshair": false,
+        "gridStyle": "solid",
+        "gridOpacity": 1,
+        "tickFontSize": 11,
+        "refreshIntervalS": 5,
+        "id": "plot-1",
+        "xAxis": {
+          "timeRange": "-1h"
+        },
+        "autoScroll": true,
+        "axes": [
+          {
+            "id": "y-axis-1",
+            "name": "Y-Axis 1",
+            "orientation": "left",
+            "autoScale": true,
+            "logScale": false,
+            "visible": true
+          }
+        ],
+        "traces": [
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-1",
+            "pvName": "SR:A:X",
+            "color": "#008CF9",
+            "axisId": "y-axis-1",
+            "data": []
+          }
+        ],
+        "annotations": [
+          {
+            "kind": "vline",
+            "points": [
+              {
+                "t": 1800000030000,
+                "v": 0
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "trange",
+            "points": [
+              {
+                "t": 1800000031000,
+                "v": 0
+              },
+              {
+                "t": 1800000091000,
+                "v": 0
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": "",
+            "hidden": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "over budget: trailing drawings shed",
+      "query": "pv=SR:A:X&pv=SR:B:Y&pv=SR:C:Z&range=-1h&plot={%22v%22:1,%22drawings%22:[[5,[1800000032000,33.5],0,null,%22%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%200%22],[5,[1800000033000,34.5],0,null,%22%230f0f0f%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%201%22],[5,[1800000034000,35.5],0,null,%22%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%202%22],[5,[1800000035000,36.5],0,null,%22%230f0f0f%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%203%22],[5,[1800000036000,37.5],0,null,%22%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%204%22],[5,[1800000037000,38.5],0,null,%22%230f0f0f%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%205%22],[5,[1800000038000,39.5],0,null,%22%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%206%22],[5,[1800000039000,40.5],0,null,%22%230f0f0f%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%207%22],[5,[1800000040000,41.5],0,null,%22%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%208%22],[5,[1800000041000,42.5],0,null,%22%230f0f0f%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%209%22],[5,[1800000042000,43.5],0,null,%22%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%2010%22],[5,[1800000043000,44.5],0,null,%22%230f0f0f%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%2011%22],[5,[1800000044000,45.5],0,null,%22%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%2012%22],[5,[1800000045000,46.5],0,null,%22%230f0f0f%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%2013%22],[5,[1800000046000,47.5],0,null,%22%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%2014%22],[5,[1800000047000,48.5],0,null,%22%230f0f0f%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%2015%22],[5,[1800000048000,49.5],0,null,%22%22,%22%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%E2%82%AC%2016%22]]}",
+      "page": false,
+      "parsed": {
+        "pvs": ["SR:A:X", "SR:B:Y", "SR:C:Z"],
+        "xAxis": {
+          "timeRange": "-1h"
+        },
+        "plot": {
+          "v": 1,
+          "drawings": [
+            [5, [1800000032000, 33.5], 0, null, "", "€€€€€€€€€€€€€€€€€€€€ 0"],
+            [5, [1800000033000, 34.5], 0, null, "#0f0f0f", "€€€€€€€€€€€€€€€€€€€€ 1"],
+            [5, [1800000034000, 35.5], 0, null, "", "€€€€€€€€€€€€€€€€€€€€ 2"],
+            [5, [1800000035000, 36.5], 0, null, "#0f0f0f", "€€€€€€€€€€€€€€€€€€€€ 3"],
+            [5, [1800000036000, 37.5], 0, null, "", "€€€€€€€€€€€€€€€€€€€€ 4"],
+            [5, [1800000037000, 38.5], 0, null, "#0f0f0f", "€€€€€€€€€€€€€€€€€€€€ 5"],
+            [5, [1800000038000, 39.5], 0, null, "", "€€€€€€€€€€€€€€€€€€€€ 6"],
+            [5, [1800000039000, 40.5], 0, null, "#0f0f0f", "€€€€€€€€€€€€€€€€€€€€ 7"],
+            [5, [1800000040000, 41.5], 0, null, "", "€€€€€€€€€€€€€€€€€€€€ 8"],
+            [5, [1800000041000, 42.5], 0, null, "#0f0f0f", "€€€€€€€€€€€€€€€€€€€€ 9"],
+            [5, [1800000042000, 43.5], 0, null, "", "€€€€€€€€€€€€€€€€€€€€ 10"],
+            [5, [1800000043000, 44.5], 0, null, "#0f0f0f", "€€€€€€€€€€€€€€€€€€€€ 11"],
+            [5, [1800000044000, 45.5], 0, null, "", "€€€€€€€€€€€€€€€€€€€€ 12"],
+            [5, [1800000045000, 46.5], 0, null, "#0f0f0f", "€€€€€€€€€€€€€€€€€€€€ 13"],
+            [5, [1800000046000, 47.5], 0, null, "", "€€€€€€€€€€€€€€€€€€€€ 14"],
+            [5, [1800000047000, 48.5], 0, null, "#0f0f0f", "€€€€€€€€€€€€€€€€€€€€ 15"],
+            [5, [1800000048000, 49.5], 0, null, "", "€€€€€€€€€€€€€€€€€€€€ 16"]
+          ]
+        }
+      },
+      "plot": {
+        "title": "Plot 1",
+        "showLegend": true,
+        "showXGridlines": true,
+        "showYGridlines": true,
+        "showCrosshair": false,
+        "gridStyle": "solid",
+        "gridOpacity": 1,
+        "tickFontSize": 11,
+        "refreshIntervalS": 5,
+        "id": "plot-1",
+        "xAxis": {
+          "timeRange": "-1h"
+        },
+        "autoScroll": true,
+        "axes": [
+          {
+            "id": "y-axis-1",
+            "name": "Y-Axis 1",
+            "orientation": "left",
+            "autoScale": true,
+            "logScale": false,
+            "visible": true
+          }
+        ],
+        "traces": [
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-1",
+            "pvName": "SR:A:X",
+            "color": "#008CF9",
+            "axisId": "y-axis-1",
+            "data": []
+          },
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-2",
+            "pvName": "SR:B:Y",
+            "color": "#006E00",
+            "axisId": "y-axis-1",
+            "data": []
+          },
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-3",
+            "pvName": "SR:C:Z",
+            "color": "#B80058",
+            "axisId": "y-axis-1",
+            "data": []
+          }
+        ],
+        "annotations": [
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000032000,
+                "v": 33.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 0"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000033000,
+                "v": 34.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#0f0f0f",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 1"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000034000,
+                "v": 35.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 2"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000035000,
+                "v": 36.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#0f0f0f",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 3"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000036000,
+                "v": 37.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 4"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000037000,
+                "v": 38.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#0f0f0f",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 5"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000038000,
+                "v": 39.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 6"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000039000,
+                "v": 40.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#0f0f0f",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 7"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000040000,
+                "v": 41.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 8"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000041000,
+                "v": 42.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#0f0f0f",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 9"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000042000,
+                "v": 43.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 10"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000043000,
+                "v": 44.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#0f0f0f",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 11"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000044000,
+                "v": 45.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 12"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000045000,
+                "v": 46.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#0f0f0f",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 13"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000046000,
+                "v": 47.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 14"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000047000,
+                "v": 48.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#0f0f0f",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 15"
+          },
+          {
+            "kind": "note",
+            "points": [
+              {
+                "t": 1800000048000,
+                "v": 49.5
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": "€€€€€€€€€€€€€€€€€€€€ 16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "over MAX_DRAWINGS: capped",
+      "query": "pv=SR:A:X&pv=SR:B:Y&pv=SR:C:Z&range=-1h&plot={%22v%22:1,%22drawings%22:[[0,[65.14159],0,null],[0,[66.14159],0,null],[0,[67.14159],0,null],[0,[68.14159],0,null],[0,[69.14159],0,null],[0,[70.14159],0,null],[0,[71.14159],0,null],[0,[72.14159],0,null],[0,[73.14159],0,null],[0,[74.14159],0,null],[0,[75.14159],0,null],[0,[76.14159],0,null],[0,[77.14159],0,null],[0,[78.14159],0,null],[0,[79.14159],0,null],[0,[80.14159],0,null],[0,[81.14159],0,null],[0,[82.14159],0,null],[0,[83.14159],0,null],[0,[84.14159],0,null],[0,[85.14159],0,null],[0,[86.14159],0,null],[0,[87.14159],0,null],[0,[88.14159],0,null],[0,[89.14159],0,null],[0,[90.14159],0,null],[0,[91.14159],0,null],[0,[92.14159],0,null],[0,[93.14159],0,null],[0,[94.14159],0,null],[0,[95.14159],0,null],[0,[96.14159],0,null],[0,[97.14159],0,null],[0,[98.14159],0,null],[0,[99.14159],0,null],[0,[100.14159],0,null],[0,[101.14159],0,null],[0,[102.14159],0,null],[0,[103.14159],0,null],[0,[104.14159],0,null],[0,[105.14159],0,null],[0,[106.14159],0,null],[0,[107.14159],0,null],[0,[108.14159],0,null],[0,[109.14159],0,null],[0,[110.14159],0,null],[0,[111.14159],0,null],[0,[112.14159],0,null],[0,[113.14159],0,null],[0,[114.14159],0,null],[0,[115.14159],0,null],[0,[116.14159],0,null],[0,[117.14159],0,null],[0,[118.14159],0,null],[0,[119.14159],0,null],[0,[120.14159],0,null],[0,[121.14159],0,null],[0,[122.14159],0,null],[0,[123.14159],0,null],[0,[124.14159],0,null],[0,[125.14159],0,null],[0,[126.14159],0,null],[0,[127.14159],0,null],[0,[128.14159],0,null]]}",
+      "page": true,
+      "parsed": {
+        "pvs": ["SR:A:X", "SR:B:Y", "SR:C:Z"],
+        "xAxis": {
+          "timeRange": "-1h"
+        },
+        "plot": {
+          "v": 1,
+          "drawings": [
+            [0, [65.14159], 0, null],
+            [0, [66.14159], 0, null],
+            [0, [67.14159], 0, null],
+            [0, [68.14159], 0, null],
+            [0, [69.14159], 0, null],
+            [0, [70.14159], 0, null],
+            [0, [71.14159], 0, null],
+            [0, [72.14159], 0, null],
+            [0, [73.14159], 0, null],
+            [0, [74.14159], 0, null],
+            [0, [75.14159], 0, null],
+            [0, [76.14159], 0, null],
+            [0, [77.14159], 0, null],
+            [0, [78.14159], 0, null],
+            [0, [79.14159], 0, null],
+            [0, [80.14159], 0, null],
+            [0, [81.14159], 0, null],
+            [0, [82.14159], 0, null],
+            [0, [83.14159], 0, null],
+            [0, [84.14159], 0, null],
+            [0, [85.14159], 0, null],
+            [0, [86.14159], 0, null],
+            [0, [87.14159], 0, null],
+            [0, [88.14159], 0, null],
+            [0, [89.14159], 0, null],
+            [0, [90.14159], 0, null],
+            [0, [91.14159], 0, null],
+            [0, [92.14159], 0, null],
+            [0, [93.14159], 0, null],
+            [0, [94.14159], 0, null],
+            [0, [95.14159], 0, null],
+            [0, [96.14159], 0, null],
+            [0, [97.14159], 0, null],
+            [0, [98.14159], 0, null],
+            [0, [99.14159], 0, null],
+            [0, [100.14159], 0, null],
+            [0, [101.14159], 0, null],
+            [0, [102.14159], 0, null],
+            [0, [103.14159], 0, null],
+            [0, [104.14159], 0, null],
+            [0, [105.14159], 0, null],
+            [0, [106.14159], 0, null],
+            [0, [107.14159], 0, null],
+            [0, [108.14159], 0, null],
+            [0, [109.14159], 0, null],
+            [0, [110.14159], 0, null],
+            [0, [111.14159], 0, null],
+            [0, [112.14159], 0, null],
+            [0, [113.14159], 0, null],
+            [0, [114.14159], 0, null],
+            [0, [115.14159], 0, null],
+            [0, [116.14159], 0, null],
+            [0, [117.14159], 0, null],
+            [0, [118.14159], 0, null],
+            [0, [119.14159], 0, null],
+            [0, [120.14159], 0, null],
+            [0, [121.14159], 0, null],
+            [0, [122.14159], 0, null],
+            [0, [123.14159], 0, null],
+            [0, [124.14159], 0, null],
+            [0, [125.14159], 0, null],
+            [0, [126.14159], 0, null],
+            [0, [127.14159], 0, null],
+            [0, [128.14159], 0, null]
+          ]
+        }
+      },
+      "plot": {
+        "title": "Plot 1",
+        "showLegend": true,
+        "showXGridlines": true,
+        "showYGridlines": true,
+        "showCrosshair": false,
+        "gridStyle": "solid",
+        "gridOpacity": 1,
+        "tickFontSize": 11,
+        "refreshIntervalS": 5,
+        "id": "plot-1",
+        "xAxis": {
+          "timeRange": "-1h"
+        },
+        "autoScroll": true,
+        "axes": [
+          {
+            "id": "y-axis-1",
+            "name": "Y-Axis 1",
+            "orientation": "left",
+            "autoScale": true,
+            "logScale": false,
+            "visible": true
+          }
+        ],
+        "traces": [
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-1",
+            "pvName": "SR:A:X",
+            "color": "#008CF9",
+            "axisId": "y-axis-1",
+            "data": []
+          },
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-2",
+            "pvName": "SR:B:Y",
+            "color": "#006E00",
+            "axisId": "y-axis-1",
+            "data": []
+          },
+          {
+            "displayName": "",
+            "visible": true,
+            "useLive": true,
+            "useArchive": true,
+            "lineWidth": 2,
+            "lineType": "step",
+            "lineStyle": "solid",
+            "showSymbol": false,
+            "symbolShape": "circle",
+            "symbolSize": 10,
+            "id": "trace-3",
+            "pvName": "SR:C:Z",
+            "color": "#B80058",
+            "axisId": "y-axis-1",
+            "data": []
+          }
+        ],
+        "annotations": [
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 65.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 66.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 67.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 68.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 69.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 70.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 71.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 72.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 73.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 74.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 75.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 76.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 77.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 78.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 79.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 80.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 81.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 82.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 83.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 84.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 85.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 86.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 87.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 88.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 89.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 90.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 91.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 92.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 93.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 94.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 95.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 96.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 97.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 98.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 99.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 100.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 101.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 102.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 103.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 104.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 105.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 106.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 107.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 108.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 109.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 110.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 111.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 112.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 113.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 114.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 115.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 116.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 117.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 118.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 119.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 120.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 121.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 122.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 123.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 124.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#a56eff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 125.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#4589ff",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 126.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#ff832b",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 127.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#24a148",
+            "width": 0.75,
+            "text": ""
+          },
+          {
+            "kind": "hline",
+            "points": [
+              {
+                "t": 0,
+                "v": 128.14159
+              }
+            ],
+            "axisId": "y-axis-1",
+            "color": "#d12771",
+            "width": 0.75,
+            "text": ""
+          }
+        ]
+      }
+    }
+  ],
+  "workspaces": [
+    {
+      "name": "dark workspace",
+      "savedAt": "2026-10-19T12:00:00.000Z",
+      "theme": "dark",
+      "file": "{\n  \"schemaVersion\": 1,\n  \"savedAt\": \"2026-10-19T12:00:00.000Z\",\n  \"theme\": \"dark\",\n  \"plots\": [\n    {\n      \"title\": \"Plot 1\",\n      \"showLegend\": true,\n      \"showXGridlines\": true,\n      \"showYGridlines\": true,\n      \"showCrosshair\": true,\n      \"gridStyle\": \"solid\",\n      \"gridOpacity\": 1,\n      \"tickFontSize\": 11,\n      \"refreshIntervalS\": 5,\n      \"id\": \"plot-1\",\n      \"xAxis\": {\n        \"timeRange\": \"-1h\"\n      },\n      \"autoScroll\": true,\n      \"axes\": [\n        {\n          \"id\": \"y-axis-1\",\n          \"name\": \"Y-Axis 1\",\n          \"orientation\": \"left\",\n          \"autoScale\": true,\n          \"logScale\": false,\n          \"visible\": true\n        },\n        {\n          \"id\": \"y-axis-2\",\n          \"name\": \"Second\",\n          \"orientation\": \"right\",\n          \"autoScale\": true,\n          \"logScale\": false,\n          \"visible\": true\n        }\n      ],\n      \"traces\": [\n        {\n          \"displayName\": \"\",\n          \"visible\": true,\n          \"useLive\": true,\n          \"useArchive\": true,\n          \"lineWidth\": 2,\n          \"lineType\": \"step\",\n          \"lineStyle\": \"solid\",\n          \"showSymbol\": false,\n          \"symbolShape\": \"circle\",\n          \"symbolSize\": 10,\n          \"id\": \"trace-1\",\n          \"pvName\": \"SR:A:X\",\n          \"color\": \"#008CF9\",\n          \"axisId\": \"y-axis-1\",\n          \"data\": []\n        },\n        {\n          \"displayName\": \"\",\n          \"visible\": true,\n          \"useLive\": true,\n          \"useArchive\": true,\n          \"lineWidth\": 2,\n          \"lineType\": \"step\",\n          \"lineStyle\": \"solid\",\n          \"showSymbol\": false,\n          \"symbolShape\": \"circle\",\n          \"symbolSize\": 10,\n          \"id\": \"trace-2\",\n          \"pvName\": \"SR:B:Y\",\n          \"color\": \"#006E00\",\n          \"axisId\": \"y-axis-1\",\n          \"data\": []\n        },\n        {\n          \"displayName\": \"\",\n          \"visible\": true,\n          \"useLive\": true,\n          \"useArchive\": true,\n          \"lineWidth\": 2,\n          \"lineType\": \"step\",\n          \"lineStyle\": \"solid\",\n          \"showSymbol\": false,\n          \"symbolShape\": \"circle\",\n          \"symbolSize\": 10,\n          \"id\": \"trace-3\",\n          \"pvName\": \"SR:C:Z\",\n          \"color\": \"#B80058\",\n          \"axisId\": \"y-axis-1\",\n          \"data\": []\n        }\n      ],\n      \"annotations\": [\n        {\n          \"id\": \"annotation-128\",\n          \"kind\": \"hline\",\n          \"points\": [\n            {\n              \"t\": 0,\n              \"v\": 131.14159\n            }\n          ],\n          \"axisId\": \"y-axis-1\",\n          \"color\": \"#d12771\",\n          \"width\": 1.5,\n          \"text\": \"\"\n        },\n        {\n          \"id\": \"annotation-129\",\n          \"kind\": \"vline\",\n          \"points\": [\n            {\n              \"t\": 1800000129000,\n              \"v\": 0\n            }\n          ],\n          \"axisId\": \"y-axis-1\",\n          \"color\": \"#d12771\",\n          \"width\": 1.5,\n          \"text\": \"\"\n        },\n        {\n          \"id\": \"annotation-130\",\n          \"kind\": \"trange\",\n          \"points\": [\n            {\n              \"t\": 1800000130000,\n              \"v\": 0\n            },\n            {\n              \"t\": 1800000190000,\n              \"v\": 0\n            }\n          ],\n          \"axisId\": \"y-axis-1\",\n          \"color\": \"#d12771\",\n          \"width\": 1.5,\n          \"text\": \"\"\n        },\n        {\n          \"id\": \"annotation-131\",\n          \"kind\": \"trend\",\n          \"points\": [\n            {\n              \"t\": 1800000131000,\n              \"v\": 132.5\n            },\n            {\n              \"t\": 1800000191000,\n              \"v\": -133.25\n            }\n          ],\n          \"axisId\": \"y-axis-1\",\n          \"color\": \"#d12771\",\n          \"width\": 1.5,\n          \"text\": \"\"\n        },\n        {\n          \"id\": \"annotation-132\",\n          \"kind\": \"box\",\n          \"points\": [\n            {\n              \"t\": 1800000132000,\n              \"v\": 133.5\n            },\n            {\n              \"t\": 1800000192000,\n              \"v\": -134.25\n            }\n          ],\n          \"axisId\": \"y-axis-1\",\n          \"color\": \"#d12771\",\n          \"width\": 1.5,\n          \"text\": \"\"\n        },\n        {\n          \"id\": \"annotation-133\",\n          \"kind\": \"note\",\n          \"points\": [\n            {\n              \"t\": 1800000133000,\n              \"v\": 134.5\n            }\n          ],\n          \"axisId\": \"y-axis-1\",\n          \"color\": \"#d12771\",\n          \"width\": 1.5,\n          \"text\": \"\"\n        },\n        {\n          \"id\": \"annotation-134\",\n          \"kind\": \"measure\",\n          \"points\": [\n            {\n              \"t\": 1800000134000,\n              \"v\": 135.5\n            },\n            {\n              \"t\": 1800000194000,\n              \"v\": -136.25\n            }\n          ],\n          \"axisId\": \"y-axis-1\",\n          \"color\": \"#d12771\",\n          \"width\": 1.5,\n          \"text\": \"\"\n        },\n        {\n          \"id\": \"annotation-135\",\n          \"kind\": \"trend\",\n          \"points\": [\n            {\n              \"t\": 1800000135000,\n              \"v\": 136.5\n            },\n            {\n              \"t\": 1800000195000,\n              \"v\": -137.25\n            }\n          ],\n          \"axisId\": \"y-axis-2\",\n          \"color\": \"#123456\",\n          \"width\": 3,\n          \"text\": \"hello\",\n          \"traceId\": \"trace-2\",\n          \"dash\": true,\n          \"extend\": \"both\",\n          \"locked\": true,\n          \"hidden\": true\n        },\n        {\n          \"id\": \"annotation-136\",\n          \"kind\": \"trend\",\n          \"points\": [\n            {\n              \"t\": 1800000136000,\n              \"v\": 137.5\n            },\n            {\n              \"t\": 1800000196000,\n              \"v\": -138.25\n            }\n          ],\n          \"axisId\": \"y-axis-1\",\n          \"color\": \"rgb(1, 2, 3)\",\n          \"width\": 1,\n          \"text\": \"\",\n          \"extend\": \"right\"\n        },\n        {\n          \"id\": \"annotation-137\",\n          \"kind\": \"note\",\n          \"points\": [\n            {\n              \"t\": 1800000137000,\n              \"v\": 138.5\n            }\n          ],\n          \"axisId\": \"y-axis-1\",\n          \"color\": \"#abc\",\n          \"width\": 2,\n          \"text\": \"Beam dump & refill: 50% \\\"quoted\\\" €\"\n        }\n      ],\n      \"backgroundColor\": \"#161616\"\n    },\n    {\n      \"title\": \"Second\",\n      \"showLegend\": true,\n      \"showXGridlines\": true,\n      \"showYGridlines\": true,\n      \"showCrosshair\": true,\n      \"gridStyle\": \"solid\",\n      \"gridOpacity\": 1,\n      \"tickFontSize\": 11,\n      \"refreshIntervalS\": 5,\n      \"id\": \"plot-2\",\n      \"xAxis\": {\n        \"timeRange\": \"-8h\"\n      },\n      \"autoScroll\": true,\n      \"axes\": [\n        {\n          \"id\": \"y-axis-1\",\n          \"name\": \"Y-Axis 1\",\n          \"orientation\": \"left\",\n          \"autoScale\": true,\n          \"logScale\": false,\n          \"visible\": true\n        }\n      ],\n      \"traces\": [\n        {\n          \"displayName\": \"\",\n          \"visible\": true,\n          \"useLive\": true,\n          \"useArchive\": true,\n          \"lineWidth\": 2,\n          \"lineType\": \"step\",\n          \"lineStyle\": \"solid\",\n          \"showSymbol\": false,\n          \"symbolShape\": \"circle\",\n          \"symbolSize\": 10,\n          \"id\": \"trace-1\",\n          \"pvName\": \"SR:Q:1\",\n          \"color\": \"#008CF9\",\n          \"axisId\": \"y-axis-1\",\n          \"data\": []\n        }\n      ],\n      \"backgroundColor\": \"#161616\"\n    }\n  ]\n}",
+      "plots": [
+        {
+          "title": "Plot 1",
+          "showLegend": true,
+          "showXGridlines": true,
+          "showYGridlines": true,
+          "showCrosshair": true,
+          "gridStyle": "solid",
+          "gridOpacity": 1,
+          "tickFontSize": 11,
+          "refreshIntervalS": 5,
+          "id": "plot-1",
+          "xAxis": {
+            "timeRange": "-1h"
+          },
+          "autoScroll": true,
+          "axes": [
+            {
+              "id": "y-axis-1",
+              "name": "Y-Axis 1",
+              "orientation": "left",
+              "autoScale": true,
+              "logScale": false,
+              "visible": true
+            },
+            {
+              "id": "y-axis-2",
+              "name": "Second",
+              "orientation": "right",
+              "autoScale": true,
+              "logScale": false,
+              "visible": true
+            }
+          ],
+          "traces": [
+            {
+              "displayName": "",
+              "visible": true,
+              "useLive": true,
+              "useArchive": true,
+              "lineWidth": 2,
+              "lineType": "step",
+              "lineStyle": "solid",
+              "showSymbol": false,
+              "symbolShape": "circle",
+              "symbolSize": 10,
+              "id": "trace-1",
+              "pvName": "SR:A:X",
+              "color": "#008CF9",
+              "axisId": "y-axis-1",
+              "data": []
+            },
+            {
+              "displayName": "",
+              "visible": true,
+              "useLive": true,
+              "useArchive": true,
+              "lineWidth": 2,
+              "lineType": "step",
+              "lineStyle": "solid",
+              "showSymbol": false,
+              "symbolShape": "circle",
+              "symbolSize": 10,
+              "id": "trace-2",
+              "pvName": "SR:B:Y",
+              "color": "#006E00",
+              "axisId": "y-axis-1",
+              "data": []
+            },
+            {
+              "displayName": "",
+              "visible": true,
+              "useLive": true,
+              "useArchive": true,
+              "lineWidth": 2,
+              "lineType": "step",
+              "lineStyle": "solid",
+              "showSymbol": false,
+              "symbolShape": "circle",
+              "symbolSize": 10,
+              "id": "trace-3",
+              "pvName": "SR:C:Z",
+              "color": "#B80058",
+              "axisId": "y-axis-1",
+              "data": []
+            }
+          ],
+          "annotations": [
+            {
+              "id": "annotation-128",
+              "kind": "hline",
+              "points": [
+                {
+                  "t": 0,
+                  "v": 131.14159
+                }
+              ],
+              "axisId": "y-axis-1",
+              "color": "#d12771",
+              "width": 1.5,
+              "text": ""
+            },
+            {
+              "id": "annotation-129",
+              "kind": "vline",
+              "points": [
+                {
+                  "t": 1800000129000,
+                  "v": 0
+                }
+              ],
+              "axisId": "y-axis-1",
+              "color": "#d12771",
+              "width": 1.5,
+              "text": ""
+            },
+            {
+              "id": "annotation-130",
+              "kind": "trange",
+              "points": [
+                {
+                  "t": 1800000130000,
+                  "v": 0
+                },
+                {
+                  "t": 1800000190000,
+                  "v": 0
+                }
+              ],
+              "axisId": "y-axis-1",
+              "color": "#d12771",
+              "width": 1.5,
+              "text": ""
+            },
+            {
+              "id": "annotation-131",
+              "kind": "trend",
+              "points": [
+                {
+                  "t": 1800000131000,
+                  "v": 132.5
+                },
+                {
+                  "t": 1800000191000,
+                  "v": -133.25
+                }
+              ],
+              "axisId": "y-axis-1",
+              "color": "#d12771",
+              "width": 1.5,
+              "text": ""
+            },
+            {
+              "id": "annotation-132",
+              "kind": "box",
+              "points": [
+                {
+                  "t": 1800000132000,
+                  "v": 133.5
+                },
+                {
+                  "t": 1800000192000,
+                  "v": -134.25
+                }
+              ],
+              "axisId": "y-axis-1",
+              "color": "#d12771",
+              "width": 1.5,
+              "text": ""
+            },
+            {
+              "id": "annotation-133",
+              "kind": "note",
+              "points": [
+                {
+                  "t": 1800000133000,
+                  "v": 134.5
+                }
+              ],
+              "axisId": "y-axis-1",
+              "color": "#d12771",
+              "width": 1.5,
+              "text": ""
+            },
+            {
+              "id": "annotation-134",
+              "kind": "measure",
+              "points": [
+                {
+                  "t": 1800000134000,
+                  "v": 135.5
+                },
+                {
+                  "t": 1800000194000,
+                  "v": -136.25
+                }
+              ],
+              "axisId": "y-axis-1",
+              "color": "#d12771",
+              "width": 1.5,
+              "text": ""
+            },
+            {
+              "id": "annotation-135",
+              "kind": "trend",
+              "points": [
+                {
+                  "t": 1800000135000,
+                  "v": 136.5
+                },
+                {
+                  "t": 1800000195000,
+                  "v": -137.25
+                }
+              ],
+              "axisId": "y-axis-2",
+              "color": "#123456",
+              "width": 3,
+              "text": "hello",
+              "traceId": "trace-2",
+              "dash": true,
+              "extend": "both",
+              "locked": true,
+              "hidden": true
+            },
+            {
+              "id": "annotation-136",
+              "kind": "trend",
+              "points": [
+                {
+                  "t": 1800000136000,
+                  "v": 137.5
+                },
+                {
+                  "t": 1800000196000,
+                  "v": -138.25
+                }
+              ],
+              "axisId": "y-axis-1",
+              "color": "rgb(1, 2, 3)",
+              "width": 1,
+              "text": "",
+              "extend": "right"
+            },
+            {
+              "id": "annotation-137",
+              "kind": "note",
+              "points": [
+                {
+                  "t": 1800000137000,
+                  "v": 138.5
+                }
+              ],
+              "axisId": "y-axis-1",
+              "color": "#abc",
+              "width": 2,
+              "text": "Beam dump & refill: 50% \"quoted\" €"
+            }
+          ]
+        },
+        {
+          "title": "Second",
+          "showLegend": true,
+          "showXGridlines": true,
+          "showYGridlines": true,
+          "showCrosshair": true,
+          "gridStyle": "solid",
+          "gridOpacity": 1,
+          "tickFontSize": 11,
+          "refreshIntervalS": 5,
+          "id": "plot-2",
+          "xAxis": {
+            "timeRange": "-8h"
+          },
+          "autoScroll": true,
+          "axes": [
+            {
+              "id": "y-axis-1",
+              "name": "Y-Axis 1",
+              "orientation": "left",
+              "autoScale": true,
+              "logScale": false,
+              "visible": true
+            }
+          ],
+          "traces": [
+            {
+              "displayName": "",
+              "visible": true,
+              "useLive": true,
+              "useArchive": true,
+              "lineWidth": 2,
+              "lineType": "step",
+              "lineStyle": "solid",
+              "showSymbol": false,
+              "symbolShape": "circle",
+              "symbolSize": 10,
+              "id": "trace-1",
+              "pvName": "SR:Q:1",
+              "color": "#008CF9",
+              "axisId": "y-axis-1",
+              "data": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "light workspace",
+      "savedAt": "2026-10-19T12:00:00.000Z",
+      "theme": "light",
+      "file": "{\n  \"schemaVersion\": 1,\n  \"savedAt\": \"2026-10-19T12:00:00.000Z\",\n  \"theme\": \"light\",\n  \"plots\": [\n    {\n      \"title\": \"Second\",\n      \"showLegend\": true,\n      \"showXGridlines\": true,\n      \"showYGridlines\": true,\n      \"showCrosshair\": true,\n      \"gridStyle\": \"solid\",\n      \"gridOpacity\": 1,\n      \"tickFontSize\": 11,\n      \"refreshIntervalS\": 5,\n      \"id\": \"plot-2\",\n      \"xAxis\": {\n        \"timeRange\": \"-8h\"\n      },\n      \"autoScroll\": true,\n      \"axes\": [\n        {\n          \"id\": \"y-axis-1\",\n          \"name\": \"Y-Axis 1\",\n          \"orientation\": \"left\",\n          \"autoScale\": true,\n          \"logScale\": false,\n          \"visible\": true\n        }\n      ],\n      \"traces\": [\n        {\n          \"displayName\": \"\",\n          \"visible\": true,\n          \"useLive\": true,\n          \"useArchive\": true,\n          \"lineWidth\": 2,\n          \"lineType\": \"step\",\n          \"lineStyle\": \"solid\",\n          \"showSymbol\": false,\n          \"symbolShape\": \"circle\",\n          \"symbolSize\": 10,\n          \"id\": \"trace-1\",\n          \"pvName\": \"SR:Q:1\",\n          \"color\": \"#008CF9\",\n          \"axisId\": \"y-axis-1\",\n          \"data\": []\n        }\n      ],\n      \"backgroundColor\": \"#ffffff\"\n    }\n  ]\n}",
+      "plots": [
+        {
+          "title": "Second",
+          "showLegend": true,
+          "showXGridlines": true,
+          "showYGridlines": true,
+          "showCrosshair": true,
+          "gridStyle": "solid",
+          "gridOpacity": 1,
+          "tickFontSize": 11,
+          "refreshIntervalS": 5,
+          "id": "plot-2",
+          "xAxis": {
+            "timeRange": "-8h"
+          },
+          "autoScroll": true,
+          "axes": [
+            {
+              "id": "y-axis-1",
+              "name": "Y-Axis 1",
+              "orientation": "left",
+              "autoScale": true,
+              "logScale": false,
+              "visible": true
+            }
+          ],
+          "traces": [
+            {
+              "displayName": "",
+              "visible": true,
+              "useLive": true,
+              "useArchive": true,
+              "lineWidth": 2,
+              "lineType": "step",
+              "lineStyle": "solid",
+              "showSymbol": false,
+              "symbolShape": "circle",
+              "symbolSize": 10,
+              "id": "trace-1",
+              "pvName": "SR:Q:1",
+              "color": "#008CF9",
+              "axisId": "y-axis-1",
+              "data": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
