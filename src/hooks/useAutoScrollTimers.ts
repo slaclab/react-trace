@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { Plot } from '../types';
 import type { TimeWindowNs } from '../api/time';
 import { relativeRangeMs } from '../api/time';
+import { getSnapshot, subscribe } from '../embed/bridge';
 import type { LiveSeriesResult } from './useLiveSeries';
 
 export const DEFAULT_REFRESH_INTERVAL_S = 5;
@@ -110,10 +111,21 @@ export interface PlotClock {
 // One timeout is scheduled for the earliest due following plot. When it fires,
 // every due plot is re-anchored to the current time (not anchor + interval), so
 // a throttled background tab catches up in one step.
+//
+// Visibility pause: while the embedding host reports Trace hidden (bridge
+// snapshot) and nothing is detached into its own, still-visible window
+// (`anyDetached`: a plot or the Data Insight Tool), no timeout is scheduled, so
+// every anchor holds and live re-renders neither slide a window nor refetch.
+// On visible the overdue plots are re-anchored by the first timeout, which
+// fires at once.
 export function useAutoScrollTimers(
   plots: Plot[],
-  viewWindowByPlot: Map<string, TimeWindowNs>
+  viewWindowByPlot: Map<string, TimeWindowNs>,
+  anyDetached = false
 ): PlotClock {
+  const bridge = useSyncExternalStore(subscribe, getSnapshot);
+  const paused = !anyDetached && !bridge.visible;
+
   const [clock, setClock] = useState<ClockState>(() => {
     const now = Date.now();
     return { byPlot: new Map(plots.map((p) => [p.id, now])), lastWriteMs: now };
@@ -131,9 +143,13 @@ export function useAutoScrollTimers(
   // Following plots and their cadence in ms, as `[id, ms]` pairs in JSON. The
   // effect parses it back so it re-subscribes only when the following set or an
   // interval changes. JSON keeps any plot id intact (imports keep ids as saved).
-  const signature = JSON.stringify(
-    plots.filter((p) => isFollowing(p, viewWindowByPlot)).map((p) => [p.id, refreshIntervalMs(p)])
-  );
+  const signature = paused
+    ? '[]'
+    : JSON.stringify(
+        plots
+          .filter((p) => isFollowing(p, viewWindowByPlot))
+          .map((p) => [p.id, refreshIntervalMs(p)])
+      );
 
   useEffect(() => {
     const cadence = JSON.parse(signature) as [string, number][];

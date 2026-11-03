@@ -7,7 +7,7 @@ import {
   usePanelRef,
 } from 'react-resizable-panels';
 import { Close, Login, ChevronUp } from '@carbon/icons-react';
-import { ToastNotification } from '@carbon/react';
+import { Theme, ToastNotification } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
 import { LeftPanel } from './LeftPanel';
 import { DetachedWindow } from './DetachedWindow';
@@ -26,7 +26,8 @@ import type { TimeWindowNs } from '../api/time';
 import { resolveTimeWindow } from '../api/time';
 import { fetchMetadata } from '@slaclab/canopy-client';
 import { useCanopyConnection } from '@slaclab/canopy-react';
-import { ColorModeTheme, ErrorBoundary, useColorMode } from '@slaclab/canopy-shell';
+import { ErrorBoundary, useColorMode, useHostTheme } from '@slaclab/canopy-shell';
+import { useHostThemeId } from '../state/colorMode';
 import { chartThemeFor } from '@slaclab/canopy-charts';
 import { usePaletteId } from '../state/paletteStore';
 import { getPalette, colorForIndex } from '../palettes';
@@ -90,6 +91,30 @@ export type SelectedItem = {
   plotId: string;
 } | null;
 
+/**
+ * The root of a detached window: the Carbon theme zone, which is also the
+ * host-theme anchor of that window's document. Rendered inside the
+ * DetachedWindow portal, so the anchor lives in the popup.
+ */
+function DetachedRoot({
+  style,
+  children,
+}: {
+  style: React.CSSProperties;
+  children: React.ReactNode;
+}) {
+  const { colorMode, carbonTheme } = useColorMode();
+  const { anchorRef, anchorProps } = useHostTheme<HTMLDivElement>(
+    useHostThemeId() ?? colorMode,
+    colorMode
+  );
+  return (
+    <Theme ref={anchorRef} {...anchorProps} theme={carbonTheme} style={style}>
+      {children}
+    </Theme>
+  );
+}
+
 export function TraceApp() {
   const canopy = useCanopyConnection();
   const [plots, setPlots] = useState<Plot[]>(INITIAL_PLOTS);
@@ -146,7 +171,8 @@ export function TraceApp() {
 
   // Per-plot "now". A following plot's anchor advances once per its refresh
   // interval; any other plot's anchor holds, which freezes its window.
-  const clock = useAutoScrollTimers(plots, viewWindowByPlot);
+  const anyDetached = detachedPlotIds.length > 0 || (insight.open && insight.detached);
+  const clock = useAutoScrollTimers(plots, viewWindowByPlot, anyDetached);
 
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
 
@@ -1196,7 +1222,7 @@ export function TraceApp() {
             onBlocked={() => setBlockedPopup(plot.title || 'This plot')}
             onClose={() => reattachPlot(id)}
           >
-            <ColorModeTheme
+            <DetachedRoot
               style={{
                 height: '100vh',
                 background: 'var(--cds-background)',
@@ -1254,7 +1280,7 @@ export function TraceApp() {
                   onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
                 />
               </div>
-            </ColorModeTheme>
+            </DetachedRoot>
           </DetachedWindow>
         );
       })}
@@ -1269,7 +1295,7 @@ export function TraceApp() {
           onBlocked={() => setBlockedPopup('Data Insight')}
           onClose={() => setInsight((p) => ({ ...p, detached: false }))}
         >
-          <ColorModeTheme
+          <DetachedRoot
             style={{
               height: '100vh',
               background: 'var(--cds-background)',
@@ -1285,7 +1311,7 @@ export function TraceApp() {
               onClose={() => setInsight((p) => ({ ...p, open: false, detached: false }))}
               onReattach={() => setInsight((p) => ({ ...p, detached: false }))}
             />
-          </ColorModeTheme>
+          </DetachedRoot>
         </DetachedWindow>
       )}
 

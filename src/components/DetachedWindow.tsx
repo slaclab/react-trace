@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { applyHostSheetFallback } from '@slaclab/canopy-shell';
 
 interface DetachedWindowProps {
   /** Stable window name; reused so re-opening targets the same browsing context. */
@@ -77,6 +78,13 @@ export function DetachedWindow({
       /^cds--(white|g10|g90|g100)$/.test(c)
     );
     if (carbonTheme) popup.document.documentElement.classList.add(carbonTheme);
+    // A hosted opener hands its marker on; one that already fell back to the
+    // standalone theme (its host stylesheet did not load) has none to hand on.
+    const hostMarker = document.documentElement.dataset.canopyHost;
+    if (hostMarker !== undefined) popup.document.documentElement.dataset.canopyHost = hostMarker;
+    // The body lies outside every theme zone, and its colour shows until the
+    // cloned stylesheets load: start from the opener's.
+    popup.document.body.style.background = getComputedStyle(document.body).backgroundColor;
 
     const mount = popup.document.createElement('div');
     mount.style.height = '100vh';
@@ -88,6 +96,9 @@ export function DetachedWindow({
       // The user may have closed the popup or reattached before stylesheets
       // resolved — don't mount into a torn-down window.
       if (cancelled) return;
+      // A host stylesheet that did not load in this window drops the marker
+      // here, before the root mounts and reads the host contract.
+      applyHostSheetFallback(popup.document);
       setContainer(mount);
     });
 
