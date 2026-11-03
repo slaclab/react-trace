@@ -32,7 +32,7 @@ function fakeFox(reply?: (call: Call) => void) {
   const evaluate: EvaluateFn = (spec, t0Ns, t1Ns, signal) =>
     new Promise<FormulaResultDTO>((resolve, reject) => {
       const call: Call = {
-        expression: spec.expression,
+        expression: spec.expression ?? '',
         t0Ns,
         t1Ns,
         signal,

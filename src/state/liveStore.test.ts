@@ -122,7 +122,7 @@ describe('LiveStore', () => {
     expect(store.getSnapshot().get('t1')!.severity).toBe('INVALID');
   });
 
-  it('refcounts subscriptions across traces sharing one PV', () => {
+  it('refcounts subscriptions across traces sharing one PV', async () => {
     const { store, instances } = setup();
     store.watch('t1', 'FOO', 60_000);
     store.watch('t2', 'FOO', 60_000);
@@ -137,11 +137,11 @@ describe('LiveStore', () => {
     expect(ws.parsedSent()).toEqual([{ type: 'subscribe', pvNames: ['FOO'] }]);
 
     store.release('t2');
-    // Last subscriber gone -> unsubscribe.
-    expect(ws.parsedSent()).toEqual([
-      { type: 'subscribe', pvNames: ['FOO'] },
-      { type: 'unsubscribe', pvNames: ['FOO'] },
-    ]);
+    // Last subscriber gone -> the socket closes, which drops the subscription
+    // on Hare; the unsubscribe queued for this tick is never sent.
+    await Promise.resolve();
+    expect(ws.readyState).toBe(WS_CLOSED);
+    expect(ws.parsedSent()).toEqual([{ type: 'subscribe', pvNames: ['FOO'] }]);
   });
 
   it('delivers one sample per update to every trace on a shared PV', () => {
@@ -337,13 +337,15 @@ describe('LiveStore', () => {
     expect(instances[1].parsedSent()).toEqual([{ type: 'subscribe', pvNames: ['IDLE'] }]);
   });
 
-  it('keeps the socket open when a trace switches PV', () => {
+  it('keeps the socket open when a trace switches PV', async () => {
     const { store, instances } = setup();
     store.watch('t1', 'OLD', 60_000);
     const ws = instances[0];
     ws.open();
 
     store.watch('t1', 'NEW', 60_000);
+    // Subscribe/unsubscribe frames go out at the end of the tick.
+    await Promise.resolve();
 
     expect(instances).toHaveLength(1);
     expect(ws.readyState).not.toBe(WS_CLOSED);
