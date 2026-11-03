@@ -9,6 +9,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# packages: read lets GITHUB_TOKEN install @slaclab/canopy-* from GitHub Packages.
+# Each of those packages must also grant this repository read access
+# (package settings -> Manage Actions access).
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   lint:
     name: ESLint & Prettier
@@ -31,7 +38,11 @@ jobs:
         with:
           node-version: 23.11.0
           cache: pnpm
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@slaclab'
       - run: pnpm install
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run ESLint
         run: pnpm run lint
@@ -40,4 +51,4 @@ jobs:
         run: pnpm run format:check
 
       - name: TypeScript type check
-        run: pnpm exec tsc --noEmit
+        run: pnpm run typecheck

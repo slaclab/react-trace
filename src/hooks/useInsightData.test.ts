@@ -1,15 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { mergeLive, type InsightRow } from './useInsightData';
 import type { LivePoint } from '../state/liveStore';
-import type { AlarmSeverity } from '../api/types';
+import type { WireAlarmSeverity } from '@slaclab/canopy-client';
 
 // Archive rows carry ns timestamps; live points carry ms. A live point at
 // `t` ms lands at `t * 1e6` ns, so these helpers keep the two domains aligned.
-function archive(tsMs: number, value: number, severity: AlarmSeverity = 'NO_ALARM'): InsightRow {
+function archive(
+  tsMs: number,
+  value: number,
+  severity: WireAlarmSeverity = 'NO_ALARM'
+): InsightRow {
   return { tsNs: tsMs * 1e6, value, severity, source: 'Archive' };
 }
 
-function live(tsMs: number, value: number, severity: AlarmSeverity = 'NO_ALARM'): LivePoint {
+function live(tsMs: number, value: number, severity: WireAlarmSeverity = 'NO_ALARM'): LivePoint {
   return { time: tsMs, value, severity };
 }
 

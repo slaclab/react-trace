@@ -1,5 +1,13 @@
-import { fetchData as defaultFetchData } from '../api/mole';
-import type { AlarmSeverity, ArchiverDataDTO, BinnedPointDTO, SampleDTO } from '../api/types';
+import {
+  fetchData as sdkFetchData,
+  type AbortSignalLike,
+  type ArchiverDataDTO,
+  type BinnedPointDTO,
+  type FetchDataParams,
+  type SampleDTO,
+  type WireAlarmSeverity,
+} from '@slaclab/canopy-client';
+import { canopyConnection } from '../api/connection';
 import type { TimeWindowNs } from '../api/time';
 import { nsToMs } from '../api/time';
 
@@ -77,14 +85,14 @@ export function isNotArchivedError(info: { code: string }): boolean {
 export interface ArchivePlotPoint {
   time: number;
   value: number;
-  severity: AlarmSeverity;
+  severity: WireAlarmSeverity;
 }
 
 export interface ArchiveBandPoint {
   time: number;
   min: number;
   max: number;
-  severity: AlarmSeverity;
+  severity: WireAlarmSeverity;
 }
 
 export type ArchiveStatus = 'loading' | 'ready' | 'error';
@@ -168,7 +176,11 @@ export interface RequestOpts {
   window: TimeWindowNs;
 }
 
-export type FetchDataFn = typeof defaultFetchData;
+export type FetchDataFn = (
+  pv: string,
+  params: FetchDataParams,
+  signal?: AbortSignalLike
+) => Promise<ArchiverDataDTO>;
 
 export interface ArchiveStoreDeps {
   fetchData?: FetchDataFn;
@@ -385,7 +397,8 @@ export class ArchiveStore {
 
   constructor(deps: ArchiveStoreDeps = {}) {
     this.fetchData =
-      deps.fetchData ?? ((pv, params, signal) => defaultFetchData(pv, params, signal));
+      deps.fetchData ??
+      ((pv, params, signal) => sdkFetchData(canopyConnection, pv, params, signal));
     this.now = deps.now ?? (() => Date.now());
   }
 

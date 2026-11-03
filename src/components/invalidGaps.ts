@@ -1,5 +1,5 @@
 import type { CustomSeriesRenderItem } from 'echarts';
-import type { AlarmSeverity } from '../api/types';
+import type { WireAlarmSeverity } from '@slaclab/canopy-client';
 
 // INVALID samples (#120). Like the legacy ArchiveViewer, the line breaks at an
 // INVALID sample and stays broken until the next good one, and the stretch is
@@ -11,10 +11,10 @@ import type { AlarmSeverity } from '../api/types';
 export interface PlotSample {
   time: number;
   value: number;
-  severity?: AlarmSeverity;
+  severity?: WireAlarmSeverity;
 }
 
-export function isInvalid(p: { severity?: AlarmSeverity }): boolean {
+export function isInvalid(p: { severity?: WireAlarmSeverity }): boolean {
   return p.severity === 'INVALID';
 }
 
@@ -32,7 +32,7 @@ type LinePoint = [number, number | null] | HoldPoint;
  * `hold` (a `step: 'end'` line), the last good value is first held up to the
  * bad point's time. The next good point starts a new segment.
  */
-export function gappedLineData<T extends { time: number; severity?: AlarmSeverity }>(
+export function gappedLineData<T extends { time: number; severity?: WireAlarmSeverity }>(
   points: readonly T[],
   y: (p: T) => number,
   hold = false

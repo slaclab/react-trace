@@ -2,8 +2,12 @@ FROM node:24-alpine AS build
 
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
+# .npmrc maps @slaclab to GitHub Packages and holds no token. CI supplies auth as
+# the BuildKit secret "npmrc" (swapps-ci-helpers npm-github-packages), mounted
+# only for this step, so the token never lands in an image layer.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+RUN --mount=type=secret,id=npmrc,target=/root/.npmrc \
+    corepack enable && pnpm install --frozen-lockfile
 
 COPY . .
 

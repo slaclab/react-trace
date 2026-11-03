@@ -1,3 +1,5 @@
+import { captureChartPng, dataUrlToBlob } from '@slaclab/canopy-charts';
+
 // Capture ECharts plots as PNG blobs for e-log attachments. We only need the
 // `getDataURL` slice of the ECharts instance, so we type against that to avoid
 // pulling the full echarts type surface through every caller.
@@ -15,38 +17,18 @@ export interface CapturedPlot {
   dataUrl: string;
 }
 
-const PIXEL_RATIO = 2;
-
-function plotDataUrl(instance: PngSource, backgroundColor: string): string {
-  return instance.getDataURL({ type: 'png', pixelRatio: PIXEL_RATIO, backgroundColor });
-}
-
-// data: URL -> Blob without a network round-trip via fetch (keeps it sync-ish
-// and avoids CSP surprises). The data URL is always base64 PNG here.
-export function dataUrlToBlob(dataUrl: string): Blob {
-  const comma = dataUrl.indexOf(',');
-  const header = dataUrl.slice(0, comma);
-  const body = dataUrl.slice(comma + 1);
-  const mime = header.slice(header.indexOf(':') + 1, header.indexOf(';')) || 'image/png';
-  const binary = atob(body);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
-}
-
-// Capture each plot as its own PNG data URL. Skips plots that fail to render
-// (e.g. detached/unmounted) rather than aborting the whole batch.
+// Capture each plot as its own PNG data URL (canopy-charts' captureChartPng:
+// pixel ratio 2, the given background baked in). Skips plots that yield no
+// image (detached/unmounted, disposed, not yet rendered, or an ECharts error)
+// rather than aborting the batch or attaching a broken image.
 export function capturePlots(
   plots: { id: string; title: string; instance: PngSource | null | undefined }[],
   backgroundColor: string
 ): CapturedPlot[] {
   const out: CapturedPlot[] = [];
   for (const p of plots) {
-    if (!p.instance) continue;
-    const dataUrl = plotDataUrl(p.instance, backgroundColor);
-    // A disposed or not-yet-rendered instance yields an empty/invalid data URL;
-    // skip it rather than attaching a broken (empty payload) image.
-    if (!dataUrl || !dataUrl.startsWith('data:')) continue;
+    const dataUrl = captureChartPng(p.instance, { background: backgroundColor });
+    if (!dataUrl) continue;
     out.push({ id: p.id, title: p.title, dataUrl });
   }
   return out;

@@ -1,7 +1,7 @@
 /* Application-level layout overrides
  *
  * Colors come from Carbon theme tokens (--cds-*) so panels follow the
- * <Theme theme="g10|g90"> wrapper in App.tsx automatically. Custom hex is
+ * <ColorModeTheme> (g10 | g100) wrapper in App.tsx automatically. Custom hex is
  * reserved for things Carbon doesn't ship a token for (semantic indicator
  * colors with fixed hue regardless of theme, e.g. live-data green).
  */
@@ -15,17 +15,8 @@
   overflow: hidden;
 }
 
-/* Carbon Header takes position: fixed by default; pin it to the flex column
-   instead so the panel group fills the rest of the height. */
-.trace-header {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.trace-header__name {
-  letter-spacing: 0.04em;
-}
-
+/* The header itself is canopy-shell's AppHeader (in-flow, see TraceHeader).
+   The live/archive counts sit in its middle slot, pushed to the right. */
 .trace-header__archiver {
   margin-left: auto;
   display: flex;
@@ -45,6 +36,11 @@
   min-height: 0;
   overflow: hidden;
   display: flex;
+}
+
+/* Focused only programmatically, by the header's "Skip to main content" link. */
+.trace-panel-group:focus {
+  outline: none;
 }
 
 .trace-resize-handle {

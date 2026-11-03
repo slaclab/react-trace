@@ -17,13 +17,17 @@ concurrency:
 jobs:
   build-image:
     name: Build and publish GHCR image
-    uses: slaclab/swapps-ci-helpers/.github/workflows/build-ghcr-image.yml@73e6ba924aac5f822b050bd6bed12b0e45c64034 # v1.1.0
+    uses: slaclab/swapps-ci-helpers/.github/workflows/build-ghcr-image.yml@f260c6e06e16dfa311511c9e56c34958162c4fa8 # yektay/build-secrets (draft swapps-ci-helpers PR #15); re-pin to the release tag after it merges
+    # packages: write covers GHCR publish and the packages: read the image build
+    # needs to install @slaclab/canopy-* from GitHub Packages.
     permissions:
       contents: read
       packages: write
     with:
       dockerfile: docker/Dockerfile
       context: .
+      # Mount GITHUB_TOKEN npm auth as BuildKit secret "npmrc" (see docker/Dockerfile).
+      npm-github-packages: true
 
   dispatch-dev-deploy:
     name: Trigger swapps-deployment dev deploy

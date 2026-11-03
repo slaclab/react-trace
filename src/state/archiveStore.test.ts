@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ArchiveStore, type FetchDataFn } from './archiveStore';
-import { CanopyError } from '../api/client';
-import type { ArchiverDataDTO } from '../api/types';
+import { CanopyError } from '@slaclab/canopy-client';
+import type { ArchiverDataDTO } from '@slaclab/canopy-client';
 import type { TimeWindowNs } from '../api/time';
-import type { FetchDataParams } from '../api/mole';
+import type { FetchDataParams } from '@slaclab/canopy-client';
 
 // Regression tests for #93: the archiver must not be re-queried as "now"
 // advances for a PV it doesn't have, and other failures back off instead of

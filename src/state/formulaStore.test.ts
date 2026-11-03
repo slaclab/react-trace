@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TimeWindowNs } from '../api/time';
-import type { FormulaResultDTO, FormulaSpecDTO } from '../api/types';
+import type { FormulaResultDTO, FormulaSpec } from '@slaclab/canopy-client';
 import {
   EVAL_TIMEOUT_MS,
   FormulaStore,
@@ -11,7 +11,7 @@ import {
   type FormulaErrorInfo,
 } from './formulaStore';
 
-// ── Fake Fox: each evaluation stays pending until settled (by the test, or by
+// ── Fake Formula Engine: each evaluation stays pending until settled (by the test, or by
 // `reply` right away) ─────────────────────────────────────────────────────────
 
 interface Call {
@@ -41,6 +41,8 @@ function fakeFox(reply?: (call: Call) => void) {
         resolve: (values = [1], decimated = false) =>
           resolve({
             kind: 'timeseries',
+            scalar: null,
+            waveform: null,
             timeseries: {
               tsNs: values.map((_, i) => t1Ns - (values.length - 1 - i) * 1e6),
               values,
@@ -60,7 +62,7 @@ function fakeFox(reply?: (call: Call) => void) {
 const T0 = Date.UTC(2026, 9, 1, 12);
 const MINUTE = 60_000;
 
-const spec = (expression: string): FormulaSpecDTO => ({
+const spec = (expression: string): FormulaSpec => ({
   kind: 'timeseries',
   expression,
   bindings: { x1: 'PV:A' },
@@ -243,7 +245,7 @@ describe('FormulaStore requests', () => {
 });
 
 describe('FormulaStore coverage', () => {
-  it('draws a window inside the evaluated range without asking Fox', async () => {
+  it('draws a window inside the evaluated range without asking the Formula Engine', async () => {
     const { fox, store } = setup((c) => c.resolve());
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     await flush();
@@ -402,7 +404,7 @@ describe('FormulaStore in-flight requests', () => {
 
   it('waits for an answer slower than a short following window spans', async () => {
     const { fox, store, entry } = setup();
-    // 15 s span, and Fox takes 20 s: the window passes the request entirely.
+    // 15 s span, and the Formula Engine takes 20 s: the window passes the request entirely.
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(15_000) });
     for (let ms = 100; ms <= 20_000; ms += 100) {
       await vi.advanceTimersByTimeAsync(100);
@@ -432,7 +434,7 @@ describe('FormulaStore in-flight requests', () => {
     const { fox, store } = setup();
     const start = T0 - 60 * MINUTE;
     store.request('f1', { spec: spec('{x1}*2'), window: win(start, start + 10_000) });
-    // Fox is slow: 15 s in, the user drags the 10 s view 12 s forward.
+    // The Formula Engine is slow: 15 s in, the user drags the 10 s view 12 s forward.
     await vi.advanceTimersByTimeAsync(15_000);
     store.request('f1', { spec: spec('{x1}*2'), window: win(start + 12_000, start + 22_000) });
 
@@ -746,7 +748,7 @@ describe('FormulaStore client timeout', () => {
   });
 
   it('recovers a following window from a one-off hang', async () => {
-    // The first evaluation hangs; Fox answers the rest right away.
+    // The first evaluation hangs; the Formula Engine answers the rest right away.
     const { fox, store, entry } = setup((c) => {
       if (fox.calls.length > 1) c.resolve([7]);
     });

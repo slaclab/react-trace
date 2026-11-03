@@ -5,6 +5,7 @@
 // shares an id with the outgoing one and must not inherit its points.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
+import { WithCanopy } from '../test/canopy';
 import {
   axis,
   formulaTrace,
@@ -28,7 +29,7 @@ const { foxCalls } = vi.hoisted(() => ({ foxCalls: [] as FoxCall[] }));
 
 // Signature-agnostic (spec, t0, t1, signal are the last four arguments), so it
 // survives a leading connection argument. Calls stay pending until resolved.
-vi.mock('../api/fox', () => ({
+vi.mock('../api/formulaEngine', () => ({
   evaluateFormula: (...args: unknown[]) => {
     const [spec, , t1Ns, signal] = args.slice(-4) as [
       { expression: string },
@@ -106,7 +107,7 @@ function formulaFrames(from: number) {
 beforeEach(async () => {
   resetHarness();
   foxCalls.length = 0;
-  render(<TraceApp />);
+  render(<TraceApp />, { wrapper: WithCanopy });
   await loadWorkspace(legacyLike('A:PV', '{x1}*2'));
   await resolvePending('{x1}*2', 7);
   expect(formulaFrames(renders.plotArea.length - 1)[0]).toMatchObject({

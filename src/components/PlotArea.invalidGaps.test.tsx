@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { SinglePlot } from './PlotArea';
 import type { Plot, PVTrace } from '../types';
-import type { AlarmSeverity } from '../api/types';
+import type { WireAlarmSeverity } from '@slaclab/canopy-client';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 
@@ -94,7 +94,7 @@ function makePlot(traces: PVTrace[], axes: Plot['axes'] = [AX1]): Plot {
   };
 }
 
-type Pt = [seconds: number, value: number, severity: AlarmSeverity];
+type Pt = [seconds: number, value: number, severity: WireAlarmSeverity];
 const points = (pts: Pt[]) => pts.map(([s, value, severity]) => ({ time: at(s), value, severity }));
 
 function rawResult(pts: Pt[]): ArchiveSeriesResult {
@@ -230,7 +230,7 @@ describe('PlotArea: INVALID samples (#120)', () => {
     }
   });
 
-  const bins: [number, number, number, AlarmSeverity][] = [
+  const bins: [number, number, number, WireAlarmSeverity][] = [
     [10, 0, 2, 'NO_ALARM'],
     [20, 1, 3, 'NO_ALARM'],
     [30, 50, 60, 'INVALID'],

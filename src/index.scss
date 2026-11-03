@@ -1,0 +1,39 @@
+// Carbon, compiled from source with its @font-face rules switched off: the
+// precompiled @carbon/styles CSS loads IBM Plex from IBM's CDN (s81c.com),
+// which Canopy deployments without internet access cannot reach. The Plex
+// faces are self-hosted from the @ibm/plex-* packages instead, so vite bundles
+// the font files under ./assets.
+@use '@carbon/styles' with (
+  $css--font-face: false
+);
+
+// Only the faces Carbon itself declares (light, regular and semibold, upright
+// and italic) — the same set the CDN CSS offered, without the unused weights.
+$-carbon-weights: (
+  bold: false,
+  boldItalic: false,
+  extralight: false,
+  extralightItalic: false,
+  italic: true,
+  light: true,
+  lightItalic: true,
+  medium: false,
+  mediumItalic: false,
+  regular: true,
+  semibold: true,
+  semiboldItalic: true,
+  text: false,
+  textItalic: false,
+  thin: false,
+  thinItalic: false,
+);
+
+@use '@ibm/plex-sans/scss' as plex-sans with (
+  $font-weights: $-carbon-weights
+);
+@use '@ibm/plex-mono/scss' as plex-mono with (
+  $font-weights: $-carbon-weights
+);
+
+@include plex-sans.all($font-prefix: '@ibm/plex-sans');
+@include plex-mono.all($font-prefix: '@ibm/plex-mono');

@@ -13,10 +13,10 @@ importers:
         version: 11.81.0(react@19.2.6)
       '@carbon/react':
         specifier: ^1.108.0
-        version: 1.108.0(react-dom@19.2.6(react@19.2.6))(react-is@18.2.0)(react@19.2.6)(sass@1.99.0)
+        version: 1.108.0(react-dom@19.2.6(react@19.2.6))(react-is@18.2.0)(react@19.2.6)(sass@1.107.1)
       '@carbon/styles':
         specifier: ^1.107.0
-        version: 1.107.0(sass@1.99.0)
+        version: 1.107.0(sass@1.107.1)
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -26,6 +26,18 @@ importers:
       '@dnd-kit/utilities':
         specifier: ^3.2.2
         version: 3.2.2(react@19.2.6)
+      '@slaclab/canopy-charts':
+        specifier: ^0.2.0
+        version: 0.2.0(@slaclab/canopy-shell@0.2.0(@carbon/icons-react@11.81.0(react@19.2.6))(@carbon/react@1.108.0(react-dom@19.2.6(react@19.2.6))(react-is@18.2.0)(react@19.2.6)(sass@1.107.1))(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(echarts-for-react@3.0.6(echarts@6.1.0)(react@19.2.6))(echarts@6.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@slaclab/canopy-client':
+        specifier: ^0.2.0
+        version: 0.2.0
+      '@slaclab/canopy-react':
+        specifier: ^0.2.0
+        version: 0.2.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@slaclab/canopy-shell':
+        specifier: ^0.2.0
+        version: 0.2.0(@carbon/icons-react@11.81.0(react@19.2.6))(@carbon/react@1.108.0(react-dom@19.2.6(react@19.2.6))(react-is@18.2.0)(react@19.2.6)(sass@1.107.1))(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       echarts:
         specifier: ^6.1.0
         version: 6.1.0
@@ -45,6 +57,15 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.3.0)
+      '@ibm/plex-mono':
+        specifier: ^1.1.0
+        version: 1.1.0
+      '@ibm/plex-sans':
+        specifier: ^1.1.0
+        version: 1.1.0
+      '@slaclab/canopy-vite':
+        specifier: ^0.2.0
+        version: 0.2.0(vite@8.0.12(@types/node@24.12.4)(sass@1.107.1)(yaml@2.9.0))
       '@testing-library/dom':
         specifier: ^10.4.1
         version: 10.4.1
@@ -68,7 +89,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       '@vitejs/plugin-react':
         specifier: ^6.0.1
-        version: 6.0.1(vite@8.0.12(@types/node@24.12.4)(sass@1.99.0)(yaml@2.9.0))
+        version: 6.0.1(vite@8.0.12(@types/node@24.12.4)(sass@1.107.1)(yaml@2.9.0))
       eslint:
         specifier: ^10.3.0
         version: 10.3.0
@@ -93,6 +114,9 @@ importers:
       prettier:
         specifier: ^3.8.3
         version: 3.8.3
+      sass:
+        specifier: ^1.107.1
+        version: 1.107.1
       typescript:
         specifier: ~6.0.2
         version: 6.0.3
@@ -101,10 +125,10 @@ importers:
         version: 8.59.3(eslint@10.3.0)(typescript@6.0.3)
       vite:
         specifier: ^8.0.12
-        version: 8.0.12(@types/node@24.12.4)(sass@1.99.0)(yaml@2.9.0)
+        version: 8.0.12(@types/node@24.12.4)(sass@1.107.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.6
-        version: 4.1.6(@types/node@24.12.4)(jsdom@29.1.1)(vite@8.0.12(@types/node@24.12.4)(sass@1.99.0)(yaml@2.9.0))
+        version: 4.1.6(@types/node@24.12.4)(jsdom@29.1.1)(vite@8.0.12(@types/node@24.12.4)(sass@1.107.1)(yaml@2.9.0))
 
 packages:
 
@@ -653,6 +677,37 @@ packages:
   '@rolldown/pluginutils@1.0.0-rc.7':
     resolution: {integrity: sha512-qujRfC8sFVInYSPPMLQByRh7zhwkGFS4+tyMQ83srV1qrxL4g8E2tyxVVyxd0+8QeBM1mIk9KbWxkegRr76XzA==}
 
+  '@slaclab/canopy-charts@0.2.0':
+    resolution: {integrity: sha512-8MGXocmqdcUlyIZVb04llbaVDTqCrN3IByUIUBv4K9+BhB3jGWOkn8fEImUa01R75ZNg8t40AUydhchezwhfzQ==, tarball: https://npm.pkg.github.com/download/@slaclab/canopy-charts/0.2.0/db94243a679e1fc7413c00ce12980e53c956efe9}
+    peerDependencies:
+      '@slaclab/canopy-shell': ^0.2.0
+      echarts: ^6.0.0
+      echarts-for-react: ^3.0.0
+      react: ^19.0.0
+      react-dom: ^19.0.0
+
+  '@slaclab/canopy-client@0.2.0':
+    resolution: {integrity: sha512-n5FGh5lkyseQ+KKyO2aSzfxx/XstJxnyXERYJjfhr/24/c/FIQA1uTqnpNDC3snGpQuRRHmmeCKgk2fLlSxyZw==, tarball: https://npm.pkg.github.com/download/@slaclab/canopy-client/0.2.0/c43dbcd7454469c9f46f1e3e0f5a39c07dcb5f37}
+
+  '@slaclab/canopy-react@0.2.0':
+    resolution: {integrity: sha512-k0gzuQcdWMEp92kCbhUmHtHuuDjd++zjob6OJp405K5C5iAHFhw+CvtLPh06LPV3fl7domvSBE2TxIEDGlj1vw==, tarball: https://npm.pkg.github.com/download/@slaclab/canopy-react/0.2.0/c397d109ce90ca18b1e2511bcd27b6b6ede8132a}
+    peerDependencies:
+      react: ^19.0.0
+      react-dom: ^19.0.0
+
+  '@slaclab/canopy-shell@0.2.0':
+    resolution: {integrity: sha512-j9u6y1CHEePSLirX07NDNnS/ka9tdylV19ogjTJ601KvwrZcxBndGzsp0H8ziJRDQDK6XQBrFBSkV/c7vYksgw==, tarball: https://npm.pkg.github.com/download/@slaclab/canopy-shell/0.2.0/1e0145073a2e6774fe4d54bd68bbea81bf7d38e0}
+    peerDependencies:
+      '@carbon/icons-react': ^11.50.0
+      '@carbon/react': ^1.90.0
+      react: ^19.0.0
+      react-dom: ^19.0.0
+
+  '@slaclab/canopy-vite@0.2.0':
+    resolution: {integrity: sha512-HRqpkmqSWltGmKrnpLcJZH2fRgFPftA2Iv054i9y1VSkzBAI3cuFbZPIued1XNfyqfcO2zaD5fubfAcdpC1hSw==, tarball: https://npm.pkg.github.com/download/@slaclab/canopy-vite/0.2.0/0e9ab0815488292559c2de3cd14165aba20ad317}
+    peerDependencies:
+      vite: ^6.0.0 || ^7.0.0 || ^8.0.0
+
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
@@ -895,9 +950,9 @@ packages:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
     engines: {node: '>=18'}
 
-  chokidar@4.0.3:
-    resolution: {integrity: sha512-Qgzu8kfBvo+cA4962jnP1KkS6Dop5NS6g7R5LFYJr4b8Ub94PPQXUksCw9PvXoeXPRRddRNC5C1JQUR2SMGtnA==}
-    engines: {node: '>= 14.16.0'}
+  chokidar@5.0.0:
+    resolution: {integrity: sha512-TQMmc3w+5AxjpL8iIiwebF73dRDF4fBIieAqGn9RGCWaEVwQ6Fb2cGe31Yns0RRIzii5goJ1Y7xbMwo1TxMplw==}
+    engines: {node: '>= 20.19.0'}
 
   classnames@2.5.1:
     resolution: {integrity: sha512-saHYOzhIQs6wy2sVxTM6bUDsQO4F50V9RQ22qBpEdCW+I+/Wmke2HOl6lS6dTpdxVhb88/I6+Hs+438c3lfUow==}
@@ -1474,9 +1529,9 @@ packages:
     resolution: {integrity: sha512-sfWGGfavi0xr8Pg0sVsyHMAOziVYKgPLNrS7ig+ivMNb3wbCBw3KxtflsGBAwD3gYQlE/AEZsTLgToRrSCjb0Q==}
     engines: {node: '>=0.10.0'}
 
-  readdirp@4.1.2:
-    resolution: {integrity: sha512-GDhwkLfywWL2s6vEjyhri+eXmfH6j1L7JE27WhqLeYzoh/A3DBaYGEj2H/HFZCn/kMfim73FXxEJTw06WtxQwg==}
-    engines: {node: '>= 14.18.0'}
+  readdirp@5.1.1:
+    resolution: {integrity: sha512-Kko+Y5XQ6fM+Ce3dq3m9YGxnacYZYl9cA1wZjaF3Vbry2L3i1qVg8+CAgNPsXRArPMUMCaOR7oa9Nqntc43JKA==}
+    engines: {node: '>= 20.19.0'}
 
   redent@3.0.0:
     resolution: {integrity: sha512-6tDA8g98We0zd0GvVeMT9arEOnTw9qM03L9cJXaCjrip1OO764RDBLBfrB4cwzNGDj5OA5ioymC9GkizgWJDUg==}
@@ -1498,9 +1553,9 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
 
-  sass@1.99.0:
-    resolution: {integrity: sha512-kgW13M54DUB7IsIRM5LvJkNlpH+WhMpooUcaWGFARkF1Tc82v9mIWkCbCYf+MBvpIUBSeSOTilpZjEPr2VYE6Q==}
-    engines: {node: '>=14.0.0'}
+  sass@1.107.1:
+    resolution: {integrity: sha512-aJ1/LvxOOb04YhmiBjzZn3jVwdHKol+OVhoMV6fFl02fF9T3i+5Mg9l/CnzqtM+NX5Jn5o3lAbs/ZJivTCLHfQ==}
+    engines: {node: '>=20.19.0'}
     hasBin: true
 
   saxes@6.0.0:
@@ -1976,13 +2031,13 @@ snapshots:
     dependencies:
       '@ibm/telemetry-js': 1.11.0
 
-  '@carbon/react@1.108.0(react-dom@19.2.6(react@19.2.6))(react-is@18.2.0)(react@19.2.6)(sass@1.99.0)':
+  '@carbon/react@1.108.0(react-dom@19.2.6(react@19.2.6))(react-is@18.2.0)(react@19.2.6)(sass@1.107.1)':
     dependencies:
       '@babel/runtime': 7.29.2
       '@carbon/feature-flags': 1.3.0
       '@carbon/icons-react': 11.81.0(react@19.2.6)
       '@carbon/layout': 11.53.0
-      '@carbon/styles': 1.107.0(sass@1.99.0)
+      '@carbon/styles': 1.107.0(sass@1.107.1)
       '@carbon/utilities': 0.20.0
       '@floating-ui/react': 0.27.19(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@ibm/telemetry-js': 1.11.0
@@ -1997,10 +2052,10 @@ snapshots:
       react-dom: 19.2.6(react@19.2.6)
       react-fast-compare: 3.2.2
       react-is: 18.2.0
-      sass: 1.99.0
+      sass: 1.107.1
       tabbable: 6.4.0
 
-  '@carbon/styles@1.107.0(sass@1.99.0)':
+  '@carbon/styles@1.107.0(sass@1.107.1)':
     dependencies:
       '@carbon/colors': 11.52.0
       '@carbon/feature-flags': 1.3.0
@@ -2020,7 +2075,7 @@ snapshots:
       '@ibm/plex-serif': 1.1.0
       '@ibm/telemetry-js': 1.11.0
     optionalDependencies:
-      sass: 1.99.0
+      sass: 1.107.1
 
   '@carbon/themes@11.74.0':
     dependencies:
@@ -2367,6 +2422,33 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.0-rc.7': {}
 
+  '@slaclab/canopy-charts@0.2.0(@slaclab/canopy-shell@0.2.0(@carbon/icons-react@11.81.0(react@19.2.6))(@carbon/react@1.108.0(react-dom@19.2.6(react@19.2.6))(react-is@18.2.0)(react@19.2.6)(sass@1.107.1))(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(echarts-for-react@3.0.6(echarts@6.1.0)(react@19.2.6))(echarts@6.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+    dependencies:
+      '@slaclab/canopy-shell': 0.2.0(@carbon/icons-react@11.81.0(react@19.2.6))(@carbon/react@1.108.0(react-dom@19.2.6(react@19.2.6))(react-is@18.2.0)(react@19.2.6)(sass@1.107.1))(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      echarts: 6.1.0
+      echarts-for-react: 3.0.6(echarts@6.1.0)(react@19.2.6)
+      react: 19.2.6
+      react-dom: 19.2.6(react@19.2.6)
+
+  '@slaclab/canopy-client@0.2.0': {}
+
+  '@slaclab/canopy-react@0.2.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+    dependencies:
+      '@slaclab/canopy-client': 0.2.0
+      react: 19.2.6
+      react-dom: 19.2.6(react@19.2.6)
+
+  '@slaclab/canopy-shell@0.2.0(@carbon/icons-react@11.81.0(react@19.2.6))(@carbon/react@1.108.0(react-dom@19.2.6(react@19.2.6))(react-is@18.2.0)(react@19.2.6)(sass@1.107.1))(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+    dependencies:
+      '@carbon/icons-react': 11.81.0(react@19.2.6)
+      '@carbon/react': 1.108.0(react-dom@19.2.6(react@19.2.6))(react-is@18.2.0)(react@19.2.6)(sass@1.107.1)
+      react: 19.2.6
+      react-dom: 19.2.6(react@19.2.6)
+
+  '@slaclab/canopy-vite@0.2.0(vite@8.0.12(@types/node@24.12.4)(sass@1.107.1)(yaml@2.9.0))':
+    dependencies:
+      vite: 8.0.12(@types/node@24.12.4)(sass@1.107.1)(yaml@2.9.0)
+
   '@standard-schema/spec@1.1.0': {}
 
   '@swc/helpers@0.5.21':
@@ -2530,10 +2612,10 @@ snapshots:
       '@typescript-eslint/types': 8.59.3
       eslint-visitor-keys: 5.0.1
 
-  '@vitejs/plugin-react@6.0.1(vite@8.0.12(@types/node@24.12.4)(sass@1.99.0)(yaml@2.9.0))':
+  '@vitejs/plugin-react@6.0.1(vite@8.0.12(@types/node@24.12.4)(sass@1.107.1)(yaml@2.9.0))':
     dependencies:
       '@rolldown/pluginutils': 1.0.0-rc.7
-      vite: 8.0.12(@types/node@24.12.4)(sass@1.99.0)(yaml@2.9.0)
+      vite: 8.0.12(@types/node@24.12.4)(sass@1.107.1)(yaml@2.9.0)
 
   '@vitest/expect@4.1.6':
     dependencies:
@@ -2544,13 +2626,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.6(vite@8.0.12(@types/node@24.12.4)(sass@1.99.0)(yaml@2.9.0))':
+  '@vitest/mocker@4.1.6(vite@8.0.12(@types/node@24.12.4)(sass@1.107.1)(yaml@2.9.0))':
     dependencies:
       '@vitest/spy': 4.1.6
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 8.0.12(@types/node@24.12.4)(sass@1.99.0)(yaml@2.9.0)
+      vite: 8.0.12(@types/node@24.12.4)(sass@1.107.1)(yaml@2.9.0)
 
   '@vitest/pretty-format@4.1.6':
     dependencies:
@@ -2633,9 +2715,9 @@ snapshots:
 
   chai@6.2.2: {}
 
-  chokidar@4.0.3:
+  chokidar@5.0.0:
     dependencies:
-      readdirp: 4.1.2
+      readdirp: 5.1.1
 
   classnames@2.5.1: {}
 
@@ -3164,7 +3246,7 @@ snapshots:
 
   react@19.2.6: {}
 
-  readdirp@4.1.2: {}
+  readdirp@5.1.1: {}
 
   redent@3.0.0:
     dependencies:
@@ -3201,9 +3283,9 @@ snapshots:
       '@rolldown/binding-win32-arm64-msvc': 1.0.0
       '@rolldown/binding-win32-x64-msvc': 1.0.0
 
-  sass@1.99.0:
+  sass@1.107.1:
     dependencies:
-      chokidar: 4.0.3
+      chokidar: 5.0.0
       immutable: 5.1.5
       source-map-js: 1.2.1
     optionalDependencies:
@@ -3342,7 +3424,7 @@ snapshots:
     dependencies:
       punycode: 2.3.1
 
-  vite@8.0.12(@types/node@24.12.4)(sass@1.99.0)(yaml@2.9.0):
+  vite@8.0.12(@types/node@24.12.4)(sass@1.107.1)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.4
@@ -3352,13 +3434,13 @@ snapshots:
     optionalDependencies:
       '@types/node': 24.12.4
       fsevents: 2.3.3
-      sass: 1.99.0
+      sass: 1.107.1
       yaml: 2.9.0
 
-  vitest@4.1.6(@types/node@24.12.4)(jsdom@29.1.1)(vite@8.0.12(@types/node@24.12.4)(sass@1.99.0)(yaml@2.9.0)):
+  vitest@4.1.6(@types/node@24.12.4)(jsdom@29.1.1)(vite@8.0.12(@types/node@24.12.4)(sass@1.107.1)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.6
-      '@vitest/mocker': 4.1.6(vite@8.0.12(@types/node@24.12.4)(sass@1.99.0)(yaml@2.9.0))
+      '@vitest/mocker': 4.1.6(vite@8.0.12(@types/node@24.12.4)(sass@1.107.1)(yaml@2.9.0))
       '@vitest/pretty-format': 4.1.6
       '@vitest/runner': 4.1.6
       '@vitest/snapshot': 4.1.6
@@ -3375,7 +3457,7 @@ snapshots:
       tinyexec: 1.1.2
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
-      vite: 8.0.12(@types/node@24.12.4)(sass@1.99.0)(yaml@2.9.0)
+      vite: 8.0.12(@types/node@24.12.4)(sass@1.107.1)(yaml@2.9.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 24.12.4

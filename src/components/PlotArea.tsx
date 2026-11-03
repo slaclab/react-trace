@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
-import { DARK_CHART_THEME, LIGHT_CHART_THEME, effectiveBackground } from '../chartTheme';
+import type { LegendComponentOption, TooltipComponentOption } from 'echarts';
+import {
+  baseChartOption,
+  chartAxisStyle,
+  formatAxisTick,
+  formatValue,
+  useChartTheme,
+} from '@slaclab/canopy-charts';
+import { effectiveBackground } from '../plotBackground';
 import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
 import type { Axis, Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
@@ -12,7 +20,6 @@ import { echartsLineType, echartsSymbol } from '../curveStyle';
 import { isFollowing } from '../hooks/useAutoScrollTimers';
 import { useFollowNow } from '../hooks/useFollowNow';
 import { traceLabel } from '../traceLabel';
-import { useColorMode } from '../state/themeStore';
 import type { PngSource } from '../io/exportPlotImage';
 import {
   gappedLineData,
@@ -30,16 +37,6 @@ import {
   type AxisHitZone,
   type GridBand,
 } from './axisHitTest';
-
-// Numbers like 0.000000018 produce extremely wide tick labels that spill past
-// neighboring stacked axes. Switch to exponential at the same magnitudes the
-// browser's default Number.toString stops being compact.
-function formatAxisTick(value: number): string {
-  if (value === 0) return '0';
-  const abs = Math.abs(value);
-  if (abs < 1e-3 || abs >= 1e6) return value.toExponential(1);
-  return String(value);
-}
 
 // Signature of the user-chosen range. Bumps when picking a new time range so
 // dataZoom resets to full extent — otherwise the previous zoom stays clipped
@@ -147,14 +144,6 @@ function formatCrosshairTime(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-function formatTooltipValue(v: unknown): string {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return String(v);
-  if (v === 0) return '0';
-  const abs = Math.abs(v);
-  if (abs < 1e-3 || abs >= 1e7) return v.toExponential(4);
-  return v.toPrecision(7);
-}
-
 // Human-readable signed offset between the cursor and the sample we're showing.
 // "0s" when within ±0.5s; otherwise "−12s", "+3m", "+1.4h" etc.
 function formatTimeOffset(deltaMs: number): string {
@@ -192,7 +181,7 @@ function traceSamples(
   live: LiveSeriesResult | undefined,
   formula: FormulaSeriesResult | undefined
 ): readonly PlotSample[] {
-  // Formula curves are evaluated server-side (Fox); their points are the only
+  // Formula curves are evaluated server-side (the Formula Engine); their points are the only
   // source — no archive/live merge, no mock seed.
   if (trace.kind === 'formula') {
     return formula ? formula.points.map(([time, value]) => ({ time, value })) : [];
@@ -252,8 +241,8 @@ export function SinglePlot({
   fullscreen,
   onChartInstance,
 }: SinglePlotProps) {
-  const { colorMode } = useColorMode();
-  const theme = colorMode === 'dark' ? DARK_CHART_THEME : LIGHT_CHART_THEME;
+  // Carbon g10/g100 chart colors for the current canopy-shell color mode.
+  const theme = useChartTheme();
 
   // Everything derived from the samples and the plot's traces and axes. It's
   // memoized apart from the display clock: while a plot scrolls (useFollowNow)
@@ -885,9 +874,17 @@ export function SinglePlot({
     onUpdateAxisRef.current = onUpdateAxis;
   });
 
+  // Shared Canopy chart styling from canopy-charts: animation off, the Plex
+  // font, and themed axes, tooltip and legend. Trace layers its own layout and
+  // content on top.
+  const base = baseChartOption(theme);
+  const baseTooltip = base.tooltip as TooltipComponentOption;
+  const baseLegend = base.legend as LegendComponentOption;
+  const axisStyle = chartAxisStyle(theme);
+
   const option = {
+    ...base,
     backgroundColor: effectiveBackground(plot.backgroundColor, theme),
-    animation: false,
     grid: {
       top: GRID_TOP,
       bottom: GRID_BOTTOM,
@@ -898,19 +895,23 @@ export function SinglePlot({
       type: 'time',
       min: xAxisMin,
       max: xAxisMax,
+      ...axisStyle,
       // ECharts keeps its time-tick spacing however narrow the chart is (e.g.
       // grid cells), so drop labels that would overlap rather than run together.
       axisLabel: {
-        color: theme.axisLabel,
+        ...axisStyle.axisLabel,
         fontSize: plot.tickFontSize,
         hideOverlap: true,
         // Clear the INVALID markers drawn under the axis.
         margin: xAxisLabelMargin(invalidByTrace.size),
       },
-      axisLine: { lineStyle: { color: theme.axisLine } },
       splitLine: {
         show: plot.showXGridlines,
-        lineStyle: { color: theme.splitLine, type: plot.gridStyle, opacity: plot.gridOpacity },
+        lineStyle: {
+          ...axisStyle.splitLine.lineStyle,
+          type: plot.gridStyle,
+          opacity: plot.gridOpacity,
+        },
       },
     },
     yAxis: visibleAxes.map((axis, axisIdx) => ({
@@ -920,7 +921,8 @@ export function SinglePlot({
       // throws "yAxis 0 not found". Index-based mapping fills slots cleanly.
       type: axis.logScale ? 'log' : 'value',
       name: axis.name,
-      nameTextStyle: { color: theme.axisName, fontSize: 11 },
+      ...axisStyle,
+      nameTextStyle: { ...axisStyle.nameTextStyle, fontSize: 11 },
       // Run the title vertically alongside its own axis line so titles never
       // collide when multiple axes share a side. nameGap clears the labels.
       nameLocation: 'middle',
@@ -931,17 +933,21 @@ export function SinglePlot({
       min: axis.autoScale ? undefined : axis.min,
       max: axis.autoScale ? undefined : axis.max,
       scale: axis.autoScale,
-      axisLabel: { color: theme.axisLabel, fontSize: plot.tickFontSize, formatter: formatAxisTick },
+      axisLabel: { ...axisStyle.axisLabel, fontSize: plot.tickFontSize, formatter: formatAxisTick },
       // ECharts hides axisLine on secondary y-axes by default; force it on so
       // every stacked axis shows its own vertical line next to its labels.
-      axisLine: { show: true, lineStyle: { color: theme.axisLine } },
+      axisLine: { ...axisStyle.axisLine, show: true },
       splitLine: {
         // Horizontal gridlines are a property of the grid, not each axis: with
         // multiple Y axes on differing scales their ticks fall at different
         // heights, so drawing more than one set overlaps into a broken-looking
         // grid. Draw only the primary (first visible) axis's lines.
         show: plot.showYGridlines && axisIdx === 0,
-        lineStyle: { color: theme.splitLine, type: plot.gridStyle, opacity: plot.gridOpacity },
+        lineStyle: {
+          ...axisStyle.splitLine.lineStyle,
+          type: plot.gridStyle,
+          opacity: plot.gridOpacity,
+        },
       },
     })),
     series: orderedTraces.flatMap(({ trace, yAxisIndex, baseZ }) => {
@@ -977,23 +983,20 @@ export function SinglePlot({
       },
     ],
     tooltip: {
+      ...baseTooltip,
       trigger: 'axis',
       axisPointer: {
+        ...baseTooltip.axisPointer,
         type: plot.showCrosshair ? 'cross' : 'none', // 'cross' adds Y-axis readout; 'none' hides crosshair but keeps tooltip
         snap: false,
-        lineStyle: { color: theme.crosshair, width: 1, type: 'dashed' },
-        crossStyle: { color: theme.crosshair, width: 1, type: 'dashed' },
         label: {
-          backgroundColor: theme.tooltipBorder,
+          ...baseTooltip.axisPointer?.label,
           formatter: (
             p: { value: number; axisDimension?: string } // X --> timestamp, Y --> raw value
-          ) =>
-            p.axisDimension === 'y' ? formatTooltipValue(p.value) : formatCrosshairTime(p.value),
+          ) => (p.axisDimension === 'y' ? formatValue(p.value) : formatCrosshairTime(p.value)),
         },
       },
-      backgroundColor: theme.tooltipBg,
-      borderColor: theme.tooltipBorder,
-      textStyle: { color: theme.tooltipText, fontSize: 11 },
+      textStyle: { ...baseTooltip.textStyle, fontSize: 11 },
       // Walk every visible trace ourselves rather than trusting `params`. With
       // snap: false, ECharts only includes series that have a sample exactly
       // under the cursor — sparse archive data leaves most traces out. The
@@ -1013,7 +1016,7 @@ export function SinglePlot({
           const severity =
             sample?.severity && sample.severity !== 'NO_ALARM' ? ` ${sample.severity}` : '';
           const valueCell = sample
-            ? `${formatTooltipValue(sample.value)}${severity} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
+            ? `${formatValue(sample.value)}${severity} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
             : `<span style="color:${theme.tooltipMuted}">no data</span>`;
           lines.push(
             `<span style="color:${trace.color}">${labels.get(trace.id)}</span>: ${valueCell}`
@@ -1023,10 +1026,10 @@ export function SinglePlot({
       },
     },
     legend: {
+      ...baseLegend,
       show: plot.showLegend,
       bottom: 8,
-      textStyle: { color: theme.legend, fontSize: 11 },
-      inactiveColor: theme.tooltipMuted,
+      textStyle: { ...baseLegend.textStyle, fontSize: 11 },
       data: visibleTraces.map((t) => labels.get(t.id)),
       selectedMode: false, // legend clicks aren't wired to trace.visible --> disable to + avoid drift
     },

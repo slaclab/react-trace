@@ -6,15 +6,20 @@
 // back off. The pure merge logic is covered in useInsightData.test.ts.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
+import { WithCanopy } from '../test/canopy';
 
-vi.mock('../api/mole', () => ({ fetchData: vi.fn(), fetchMetadata: vi.fn() }));
+vi.mock('@slaclab/canopy-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@slaclab/canopy-client')>()),
+  fetchData: vi.fn(),
+  fetchMetadata: vi.fn(),
+}));
 
-import { fetchData, fetchMetadata } from '../api/mole';
-import { CanopyError } from '../api/client';
+import { fetchData, fetchMetadata } from '@slaclab/canopy-client';
+import { AlarmSeverity, CanopyError } from '@slaclab/canopy-client';
 import { archiveStore } from '../state/archiveStore';
 import { liveStore, type LiveEntry } from '../state/liveStore';
 import type { TimeWindowNs } from '../api/time';
-import type { PVMetadataDTO } from '../api/types';
+import type { PVMetadataDTO } from '@slaclab/canopy-client';
 import {
   ARCHIVE_OFF_NOTE,
   NOT_ARCHIVED_NOTE,
@@ -45,14 +50,15 @@ function liveEntry(): LiveEntry {
     connected: true,
     severity: 'NO_ALARM',
     latest: {
-      pv: PV,
       value: 2,
-      severity: 'NO_ALARM',
-      tsNs: (T0_MS - 5_000) * 1e6,
+      displayValue: '2.000',
+      severity: AlarmSeverity.NO_ALARM,
+      timestamp: T0_MS - 5_000,
       connected: true,
       units: 'mm',
       precision: 3,
-      error: null,
+      lowerLimit: 0,
+      upperLimit: 0,
     },
     error: null,
     points: [
@@ -77,7 +83,7 @@ function mount(initial: Partial<Props> = {}) {
       statuses.push(r.status);
       return r;
     },
-    { initialProps: props }
+    { initialProps: props, wrapper: WithCanopy }
   );
   return {
     ...hook,
@@ -201,7 +207,7 @@ describe('useInsightData: PV not in the archiver', () => {
 
     await h.update({ pv: 'OTHER:PV' });
     expect(dataMock).toHaveBeenCalledTimes(3);
-    expect(dataMock.mock.calls[2][0]).toBe('OTHER:PV');
+    expect(dataMock.mock.calls[2][1]).toBe('OTHER:PV');
   });
 
   it('asks again after the toolbar archive refresh clears the verdict', async () => {

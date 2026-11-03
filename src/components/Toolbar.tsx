@@ -4,48 +4,35 @@ import {
   Upload,
   Download,
   Image,
-  Asleep,
-  Light,
-  Debug,
-  Help,
   DataTable,
   Renew,
   SendAlt,
 } from '@carbon/icons-react';
 import { HeaderGlobalAction } from '@carbon/react';
-import type { ColorMode } from '../state/themeStore';
 import { formatShortcut } from '../hooks/useKeyboardShortcuts';
 
 interface ToolbarProps {
-  colorMode: ColorMode;
   onSave: () => void;
   onPrint: () => void;
   onImport: () => void;
   onExport: () => void;
   onExportImage: () => void;
-  onToggleTheme: () => void;
-  onReportBug: () => void;
-  onOpenDocs: () => void;
   onOpenDataInsight: () => void;
   onRefreshArchive: () => void;
   /** When set, shows a "Post to E-Log" action. Hidden when e-log is unconfigured. */
   onPostElog?: () => void;
 }
 
-// Carbon HeaderGlobalAction gives us hover/tooltip/keyboard handling for free
-// and styles itself based on the surrounding <Theme>. The header above stays
-// in g100 (dark brand bar) regardless of body theme — same convention as
-// react-squirrel.
+// Trace's own header actions. AppHeader (see TraceHeader) renders them before
+// the standard theme toggle, bug report and help actions. Carbon
+// HeaderGlobalAction gives us hover/tooltip/keyboard handling for free and
+// follows the header's theme.
 export function Toolbar({
-  colorMode,
   onSave,
   onPrint,
   onImport,
   onExport,
   onExportImage,
-  onToggleTheme,
-  onReportBug,
-  onOpenDocs,
   onOpenDataInsight,
   onRefreshArchive,
   onPostElog,
@@ -105,21 +92,6 @@ export function Toolbar({
         onClick={onExportImage}
       >
         <Image size={20} />
-      </HeaderGlobalAction>
-      <HeaderGlobalAction
-        aria-label={`${
-          colorMode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
-        } (${formatShortcut('alt', 'T')})`}
-        tooltipAlignment="end"
-        onClick={onToggleTheme}
-      >
-        {colorMode === 'dark' ? <Light size={20} /> : <Asleep size={20} />}
-      </HeaderGlobalAction>
-      <HeaderGlobalAction aria-label="Report a bug" tooltipAlignment="end" onClick={onReportBug}>
-        <Debug size={20} />
-      </HeaderGlobalAction>
-      <HeaderGlobalAction aria-label="Docs" tooltipAlignment="end" onClick={onOpenDocs}>
-        <Help size={20} />
       </HeaderGlobalAction>
     </>
   );

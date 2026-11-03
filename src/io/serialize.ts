@@ -1,5 +1,5 @@
 import type { Plot, PVTrace, Axis } from '../types';
-import type { ColorMode } from '../state/themeStore';
+import type { ColorMode } from '@slaclab/canopy-shell/color-mode';
 import { getPalette, colorForIndex, DEFAULT_PALETTE_ID } from '../palettes';
 import { parseSpanMs, toDatetimeLocal } from '../api/time';
 
@@ -247,7 +247,7 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
     };
   });
 
-  // Formula curves: strip the f:// prefix to get the Fox expression, and resolve
+  // Formula curves: strip the f:// prefix to get the Formula Engine expression, and resolve
   // each {var} via the legacy curveDict (variable -> PV channel name) against the
   // base curves above, so a binding points at a curve on the plot.
   const traceIdByPv = new Map<string, string>();

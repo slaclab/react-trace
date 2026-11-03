@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ArchiveStore, type FetchDataFn } from './archiveStore';
-import type { AlarmSeverity, ArchiverDataDTO } from '../api/types';
-import type { FetchDataParams } from '../api/mole';
+import type { WireAlarmSeverity, ArchiverDataDTO } from '@slaclab/canopy-client';
+import type { FetchDataParams } from '@slaclab/canopy-client';
 
 // Regression tests for #120: the buffer keeps each sample's severity, so
 // PlotArea can break the line at INVALID samples.
@@ -13,7 +13,7 @@ const TO_MS = 1_700_000_000_000;
 const SPAN_S = 30;
 
 // Every third second is INVALID; the rest alternate NO_ALARM / MINOR.
-const severityAt = (s: number): AlarmSeverity =>
+const severityAt = (s: number): WireAlarmSeverity =>
   s % 3 === 0 ? 'INVALID' : s % 2 === 0 ? 'MINOR' : 'NO_ALARM';
 
 // One sample per whole second in the requested range, value = epoch second.

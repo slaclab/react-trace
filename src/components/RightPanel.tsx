@@ -42,8 +42,9 @@ import {
 import { ArchiverPicker } from './ArchiverPicker';
 import { usePVSearch } from '../hooks/usePVSearch';
 import { PanelRail } from './PanelRail';
-import { validateFormula } from '../api/fox';
-import { CanopyError } from '../api/client';
+import { CanopyError } from '@slaclab/canopy-client';
+import { useCanopyConnection } from '@slaclab/canopy-react';
+import { validateFormula } from '../api/formulaEngine';
 import { extractFormulaVars, resolveBindings } from '../formula';
 
 interface RightPanelProps {
@@ -242,7 +243,7 @@ export function RightPanel({
 
 // Editor for a formula curve: an expression over {var} placeholders plus a
 // binding table mapping each variable to a PV-backed curve on the same plot.
-// Replaces PV traces' "PV Name + Data Sources" with Fox-specific controls.
+// Replaces PV traces' "PV Name + Data Sources" with formula-specific controls.
 function FormulaGeneralTab({
   trace,
   axes,
@@ -260,8 +261,9 @@ function FormulaGeneralTab({
   const unbound = vars.filter((v) => !bindings[v]);
   const hasExpr = expression.trim().length > 0;
 
-  // Debounced live validation via Fox. Sends whatever bindings are resolved so
+  // Debounced live validation via the Formula Engine. Sends whatever bindings are resolved so
   // far, so the server red-lines bad syntax (and missing bindings) as you type.
+  const canopy = useCanopyConnection();
   const [validation, setValidation] = useState<{ valid: boolean; errors: string[] } | null>(null);
   // Resolve to actual PV names here and key the effect on the result. Keying on
   // the raw bindings object alone would miss a bound curve's pvName changing
@@ -275,6 +277,7 @@ function FormulaGeneralTab({
     const ac = new AbortController();
     const handle = setTimeout(() => {
       validateFormula(
+        canopy,
         { kind: 'timeseries', expression: expr, bindings: resolvedBindings },
         ac.signal
       )
@@ -292,7 +295,7 @@ function FormulaGeneralTab({
       ac.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- expression + resolved bindings capture the inputs
-  }, [expression, resolvedKey]);
+  }, [canopy, expression, resolvedKey]);
 
   return (
     <div>

@@ -1,17 +1,18 @@
 // @vitest-environment jsdom
 //
-// useFormulaSeries against a fake Fox, on fake timers. The probe component
+// useFormulaSeries against a fake Formula Engine, on fake timers. The probe component
 // resolves each formula's window on every render, the way TraceApp does, so a
 // "following" window drifts with Date.now() on every re-render.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
-import { StrictMode, useEffect, useState } from 'react';
+import { StrictMode, useEffect, useState, type ReactNode } from 'react';
 import { msToNs, type TimeWindowNs } from '../api/time';
-import type { FormulaSpecDTO } from '../api/types';
+import type { FormulaSpec } from '@slaclab/canopy-client';
 import { resolveFormulaSpec } from '../formula';
 import { formulaTrace, pvTrace } from '../test/traceAppHarness';
 import type { PVTrace } from '../types';
 import { useFormulaSeries, type FormulaSeriesResult } from './useFormulaSeries';
+import { WithCanopy } from '../test/canopy';
 
 interface FoxCall {
   expression: string;
@@ -84,7 +85,7 @@ const fox = vi.hoisted(() => {
   return { calls, auto, evaluate };
 });
 
-vi.mock('../api/fox', () => ({ evaluateFormula: fox.evaluate }));
+vi.mock('../api/formulaEngine', () => ({ evaluateFormula: fox.evaluate }));
 
 // ── Windows, resolved on every render ────────────────────────────────────────
 
@@ -131,7 +132,7 @@ function Probe({ traces, windows, renderEveryMs, onRender }: ProbeProps) {
     const id = setInterval(() => setTick((n) => n + 1), renderEveryMs);
     return () => clearInterval(id);
   }, [renderEveryMs]);
-  const specByTrace = new Map<string, FormulaSpecDTO | null>();
+  const specByTrace = new Map<string, FormulaSpec | null>();
   const windowByTrace = new Map<string, TimeWindowNs>();
   for (const t of traces) {
     if (t.kind !== 'formula') continue;
@@ -171,11 +172,18 @@ const formula = (
   bindings: Record<string, string> = { x1: 'trace-1' }
 ) => formulaTrace(id, expression, bindings);
 
-function mount(props: Omit<ProbeProps, 'onRender'>, { strict = false } = {}) {
-  const view = render(
-    <Probe {...props} onRender={record} />,
-    strict ? { wrapper: StrictMode } : {}
+function StrictCanopy({ children }: { children: ReactNode }) {
+  return (
+    <StrictMode>
+      <WithCanopy>{children}</WithCanopy>
+    </StrictMode>
   );
+}
+
+function mount(props: Omit<ProbeProps, 'onRender'>, { strict = false } = {}) {
+  const view = render(<Probe {...props} onRender={record} />, {
+    wrapper: strict ? StrictCanopy : WithCanopy,
+  });
   return {
     rerender: (next: Omit<ProbeProps, 'onRender'>) =>
       view.rerender(<Probe {...next} onRender={record} />),
@@ -289,7 +297,7 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
     expect(callsFor('{x1}*2')).toHaveLength(4);
   });
 
-  it('draws the curve even when re-renders come faster than Fox answers', async () => {
+  it('draws the curve even when re-renders come faster than the Formula Engine answers', async () => {
     fox.auto.set('{x1}*2', { latencyMs: 300 });
     mount({ traces, windows: { f1: following(HOUR) }, renderEveryMs: 100 });
     await advance(1_000);
@@ -316,7 +324,7 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
     mount({ traces, windows: { f1: following(5 * MINUTE) }, renderEveryMs: 100 });
     await advance(30_000);
 
-    // At 0, 1, 3, 7 and 15 s (plus Fox's latency each time); the next is due after 30 s.
+    // At 0, 1, 3, 7 and 15 s (plus the Formula Engine's latency each time); the next is due after 30 s.
     expect(callsFor('{x1}*2')).toHaveLength(5);
     expect(latest('f1')).toMatchObject({ status: 'error', error: { code: 'buffer_at_capacity' } });
   });
@@ -335,7 +343,7 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
     expect(latest('f1')?.status).toBe('ready');
   });
 
-  it("doesn't call Fox to zoom inside the evaluated window, but does to zoom out", async () => {
+  it("doesn't call the Formula Engine to zoom inside the evaluated window, but does to zoom out", async () => {
     fox.auto.set('{x1}*2', { latencyMs: 100 });
     const view = mount({ traces, windows: { f1: fixed(T0 - HOUR, T0) } });
     await advance(500);
@@ -365,7 +373,7 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
   });
 
   it('gives up on a hung evaluation after 30 s, retries it twice, then only for a new span', async () => {
-    // No auto reply: Fox never answers.
+    // No auto reply: the Formula Engine never answers.
     const view = mount({ traces, windows: { f1: following(5 * MINUTE) }, renderEveryMs: 100 });
     await advance(30_000);
     expect(latest('f1')).toMatchObject({ status: 'error', error: { code: 'client_timeout' } });
