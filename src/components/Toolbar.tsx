@@ -1,4 +1,5 @@
 import {
+  Search,
   Save,
   Printer,
   Upload,
@@ -18,6 +19,8 @@ import { formatShortcut } from '../hooks/useKeyboardShortcuts';
 
 interface ToolbarProps {
   colorMode: ColorMode;
+  /** Opens the Search PVs dialog for the active plot (#43). */
+  onSearchPvs: () => void;
   onSave: () => void;
   onPrint: () => void;
   onImport: () => void;
@@ -38,6 +41,7 @@ interface ToolbarProps {
 // react-squirrel.
 export function Toolbar({
   colorMode,
+  onSearchPvs,
   onSave,
   onPrint,
   onImport,
@@ -52,6 +56,9 @@ export function Toolbar({
 }: ToolbarProps) {
   return (
     <>
+      <HeaderGlobalAction aria-label="Search PVs" tooltipAlignment="end" onClick={onSearchPvs}>
+        <Search size={20} />
+      </HeaderGlobalAction>
       <HeaderGlobalAction
         aria-label="Refresh archive data"
         tooltipAlignment="end"

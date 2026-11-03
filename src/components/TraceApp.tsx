@@ -36,6 +36,7 @@ import { resolveFormulaSpec } from '../formula';
 import type { FormulaSpecDTO } from '../api/types';
 import { capturePlots, type PngSource, type CapturedPlot } from '../io/exportPlotImage';
 import { PostToElogModal } from './PostToElogModal';
+import { PVSearchModal } from './PVSearchModal';
 import { useElogConfig } from '../hooks/useElogConfig';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
@@ -121,6 +122,8 @@ export function TraceApp() {
   const elogConfig = useElogConfig();
   // E-Log post dialog. `captured` holds the plot PNGs snapshotted at open time
   // (data URLs), so editing in the dialog works against a stable image set.
+  // The Search PVs dialog (#43) and the plot it adds to; see openPvSearch.
+  const [pvSearch, setPvSearch] = useState({ open: false, plotId: 'plot-1', openCount: 0 });
   const [elogModal, setElogModal] = useState<{ open: boolean; captured: CapturedPlot[] }>({
     open: false,
     captured: [],
@@ -403,34 +406,65 @@ export function TraceApp() {
 
   // ── Trace operations ─────────────────────────────────────────────────────────
 
+  // The defaults every new PV trace starts from, shared by Add Trace and the
+  // search dialog. Add Trace leaves pvName blank for the user to fill in.
+  const newPvTrace = (id: string, axisId: string, color: string, pvName = ''): PVTrace => ({
+    id,
+    pvName,
+    displayName: '', // traceLabel() falls back to pvName --> no default needed
+    color,
+    visible: true,
+    axisId,
+    // New traces default to both sources on. Live is the headline; archive
+    // backfills the past until live samples arrive.
+    useLive: true,
+    updateRate: 'monitor',
+    useArchive: true,
+    lineWidth: 2,
+    lineType: 'step',
+    lineStyle: 'solid',
+    showSymbol: false,
+    symbolShape: 'circle',
+    symbolSize: 10,
+    data: generateMockData(50, 10, 2),
+  });
+
   const addTrace = (plotId: string, axisId: string) => {
     const id = makeId('trace');
     const traceCount = plots.find((p) => p.id === plotId)?.traces.length ?? 0;
-    const newTrace: PVTrace = {
-      id,
-      pvName: '',
-      displayName: '', // traceLabel() falls back to pvName --> no default needed
-      color: colorForIndex(getPalette(paletteId), traceCount),
-      visible: true,
-      axisId,
-      // New traces default to both sources on. Live is the headline; archive
-      // backfills the past until live samples arrive.
-      useLive: true,
-      updateRate: 'monitor',
-      useArchive: true,
-      lineWidth: 2,
-      lineType: 'step',
-      lineStyle: 'solid',
-      showSymbol: false,
-      symbolShape: 'circle',
-      symbolSize: 10,
-      data: generateMockData(50, 10, 2),
-    };
+    const newTrace = newPvTrace(id, axisId, colorForIndex(getPalette(paletteId), traceCount));
     setPlots((prev) =>
       prev.map((p) => (p.id === plotId ? { ...p, traces: [...p.traces, newTrace] } : p))
     );
     selectItem({ type: 'trace', id, plotId });
   };
+
+  // Bulk add from the Search PVs dialog (#43). The traces land in one update on
+  // the plot's first axis, then each asks for its units axis exactly as a PV
+  // picked in Properties does, so PVs with the same units end up sharing one.
+  // The lookups can't go through assignTraceToUnitAxis, which reads the trace
+  // from this render's plots, where the new traces don't exist yet.
+  const addTraces = (plotId: string, pvNames: string[]) => {
+    const plot = plots.find((p) => p.id === plotId);
+    const names = [...new Set(pvNames.map((s) => s.trim()).filter(Boolean))];
+    const axisId = plot?.axes[0]?.id;
+    if (!plot || !axisId || names.length === 0) return;
+    const palette = getPalette(paletteId);
+    const traces = names.map((pvName, i) =>
+      newPvTrace(makeId('trace'), axisId, colorForIndex(palette, plot.traces.length + i), pvName)
+    );
+    setPlots((prev) =>
+      prev.map((p) => (p.id === plotId ? { ...p, traces: [...p.traces, ...traces] } : p))
+    );
+    selectItem({ type: 'trace', id: traces[traces.length - 1].id, plotId });
+    for (const t of traces) void lookupUnitsAxis(plotId, t.id, t.pvName, axisId, plot.archiver);
+  };
+
+  // openCount keys the dialog so each open mounts a fresh instance with an
+  // empty pattern and selection (see PVSearchModal).
+  const openPvSearch = (plotId: string) =>
+    setPvSearch((prev) => ({ open: true, plotId, openCount: prev.openCount + 1 }));
+  const closePvSearch = () => setPvSearch((prev) => ({ ...prev, open: false }));
 
   const addFormula = (plotId: string, axisId: string) => {
     const id = makeId('formula');
@@ -546,15 +580,30 @@ export function TraceApp() {
   // Unmounting abandons them too.
   useEffect(() => abortUnitLookups, [abortUnitLookups]);
 
-  // When a PV is chosen for a trace, look up its engineering units and move the
-  // trace to the axis representing those units, creating one if none exists.
-  // This is a best-effort default the user can override with the axis dropdown
-  // or drag-and-drop; failures (no units, fetch error) leave the trace put.
-  const assignTraceToUnitAxis = async (plotId: string, traceId: string, pvName: string) => {
+  // When a PV is chosen for a trace in Properties, look up its engineering
+  // units and move the trace to the axis representing those units, creating
+  // one if none exists. Reads the trace's axis and archiver from this render's
+  // plots, so it only serves traces already in state; addTraces runs the
+  // lookup itself for the ones it is creating.
+  const assignTraceToUnitAxis = (plotId: string, traceId: string, pvName: string) => {
     const plot = plots.find((p) => p.id === plotId);
     const trace = plot?.traces.find((t) => t.id === traceId);
     if (!plot || !trace) return;
+    void lookupUnitsAxis(plotId, traceId, pvName, trace.axisId, trace.archiver ?? plot.archiver);
+  };
 
+  // The lookup behind assignTraceToUnitAxis and addTraces. `axisIdAtFetch` is
+  // where the trace sat when the fetch began: if the user moves it (drag or
+  // axis dropdown) before we resolve, we must not clobber that. This is a
+  // best-effort default the user can override; failures (no units, fetch
+  // error) leave the trace put.
+  const lookupUnitsAxis = async (
+    plotId: string,
+    traceId: string,
+    pvName: string,
+    axisIdAtFetch: string,
+    archiver: string | undefined
+  ) => {
     // Abort any in-flight lookup for this trace so a rapid re-selection can't
     // have a stale response land after the newer one.
     const abortMap = unitFetchAbortRef.current;
@@ -562,13 +611,9 @@ export function TraceApp() {
     const controller = new AbortController();
     abortMap.set(traceId, controller);
 
-    // Remember where the trace sat when the fetch began. If the user moves it
-    // (drag or axis dropdown) before we resolve, we must not clobber that.
-    const axisIdAtFetch = trace.axisId;
-
     let unit: string | undefined;
     try {
-      const meta = await fetchMetadata(pvName, trace.archiver ?? plot.archiver, controller.signal);
+      const meta = await fetchMetadata(pvName, archiver, controller.signal);
       unit = meta.units?.trim() || undefined;
     } catch {
       return; // metadata unavailable / aborted — keep the trace on its current axis
@@ -938,6 +983,7 @@ export function TraceApp() {
               onOpenDocs={handleOpenDocs}
               onOpenDataInsight={() => openInsight()}
               onRefreshArchive={handleRefreshArchive}
+              onSearchPvs={() => openPvSearch(activePlotId)}
               onPostElog={elogConfig?.enabled ? openElogPost : undefined}
             />
           </HeaderGlobalBar>
@@ -971,6 +1017,7 @@ export function TraceApp() {
               onAddFormula={addFormula}
               onDeleteTrace={deleteTrace}
               onAddAxis={addAxis}
+              onSearchPvs={openPvSearch}
               onDeleteAxis={deleteAxis}
               onMoveTrace={moveTrace}
               onCollapse={() => {
@@ -1327,6 +1374,18 @@ export function TraceApp() {
           </div>,
           document.body
         )}
+
+      <PVSearchModal
+        key={pvSearch.openCount}
+        open={pvSearch.open}
+        plots={plots}
+        initialPlotId={pvSearch.plotId}
+        onAdd={(plotId, pvNames) => {
+          addTraces(plotId, pvNames);
+          closePvSearch();
+        }}
+        onClose={closePvSearch}
+      />
 
       {elogConfig?.enabled && (
         <PostToElogModal
