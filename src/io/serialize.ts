@@ -95,7 +95,9 @@ function rehydratePlot(p: Plot): Plot {
     showYGridlines: p.showYGridlines ?? legacy.showGridlines ?? true,
     gridOpacity: p.gridOpacity ?? 1,
     tickFontSize: p.tickFontSize ?? 11,
-    traces: (p.traces ?? []).map((t) => ({ ...t, data: t.data ?? [] })),
+    // Samples are never saved (stripTraceData), and a file's own are not
+    // trusted: they reach the tooltip's HTML.
+    traces: (p.traces ?? []).map((t) => ({ ...t, data: [] })),
   };
 }
 
