@@ -393,4 +393,21 @@ describe('PlotArea: INVALID samples (#120)', () => {
     expect(html).not.toContain('<svg');
     expect(html).not.toContain('onmouseover');
   });
+
+  it('tooltip escapes untrusted sample values', () => {
+    const maliciousValue = '<img src=x onerror=alert(1)>';
+    const opt = mount(
+      [
+        makeTrace({
+          useArchive: false,
+          data: [{ time: at(10), value: maliciousValue as unknown as number }],
+        }),
+      ],
+      new Map()
+    );
+
+    const html = opt.tooltip.formatter([{ axisValue: at(10) }]);
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(html).not.toContain('<img');
+  });
 });

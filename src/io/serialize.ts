@@ -145,6 +145,15 @@ function assertPlotShape(p: unknown, i: number): asserts p is Plot {
       trace.data.forEach((p, k) => {
         if (!p || typeof p !== 'object')
           throw new Error(`Invalid workspace: ${where}.traces[${j}].data[${k}] is not an object`);
+        const point = p as Record<string, unknown>;
+        if (typeof point.time !== 'number' || !Number.isFinite(point.time))
+          throw new Error(
+            `Invalid workspace: ${where}.traces[${j}].data[${k}].time must be a finite number`
+          );
+        if (typeof point.value !== 'number' || !Number.isFinite(point.value))
+          throw new Error(
+            `Invalid workspace: ${where}.traces[${j}].data[${k}].value must be a finite number`
+          );
       });
     }
   });

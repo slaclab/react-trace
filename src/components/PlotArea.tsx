@@ -1036,7 +1036,7 @@ export function SinglePlot({
               ? ` ${escapeHtml(sample.severity)}`
               : '';
           const valueCell = sample
-            ? `${formatTooltipValue(sample.value)}${severity} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
+            ? `${escapeHtml(formatTooltipValue(sample.value))}${severity} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
             : `<span style="color:${theme.tooltipMuted}">no data</span>`;
           lines.push(
             `<span style="color:${safeTooltipColor(trace.color)}">${escapeHtml(labels.get(trace.id) ?? '')}</span>: ${valueCell}`

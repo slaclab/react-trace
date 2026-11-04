@@ -118,6 +118,11 @@ describe('deserializeConfigData — native workspace', () => {
       { ...validPlot, traces: [{ id: 'trace-1', data: [null] }] },
       /traces\[0\]\.data\[0\] is not an object/,
     ],
+    [
+      'trace with a non-numeric data point value',
+      { ...validPlot, traces: [{ id: 'trace-1', data: [{ time: 1, value: '<img>' }] }] },
+      /traces\[0\]\.data\[0\]\.value must be a finite number/,
+    ],
     ['null axis', { ...validPlot, axes: [null] }, /axes\[0\] is not an object/],
     ['axis missing id', { ...validPlot, axes: [{}] }, /axes\[0\] is missing an id/],
   ])('rejects a native workspace with a %s', (_label, plot, pattern) => {
