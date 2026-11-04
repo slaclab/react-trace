@@ -10,6 +10,15 @@ import {
 } from '@slaclab/canopy-vite';
 import { assertSinglePackageDirs } from './vite.dupGuard.ts';
 
+// Three pages in one build: Trace (index.html), the correlation plot
+// (correlation.html) and the Waveform tool (waveform.html). They share
+// dist/assets/.
+const pages = {
+  main: fileURLToPath(new URL('./index.html', import.meta.url)),
+  correlation: fileURLToPath(new URL('./correlation.html', import.meta.url)),
+  waveform: fileURLToPath(new URL('./waveform.html', import.meta.url)),
+};
+
 // Fail the build when react, react-dom or @carbon/react is bundled from more
 // than one directory: the resolve block below is what keeps them single, and a
 // second copy breaks hooks and context only at runtime.
@@ -93,6 +102,11 @@ export default defineConfig(({ mode }) => {
       dedupe: ['react', 'react-dom'],
       alias: {
         '@carbon/react': fileURLToPath(new URL('./node_modules/@carbon/react', import.meta.url)),
+      },
+    },
+    build: {
+      rolldownOptions: {
+        input: pages,
       },
     },
     server: {

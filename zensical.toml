@@ -16,6 +16,8 @@ nav = [
   { "Users" = "users/user_guide.md" },
   { "Tools" = [
     { "The properties panel" = "workbench.md" },
+    { "Waveform" = "waveform.md" },
+    { "Correlation" = "correlation.md" },
     { "Statistics" = "statistics.md" },
     { "Drawing tools" = "drawing-tools.md" },
   ] },

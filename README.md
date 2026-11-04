@@ -43,6 +43,9 @@ The **Docs** action in every tool opens the documentation site. Its source lives
 - [The properties panel](docs/workbench.md): signals and cards, the plot-wide
   sections, the modified dot and reset, More, the chart source, and where
   actions live.
+- [Waveform](docs/waveform.md): its lists, Snapshot → reference, Δ,
+  persistence and averaging, the X-axis PV rule, its statistics.
+- [Correlation](docs/correlation.md): its built-in metrics, variables, units.
 - [Statistics](docs/statistics.md): the shared panel, the Metrics list,
   writing a metric, the function reference, the token grammar.
 - [Drawing tools](docs/drawing-tools.md): time and axis gestures, range
@@ -170,7 +173,7 @@ alone on a quiet machine with `pnpm test:e2e --grep @perf`.
 
 ## Adding a tool to the workbench
 
-Trace is the first tool on the workbench
+Trace, Correlation and Waveform are the three tools on the workbench
 (`src/workbench/`). The workbench owns the layout, the sidebar, the
 properties panel and the actions bar. A tool supplies data and rules, and writes no layout
 code. The worked example is the stub fourth tool in
@@ -202,8 +205,8 @@ as `children`. The definition has two halves:
   `remove` and `move`), `moveRefusal(item, section)` (the one rule the Plot on
   select and card drags share) and optional `footer` actions.
 
-See `src/tools/trace/tool.ts` for a real tool. It builds its binding with
-`useTraceDefinition`.
+See `src/tools/waveform/tool.ts` for a real tool. It builds its schema at
+module level and its binding with `useWaveformDefinition`.
 
 Canvas actions are registered from inside the canvas with `useCanvasActions`
 (`src/workbench/useCanvasActions.ts`), and end with

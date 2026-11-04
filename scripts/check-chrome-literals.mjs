@@ -28,6 +28,7 @@ export const ROOT = fileURLToPath(new URL('..', import.meta.url));
 export const DEFAULT_FILES = [
   'src/App.css',
   'src/index.css',
+  'src/tools/correlation/correlation.css',
   'src/components/PvCombo.tsx',
 ].map((rel) => fileURLToPath(new URL(`../${rel}`, import.meta.url)));
 
