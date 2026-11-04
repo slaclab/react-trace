@@ -12,4 +12,9 @@ describe('effectiveBackground', () => {
     expect(effectiveBackground('#123456', CHART_THEMES.dark)).toBe('#123456');
     expect(effectiveBackground('#123456', CHART_THEMES.light)).toBe('#123456');
   });
+
+  it('draws an automatic (undefined) background in the theme default', () => {
+    expect(effectiveBackground(undefined, CHART_THEMES.dark)).toBe('#161616');
+    expect(effectiveBackground(undefined, CHART_THEMES.light)).toBe('#f4f4f4');
+  });
 });

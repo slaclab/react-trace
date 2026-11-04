@@ -34,6 +34,20 @@ layer. To build the image locally, pass your user-level config:
 docker build --secret id=npmrc,src=$HOME/.npmrc -f docker/Dockerfile .
 ```
 
+## User docs
+
+The **Docs** action in every tool opens the documentation site. Its source lives in
+`docs/`. It is a [Zensical](https://zensical.org/) site, built with
+`uv run zensical build --clean`, or previewed with `uv run zensical serve`:
+
+- [The properties panel](docs/workbench.md): signals and cards, the plot-wide
+  sections, the modified dot and reset, More, the chart source, and where
+  actions live.
+- [Statistics](docs/statistics.md): the shared panel, the Metrics list,
+  writing a metric, the function reference, the token grammar.
+- [Drawing tools](docs/drawing-tools.md): time and axis gestures, range
+  controls, drawing and measuring on a plot, keys, and how drawings are saved.
+
 ## Local dev
 
 ### 1. Run the Canopy backend
@@ -118,6 +132,18 @@ warning, and the post dialog shows Canopy's missing-key error. The e-log locatio
 accepts request bodies up to 25 MiB so attachments (20 MiB by default in Canopy)
 reach Canopy.
 
+#### Channel catalog (optional)
+
+Every PV field suggests names from two sources: Mole's archiver index, and a
+channel catalog the host may serve beside it. The catalog is
+`GET <Canopy base>/channels`, where `<Canopy base>` is the prefix the Mole,
+Hare and Formula Engine routes sit under (`VITE_CANOPY_BASE_PATH` when set,
+else the directory above the page; `src/api/connection.ts`). It answers with a
+JSON array of PV names (`string[]`) and a strong `ETag`; Trace fetches it once
+per page and ranks it in the browser (`src/pvSearch/`). A `404` means the
+deployment has no catalog, and suggestions then come from Mole alone. A
+network error or a body that is not a string array is treated the same way.
+
 ### 3. Run the dev server
 
 ```bash
@@ -129,9 +155,93 @@ pnpm dev
 
 ```bash
 pnpm dev           # vite dev server
-pnpm build         # tsc -b && vite build
+pnpm build         # tsc -b && vite build, then the dist check
 pnpm typecheck     # tsc -b
-pnpm test          # vitest
+pnpm test          # chrome-literal guard, then vitest
+pnpm test:e2e      # Playwright browser tests (e2e/*.e2e.ts) against a fresh build
 pnpm lint          # eslint
 pnpm format        # prettier --write
 ```
+
+The browser tests need Chromium once per machine
+(`pnpm exec playwright install chromium`). CI runs them with
+`--grep-invert @perf`; the `@perf` specs time the main thread, so run them
+alone on a quiet machine with `pnpm test:e2e --grep @perf`.
+
+## Adding a tool to the workbench
+
+Trace is the first tool on the workbench
+(`src/workbench/`). The workbench owns the layout, the sidebar, the
+properties panel and the actions bar. A tool supplies data and rules, and writes no layout
+code. The worked example is the stub fourth tool in
+`src/workbench/__fixtures__/stubTool.ts` (`createStubTool`, `stubSchema`).
+The panel and layout tests run against it, and it has one of
+everything described below.
+
+### `ToolDefinition`
+
+A tool hands `WorkbenchLayout` (from `src/workbench/index.ts`) a
+`ToolDefinition` (`src/workbench/types.ts`), along with its `state`, `model`,
+`ui`, a single writer `update(fn)` and its `capabilities`. The canvas goes in
+as `children`. The definition has two halves:
+
+- **`schema: ToolSchema`** is static. Build it once at module level, never
+  per render. It holds the tool-level object and the `sections` and `items`
+  by kind. Each object declares its field groups (`tabs`), and each group its
+  fields (`FieldDef`, levels `L1` to `L3`; `L3` goes under More). The panel
+  shows an item's groups as the titled blocks of its card, and the tool's as
+  the plot-wide sections (ids and labels from `src/tools/vocabulary.ts`, each
+  with a one-line `summary`). A section kind names its top-block `group`
+  (Signals, Reference, …) and whether its fields sit under its cards or in
+  Axes (`placement`). The tool's `code` group is the one chart-source link,
+  printed by `src/tools/codeFragment.ts`. Fields read `ctx.target`, never
+  the selection, and write only through `ctx.update`.
+- **`binding: ToolBinding`** is rebuilt per render and read through a
+  latest-ref. It holds `outline(state, model)` (the lists of the top block),
+  `ops` (`add`, which is async and may resolve to an `AddRefusal`, plus
+  `remove` and `move`), `moveRefusal(item, section)` (the one rule the Plot on
+  select and card drags share) and optional `footer` actions.
+
+See `src/tools/trace/tool.ts` for a real tool. It builds its binding with
+`useTraceDefinition`.
+
+Canvas actions are registered from inside the canvas with `useCanvasActions`
+(`src/workbench/useCanvasActions.ts`), and end with
+`standardActions({ embedded, theme, bugUrl, docsUrl })`. Leave out an action
+the deployment cannot support. Register a temporarily unusable one with
+`disabled: '<reason>'`.
+
+### Dot helpers
+
+The workbench never knows a default. A field that has an automatic value
+spreads a `Dot` (`modified(ctx)`, `reset(ctx)`) built by one of the helpers
+in `src/tools/dotHelpers.ts`:
+
+- `optionalPath`: the value is optional. It is modified when present, and
+  reset writes `undefined`.
+- `recordKey`: the value is an entry in a per-PV record. It is modified when
+  the entry exists, and reset deletes it.
+- `stampedValue`: the tool stamps an automatic value (a palette colour, an
+  axis slot). It is modified when the tool's rule rejects the stored value,
+  and reset writes the object's own automatic value.
+
+A field with no automatic rule uses no helper and shows no dot.
+
+### Import allow-list
+
+`src/workbench/**` must never reach into a tool. The ESLint rule
+`workbench/import-allowlist` (`eslint.config.js`) allows only `react`,
+`@carbon/*`, `@dnd-kit/*`, `react-resizable-panels`, `src/workbench/**` and
+the shared PV field modules. Tests and `src/workbench/__fixtures__/` may also
+use `vitest`, `@testing-library/*`, `src/tools/dotHelpers` and
+`src/tools/codeFragment`. Tool code lives under `src/tools/<tool>/` and
+imports the workbench, never the reverse. `pnpm lint` enforces this.
+
+### Test ids are a contract
+
+The `data-testid` values in `src/workbench/testids.ts` (`TESTIDS`, and
+`inspectorTab(id)` → `inspector-tab-<id>`) are used by the sdk-js host probes
+as well as the e2e specs, so they are a cross-repo contract.
+`src/workbench/testids.test.ts` pins the set. A rename fails there first and
+must be made in the probes too. Test ids are for chrome. Fields are reached by
+their `#id`, and a control never has both.

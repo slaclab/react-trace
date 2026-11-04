@@ -6,7 +6,12 @@ import type {
   WebSocketFactory,
   WireAlarmSeverity,
 } from '@slaclab/canopy-client';
-import { LiveStore } from './liveStore';
+import {
+  LIVE_RETENTION_DEFAULT_MS,
+  LIVE_RETENTION_MAX_MS,
+  resolveLiveRetentionMs,
+  LiveStore,
+} from './liveStore';
 
 const BASE_URL = 'http://canopy.test';
 const HARE_URL = 'ws://canopy.test/hare/v1/ws/pvs';
@@ -396,5 +401,209 @@ describe('LiveStore', () => {
     expect(store.getEntrySnapshot('t2')).toBe(bBefore); // unchanged -> same ref
     expect(store.getEntrySnapshot('t1')).not.toBe(bBefore);
     expect(store.getEntrySnapshot('missing')).toBeUndefined();
+  });
+});
+
+describe('LiveStore Hare breaks', () => {
+  function connectedStore() {
+    const { store, instances } = setup();
+    store.watch('t1', 'GAP', 600_000);
+    const ws = instances[0];
+    ws.open();
+    return { store, ws, instances };
+  }
+
+  it('records one break per outage: two connected=false updates give one break', () => {
+    const { store, ws } = connectedStore();
+    const t0 = Date.now() - 5_000;
+    ws.message(initial({ GAP: pvValue('GAP', 1, t0) }));
+    expect(store.getSnapshot().get('t1')!.breaks).toEqual([]);
+
+    const down = { ...pvValue('GAP', 1, t0), connected: false };
+    ws.message(diff({ GAP: down }, t0));
+    ws.message(diff({ GAP: down }, t0));
+    const entry = store.getSnapshot().get('t1')!;
+    expect(entry.connected).toBe(false);
+    expect(entry.breaks).toEqual([t0 + 1]);
+    // A disconnected update never adds a point after the break.
+    expect(entry.points.map((p) => p.time)).toEqual([t0]);
+
+    // A socket close while the PV is already down adds no second break.
+    ws.close(1006);
+    expect(store.getSnapshot().get('t1')!.breaks).toEqual([t0 + 1]);
+  });
+
+  it('socket close, reopen and an initial frame with an old tsNs: one break, sample re-stamped', () => {
+    const { store, ws, instances } = connectedStore();
+    const t0 = Date.now() - 60_000;
+    ws.message(initial({ GAP: pvValue('GAP', 7, t0) }));
+
+    ws.close(1006);
+    expect(store.getSnapshot().get('t1')!.breaks).toEqual([t0 + 1]);
+
+    vi.advanceTimersByTime(1_000);
+    const ws2 = instances[1];
+    ws2.open();
+    // Hare replays the unchanged value with its original (pre-break) timestamp.
+    ws2.message(initial({ GAP: pvValue('GAP', 7, t0) }));
+
+    const entry = store.getSnapshot().get('t1')!;
+    expect(entry.connected).toBe(true);
+    expect(entry.breaks).toEqual([t0 + 1]);
+    expect(entry.points.map((p) => p.time)).toEqual([t0, Date.now()]);
+    expect(entry.points.at(-1)!.time).toBeGreaterThan(t0 + 1);
+  });
+
+  it('re-stamps a post-break sample to break + 1 ms when now is not later', () => {
+    const { store, ws, instances } = connectedStore();
+    const t0 = Date.now();
+    ws.message(initial({ GAP: pvValue('GAP', 1, t0) }));
+    ws.close(1006);
+    vi.advanceTimersByTime(1_000);
+    vi.setSystemTime(t0); // clock not advanced past the break
+    const ws2 = instances[1];
+    ws2.open();
+    ws2.message(initial({ GAP: pvValue('GAP', 1, t0 - 10) }));
+    expect(store.getSnapshot().get('t1')!.points.at(-1)!.time).toBe(t0 + 2);
+  });
+
+  it('keeps a fresh post-break timestamp as is', () => {
+    const { store, ws } = connectedStore();
+    const t0 = Date.now() - 60_000;
+    ws.message(initial({ GAP: pvValue('GAP', 1, t0) }));
+    ws.message(diff({ GAP: { ...pvValue('GAP', 1, t0), connected: false } }, t0));
+    ws.message(diff({ GAP: pvValue('GAP', 2, t0 + 30_000) }));
+    const entry = store.getSnapshot().get('t1')!;
+    expect(entry.breaks).toEqual([t0 + 1]);
+    expect(entry.points.map((p) => p.time)).toEqual([t0, t0 + 30_000]);
+  });
+
+  it('records no break for a PV that never had a point', () => {
+    const { store, ws } = connectedStore();
+    ws.message(initial({ GAP: pvValue('GAP', 'text', Date.now()) }));
+    ws.close(1006);
+    expect(store.getSnapshot().get('t1')!.breaks).toEqual([]);
+  });
+});
+
+describe('LiveStore retention in place', () => {
+  type Ws = ReturnType<typeof setup>['instances'][number];
+  function fill(ws: Ws, pv: string, times: number[]): void {
+    for (const [i, t] of times.entries()) ws.message(diff({ [pv]: pvValue(pv, i, t) }, t));
+  }
+
+  it('a retention change keeps the buffer and sends no frame', () => {
+    const { store, instances } = setup();
+    store.watch('t1', 'RET', 60_000);
+    const ws = instances[0];
+    ws.open();
+    const t0 = Date.now();
+    fill(ws, 'RET', [t0 - 30_000, t0 - 20_000, t0 - 10_000, t0]);
+    const before = store.getSnapshot().get('t1')!.points;
+    expect(before).toHaveLength(4);
+    const sentBefore = ws.sent.length;
+
+    store.watch('t1', 'RET', 600_000);
+    expect(ws.sent).toHaveLength(sentBefore);
+    expect(store.retentionOf('t1')).toBe(600_000);
+    expect(store.getSnapshot().get('t1')!.points).toBe(before);
+    expect(store.getSnapshot().get('t1')!.points).toHaveLength(4);
+    // Samples keep arriving into the same buffer.
+    fill(ws, 'RET', [t0 + 1]);
+    expect(store.getSnapshot().get('t1')!.points).toHaveLength(5);
+    expect(ws.sent).toHaveLength(sentBefore);
+    expect(instances).toHaveLength(1);
+  });
+
+  it('an explicit lower value trims the buffer at once, without a frame', () => {
+    const { store, instances } = setup();
+    store.watch('t1', 'RET', 60_000);
+    const ws = instances[0];
+    ws.open();
+    const t0 = Date.now();
+    fill(ws, 'RET', [t0 - 50_000, t0 - 40_000, t0 - 5_000, t0]);
+    const sentBefore = ws.sent.length;
+
+    store.watch('t1', 'RET', resolveLiveRetentionMs(10_000, store.retentionOf('t1'), 3_600_000));
+    expect(store.retentionOf('t1')).toBe(10_000);
+    expect(
+      store
+        .getSnapshot()
+        .get('t1')!
+        .points.map((p) => p.time)
+    ).toEqual([t0 - 5_000, t0]);
+    expect(ws.sent).toHaveLength(sentBefore);
+  });
+
+  it('a lower retention on one trace does not trim a PV another trace keeps longer', () => {
+    const { store, instances } = setup();
+    store.watch('t1', 'RET', 60_000);
+    store.watch('t2', 'RET', 60_000);
+    const ws = instances[0];
+    ws.open();
+    const t0 = Date.now();
+    fill(ws, 'RET', [t0 - 50_000, t0]);
+    store.watch('t1', 'RET', 1_000);
+    expect(store.getSnapshot().get('t2')!.points).toHaveLength(2);
+  });
+
+  it('a narrowed range keeps the previous automatic retention', () => {
+    const { store, instances } = setup();
+    store.watch('t1', 'RET', resolveLiveRetentionMs(undefined, store.retentionOf('t1'), 600_000));
+    expect(store.retentionOf('t1')).toBe(600_000);
+    const ws = instances[0];
+    ws.open();
+    const t0 = Date.now();
+    fill(ws, 'RET', [t0 - 500_000, t0 - 100_000, t0]);
+    const sentBefore = ws.sent.length;
+
+    // The range narrows to 1 min: automatic retention stays at 10 min.
+    store.watch('t1', 'RET', resolveLiveRetentionMs(undefined, store.retentionOf('t1'), 60_000));
+    expect(store.retentionOf('t1')).toBe(600_000);
+    expect(store.getSnapshot().get('t1')!.points).toHaveLength(3);
+    // A wider range raises it, capped at the maximum.
+    store.watch(
+      't1',
+      'RET',
+      resolveLiveRetentionMs(undefined, store.retentionOf('t1'), 86_400_000)
+    );
+    expect(store.retentionOf('t1')).toBe(LIVE_RETENTION_MAX_MS);
+    expect(ws.sent).toHaveLength(sentBefore);
+  });
+
+  it('re-adding the curve starts from the derived value', () => {
+    const { store } = setup();
+    store.watch('t1', 'RET', resolveLiveRetentionMs(undefined, undefined, 1_200_000));
+    store.watch('t1', 'RET', resolveLiveRetentionMs(undefined, store.retentionOf('t1'), 60_000));
+    expect(store.retentionOf('t1')).toBe(1_200_000);
+
+    store.release('t1');
+    expect(store.retentionOf('t1')).toBeUndefined();
+    store.watch('t1', 'RET', resolveLiveRetentionMs(undefined, store.retentionOf('t1'), 60_000));
+    expect(store.retentionOf('t1')).toBe(60_000);
+  });
+});
+
+describe('resolveLiveRetentionMs', () => {
+  it('derives from the range span, capped at the maximum', () => {
+    expect(resolveLiveRetentionMs(undefined, undefined, 3_600_000)).toBe(LIVE_RETENTION_MAX_MS);
+    expect(resolveLiveRetentionMs(undefined, undefined, 60_000)).toBe(60_000);
+  });
+
+  it('is non-decreasing: max(previous, derived)', () => {
+    expect(resolveLiveRetentionMs(undefined, 600_000, 60_000)).toBe(600_000);
+    expect(resolveLiveRetentionMs(undefined, 60_000, 600_000)).toBe(600_000);
+  });
+
+  it('an explicit value wins, lower or higher', () => {
+    expect(resolveLiveRetentionMs(5_000, 600_000, 600_000)).toBe(5_000);
+    expect(resolveLiveRetentionMs(900_000, 60_000, 60_000)).toBe(900_000);
+  });
+
+  it('derives the default when the span is unknown', () => {
+    expect(resolveLiveRetentionMs(undefined, undefined, undefined)).toBe(LIVE_RETENTION_DEFAULT_MS);
+    expect(resolveLiveRetentionMs(undefined, undefined, Number.NaN)).toBe(
+      LIVE_RETENTION_DEFAULT_MS
+    );
   });
 });

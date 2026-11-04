@@ -15,252 +15,12 @@
   overflow: hidden;
 }
 
-/* The header itself is canopy-shell's AppHeader (in-flow, see TraceHeader).
-   The live/archive counts sit in its middle slot, pushed to the right. */
-.trace-header__archiver {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding-right: 12px;
-}
-
-.trace-header__counts {
-  font-size: 12px;
-  color: var(--cds-text-helper);
-  white-space: nowrap;
-}
-
-.trace-panel-group {
+/* The workbench fills the app's column; its actions bar is the first row,
+   with no header above it. */
+.trace-app > .wb-workbench {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  display: flex;
-}
-
-/* Focused only programmatically, by the header's "Skip to main content" link. */
-.trace-panel-group:focus {
-  outline: none;
-}
-
-.trace-resize-handle {
-  width: 1px;
-  background-color: var(--cds-border-subtle);
-  transition: background-color 0.15s;
-  cursor: col-resize;
-  flex-shrink: 0;
-}
-
-.trace-resize-handle:hover,
-.trace-resize-handle[data-resize-handle-active] {
-  background-color: var(--cds-link-primary);
-}
-
-/* Panel collapse/expand buttons */
-
-.panel-collapse-btn,
-.panel-expand-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 2px;
-  background: transparent;
-  color: var(--cds-text-helper);
-  cursor: pointer;
-  padding: 0;
-  flex-shrink: 0;
-}
-
-.panel-collapse-btn:hover,
-.panel-expand-btn:hover {
-  background-color: var(--cds-layer-hover);
-  color: var(--cds-text-primary);
-}
-
-/* Collapsed-panel rail (replaces the old top-bar expand icon) */
-.panel-rail {
-  height: 100%;
-  width: 100%;
-  min-width: 32px;
-  background-color: var(--cds-layer);
-  border: none;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 0;
-  cursor: pointer;
-  color: var(--cds-text-helper);
-  font: inherit;
-}
-
-.panel-rail--left {
-  border-right: 1px solid var(--cds-border-subtle);
-}
-
-.panel-rail--right {
-  border-left: 1px solid var(--cds-border-subtle);
-}
-
-.panel-rail:hover {
-  background-color: var(--cds-layer-hover);
-  color: var(--cds-text-primary);
-}
-
-.panel-rail__chevron,
-.panel-rail__icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.panel-rail__label {
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--cds-text-helper);
-  user-select: none;
-}
-
-.panel-rail:hover .panel-rail__label {
-  color: var(--cds-text-secondary);
-}
-
-/* Layer panel */
-.layers-panel {
-  height: 100%;
-  background-color: var(--cds-layer);
-  border-right: 1px solid var(--cds-border-subtle);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.layers-panel__header {
-  height: 40px;
-  border-bottom: 1px solid var(--cds-border-subtle);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 12px;
-  flex-shrink: 0;
-}
-
-.layers-panel__title {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--cds-text-secondary);
-  text-transform: uppercase;
-}
-
-.layers-panel__scroll {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px;
-}
-
-.layers-panel__footer {
-  padding: 8px;
-  border-top: 1px solid var(--cds-border-subtle);
-  flex-shrink: 0;
-}
-
-/* One block per plot in the layer panel (grid view shows several). */
-.layers-plot-group + .layers-plot-group {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--cds-border-strong);
-}
-
-.layers-plot-group__add-axis {
-  padding: 4px 0 2px;
-}
-
-/* Layer rows */
-.layer-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-radius: 2px;
-  cursor: pointer;
-  user-select: none;
-  min-height: 32px;
-}
-
-.layer-row:hover {
-  background-color: var(--cds-layer-hover);
-}
-
-.layer-row--selected {
-  background-color: var(--cds-layer-selected);
-}
-
-.layer-row--dragging {
-  opacity: 0.4;
-}
-
-.layer-row__color-swatch {
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
-  flex-shrink: 0;
-}
-
-.layer-row__name {
-  font-size: 12px;
-  color: var(--cds-text-primary);
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.layer-row__indicators {
-  display: flex;
-  gap: 2px;
-  align-items: center;
-}
-
-.layer-row__indicator {
-  display: flex;
-  align-items: center;
-  padding: 2px;
-  border-radius: 2px;
-}
-
-/* Indicator chips keep a fixed hue across themes — green/gray are semantic
-   (live = green) and need recognizable consistency. */
-.layer-row__indicator--live {
-  background-color: rgba(66, 190, 101, 0.2);
-  color: var(--cds-support-success);
-}
-
-.layer-row__indicator--archive {
-  background-color: rgba(141, 141, 141, 0.2);
-  color: var(--cds-text-helper);
-}
-
-.layer-row__delete {
-  transition: background-color 0.15s;
-}
-
-.axis-drop-zone {
-  border-radius: 2px;
-  transition: background-color 0.15s;
-}
-
-.axis-drop-zone--over {
-  background-color: var(--cds-layer-selected);
-  outline: 1px dashed var(--cds-link-primary);
 }
 
 /* Plot area */
@@ -342,8 +102,9 @@
 }
 
 .plot-tab__action-btn--close:hover {
-  background-color: var(--cds-button-danger-primary, #da1e28);
-  color: var(--cds-text-on-color, #ffffff);
+  background-color: var(--cds-button-danger-primary);
+  /* canopy-allow-literal: Carbon danger pair */
+  color: #ffffff;
 }
 
 .plot-tab-bar__controls {
@@ -360,12 +121,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 2px;
   border: none;
   background: transparent;
-  color: var(--cds-text-helper);
   cursor: pointer;
   padding: 0;
 }
@@ -396,6 +153,12 @@
   border-radius: 2px;
   overflow: hidden;
   position: relative;
+}
+
+/* A23: the active grid cell — 2px accent outline drawn inside the cell. */
+.plot-grid__cell--active {
+  outline: 2px solid var(--canopy-accent, var(--cds-focus));
+  outline-offset: -2px;
 }
 
 .plot-grid__cell-btn {
@@ -476,110 +239,48 @@
 }
 
 .plot-grid__cell-btn--close:hover {
-  background-color: var(--cds-button-danger-primary, #da1e28);
-  color: var(--cds-text-on-color, #ffffff);
+  background-color: var(--cds-button-danger-primary);
+  /* canopy-allow-literal: Carbon danger pair */
+  color: #ffffff;
 }
 
-/* Properties panel */
-.properties-panel {
-  height: 100%;
-  background-color: var(--cds-layer);
-  border-left: 1px solid var(--cds-border-subtle);
-  overflow-y: auto;
-  overflow-x: hidden;
+/* The formula editor's variable tokens. */
+.prop-code-var {
+  color: var(--canopy-accent, var(--cds-link-primary));
 }
 
-.properties-panel__header {
-  height: 40px;
-  border-bottom: 1px solid var(--cds-border-subtle);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  position: sticky;
-  top: 0;
-  background-color: var(--cds-layer);
-  z-index: 2;
+/* The colour control (the workbench Colour field wears these classes): a
+   swatch button in front of the invisible native colour input, which shares this box so its picker opens at the swatch. */
+.trace-color-swatch-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
 }
 
-.properties-panel__title {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--cds-text-secondary);
-  text-transform: uppercase;
-}
-
-.properties-panel__tabs {
-  position: sticky;
-  top: 40px;
-  background-color: var(--cds-layer);
-  z-index: 1;
-  /* Carbon's condensed tab density (8px inline padding instead of 16px) for
-     every properties tab set, so the widest one (a trace's General, Line,
-     Symbol, Code) fits the default panel width without the scroll arrow. */
-  --cds-layout-density-padding-inline: var(--cds-layout-density-padding-inline-condensed);
-}
-
-.properties-panel .cds--tab-content {
+.trace-color-swatch {
+  position: relative;
+  display: block;
+  inline-size: 36px;
+  block-size: var(--canopy-control-h-sm, 2rem);
   padding: 0;
+  border: 1px solid var(--canopy-border, var(--cds-border-subtle));
+  border-radius: var(--canopy-radius-sm, 2px);
+  cursor: pointer;
 }
 
-.properties-panel__content {
-  padding: 12px;
+.trace-color-swatch:focus-visible {
+  outline: 2px solid var(--canopy-focus, var(--cds-focus));
+  outline-offset: 1px;
 }
 
-.properties-panel__empty {
-  font-size: 12px;
-  color: var(--cds-text-helper);
-  text-align: center;
-  margin-top: 32px;
-}
-
-/* Property form styles */
-.prop-section {
-  margin-bottom: 20px;
-}
-
-.prop-section__title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--cds-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin-bottom: 12px;
-}
-
-.prop-row {
-  margin-bottom: 12px;
-}
-
-.prop-row--inline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.prop-subsection {
-  margin-left: 20px;
-  padding-left: 8px;
-  border-left: 1px solid var(--cds-border-subtle);
-  margin-bottom: 4px;
-}
-
-.prop-divider {
-  height: 1px;
-  background-color: var(--cds-border-subtle);
-  margin: 16px 0;
-}
-
+/* The formula editor's expression area. */
 .prop-code-area {
   width: 100%;
   background-color: var(--cds-field);
   border: 1px solid var(--cds-border-strong);
   border-radius: 2px;
   color: var(--cds-text-primary);
-  font-family: 'IBM Plex Mono', 'Courier New', monospace;
+  font-family: var(--canopy-font-mono);
   font-size: 11px;
   padding: 8px;
   resize: vertical;
@@ -592,99 +293,7 @@
   outline-offset: -2px;
 }
 
-.prop-code-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-/* Carbon overrides for the panel — Carbon's ghost button defaults to higher
-   contrast than we want for these in-panel actions. */
-.layers-panel .cds--btn--ghost,
-.properties-panel .cds--btn--ghost {
-  color: var(--cds-text-helper);
-}
-
-.layers-panel .cds--btn--ghost:hover,
-.properties-panel .cds--btn--ghost:hover {
-  background-color: var(--cds-layer-hover);
-  color: var(--cds-text-primary);
-}
-
-/* Carbon's slider track has a 200px minimum, which with its range labels is
-   wider than the panel at its default width. Let the track shrink instead; the
-   row then needs an explicit width, since Carbon's form item shrink-wraps it. */
-.properties-panel .cds--slider-container {
-  inline-size: 100%;
-}
-
-.properties-panel .cds--slider {
-  min-inline-size: 0;
-}
-
-/* Carbon Tabs in properties panel */
-.properties-panel .cds--tabs__nav-item--selected .cds--tabs__nav-link {
-  border-bottom-color: var(--cds-link-primary);
-}
-
-.plot-settings-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 2px;
-  cursor: pointer;
-  margin-bottom: 8px;
-  font-size: 12px;
-  color: var(--cds-text-primary);
-}
-
-.plot-settings-row:hover {
-  background-color: var(--cds-layer-hover);
-}
-
-.plot-settings-row--selected {
-  background-color: var(--cds-layer-selected);
-}
-
-.plot-settings-row__label {
-  flex: 1;
-  font-weight: 500;
-}
-
-.plot-settings-row__hint {
-  font-size: 11px;
-  color: var(--cds-text-helper);
-}
-
-.axis-section__header {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-radius: 2px;
-  cursor: pointer;
-  min-height: 32px;
-}
-
-.axis-section__header:hover {
-  background-color: var(--cds-layer-hover);
-}
-
-.axis-section__header--selected {
-  background-color: var(--cds-layer-selected);
-}
-
-.axis-section__traces {
-  margin-left: 24px;
-  margin-top: 2px;
-}
-
-.axis-add-trace-row {
-  padding: 2px 8px 2px 28px;
-}
-
-/* Print: the toolbar Print action snapshots the visible plots into PNGs
+/* Print: the Print action snapshots the visible plots into PNGs
    (.print-sheet) and tags <body> with .printing-chart; these rules then show
    only the sheet. A plain Ctrl+P (no .printing-chart) keeps the browser's
    default full-page print. */
@@ -703,6 +312,7 @@
     display: grid;
     grid-template-columns: repeat(var(--print-cols, 1), 1fr);
     gap: 16px;
+    /* canopy-allow-literal: @media print */
     background: #ffffff;
   }
 
@@ -713,9 +323,11 @@
   }
 
   .print-sheet__plot figcaption {
+    /* canopy-allow-literal: @media print */
     font-family: 'IBM Plex Sans', sans-serif;
     font-size: 13px;
     font-weight: 600;
+    /* canopy-allow-literal: @media print */
     color: #161616;
     margin-bottom: 6px;
     text-align: left;

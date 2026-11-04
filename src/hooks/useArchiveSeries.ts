@@ -19,6 +19,9 @@ export interface ArchiveSeriesResult {
   decimated?: boolean;
   archiver?: string;
   error?: { code: string; detail: string };
+  // End of the window the buffer covers (ns). The gap rule compares it with
+  // the last sample to tell a stalled recorder from a fresh tail.
+  coverToNs?: number;
 }
 
 const IDLE_RESULT: ArchiveSeriesResult = { status: 'idle', mean: [], band: [] };
@@ -33,6 +36,7 @@ function entryToResult(entry: ArchiveEntry): ArchiveSeriesResult {
     decimated: entry.decimated,
     archiver: entry.archiver || undefined,
     error: entry.error,
+    coverToNs: entry.coverToNs,
   };
 }
 

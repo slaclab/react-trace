@@ -1,5 +1,14 @@
-import { describe, it, expect } from 'vitest';
-import { parseSpanMs, relativeRangeMs, resolveTimeWindow, toDatetimeLocal, msToNs } from './time';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  isAtNow,
+  parseSpanMs,
+  relativeRangeMs,
+  relativeSpanFor,
+  resolveTimeWindow,
+  toDatetimeLocal,
+  msToNs,
+} from './time';
+import { parseTraceQuery, serializeTraceQuery } from '../embed/query';
 
 const SEC = 1000;
 const MIN = 60 * SEC;
@@ -147,5 +156,89 @@ describe('toDatetimeLocal', () => {
     const s = toDatetimeLocal(ms);
     expect(s).toBe('2024-03-04T05:06');
     expect(new Date(s).getTime()).toBe(ms);
+  });
+});
+
+describe('relativeSpanFor', () => {
+  const T = Date.UTC(2026, 9, 18, 12, 0, 0);
+  const win = (spanMs: number) => ({ from: T - spanMs, to: T });
+  const SPANS = [40 * SEC, 90 * SEC, 6 * HOUR];
+
+  it('writes seconds, promoted to m/h/d only when exact', () => {
+    expect(relativeSpanFor(win(40 * SEC))).toBe('-40s');
+    expect(relativeSpanFor(win(90 * SEC))).toBe('-90s');
+    expect(relativeSpanFor(win(1500))).toBe('-1.5s');
+    expect(relativeSpanFor(win(MIN))).toBe('-1m');
+    expect(relativeSpanFor(win(6 * HOUR))).toBe('-6h');
+    expect(relativeSpanFor(win(2 * DAY))).toBe('-2d');
+    expect(relativeSpanFor(win(90 * MIN))).toBe('-90m');
+    expect(relativeSpanFor(win(30 * MIN))).toBe('-30m');
+  });
+
+  it('round-trips through parseSpanMs within 1 ms', () => {
+    for (const span of [...SPANS, 40_001.4, 61_234]) {
+      for (const round of ['nearest', 'up'] as const) {
+        const out = relativeSpanFor(win(span), round);
+        expect(out).not.toBeNull();
+        expect(out!.startsWith('-')).toBe(true);
+        const back = parseSpanMs(out!.slice(1));
+        expect(back).not.toBeNull();
+        expect(relativeRangeMs(out!)).toBe(back);
+        expect(Math.abs(back! - span)).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("'up' never comes out shorter than the window", () => {
+    for (const span of [...SPANS, 1000.2, 61_001.5, 40_001, 59_999.9, 3 * HOUR + 7]) {
+      const out = relativeSpanFor(win(span), 'up');
+      expect(relativeRangeMs(out!)!).toBeGreaterThanOrEqual(span);
+      expect(relativeRangeMs(out!)! - span).toBeLessThan(1);
+    }
+  });
+
+  it('nearest can round down; up does not', () => {
+    expect(relativeSpanFor(win(40_000.4))).toBe('-40s');
+    expect(relativeSpanFor(win(40_000.4), 'up')).toBe('-40.001s');
+  });
+
+  it('every output survives a query round-trip unchanged', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      for (const span of [...SPANS, 1000, 1001, 61_001, 2 * DAY, 25 * HOUR, 7 * DAY + 1]) {
+        for (const round of ['nearest', 'up'] as const) {
+          const range = relativeSpanFor(win(span), round)!;
+          const q = parseTraceQuery(serializeTraceQuery([], { timeRange: range }));
+          expect(q.xAxis).toEqual({ timeRange: range });
+        }
+      }
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('returns null below the 1 s floor and for empty or inverted windows', () => {
+    expect(relativeSpanFor(win(999))).toBeNull();
+    expect(relativeSpanFor(win(999), 'up')).toBeNull();
+    expect(relativeSpanFor(win(0))).toBeNull();
+    expect(relativeSpanFor({ from: T, to: T - MIN })).toBeNull();
+    expect(relativeSpanFor({ from: NaN, to: T })).toBeNull();
+    expect(relativeSpanFor(win(1000))).toBe('-1s');
+  });
+});
+
+describe('isAtNow', () => {
+  const NOW = Date.UTC(2026, 9, 18, 12, 0, 0);
+
+  it('is true when the window ends within one refresh interval of now', () => {
+    expect(isAtNow({ from: NOW - HOUR, to: NOW }, NOW, 5 * SEC)).toBe(true);
+    expect(isAtNow({ from: NOW - HOUR, to: NOW - 5000 }, NOW, 5 * SEC)).toBe(true);
+    expect(isAtNow({ from: NOW - HOUR, to: NOW + 2000 }, NOW, 5 * SEC)).toBe(true);
+  });
+
+  it('is false when the window ends earlier than that', () => {
+    expect(isAtNow({ from: NOW - HOUR, to: NOW - 5001 }, NOW, 5 * SEC)).toBe(false);
+    expect(isAtNow({ from: NOW - 2 * HOUR, to: NOW - HOUR }, NOW, 60 * SEC)).toBe(false);
   });
 });

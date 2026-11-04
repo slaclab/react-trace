@@ -68,9 +68,16 @@ export const ANNOTATION_THEMES: Readonly<Record<ChartColorMode, Readonly<Annotat
 /** The chart theme of a colour mode with its drawing colours: what a drawing layer reads. */
 export type ChartDrawingTheme = Readonly<ChartTheme> & { annotation: Readonly<AnnotationTheme> };
 
-/** Pure lookup: the chart theme and the drawing colours of `mode`. */
+// One frozen object per mode, like canopy-charts' own themes: a theme is
+// compared by reference wherever a chart option or a drawing layer is memoized.
+const DRAWING_THEMES: Readonly<Record<ChartColorMode, ChartDrawingTheme>> = {
+  dark: Object.freeze({ ...chartThemeFor('dark'), annotation: ANNOTATION_THEMES.dark }),
+  light: Object.freeze({ ...chartThemeFor('light'), annotation: ANNOTATION_THEMES.light }),
+};
+
+/** Pure lookup: the chart theme and the drawing colours of `mode`, the same object each call. */
 export function drawingThemeFor(mode: ChartColorMode): ChartDrawingTheme {
-  return { ...chartThemeFor(mode), annotation: ANNOTATION_THEMES[mode] };
+  return DRAWING_THEMES[mode];
 }
 
 /** {@link drawingThemeFor} the current mode of the canopy-shell colour-mode store. */

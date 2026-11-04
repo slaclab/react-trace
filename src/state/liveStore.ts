@@ -50,6 +50,39 @@ export interface LiveEntry {
   // Numeric time series. Non-numeric values still update `latest` for status
   // display but don't enter this buffer.
   points: readonly LivePoint[];
+  // Recorded disconnects (ms, ascending): one per outage, at the time of the
+  // last point + 1 ms, so the chart draws a gap there. Kept apart from
+  // `points` because other consumers read the samples as plain numbers.
+  // Absent = none.
+  breaks?: readonly number[];
+}
+
+// Live retention bounds. The default applies to a curve whose time range is
+// unknown; the maximum is the longest retention the trace settings accept and
+// caps every automatic retention.
+export const LIVE_RETENTION_DEFAULT_MS = 5 * 60_000;
+export const LIVE_RETENTION_MAX_S = 1800;
+export const LIVE_RETENTION_MAX_MS = LIVE_RETENTION_MAX_S * 1000;
+
+/**
+ * The live retention a curve should have. An explicit value wins as is.
+ * Otherwise retention is automatic and non-decreasing for the curve's life:
+ * max(previous, derived from the time range span), capped at
+ * LIVE_RETENTION_MAX_MS. `previousMs` is the curve's current retention
+ * (`LiveStore.retentionOf`), undefined for a newly added curve, so only an
+ * explicit value or a re-add lowers it. A missing span derives the default.
+ */
+export function resolveLiveRetentionMs(
+  explicitMs: number | undefined,
+  previousMs: number | undefined,
+  rangeSpanMs: number | undefined
+): number {
+  if (explicitMs !== undefined) return explicitMs;
+  const derived =
+    rangeSpanMs !== undefined && Number.isFinite(rangeSpanMs) && rangeSpanMs > 0
+      ? rangeSpanMs
+      : LIVE_RETENTION_DEFAULT_MS;
+  return Math.min(Math.max(previousMs ?? 0, derived), LIVE_RETENTION_MAX_MS);
 }
 
 export interface LiveStoreOptions {
@@ -71,6 +104,7 @@ interface PVState {
   // traceId -> retentionMs
   refs: Map<string, number>;
   points: LivePoint[];
+  breaks: number[];
   latest: PVData | null;
   connected: boolean;
   severity: WireAlarmSeverity | null;
@@ -142,12 +176,18 @@ export class LiveStore {
 
   /**
    * Watch `pv` on behalf of `traceId` with the given retention. Idempotent:
-   * calling with identical args is a no-op. Calling with a different pv or
-   * retention transparently retargets the trace's reference.
+   * calling with identical args is a no-op. A different retention on the same
+   * pv is updated in place: the buffer is kept, no subscription is sent, and a
+   * lower retention trims the buffer at once. A different pv retargets the
+   * trace's reference.
    */
   watch(traceId: string, pv: string, retentionMs: number): void {
     const prev = this.byTrace.get(traceId);
-    if (prev && prev.pv === pv && prev.retentionMs === retentionMs) return;
+    if (prev && prev.pv === pv) {
+      if (prev.retentionMs === retentionMs) return;
+      this.retain(traceId, prev, retentionMs);
+      return;
+    }
     if (prev) this.detach(traceId);
 
     this.byTrace.set(traceId, { pv, retentionMs });
@@ -157,6 +197,7 @@ export class LiveStore {
       state = {
         refs: new Map(),
         points: [],
+        breaks: [],
         latest: null,
         connected: false,
         severity: null,
@@ -181,6 +222,27 @@ export class LiveStore {
       }
     }
     this.markDirty();
+  }
+
+  /** The retention `traceId` is watched with; undefined when it is not watched. */
+  retentionOf(traceId: string): number | undefined {
+    return this.byTrace.get(traceId)?.retentionMs;
+  }
+
+  private retain(traceId: string, ref: TraceRef, retentionMs: number): void {
+    const lowered = retentionMs < ref.retentionMs;
+    ref.retentionMs = retentionMs;
+    const state = this.pvs.get(ref.pv);
+    if (!state) return;
+    state.refs.set(traceId, retentionMs);
+    if (lowered) {
+      const before = state.points.length;
+      this.trim(state, true);
+      if (state.points.length !== before) {
+        state.rev++;
+        this.markDirty();
+      }
+    }
   }
 
   private detach(traceId: string): boolean {
@@ -247,16 +309,28 @@ export class LiveStore {
     const state = this.pvs.get(pv);
     // PV may have been released between subscribe and a stray late update.
     if (!state) return;
+    // One break per outage: only the connected true -> false transition. A
+    // dropped socket reaches here too, as a DISCONNECTED update per PV.
+    if (state.connected && !data.connected) this.recordBreak(state);
     state.latest = data;
     state.connected = data.connected;
     // A disconnected PV (or a dropped socket, which the service reports as a
     // DISCONNECTED update with the last value) keeps its last alarm severity
-    // and adds no sample: its value is stale, or 0 standing in for null.
+    // and adds no sample: its value is stale, or 0 standing in for null. The
+    // chart never draws past the break.
     if (data.connected) {
       state.severity = toWireSeverity(data.severity);
       if (typeof data.value === 'number' && Number.isFinite(data.value)) {
+        let time = data.timestamp;
+        // After a reconnect Hare replays an unchanged value with its original
+        // timestamp. Stamped at or before the break it would hide the gap, so
+        // it is re-stamped to its receipt time, strictly after the break.
+        const lastBreak = state.breaks.at(-1);
+        if (lastBreak !== undefined && time <= lastBreak) {
+          time = Math.max(lastBreak + 1, Date.now());
+        }
         state.points.push({
-          time: data.timestamp,
+          time,
           value: data.value,
           severity: state.severity ?? 'INVALID',
         });
@@ -267,7 +341,16 @@ export class LiveStore {
     this.markDirty();
   }
 
-  private trim(state: PVState): void {
+  private recordBreak(state: PVState): void {
+    const last = state.points.at(-1);
+    if (!last) return;
+    const at = last.time + 1;
+    if (state.breaks.at(-1) === at) return;
+    state.breaks.push(at);
+  }
+
+  // `force` trims to the window at once, without the slack (a lowered retention).
+  private trim(state: PVState, force = false): void {
     // Use the longest retention requested by any subscriber so each gets at
     // least its window. The hard cap is a memory floor for stuck or absurd
     // retentions.
@@ -286,7 +369,7 @@ export class LiveStore {
       // is always within the window, so a quick check of the slack-th point
       // tells us whether a trim is even worth attempting.
       const slackIdx = TRIM_SLACK_POINTS;
-      if (points.length > slackIdx && points[slackIdx].time < cutoff) {
+      if (force || (points.length > slackIdx && points[slackIdx].time < cutoff)) {
         let drop = 0;
         while (drop < points.length && points[drop].time < cutoff) drop++;
         if (drop > 0) points.splice(0, drop);
@@ -294,6 +377,13 @@ export class LiveStore {
     }
     if (points.length > HARD_CAP_POINTS) {
       points.splice(0, points.length - HARD_CAP_POINTS);
+    }
+    // Breaks before the oldest retained point have nothing left to separate.
+    const breaks = state.breaks;
+    if (breaks.length > 0 && points.length > 0 && breaks[0] < points[0].time) {
+      let drop = 0;
+      while (drop < breaks.length && breaks[drop] < points[0].time) drop++;
+      breaks.splice(0, drop);
     }
   }
 
@@ -360,6 +450,7 @@ export class LiveStore {
       // Shared array — consumers must treat as read-only. Multiple traces on
       // the same PV legitimately see the same buffer.
       points: state.points,
+      breaks: state.breaks,
     };
     this.entryCache.set(pv, { sig, entry });
     return entry;

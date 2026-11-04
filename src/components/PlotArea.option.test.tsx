@@ -46,7 +46,6 @@ function makeTrace(values: number[]): PVTrace {
     visible: true,
     axisId: 'ax1',
     useLive: false,
-    updateRate: '1s',
     useArchive: false,
     lineWidth: 1,
     lineType: 'direct',

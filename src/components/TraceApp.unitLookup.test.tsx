@@ -1,21 +1,24 @@
 // @vitest-environment jsdom
 //
-// Units lookups (assignTraceToUnitAxis) across a workspace load (#91). Trace and
+// Units lookups (assignCurveToUnitAxis) across a workspace load (#91). Trace and
 // axis ids repeat across workspaces (`trace-1`, `axis-1`, `plot-1`), so a lookup
-// started in the outgoing workspace must not land on the incoming one.
+// started in the outgoing workspace must not land on the incoming one. The PV
+// is committed through the curve card's PV name field, the workspace loaded
+// through the actions bar's Import.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import { WithCanopy } from '../test/canopy';
 import {
   alertMock,
   axis,
-  captured,
+  commitPv,
   currentPlots,
   flushMicrotasks,
   loadWorkspace,
   plot,
   pvTrace,
   resetHarness,
+  setCurvePv,
   workspace,
 } from '../test/traceAppHarness';
 import { TraceApp } from './TraceApp';
@@ -42,11 +45,14 @@ vi.mock('@slaclab/canopy-client', async (importOriginal) => ({
     });
   },
   fetchData: () => new Promise(() => {}),
+  listArchivers: () => new Promise(() => {}),
 }));
-vi.mock('./Toolbar', async () => (await import('../test/traceAppHarness')).mocks.Toolbar);
-vi.mock('./LeftPanel', async () => (await import('../test/traceAppHarness')).mocks.LeftPanel);
-vi.mock('./PlotArea', async () => (await import('../test/traceAppHarness')).mocks.PlotArea);
-vi.mock('./RightPanel', async () => (await import('../test/traceAppHarness')).mocks.RightPanel);
+vi.mock('./PlotArea', async (importOriginal) =>
+  (await import('../test/traceAppHarness')).mocks.PlotArea(await importOriginal())
+);
+vi.mock('../workbench/WorkbenchLayout', async (importOriginal) =>
+  (await import('../test/traceAppHarness')).mocks.WorkbenchLayout(await importOriginal())
+);
 vi.mock(
   '../hooks/useElogConfig',
   async () => (await import('../test/traceAppHarness')).mocks.useElogConfig
@@ -58,15 +64,9 @@ function singleTrace(pvName: string): string {
   return workspace([plot('plot-1', [axis('axis-1', 'Y')], [pvTrace('trace-1', pvName)])]);
 }
 
-// What RightPanel does when the user picks a PV: commit the name, then ask for
-// the units-based axis assignment.
-function selectPv(traceId: string, pvName: string) {
-  const panel = captured.rightPanel!;
-  act(() => {
-    panel.onUpdateTrace(traceId, { pvName });
-    panel.onSelectPv(traceId, pvName);
-  });
-}
+// The user picks a PV in the curve card: the field commits the name, then the
+// units lookup assigns the axis.
+const selectPv = commitPv;
 
 async function resolveLookup(index: number, units: string) {
   await act(async () => {
@@ -127,7 +127,9 @@ describe('TraceApp units lookup across a workspace load', () => {
   it('ignores a lookup that resolves after the trace switched to another PV', async () => {
     await loadWorkspace(singleTrace('OLD:PV'));
     selectPv('trace-1', 'FIRST:PV');
-    act(() => captured.rightPanel!.onUpdateTrace('trace-1', { pvName: 'OTHER:PV' }));
+    // Another writer (not the PV name field, which would abort the lookup)
+    // gives the curve a new PV while the lookup is in flight.
+    setCurvePv('trace-1', 'OTHER:PV');
     await resolveLookup(0, 'mA');
 
     expect(layout()).toEqual({ axes: ['Y'], traces: ['trace-1:OTHER:PV@axis-1'] });

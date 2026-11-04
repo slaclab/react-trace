@@ -14,3 +14,6 @@ build
 
 # Generated files
 src/routeTree.gen.ts
+
+# Byte-pinned wire fixtures (sha256-asserted); never reformat
+src/tools/correlation/__fixtures__

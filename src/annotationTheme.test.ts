@@ -39,6 +39,12 @@ describe('isColorLiteral', () => {
 });
 
 describe('drawingThemeFor', () => {
+  it('hands back the same object for a mode, so memos keyed on it hold', () => {
+    expect(drawingThemeFor('dark')).toBe(drawingThemeFor('dark'));
+    expect(drawingThemeFor('light')).toBe(drawingThemeFor('light'));
+    expect(drawingThemeFor('dark')).not.toBe(drawingThemeFor('light'));
+  });
+
   it("layers each mode's drawing colours on that mode's chart theme", () => {
     for (const mode of ['dark', 'light'] as const) {
       const theme = drawingThemeFor(mode);

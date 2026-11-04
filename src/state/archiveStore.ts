@@ -1,3 +1,4 @@
+import { archiveErrorNotice } from '../api/archiveErrors';
 import {
   fetchData as sdkFetchData,
   type AbortSignalLike,
@@ -47,9 +48,9 @@ export interface ArchiveErrorInfo {
   detail: string;
 }
 
-// Mole's code for "the archiver doesn't have this PV". It's a property of the
-// (pv, archiver) pair, not of the time window, so it's remembered rather than
-// retried as the window moves.
+// Mole's code for "the archiver doesn't have this PV". With the other codes of
+// `NOT_ARCHIVED_CODES` it's a property of the (pv, archiver) pair, not of the
+// time window, so it's remembered rather than retried as the window moves.
 export const NOT_ARCHIVED_CODE = 'pv_not_found_in_archiver';
 
 // Retry schedule for every other failure (5xx, timeout, network, auth, ...).
@@ -75,7 +76,7 @@ export function archiveErrorInfo(err: unknown): ArchiveErrorInfo {
 }
 
 export function isNotArchivedError(info: { code: string }): boolean {
-  return info.code === NOT_ARCHIVED_CODE;
+  return archiveErrorNotice(info.code) !== undefined;
 }
 
 // ── Buffer model ─────────────────────────────────────────────────────────────

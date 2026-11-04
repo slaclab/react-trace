@@ -1,3 +1,7 @@
+import type { Annotation } from './annotations/model';
+import type { DragMode } from './plot/plotToggles';
+import type { Metric } from './statistics/model';
+
 export interface PVTrace {
   id: string;
   // Curve data source. 'pv' (the default when undefined, for back-compat with
@@ -10,9 +14,10 @@ export interface PVTrace {
   visible: boolean;
   axisId: string;
   useLive: boolean;
-  updateRate: string;
-  // Retention window for the live ring buffer in ms. Falls back to
-  // `LIVE_RETENTION_DEFAULT_MS` (see useLiveSeries) when undefined.
+  // Retention window for the live ring buffer in ms. Undefined = automatic:
+  // derived from the time range span, non-decreasing for the
+  // curve's life, capped at LIVE_RETENTION_MAX_MS (`resolveLiveRetentionMs`).
+  // A value pins it; openings and new curves leave it undefined.
   liveRetentionMs?: number;
   useArchive: boolean;
   // Per-curve override for the binned-mode `maxPoints` (Mole `optimized_<N>`).
@@ -37,6 +42,11 @@ export interface PVTrace {
   lineStyle: 'none' | 'solid' | 'dashed' | 'dotted' | 'dashDot' | 'dashDotDot';
   // Defaults to true when undefined.
   showExtensionLine?: boolean;
+  // ✚ Alarm colouring: tint the segments of the live curve by the alarm
+  // severity each live sample carries (MINOR, MAJOR, INVALID). Off when
+  // undefined; only "on" is stored. Archive points carry no severity and keep
+  // the curve colour; formula curves never tint.
+  alarmColoring?: boolean;
   // Symbol (data-point marker) appearance.
   showSymbol: boolean;
   symbolShape:
@@ -67,6 +77,10 @@ export interface Axis {
   // curves to a matching axis. Undefined for axes created before units were
   // tracked or for manually named axes with no unit.
   units?: string;
+  // The ✚ Unit override: the unit text the axis shows in place of
+  // `units`. Undefined = automatic (the stamped EGU). Display only: routing
+  // and the Label's automatic value keep reading `units`.
+  unitLabel?: string;
 }
 
 export interface Plot {
@@ -74,8 +88,28 @@ export interface Plot {
   title: string;
   traces: PVTrace[];
   axes: Axis[];
-  backgroundColor: string;
+  // Chart background. Undefined = automatic: the theme's default
+  // background (`effectiveBackground`). A value pins it; openings and new
+  // plots leave it undefined.
+  backgroundColor?: string;
   showLegend: boolean;
+  // ✚ Live value in the legend: append each live curve's latest value,
+  // at its precision and with its units, to its legend entry. Off when
+  // undefined; only "on" is stored. Formula and archive-only curves, and a
+  // disconnected PV, show no value.
+  showLegendValue?: boolean;
+  // ✚ Pin data window: the hover readout sits fixed at the plot's top-right
+  // instead of following the cursor. Off when undefined; only "on" is stored.
+  pinDataWindow?: boolean;
+  // ✚ Status line under the plot. On when undefined; only "off" (false) is
+  // stored.
+  showStatusLine?: boolean;
+  // The hover read-out (the chart tooltip). On when undefined; only "off"
+  // (false) is stored.
+  showTooltip?: boolean;
+  // What a left-drag in the plot area does. Pan when undefined; only "zoom"
+  // is stored.
+  dragMode?: DragMode;
   // X (vertical, time) gridlines.
   showXGridlines: boolean;
   // Y (horizontal) gridlines. Drawn from the primary (first visible) axis only,
@@ -103,4 +137,19 @@ export interface Plot {
   // still track.
   autoScroll?: boolean;
   refreshIntervalS?: number;
+  // The palette id this plot's curves follow. Undefined means the default
+  // palette; a stored id is always a known, non-default palette.
+  palette?: string;
+  // Show statistics (the shared panel under the chart). Off when
+  // undefined; only "on" is stored.
+  showStats?: boolean;
+  // Show distribution (the density block of the panel). Off when
+  // undefined; only "on" is stored.
+  showDist?: boolean;
+  // The plot's statistics metric list (tools/trace/metrics.ts). Undefined is
+  // the default list; a stored list is always off the default.
+  metrics?: Metric[];
+  // Drawings on this plot. Absent = none: `withAnnotations` deletes
+  // the key when the list empties and rehydrate maps [] to absent.
+  annotations?: Annotation[];
 }

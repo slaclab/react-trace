@@ -7,12 +7,12 @@ const PNG_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMCAQDJ/3J3AAAAAElFTkSuQmCC';
 
 function fakeInstance(dataUrl: string): PngSource {
-  return { getDataURL: () => dataUrl };
+  return { getDataURL: () => Promise.resolve(dataUrl) };
 }
 
 describe('capturePlots', () => {
-  it('captures instances and skips plots without one', () => {
-    const captured = capturePlots(
+  it('captures instances and skips plots without one', async () => {
+    const captured = await capturePlots(
       [
         { id: 'p1', title: 'Plot 1', instance: fakeInstance(PNG_DATA_URL) },
         { id: 'p2', title: 'Plot 2', instance: null },
@@ -24,9 +24,9 @@ describe('capturePlots', () => {
     expect(captured[0]).toMatchObject({ id: 'p1', title: 'Plot 1', dataUrl: PNG_DATA_URL });
   });
 
-  it('bakes in the background at pixel ratio 2', () => {
-    const getDataURL = vi.fn(() => PNG_DATA_URL);
-    capturePlots([{ id: 'p1', title: 'Plot 1', instance: { getDataURL } }], '#f4f4f4');
+  it('bakes in the background at pixel ratio 2', async () => {
+    const getDataURL = vi.fn(() => Promise.resolve(PNG_DATA_URL));
+    await capturePlots([{ id: 'p1', title: 'Plot 1', instance: { getDataURL } }], '#f4f4f4');
     expect(getDataURL).toHaveBeenCalledWith({
       type: 'png',
       pixelRatio: 2,
@@ -34,8 +34,8 @@ describe('capturePlots', () => {
     });
   });
 
-  it('skips instances that yield no image or throw', () => {
-    const captured = capturePlots(
+  it('skips instances that yield no image or throw', async () => {
+    const captured = await capturePlots(
       [
         { id: 'empty', title: 'Empty', instance: fakeInstance('') },
         { id: 'bad', title: 'Bad', instance: fakeInstance('not a data url') },
@@ -53,6 +53,24 @@ describe('capturePlots', () => {
       '#161616'
     );
     expect(captured.map((c) => c.id)).toEqual(['ok']);
+  });
+});
+
+describe('capturePlots (async sources)', () => {
+  it('awaits each source and skips empty or failed captures', async () => {
+    const captured = await capturePlots(
+      [
+        { id: 'p1', title: 'Plot 1', instance: { getDataURL: () => Promise.resolve('') } },
+        {
+          id: 'p2',
+          title: 'Plot 2',
+          instance: { getDataURL: () => Promise.reject(new Error('x')) },
+        },
+        { id: 'p3', title: 'Plot 3', instance: fakeInstance(PNG_DATA_URL) },
+      ],
+      '#161616'
+    );
+    expect(captured.map((c) => c.id)).toEqual(['p3']);
   });
 });
 

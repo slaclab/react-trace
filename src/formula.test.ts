@@ -12,7 +12,6 @@ function pvTrace(id: string, pvName: string): PVTrace {
     visible: true,
     axisId: 'y',
     useLive: false,
-    updateRate: 'monitor',
     useArchive: true,
     lineWidth: 2,
     lineType: 'step',

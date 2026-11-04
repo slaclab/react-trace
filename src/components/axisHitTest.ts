@@ -51,33 +51,24 @@ export function hitTestAxis(
   return null;
 }
 
-// Extent + pixel mapping of one Y axis frozen at mousedown. pxMin/pxMax are the
-// pixel rows of min/max: pxMin > pxMax because screen y grows downward.
-export interface FrozenExtent {
-  min: number;
-  max: number;
-  pxMin: number;
-  pxMax: number;
-  logScale: boolean;
-}
+// Height (px) of the X tick-label strip directly below the plot grid. The
+// legend row sits in the rest of the bottom margin, below this strip.
+export const X_BAND_PX = 26;
 
-// Pan the frozen extent by a pixel delta (dy > 0 = pointer moved down) so the
-// value grabbed at mousedown stays glued to the cursor; the ticks and curves
-// follow the drag. The value that must now sit at pixel p is the one the frozen
-// mapping had at (p - dy); dragging down therefore RAISES min/max. Log axes pan
-// in log space so the shift preserves ratios. Returns null on a degenerate
-// zero-height mapping.
-export function panExtent(ext: FrozenExtent, dy: number): [number, number] | null {
-  const pxSpan = ext.pxMin - ext.pxMax;
-  if (pxSpan === 0) return null;
-  if (ext.logScale) {
-    const lMin = Math.log(ext.min);
-    const lMax = Math.log(ext.max);
-    const at = (p: number) => lMin + (lMax - lMin) * ((ext.pxMin - p) / pxSpan);
-    return [Math.exp(at(ext.pxMin - dy)), Math.exp(at(ext.pxMax - dy))];
-  }
-  const at = (p: number) => ext.min + (ext.max - ext.min) * ((ext.pxMin - p) / pxSpan);
-  return [at(ext.pxMin - dy), at(ext.pxMax - dy)];
+// Whether a pointer at (x, y) in canvas pixels is over the time band: the X
+// tick-label strip only, i.e. y in (gridBottom, gridBottom + X_BAND_PX] and x
+// within the grid's horizontal extent. The legend row below and the Y-axis
+// margins to either side are not part of it.
+export function hitTestTimeBand(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  grid: GridBand
+): boolean {
+  const gridBottom = height - grid.bottom;
+  if (y <= gridBottom || y > gridBottom + X_BAND_PX) return false;
+  return x >= grid.left && x <= width - grid.right;
 }
 
 // Scale [min, max] about `anchor` (the value under the cursor, which stays
