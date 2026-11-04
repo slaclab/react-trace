@@ -1,0 +1,1628 @@
+{
+  "format": 1,
+  "cases": [
+    {
+      "name": "default",
+      "state": {
+        "pvs": [],
+        "reference": null,
+        "xs": "",
+        "xAxis": "source",
+        "delta": false,
+        "persist": 1,
+        "avg": 1,
+        "hz": 10,
+        "elems": null,
+        "dec": 4096,
+        "drawAs": "dashed",
+        "spread": 1,
+        "legend": true,
+        "grid": true,
+        "crosshair": false,
+        "stats": false,
+        "dist": false,
+        "metrics": [
+          {
+            "id": "n",
+            "label": "n",
+            "expr": "n",
+            "unit": "",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "mean",
+            "label": "mean",
+            "expr": "mean(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "std",
+            "label": "std",
+            "expr": "std(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "rms",
+            "label": "rms",
+            "expr": "rms(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "p2p",
+            "label": "p-p",
+            "expr": "ptp(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "min",
+            "label": "min",
+            "expr": "min(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "max",
+            "label": "max",
+            "expr": "max(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "median",
+            "label": "median",
+            "expr": "median(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "peak",
+            "label": "peak at",
+            "expr": "at(i, argmax(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "trough",
+            "label": "trough at",
+            "expr": "at(i, argmin(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devrms",
+            "label": "dev rms",
+            "expr": "rms(d)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devmax",
+            "label": "dev max",
+            "expr": "max(abs(d))",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devsig",
+            "label": "dev σ",
+            "expr": "max(abs(d) / s)",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "worst",
+            "label": "worst at",
+            "expr": "at(i, argmax(abs(d) / s))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          }
+        ],
+        "hidden": {},
+        "styles": {}
+      },
+      "query": "",
+      "parsed": {
+        "pvs": [],
+        "reference": null,
+        "xs": "",
+        "xAxis": "source",
+        "delta": false,
+        "persist": 1,
+        "avg": 1,
+        "hz": 10,
+        "elems": null,
+        "dec": 4096,
+        "drawAs": "dashed",
+        "spread": 1,
+        "legend": true,
+        "grid": true,
+        "crosshair": false,
+        "stats": false,
+        "dist": false,
+        "metrics": [
+          {
+            "id": "n",
+            "label": "n",
+            "expr": "n",
+            "unit": "",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "mean",
+            "label": "mean",
+            "expr": "mean(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "std",
+            "label": "std",
+            "expr": "std(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "rms",
+            "label": "rms",
+            "expr": "rms(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "p2p",
+            "label": "p-p",
+            "expr": "ptp(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "min",
+            "label": "min",
+            "expr": "min(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "max",
+            "label": "max",
+            "expr": "max(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "median",
+            "label": "median",
+            "expr": "median(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "peak",
+            "label": "peak at",
+            "expr": "at(i, argmax(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "trough",
+            "label": "trough at",
+            "expr": "at(i, argmin(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devrms",
+            "label": "dev rms",
+            "expr": "rms(d)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devmax",
+            "label": "dev max",
+            "expr": "max(abs(d))",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devsig",
+            "label": "dev σ",
+            "expr": "max(abs(d) / s)",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "worst",
+            "label": "worst at",
+            "expr": "at(i, argmax(abs(d) / s))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          }
+        ],
+        "hidden": {},
+        "styles": {}
+      }
+    },
+    {
+      "name": "live pvs",
+      "state": {
+        "pvs": ["SR:BPM:X:WF", "SR:BPM:Y:WF"],
+        "reference": null,
+        "xs": "",
+        "xAxis": "source",
+        "delta": false,
+        "persist": 1,
+        "avg": 1,
+        "hz": 10,
+        "elems": null,
+        "dec": 4096,
+        "drawAs": "dashed",
+        "spread": 1,
+        "legend": true,
+        "grid": true,
+        "crosshair": false,
+        "stats": false,
+        "dist": false,
+        "metrics": [
+          {
+            "id": "n",
+            "label": "n",
+            "expr": "n",
+            "unit": "",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "mean",
+            "label": "mean",
+            "expr": "mean(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "std",
+            "label": "std",
+            "expr": "std(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "rms",
+            "label": "rms",
+            "expr": "rms(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "p2p",
+            "label": "p-p",
+            "expr": "ptp(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "min",
+            "label": "min",
+            "expr": "min(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "max",
+            "label": "max",
+            "expr": "max(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "median",
+            "label": "median",
+            "expr": "median(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "peak",
+            "label": "peak at",
+            "expr": "at(i, argmax(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "trough",
+            "label": "trough at",
+            "expr": "at(i, argmin(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devrms",
+            "label": "dev rms",
+            "expr": "rms(d)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devmax",
+            "label": "dev max",
+            "expr": "max(abs(d))",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devsig",
+            "label": "dev σ",
+            "expr": "max(abs(d) / s)",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "worst",
+            "label": "worst at",
+            "expr": "at(i, argmax(abs(d) / s))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          }
+        ],
+        "hidden": {},
+        "styles": {}
+      },
+      "query": "pv=SR:BPM:X:WF&pv=SR:BPM:Y:WF",
+      "parsed": {
+        "pvs": ["SR:BPM:X:WF", "SR:BPM:Y:WF"],
+        "reference": null,
+        "xs": "",
+        "xAxis": "source",
+        "delta": false,
+        "persist": 1,
+        "avg": 1,
+        "hz": 10,
+        "elems": null,
+        "dec": 4096,
+        "drawAs": "dashed",
+        "spread": 1,
+        "legend": true,
+        "grid": true,
+        "crosshair": false,
+        "stats": false,
+        "dist": false,
+        "metrics": [
+          {
+            "id": "n",
+            "label": "n",
+            "expr": "n",
+            "unit": "",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "mean",
+            "label": "mean",
+            "expr": "mean(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "std",
+            "label": "std",
+            "expr": "std(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "rms",
+            "label": "rms",
+            "expr": "rms(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "p2p",
+            "label": "p-p",
+            "expr": "ptp(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "min",
+            "label": "min",
+            "expr": "min(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "max",
+            "label": "max",
+            "expr": "max(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "median",
+            "label": "median",
+            "expr": "median(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "peak",
+            "label": "peak at",
+            "expr": "at(i, argmax(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "trough",
+            "label": "trough at",
+            "expr": "at(i, argmin(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devrms",
+            "label": "dev rms",
+            "expr": "rms(d)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devmax",
+            "label": "dev max",
+            "expr": "max(abs(d))",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devsig",
+            "label": "dev σ",
+            "expr": "max(abs(d) / s)",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "worst",
+            "label": "worst at",
+            "expr": "at(i, argmax(abs(d) / s))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          }
+        ],
+        "hidden": {},
+        "styles": {}
+      }
+    },
+    {
+      "name": "every setting",
+      "state": {
+        "pvs": ["SR:BPM:X:WF", "SR:BPM:Y:WF"],
+        "reference": {
+          "kind": "pv",
+          "pv": "SR:BPM:X:GOLDEN"
+        },
+        "xs": "SR:BPM:S:POS",
+        "xAxis": "index",
+        "delta": true,
+        "persist": 4,
+        "avg": 8,
+        "hz": 2,
+        "elems": {
+          "first": 10,
+          "last": 20
+        },
+        "dec": 0,
+        "drawAs": "dashed",
+        "spread": 2,
+        "legend": false,
+        "grid": false,
+        "crosshair": true,
+        "stats": true,
+        "dist": true,
+        "metrics": [
+          {
+            "id": "mean",
+            "label": "mean",
+            "expr": "mean(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "p2p",
+            "label": "p-p",
+            "expr": "ptp(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          }
+        ],
+        "hidden": {
+          "SR:BPM:Y:WF": true
+        },
+        "styles": {
+          "SR:BPM:X:WF": {
+            "label": "Ex",
+            "color": "#ff0000",
+            "lineType": "step",
+            "width": 2,
+            "lineStyle": "dashed"
+          },
+          "SR:BPM:X:GOLDEN": {
+            "color": "rgb(18, 52, 86)",
+            "lineType": "points"
+          }
+        },
+        "xLabel": "Position",
+        "yScale": {
+          "auto": false,
+          "min": -1,
+          "max": 2.5,
+          "log": true
+        }
+      },
+      "query": "pv=SR:BPM:X:WF&pv=SR:BPM:Y:WF&ref=SR:BPM:X:GOLDEN&xs=SR:BPM:S:POS&xaxis=index&delta=1&persist=4&avg=8&hz=2&elems=10:20&dec=0&spread=2&legend=0&grid=0&cross=1&stats=1&dist=1&yauto=0&ymin=-1&ymax=2.5&ylog=1&hide=SR:BPM:Y:WF&xl=Position&m=-mean&m=p2p&plot=%7B%22v%22:1%2C%22traces%22:%5B%7B%22displayName%22:%22Ex%22%2C%22color%22:%22%23ff0000%22%2C%22lineType%22:%22step%22%2C%22lineWidth%22:2%2C%22lineStyle%22:%22dashed%22%7D%2C%7B%7D%2C%7B%22color%22:%22rgb(18%2C%2052%2C%2086)%22%2C%22lineType%22:%22points%22%7D%5D%7D",
+      "parsed": {
+        "pvs": ["SR:BPM:X:WF", "SR:BPM:Y:WF"],
+        "reference": {
+          "kind": "pv",
+          "pv": "SR:BPM:X:GOLDEN"
+        },
+        "xs": "SR:BPM:S:POS",
+        "xAxis": "index",
+        "delta": true,
+        "persist": 4,
+        "avg": 8,
+        "hz": 2,
+        "elems": {
+          "first": 10,
+          "last": 20
+        },
+        "dec": 0,
+        "drawAs": "dashed",
+        "spread": 2,
+        "legend": false,
+        "grid": false,
+        "crosshair": true,
+        "stats": true,
+        "dist": true,
+        "metrics": [
+          {
+            "id": "mean",
+            "label": "mean",
+            "expr": "mean(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "p2p",
+            "label": "p-p",
+            "expr": "ptp(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          }
+        ],
+        "hidden": {
+          "SR:BPM:Y:WF": true
+        },
+        "styles": {
+          "SR:BPM:X:WF": {
+            "label": "Ex",
+            "color": "#ff0000",
+            "lineType": "step",
+            "width": 2,
+            "lineStyle": "dashed"
+          },
+          "SR:BPM:X:GOLDEN": {
+            "color": "rgb(18, 52, 86)",
+            "lineType": "points"
+          }
+        },
+        "xLabel": "Position",
+        "yScale": {
+          "auto": false,
+          "min": -1,
+          "max": 2.5,
+          "log": true
+        }
+      }
+    },
+    {
+      "name": "rolling reference",
+      "state": {
+        "pvs": ["SR:BPM:X:WF"],
+        "reference": {
+          "kind": "rolling",
+          "seconds": 90
+        },
+        "xs": "",
+        "xAxis": "source",
+        "delta": true,
+        "persist": 1,
+        "avg": 1,
+        "hz": 10,
+        "elems": null,
+        "dec": 4096,
+        "drawAs": "dashed",
+        "spread": 0,
+        "legend": true,
+        "grid": true,
+        "crosshair": false,
+        "stats": false,
+        "dist": false,
+        "metrics": [
+          {
+            "id": "n",
+            "label": "n",
+            "expr": "n",
+            "unit": "",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "mean",
+            "label": "mean",
+            "expr": "mean(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "std",
+            "label": "std",
+            "expr": "std(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "rms",
+            "label": "rms",
+            "expr": "rms(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "p2p",
+            "label": "p-p",
+            "expr": "ptp(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "min",
+            "label": "min",
+            "expr": "min(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "max",
+            "label": "max",
+            "expr": "max(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "median",
+            "label": "median",
+            "expr": "median(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "peak",
+            "label": "peak at",
+            "expr": "at(i, argmax(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "trough",
+            "label": "trough at",
+            "expr": "at(i, argmin(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devrms",
+            "label": "dev rms",
+            "expr": "rms(d)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devmax",
+            "label": "dev max",
+            "expr": "max(abs(d))",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devsig",
+            "label": "dev σ",
+            "expr": "max(abs(d) / s)",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "worst",
+            "label": "worst at",
+            "expr": "at(i, argmax(abs(d) / s))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          }
+        ],
+        "hidden": {},
+        "styles": {}
+      },
+      "query": "pv=SR:BPM:X:WF&roll=90&delta=1&spread=0",
+      "parsed": {
+        "pvs": ["SR:BPM:X:WF"],
+        "reference": {
+          "kind": "rolling",
+          "seconds": 90
+        },
+        "xs": "",
+        "xAxis": "source",
+        "delta": true,
+        "persist": 1,
+        "avg": 1,
+        "hz": 10,
+        "elems": null,
+        "dec": 4096,
+        "drawAs": "dashed",
+        "spread": 0,
+        "legend": true,
+        "grid": true,
+        "crosshair": false,
+        "stats": false,
+        "dist": false,
+        "metrics": [
+          {
+            "id": "n",
+            "label": "n",
+            "expr": "n",
+            "unit": "",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "mean",
+            "label": "mean",
+            "expr": "mean(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "std",
+            "label": "std",
+            "expr": "std(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "rms",
+            "label": "rms",
+            "expr": "rms(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "p2p",
+            "label": "p-p",
+            "expr": "ptp(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "min",
+            "label": "min",
+            "expr": "min(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "max",
+            "label": "max",
+            "expr": "max(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "median",
+            "label": "median",
+            "expr": "median(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "peak",
+            "label": "peak at",
+            "expr": "at(i, argmax(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "trough",
+            "label": "trough at",
+            "expr": "at(i, argmin(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devrms",
+            "label": "dev rms",
+            "expr": "rms(d)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devmax",
+            "label": "dev max",
+            "expr": "max(abs(d))",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devsig",
+            "label": "dev σ",
+            "expr": "max(abs(d) / s)",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "worst",
+            "label": "worst at",
+            "expr": "at(i, argmax(abs(d) / s))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          }
+        ],
+        "hidden": {},
+        "styles": {}
+      }
+    },
+    {
+      "name": "over budget: labels shed",
+      "state": {
+        "pvs": [
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:0",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:1",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:2",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:3",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:4",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:5",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:6",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:7"
+        ],
+        "reference": {
+          "kind": "pv",
+          "pv": "SR:BPM:X:GOLDEN"
+        },
+        "xs": "SR:BPM:S:POS",
+        "xAxis": "source",
+        "delta": false,
+        "persist": 1,
+        "avg": 1,
+        "hz": 10,
+        "elems": null,
+        "dec": 4096,
+        "drawAs": "dashed",
+        "spread": 1,
+        "legend": true,
+        "grid": true,
+        "crosshair": false,
+        "stats": false,
+        "dist": false,
+        "metrics": [
+          {
+            "id": "n",
+            "label": "n",
+            "expr": "n",
+            "unit": "",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "mean",
+            "label": "mean",
+            "expr": "mean(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "std",
+            "label": "std",
+            "expr": "std(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "rms",
+            "label": "rms",
+            "expr": "rms(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "p2p",
+            "label": "p-p",
+            "expr": "ptp(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "min",
+            "label": "min",
+            "expr": "min(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "max",
+            "label": "max",
+            "expr": "max(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "median",
+            "label": "median",
+            "expr": "median(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "peak",
+            "label": "peak at",
+            "expr": "at(i, argmax(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "trough",
+            "label": "trough at",
+            "expr": "at(i, argmin(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devrms",
+            "label": "dev rms",
+            "expr": "rms(d)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devmax",
+            "label": "dev max",
+            "expr": "max(abs(d))",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devsig",
+            "label": "dev σ",
+            "expr": "max(abs(d) / s)",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "worst",
+            "label": "worst at",
+            "expr": "at(i, argmax(abs(d) / s))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          }
+        ],
+        "hidden": {},
+        "styles": {
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:0": {
+            "label": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+            "color": "#ff0000"
+          },
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:1": {
+            "label": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+            "color": "#ff0000"
+          },
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:2": {
+            "label": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+            "color": "#ff0000"
+          },
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:3": {
+            "label": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+            "color": "#ff0000"
+          },
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:4": {
+            "label": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+            "color": "#ff0000"
+          },
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:5": {
+            "label": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+            "color": "#ff0000"
+          },
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:6": {
+            "label": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+            "color": "#ff0000"
+          },
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:7": {
+            "label": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+            "color": "#ff0000"
+          }
+        },
+        "xLabel": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+      },
+      "query": "pv=SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:0&pv=SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:1&pv=SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:2&pv=SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:3&pv=SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:4&pv=SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:5&pv=SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:6&pv=SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:7&ref=SR:BPM:X:GOLDEN&xs=SR:BPM:S:POS&plot=%7B%22v%22:1%2C%22traces%22:%5B%7B%22color%22:%22%23ff0000%22%7D%2C%7B%22color%22:%22%23ff0000%22%7D%2C%7B%22color%22:%22%23ff0000%22%7D%2C%7B%22color%22:%22%23ff0000%22%7D%2C%7B%22color%22:%22%23ff0000%22%7D%2C%7B%22color%22:%22%23ff0000%22%7D%2C%7B%22color%22:%22%23ff0000%22%7D%2C%7B%22color%22:%22%23ff0000%22%7D%5D%7D",
+      "parsed": {
+        "pvs": [
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:0",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:1",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:2",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:3",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:4",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:5",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:6",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:7"
+        ],
+        "reference": {
+          "kind": "pv",
+          "pv": "SR:BPM:X:GOLDEN"
+        },
+        "xs": "SR:BPM:S:POS",
+        "xAxis": "source",
+        "delta": false,
+        "persist": 1,
+        "avg": 1,
+        "hz": 10,
+        "elems": null,
+        "dec": 4096,
+        "drawAs": "dashed",
+        "spread": 1,
+        "legend": true,
+        "grid": true,
+        "crosshair": false,
+        "stats": false,
+        "dist": false,
+        "metrics": [
+          {
+            "id": "n",
+            "label": "n",
+            "expr": "n",
+            "unit": "",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "mean",
+            "label": "mean",
+            "expr": "mean(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "std",
+            "label": "std",
+            "expr": "std(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "rms",
+            "label": "rms",
+            "expr": "rms(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "p2p",
+            "label": "p-p",
+            "expr": "ptp(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "min",
+            "label": "min",
+            "expr": "min(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "max",
+            "label": "max",
+            "expr": "max(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "median",
+            "label": "median",
+            "expr": "median(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "peak",
+            "label": "peak at",
+            "expr": "at(i, argmax(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "trough",
+            "label": "trough at",
+            "expr": "at(i, argmin(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devrms",
+            "label": "dev rms",
+            "expr": "rms(d)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devmax",
+            "label": "dev max",
+            "expr": "max(abs(d))",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devsig",
+            "label": "dev σ",
+            "expr": "max(abs(d) / s)",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "worst",
+            "label": "worst at",
+            "expr": "at(i, argmax(abs(d) / s))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          }
+        ],
+        "hidden": {},
+        "styles": {
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:0": {
+            "color": "#ff0000"
+          },
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:1": {
+            "color": "#ff0000"
+          },
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:2": {
+            "color": "#ff0000"
+          },
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:3": {
+            "color": "#ff0000"
+          },
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:4": {
+            "color": "#ff0000"
+          },
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:5": {
+            "color": "#ff0000"
+          },
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:6": {
+            "color": "#ff0000"
+          },
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:7": {
+            "color": "#ff0000"
+          }
+        }
+      }
+    },
+    {
+      "name": "over budget: plot and trailing live PVs shed",
+      "state": {
+        "pvs": [
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:0",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:1",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:2",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:3",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:4",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:5",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:6",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:7"
+        ],
+        "reference": {
+          "kind": "pv",
+          "pv": "SR:BPM:X:GOLDEN"
+        },
+        "xs": "SR:BPM:S:POS",
+        "xAxis": "source",
+        "delta": false,
+        "persist": 1,
+        "avg": 1,
+        "hz": 10,
+        "elems": null,
+        "dec": 4096,
+        "drawAs": "dashed",
+        "spread": 1,
+        "legend": true,
+        "grid": true,
+        "crosshair": false,
+        "stats": false,
+        "dist": false,
+        "metrics": [
+          {
+            "id": "n",
+            "label": "n",
+            "expr": "n",
+            "unit": "",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "mean",
+            "label": "mean",
+            "expr": "mean(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "std",
+            "label": "std",
+            "expr": "std(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "rms",
+            "label": "rms",
+            "expr": "rms(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "p2p",
+            "label": "p-p",
+            "expr": "ptp(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "min",
+            "label": "min",
+            "expr": "min(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "max",
+            "label": "max",
+            "expr": "max(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "median",
+            "label": "median",
+            "expr": "median(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "peak",
+            "label": "peak at",
+            "expr": "at(i, argmax(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "trough",
+            "label": "trough at",
+            "expr": "at(i, argmin(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devrms",
+            "label": "dev rms",
+            "expr": "rms(d)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devmax",
+            "label": "dev max",
+            "expr": "max(abs(d))",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devsig",
+            "label": "dev σ",
+            "expr": "max(abs(d) / s)",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "worst",
+            "label": "worst at",
+            "expr": "at(i, argmax(abs(d) / s))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          }
+        ],
+        "hidden": {
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:7": true
+        },
+        "styles": {
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:0": {
+            "color": "#00ff00"
+          }
+        }
+      },
+      "query": "pv=SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:0&pv=SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:1&pv=SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:2&pv=SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:3&pv=SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:4&pv=SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:5&ref=SR:BPM:X:GOLDEN&xs=SR:BPM:S:POS",
+      "parsed": {
+        "pvs": [
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:0",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:1",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:2",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:3",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:4",
+          "SR:WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW:5"
+        ],
+        "reference": {
+          "kind": "pv",
+          "pv": "SR:BPM:X:GOLDEN"
+        },
+        "xs": "SR:BPM:S:POS",
+        "xAxis": "source",
+        "delta": false,
+        "persist": 1,
+        "avg": 1,
+        "hz": 10,
+        "elems": null,
+        "dec": 4096,
+        "drawAs": "dashed",
+        "spread": 1,
+        "legend": true,
+        "grid": true,
+        "crosshair": false,
+        "stats": false,
+        "dist": false,
+        "metrics": [
+          {
+            "id": "n",
+            "label": "n",
+            "expr": "n",
+            "unit": "",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "mean",
+            "label": "mean",
+            "expr": "mean(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "std",
+            "label": "std",
+            "expr": "std(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "rms",
+            "label": "rms",
+            "expr": "rms(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "p2p",
+            "label": "p-p",
+            "expr": "ptp(y)",
+            "unit": "y",
+            "on": true,
+            "strip": false
+          },
+          {
+            "id": "min",
+            "label": "min",
+            "expr": "min(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "max",
+            "label": "max",
+            "expr": "max(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "median",
+            "label": "median",
+            "expr": "median(y)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "peak",
+            "label": "peak at",
+            "expr": "at(i, argmax(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "trough",
+            "label": "trough at",
+            "expr": "at(i, argmin(y))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devrms",
+            "label": "dev rms",
+            "expr": "rms(d)",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devmax",
+            "label": "dev max",
+            "expr": "max(abs(d))",
+            "unit": "y",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "devsig",
+            "label": "dev σ",
+            "expr": "max(abs(d) / s)",
+            "unit": "",
+            "on": false,
+            "strip": false
+          },
+          {
+            "id": "worst",
+            "label": "worst at",
+            "expr": "at(i, argmax(abs(d) / s))",
+            "unit": "",
+            "on": false,
+            "strip": false
+          }
+        ],
+        "hidden": {},
+        "styles": {}
+      }
+    }
+  ]
+}
