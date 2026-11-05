@@ -11,6 +11,7 @@ import {
   DataTable,
   Renew,
   SendAlt,
+  Bookmark,
 } from '@carbon/icons-react';
 import { HeaderGlobalAction } from '@carbon/react';
 import type { ColorMode } from '../state/themeStore';
@@ -28,6 +29,8 @@ interface ToolbarProps {
   onOpenDocs: () => void;
   onOpenDataInsight: () => void;
   onRefreshArchive: () => void;
+  /** Open the config-store dialog (save / browse / share workspaces). */
+  onOpenConfigStore: () => void;
   /** When set, shows a "Post to E-Log" action. Hidden when e-log is unconfigured. */
   onPostElog?: () => void;
 }
@@ -48,6 +51,7 @@ export function Toolbar({
   onOpenDocs,
   onOpenDataInsight,
   onRefreshArchive,
+  onOpenConfigStore,
   onPostElog,
 }: ToolbarProps) {
   return (
@@ -81,6 +85,13 @@ export function Toolbar({
         onClick={onSave}
       >
         <Save size={20} />
+      </HeaderGlobalAction>
+      <HeaderGlobalAction
+        aria-label="Config store (save / share workspace)"
+        tooltipAlignment="end"
+        onClick={onOpenConfigStore}
+      >
+        <Bookmark size={20} />
       </HeaderGlobalAction>
       <HeaderGlobalAction
         aria-label={`Print (${formatShortcut('primary', 'P')})`}

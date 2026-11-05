@@ -155,6 +155,27 @@ function formatTooltipValue(v: unknown): string {
   return v.toPrecision(7);
 }
 
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      default:
+        return '&#39;';
+    }
+  });
+}
+
+function safeTooltipColor(color: string): string {
+  return /^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i.test(color) ? color : '#000000';
+}
+
 // Human-readable signed offset between the cursor and the sample we're showing.
 // "0s" when within ±0.5s; otherwise "−12s", "+3m", "+1.4h" etc.
 function formatTimeOffset(deltaMs: number): string {
@@ -1011,12 +1032,14 @@ export function SinglePlot({
           const data = traceData.get(trace.id);
           const sample = data ? nearestSample(data, cursorMs) : undefined;
           const severity =
-            sample?.severity && sample.severity !== 'NO_ALARM' ? ` ${sample.severity}` : '';
+            sample?.severity && sample.severity !== 'NO_ALARM'
+              ? ` ${escapeHtml(sample.severity)}`
+              : '';
           const valueCell = sample
-            ? `${formatTooltipValue(sample.value)}${severity} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
+            ? `${escapeHtml(formatTooltipValue(sample.value))}${severity} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
             : `<span style="color:${theme.tooltipMuted}">no data</span>`;
           lines.push(
-            `<span style="color:${trace.color}">${labels.get(trace.id)}</span>: ${valueCell}`
+            `<span style="color:${safeTooltipColor(trace.color)}">${escapeHtml(labels.get(trace.id) ?? '')}</span>: ${valueCell}`
           );
         }
         return `<div style="font-size:11px"><div style="color:${theme.tooltipMuted};margin-bottom:4px">${time}</div>${lines.join('<br/>')}</div>`;

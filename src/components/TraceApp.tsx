@@ -24,11 +24,16 @@ import { useFormulaSeries, type FormulaSeriesResult } from '../hooks/useFormulaS
 import type { TimeWindowNs } from '../api/time';
 import { resolveTimeWindow } from '../api/time';
 import { fetchMetadata } from '../api/mole';
-import { useColorMode } from '../state/themeStore';
+import { setColorMode, useColorMode } from '../state/themeStore';
 import { usePaletteId } from '../state/paletteStore';
 import { getPalette, colorForIndex } from '../palettes';
 import { downloadBlob, downloadDataUrl, pickFile } from '../io/download';
-import { serializeWorkspace, deserializeWorkspace } from '../io/serialize';
+import {
+  serializeWorkspace,
+  deserializeWorkspace,
+  deserializeConfigData,
+  type DeserializeResult,
+} from '../io/serialize';
 import { buildCsvFiles } from '../io/exportCsv';
 import { safeFilename, timestamp } from '../io/filename';
 import { makeId } from '../id';
@@ -36,6 +41,9 @@ import { resolveFormulaSpec } from '../formula';
 import type { FormulaSpecDTO } from '../api/types';
 import { capturePlots, type PngSource, type CapturedPlot } from '../io/exportPlotImage';
 import { PostToElogModal } from './PostToElogModal';
+import { ConfigStoreModal } from './ConfigStoreModal';
+import { getConfig } from '../api/magpie';
+import { CanopyError } from '../api/client';
 import { useElogConfig } from '../hooks/useElogConfig';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
@@ -125,18 +133,33 @@ export function TraceApp() {
     open: false,
     captured: [],
   });
-  // Success/error toast shown after an E-Log post attempt.
-  const [elogToast, setElogToast] = useState<{
+  // Config-store (magpie) save/browse dialog.
+  const [configModalOpen, setConfigModalOpen] = useState(false);
+  // Shared success/error toast (E-Log posts, config-store save/load, …). `seq`
+  // keys the ToastNotification: Carbon arms its auto-dismiss timer in an effect
+  // keyed on `timeout`, so two same-kind toasts in a row would reuse one
+  // instance and the first toast's timer would dismiss the second early.
+  const [toast, setToast] = useState<{
     kind: 'success' | 'error';
     title: string;
     subtitle?: string;
+    timeout?: number;
+    seq: number;
   } | null>(null);
+  const toastSeq = useRef(0);
+  const showToast = useCallback(
+    (t: { kind: 'success' | 'error'; title: string; subtitle?: string; timeout?: number }) => {
+      setToast({ ...t, seq: ++toastSeq.current });
+    },
+    []
+  );
   // Last viewport emitted by each plot's dataZoom. Drives the archive store's
   // window per trace; the store decides whether the change requires a fetch
   // based on its coverage check, so this map can be updated freely.
   const [viewWindowByPlot, setViewWindowByPlot] = useState<Map<string, TimeWindowNs>>(
     () => new Map()
   );
+  const [workspaceGeneration, setWorkspaceGeneration] = useState(0);
   const leftPanelRef = usePanelRef();
   const rightPanelRef = usePanelRef();
   // In-flight units lookups per trace, so a rapid PV re-selection aborts the
@@ -146,6 +169,7 @@ export function TraceApp() {
   // Per-plot "now". A following plot's anchor advances once per its refresh
   // interval; any other plot's anchor holds, which freezes its window.
   const clock = useAutoScrollTimers(plots, viewWindowByPlot);
+  const resyncClock = clock.resync;
 
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
 
@@ -726,6 +750,85 @@ export function TraceApp() {
     downloadBlob(`trace-${timestamp()}.trc.json`, 'application/json', json);
   };
 
+  // Apply a deserialized workspace to app state. Shared by file import, the
+  // ?config= startup loader, and the config-store modal's Load so there's one
+  // code path for "set plots + active plot + theme".
+  const applyWorkspace = useCallback(
+    (result: DeserializeResult) => {
+      // A workspace with no plots would leave `activePlot` undefined, which the
+      // render body dereferences — refuse it rather than blank the app. Reachable
+      // from a hand-edited ?config= link, not just from a picked file.
+      if (result.plots.length === 0) {
+        throw new Error('Workspace contains no plots');
+      }
+      abortUnitLookups();
+      setPlots(result.plots);
+      setWorkspaceGeneration((generation) => generation + 1);
+      setActivePlotId(result.plots[0].id);
+      resyncClock(result.plots.map((p) => p.id));
+      if (result.theme) setColorMode(result.theme);
+      // Everything below is keyed by plot id, and ids collide across workspaces
+      // (the default plot is `plot-1`, native saves keep ids verbatim, and the
+      // legacy .trc converter hardcodes `plot-1`). Carrying it over would let the
+      // outgoing workspace's viewport, detach state, or selection attach itself to
+      // the incoming plots, so reset it all as part of "apply a workspace".
+      setViewWindowByPlot(new Map());
+      setDetachedPlotIds([]);
+      setPoppedOutPlot(null);
+      setSelectedItem(null);
+      setInsight((prev) => ({ ...prev, pv: undefined }));
+      axisRangesRef.current.clear();
+    },
+    [abortUnitLookups, resyncClock]
+  );
+
+  // Shareable-link bootstrap: ?config=<slug> loads a saved workspace from the
+  // magpie config store on startup, then strips the param so a refresh doesn't
+  // refetch (and a later save/edit isn't overwritten by the stale link).
+  useEffect(() => {
+    const slug = new URLSearchParams(window.location.search).get('config');
+    if (!slug) return;
+    let cancelled = false;
+    const abort = new AbortController();
+    (async () => {
+      try {
+        const dto = await getConfig(slug, abort.signal);
+        if (cancelled) return;
+        const result = deserializeConfigData(dto.data);
+        applyWorkspace(result);
+        showToast({
+          kind: 'success',
+          title: 'Workspace loaded',
+          subtitle: [
+            dto.name ? `Loaded "${dto.name}"` : `Loaded config ${slug}`,
+            ...result.warnings,
+          ].join('\n'),
+          timeout: result.warnings.length > 0 ? 0 : undefined,
+        });
+      } catch (err) {
+        if (cancelled) return;
+        const subtitle =
+          err instanceof CanopyError
+            ? err.detail
+            : ((err as Error | null)?.message ?? 'Unknown error');
+        showToast({ kind: 'error', title: 'Could not load shared workspace', subtitle });
+      } finally {
+        // Don't rewrite the URL after unmount — it may belong to a later route.
+        if (!cancelled) {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('config');
+          window.history.replaceState({}, '', url);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      abort.abort();
+    };
+    // Mount-only: read the launch URL once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleImport = async () => {
     const file = await pickFile('.trc,.trc.json,.json,.xml,.stp');
     if (!file) return;
@@ -738,18 +841,10 @@ export function TraceApp() {
     let result;
     try {
       result = deserializeWorkspace(text);
+      applyWorkspace(result);
     } catch (err) {
       alert(`Failed to import: ${(err as Error).message}`);
       return;
-    }
-    abortUnitLookups();
-    setPlots(result.plots);
-    clock.resync(result.plots.map((p) => p.id));
-    if (result.plots.length > 0) setActivePlotId(result.plots[0].id);
-    if (result.theme) {
-      // setColorMode lives on the store; the hook surface only exposes toggle,
-      // so go through the module API.
-      void import('../state/themeStore').then((m) => m.setColorMode(result.theme!));
     }
     if (result.warnings.length > 0) {
       console.warn('Import warnings:', result.warnings);
@@ -938,6 +1033,7 @@ export function TraceApp() {
               onOpenDocs={handleOpenDocs}
               onOpenDataInsight={() => openInsight()}
               onRefreshArchive={handleRefreshArchive}
+              onOpenConfigStore={() => setConfigModalOpen(true)}
               onPostElog={elogConfig?.enabled ? openElogPost : undefined}
             />
           </HeaderGlobalBar>
@@ -990,6 +1086,7 @@ export function TraceApp() {
             <div className="plot-and-insight">
               <div className="plot-and-insight__plot">
                 <PlotArea
+                  key={workspaceGeneration}
                   plots={plots}
                   activePlotId={activePlotId}
                   viewMode={viewMode}
@@ -1337,19 +1434,30 @@ export function TraceApp() {
           buildConfigFile={buildElogConfigFile}
           onClose={() => setElogModal((p) => ({ ...p, open: false }))}
           onPosted={(entryId) =>
-            setElogToast({
+            showToast({
               kind: 'success',
               title: 'Posted to E-Log',
               subtitle: `Entry ${entryId} created`,
             })
           }
           onPostFailed={(message) =>
-            setElogToast({ kind: 'error', title: 'E-Log post failed', subtitle: message })
+            showToast({ kind: 'error', title: 'E-Log post failed', subtitle: message })
           }
         />
       )}
 
-      {elogToast &&
+      {configModalOpen && (
+        <ConfigStoreModal
+          open={configModalOpen}
+          plots={plots}
+          theme={colorMode}
+          onClose={() => setConfigModalOpen(false)}
+          onLoaded={applyWorkspace}
+          onToast={showToast}
+        />
+      )}
+
+      {toast &&
         createPortal(
           <div
             style={{ position: 'fixed', top: 56, right: 16, zIndex: 9999 }}
@@ -1357,12 +1465,13 @@ export function TraceApp() {
             aria-live="polite"
           >
             <ToastNotification
-              kind={elogToast.kind}
-              title={elogToast.title}
-              subtitle={elogToast.subtitle}
-              timeout={elogToast.kind === 'success' ? 5000 : 0}
+              key={toast.seq}
+              kind={toast.kind}
+              title={toast.title}
+              subtitle={toast.subtitle}
+              timeout={toast.timeout ?? (toast.kind === 'success' ? 5000 : 0)}
               onClose={() => {
-                setElogToast(null);
+                setToast(null);
                 return true;
               }}
             />

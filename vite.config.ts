@@ -27,6 +27,17 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        // Magpie (config store): REST CRUD for saving/sharing workspaces. Same
+        // X-API-Key injection as /mole so the bundle never holds the key.
+        '/magpie': {
+          target,
+          changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
+            });
+          },
+        },
         // Hare lives behind the same backend host. WebSocket upgrades for the
         // live-PV stream go through this proxy with `ws: true`. The same
         // X-API-Key injection covers both the HTTP and the WS upgrade path so
@@ -87,6 +98,7 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       passWithNoTests: true,
+      setupFiles: ['./src/test/setup.ts'],
     },
   };
 });
