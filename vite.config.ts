@@ -60,6 +60,15 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        '/vole': {
+          target,
+          changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
+            });
+          },
+        },
         ...(elogTarget
           ? {
               '/elog': {

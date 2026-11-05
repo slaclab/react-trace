@@ -8,7 +8,13 @@ export interface SampleDTO {
   tsNs: number;
   value: number | string | boolean | null;
   severity: AlarmSeverity;
-  source: 'archive';
+  source: 'archive' | 'live';
+}
+
+export interface VoleSeriesDTO {
+  pv: string;
+  count: number;
+  samples: SampleDTO[];
 }
 
 export interface ArchiverSeriesDTO {
