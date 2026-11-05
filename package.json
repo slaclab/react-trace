@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "React implementation of Trace",
+  "license": "SEE LICENSE IN LICENSE.md",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
