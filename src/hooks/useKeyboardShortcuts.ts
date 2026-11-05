@@ -13,6 +13,9 @@ export interface ShortcutHandlers {
   onPostElog?: () => void;
   onDataInsight?: () => void;
   onToggleTheme?: () => void;
+  onViewBack?: () => void;
+  onViewForward?: () => void;
+  onResetZoom?: () => void;
 }
 
 /** Handler keys, in binding order. */
@@ -45,6 +48,9 @@ const BINDINGS: { mod: Mod; key: string; action: Action }[] = [
   { mod: 'primary', key: 'i', action: 'onExportImage' },
   { mod: 'alt', key: 'd', action: 'onDataInsight' },
   { mod: 'alt', key: 't', action: 'onToggleTheme' },
+  { mod: 'alt', key: 'arrowleft', action: 'onViewBack' },
+  { mod: 'alt', key: 'arrowright', action: 'onViewForward' },
+  { mod: 'alt', key: '0', action: 'onResetZoom' },
 ];
 
 /** The event fields a shortcut match depends on. */

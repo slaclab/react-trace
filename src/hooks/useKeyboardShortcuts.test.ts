@@ -61,6 +61,34 @@ describe('resolveShortcut', () => {
     });
   });
 
+  describe('view history shortcuts (alt group)', () => {
+    it('maps Alt+ArrowLeft to viewBack', () => {
+      expect(resolveShortcut(ev({ key: 'ArrowLeft', altKey: true }), false)).toBe('onViewBack');
+      expect(resolveShortcut(ev({ key: 'ArrowLeft', altKey: true }), true)).toBe('onViewBack');
+    });
+
+    it('maps Alt+ArrowRight to viewForward', () => {
+      expect(resolveShortcut(ev({ key: 'ArrowRight', altKey: true }), false)).toBe('onViewForward');
+      expect(resolveShortcut(ev({ key: 'ArrowRight', altKey: true }), true)).toBe('onViewForward');
+    });
+
+    it('maps Alt+0 to resetZoom', () => {
+      expect(resolveShortcut(ev({ key: '0', altKey: true }), false)).toBe('onResetZoom');
+      expect(resolveShortcut(ev({ key: '0', altKey: true }), true)).toBe('onResetZoom');
+    });
+
+    it('does not match arrow keys without Alt', () => {
+      expect(resolveShortcut(ev({ key: 'ArrowLeft' }), false)).toBeNull();
+      expect(resolveShortcut(ev({ key: 'ArrowRight' }), false)).toBeNull();
+    });
+
+    it('does not match Alt+Arrow when primary modifier is also held', () => {
+      expect(
+        resolveShortcut(ev({ key: 'ArrowLeft', altKey: true, ctrlKey: true }), false)
+      ).toBeNull();
+    });
+  });
+
   describe('non-matches pass through to the browser', () => {
     it('ignores a bare key with no modifier', () => {
       expect(resolveShortcut(ev({ key: 's' }), false)).toBeNull();

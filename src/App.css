@@ -383,6 +383,19 @@
   color: var(--cds-text-primary);
 }
 
+.view-mode-btn:disabled {
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+.plot-tab-bar__separator {
+  width: 1px;
+  height: 16px;
+  background-color: var(--cds-border-subtle);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
 .plot-content {
   flex: 1;
   overflow: hidden;
@@ -429,6 +442,13 @@
   position: absolute;
   top: 8px;
   left: 44px;
+  z-index: 10;
+}
+
+.plot-grid__cell-btn--reset {
+  position: absolute;
+  top: 8px;
+  left: 80px;
   z-index: 10;
 }
 
