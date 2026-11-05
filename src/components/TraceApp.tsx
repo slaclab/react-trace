@@ -355,6 +355,12 @@ export function TraceApp() {
     if (poppedOutPlot === plotId) setPoppedOutPlot(null);
     setDetachedPlotIds((prev) => prev.filter((id) => id !== plotId));
     viewHistory.clear(plotId);
+    setZoomTargetByPlot((prev) => {
+      if (!prev.has(plotId)) return prev;
+      const next = new Map(prev);
+      next.delete(plotId);
+      return next;
+    });
     if (activePlotId === plotId) {
       const remaining = plots.filter((p) => p.id !== plotId);
       setActivePlotId(remaining[0].id);
@@ -794,24 +800,23 @@ export function TraceApp() {
   // plot (grid cells and popouts aren't necessarily the active plot), so route
   // by the plot id rather than assuming activePlotId.
   const updateAxisInPlot = (plotId: string, axisId: string, updates: Partial<Axis>) => {
-    setPlots((prev) =>
-      prev.map((p) =>
+    setPlots((prev) => {
+      const next = prev.map((p) =>
         p.id === plotId
           ? {
               ...p,
               axes: p.axes.map((a) => (a.id === axisId ? { ...a, ...updates } : a)),
             }
           : p
-      )
-    );
-    const plot = plots.find((p) => p.id === plotId);
-    const axisRanges = snapshotAxes(plot);
-    const existing = axisRanges.get(axisId);
-    if (existing) axisRanges.set(axisId, { ...existing, ...updates });
-    viewHistory.push(plotId, {
-      timeWindow: viewWindowByPlot.get(plotId) ?? null,
-      axisRanges,
-      autoScroll: plot?.autoScroll !== false,
+      );
+      const plot = next.find((p) => p.id === plotId);
+      const axisRanges = snapshotAxes(plot);
+      viewHistory.push(plotId, {
+        timeWindow: viewWindowByPlot.get(plotId) ?? null,
+        axisRanges,
+        autoScroll: plot?.autoScroll !== false,
+      });
+      return next;
     });
   };
 

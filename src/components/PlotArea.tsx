@@ -568,7 +568,7 @@ export function SinglePlot({
       programmaticZoomRef.current = false;
     }, 0);
     return () => window.clearTimeout(clearTimer);
-  }, [zoomTarget]);
+  }, [zoomTarget?.generation]);
 
   const handleFinished = useCallback(() => {
     if (!onAxisRangesChange) return;
