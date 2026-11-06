@@ -1,6 +1,5 @@
 # React Trace
 
-[![dev deploy](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/slaclab/swapps-deployment-status/main/status/trace-dev.json)](https://github.com/slaclab/swapps-deployment)
 
 React + Vite frontend for the Canopy / Trace plotting tool. Reads archive data from
 Canopy's Mole module (`/mole/v1/...`).
