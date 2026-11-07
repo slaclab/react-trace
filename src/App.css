@@ -43,6 +43,17 @@
   outline: none;
 }
 
+/* A panel's error fallback (canopy-shell ErrorBoundary) is a Carbon inline
+   notification plus two buttons, wider than the side panels; let both wrap to
+   the panel instead of being cut off. */
+.trace-panel-group .canopy-error-fallback .cds--inline-notification {
+  min-width: 0;
+}
+
+.trace-panel-group .canopy-error-fallback__actions {
+  flex-wrap: wrap;
+}
+
 .trace-resize-handle {
   width: 1px;
   background-color: var(--cds-border-subtle);
