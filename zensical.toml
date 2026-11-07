@@ -2,13 +2,19 @@
 site_name = "Trace"
 site_description = "React implementation of Trace - an application for plotting live and archived EPICS data."
 site_author = "SLAC National Accelerator Laboratory - EED / Software Applications Group"
-#site_url = "https://www.example.com/"
+site_url = "https://fuzzy-adventure-4qvly8m.pages.github.io/"
 docs_dir = "docs"
 
 
 # Repository
 repo_name = "slaclab/react-trace"
 repo_url = "https://github.com/slaclab/react-trace"
+
+# Page tree.
+nav = [
+  { "Home" = "index.md" },
+  { "Users" = "users/user_guide.md" },
+]
 
 # ----------------------------------------------------------------------------
 # Section for configuring theme options
@@ -206,3 +212,6 @@ combine_header_slug = true
 [project.markdown_extensions.pymdownx.tasklist]
 custom_checkbox = true
 [project.markdown_extensions.pymdownx.tilde]
+
+# Click-to-zoom for screenshots (same as the E-Log docs).
+[project.markdown_extensions.zensical.extensions.glightbox]

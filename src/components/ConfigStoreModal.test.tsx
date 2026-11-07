@@ -1,0 +1,232 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { ConfigStoreModal } from './ConfigStoreModal';
+import type { ConfigDTO } from '../api/types';
+import type { Plot } from '../types';
+
+vi.mock('../api/magpie', () => ({
+  saveConfig: vi.fn(),
+  getConfig: vi.fn(),
+  listConfigs: vi.fn(),
+  updateConfig: vi.fn(),
+  deleteConfig: vi.fn(),
+}));
+
+import { deleteConfig, getConfig, listConfigs, saveConfig } from '../api/magpie';
+
+const plot: Plot = {
+  id: 'plot-1',
+  title: 'Plot',
+  traces: [],
+  axes: [],
+  backgroundColor: '#161616',
+  showLegend: true,
+  showXGridlines: true,
+  showYGridlines: true,
+  showCrosshair: true,
+  gridStyle: 'solid',
+  gridOpacity: 1,
+  tickFontSize: 11,
+  xAxis: { timeRange: '-1h' },
+};
+
+const savedConfig: ConfigDTO = {
+  id: 'config-1',
+  app: 'trace',
+  slug: 'share-slug',
+  name: null,
+  description: null,
+  data: {},
+  createdBy: null,
+  createdDate: '2026-10-01T00:00:00Z',
+  lastModifiedDate: '2026-10-01T00:00:00Z',
+};
+
+const listedConfig: ConfigDTO = {
+  ...savedConfig,
+  slug: 'test-config',
+  name: 'Test config',
+};
+
+const secondListedConfig: ConfigDTO = {
+  ...listedConfig,
+  slug: 'second-config',
+  name: 'Second config',
+};
+
+function renderModal(onToast = vi.fn(), onLoaded = vi.fn()) {
+  return render(
+    <ConfigStoreModal
+      open
+      plots={[plot]}
+      theme="dark"
+      onClose={vi.fn()}
+      onLoaded={onLoaded}
+      onToast={onToast}
+    />
+  );
+}
+
+describe('ConfigStoreModal', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+    );
+    vi.mocked(listConfigs).mockResolvedValue({
+      results: [],
+      continuationToken: null,
+      totalCount: 0,
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('cannot be dismissed while a save is in progress', async () => {
+    vi.mocked(saveConfig).mockImplementation(() => new Promise(() => {}));
+    renderModal();
+
+    fireEvent.click(screen.getByRole('button', { name: /Save & copy share link/ }));
+    await screen.findByRole('button', { name: 'Saving…' });
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(document.querySelector('.cds--modal.is-visible')).not.toBeNull();
+  });
+
+  it('keeps the fallback share link available until the toast is dismissed', async () => {
+    vi.mocked(saveConfig).mockResolvedValue(savedConfig);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+    const onToast = vi.fn();
+    renderModal(onToast);
+
+    fireEvent.click(screen.getByRole('button', { name: /Save & copy share link/ }));
+
+    await waitFor(() => {
+      expect(onToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Workspace saved',
+          subtitle: expect.stringContaining('share-slug'),
+          timeout: 0,
+        })
+      );
+    });
+  });
+
+  it('uses a Carbon dialog to confirm deletion and explain the shared-link impact', async () => {
+    vi.mocked(listConfigs).mockResolvedValue({
+      results: [listedConfig],
+      continuationToken: null,
+      totalCount: 1,
+    });
+    const nativeConfirm = vi.spyOn(window, 'confirm');
+    renderModal();
+
+    await screen.findByText('test-config');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0]);
+
+    expect(document.querySelectorAll('.cds--modal.is-visible')).toHaveLength(2);
+    expect(screen.getByText('Save current workspace')).toBeTruthy();
+    expect(
+      screen.getByText(/This will break any shared links to it\. This action cannot be undone\./)
+    ).toBeTruthy();
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    expect(deleteConfig).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(document.querySelectorAll('.cds--modal.is-visible')).toHaveLength(1);
+    await screen.findByText('test-config');
+  });
+
+  it('deletes the config only after confirming in the Carbon dialog', async () => {
+    vi.mocked(listConfigs)
+      .mockResolvedValueOnce({
+        results: [listedConfig],
+        continuationToken: null,
+        totalCount: 1,
+      })
+      .mockResolvedValue({
+        results: [],
+        continuationToken: null,
+        totalCount: 0,
+      });
+    vi.mocked(deleteConfig).mockResolvedValue();
+    renderModal();
+
+    await screen.findByText('test-config');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0]);
+    fireEvent.click(document.querySelector('.cds--modal--danger .cds--btn--danger')!);
+
+    await waitFor(() => expect(deleteConfig).toHaveBeenCalledWith('test-config'));
+    await screen.findByText('No saved configs yet.');
+  });
+
+  it('aborts superseded loads and only applies the latest response', async () => {
+    vi.mocked(listConfigs).mockResolvedValue({
+      results: [listedConfig, secondListedConfig],
+      continuationToken: null,
+      totalCount: 2,
+    });
+    const requests: {
+      signal: AbortSignal;
+      resolve: (value: ConfigDTO) => void;
+    }[] = [];
+    vi.mocked(getConfig).mockImplementation(
+      (_slug, signal) =>
+        new Promise((resolve) => {
+          requests.push({ signal: signal!, resolve });
+        })
+    );
+    const onLoaded = vi.fn();
+    renderModal(undefined, onLoaded);
+    await screen.findByText('test-config');
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Load' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Load' })[1]);
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0].signal.aborted).toBe(true);
+
+    const data = { schemaVersion: 1, plots: [plot] };
+    requests[0].resolve({ ...listedConfig, data });
+    requests[1].resolve({ ...secondListedConfig, data });
+
+    await waitFor(() => expect(onLoaded).toHaveBeenCalledTimes(1));
+    expect(onLoaded).toHaveBeenCalledWith(
+      expect.objectContaining({ plots: [expect.objectContaining({ id: 'plot-1' })] })
+    );
+  });
+
+  it('aborts a pending load when the modal unmounts', async () => {
+    vi.mocked(listConfigs).mockResolvedValue({
+      results: [listedConfig],
+      continuationToken: null,
+      totalCount: 1,
+    });
+    vi.mocked(getConfig).mockImplementation(
+      (_slug, signal) =>
+        new Promise(() => {
+          expect(signal).toBeDefined();
+        })
+    );
+    const onLoaded = vi.fn();
+    const view = renderModal(undefined, onLoaded);
+    await screen.findByText('test-config');
+    fireEvent.click(screen.getByRole('button', { name: 'Load' }));
+    await waitFor(() => expect(getConfig).toHaveBeenCalled());
+
+    const signal = vi.mocked(getConfig).mock.calls.at(-1)?.[1];
+    view.unmount();
+
+    expect(signal?.aborted).toBe(true);
+    expect(onLoaded).not.toHaveBeenCalled();
+  });
+});
