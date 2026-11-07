@@ -3,6 +3,7 @@ import {
   ComposedModal,
   ModalHeader,
   ModalBody,
+  ModalFooter,
   TextInput,
   TextArea,
   Button,
@@ -36,7 +37,12 @@ interface ConfigStoreModalProps {
   /** Apply a loaded workspace to app state (shared with file import + ?config=). */
   onLoaded: (result: DeserializeResult) => void;
   /** Emit a success/error toast in the parent. */
-  onToast: (t: { kind: 'success' | 'error'; title: string; subtitle?: string }) => void;
+  onToast: (t: {
+    kind: 'success' | 'error';
+    title: string;
+    subtitle?: string;
+    timeout?: number;
+  }) => void;
 }
 
 // What the modal is busy with. Save and every row's Load/Rename/Delete share
@@ -60,7 +66,7 @@ function shareUrl(slug: string): string {
   return url.toString();
 }
 
-// How a config is named in the status line and the delete prompt.
+// How a config is named in the status line and the delete confirmation.
 function configLabel(config: ConfigDTO): string {
   return config.name || config.slug;
 }
@@ -98,7 +104,7 @@ export function ConfigStoreModal({
   const [listing, setListing] = useState(false);
 
   // The one operation in flight (see BusyOp). State drives the render; the ref
-  // gives handlers and the close guard the current value without waiting for a
+  // gives handlers and the close guards the current value without waiting for a
   // re-render, so a second click in the same tick can't also claim the slot.
   const [busy, setBusyState] = useState<BusyOp | null>(null);
   const busyRef = useRef<BusyOp | null>(null);
@@ -107,6 +113,16 @@ export function ConfigStoreModal({
     setBusyState(op);
   }, []);
   const saving = busy?.kind === 'save';
+  const deleting = busy?.kind === 'delete';
+
+  // The config the delete confirmation is asking about. Its ref serves the
+  // close guards, like busyRef.
+  const [deleteTarget, setDeleteTargetState] = useState<ConfigDTO | null>(null);
+  const deleteTargetRef = useRef<ConfigDTO | null>(null);
+  const setDeleteTarget = useCallback((config: ConfigDTO | null) => {
+    deleteTargetRef.current = config;
+    setDeleteTargetState(config);
+  }, []);
 
   // Monotonic refresh id. A Save/Delete fires its own refresh while the open
   // refresh may still be in flight; without this, the slower (older) response
@@ -154,31 +170,21 @@ export function ConfigStoreModal({
   }, []);
   useEffect(() => endSession, [endSession]);
 
-  // Reset the form and reload the list once per open.
-  const initialized = useRef(false);
+  // Load the list on open. Nothing resets the form or the slot here: TraceApp
+  // mounts the modal only while it's open, so each open starts from fresh state.
   useEffect(() => {
     if (!open) {
-      initialized.current = false;
       endSession();
       return;
     }
-    if (initialized.current) return;
-    initialized.current = true;
-    setName('');
-    setDescription('');
-    // A dismissed Load holds the slot until its request settles, which the
-    // abort doesn't guarantee. Save, Rename and Delete keep it: they block
-    // dismissal, so one only gets here through a close the parent made itself,
-    // and it is still running.
-    if (busyRef.current?.kind === 'load') setBusy(null);
-    setError(null);
-    void refresh();
-  }, [open, refresh, endSession, setBusy]);
+    void Promise.resolve().then(refresh);
+  }, [open, refresh, endSession]);
 
   // Carbon's X, Escape and backdrop all call this; returning false keeps the
   // dialog open. Save, Rename and Delete block dismissal until their server
   // call settles: the change happens either way, so closing would only hide
-  // its outcome. A Load doesn't block; closing cancels it.
+  // its outcome. So does an open delete confirmation. A Load doesn't block;
+  // closing cancels it.
   // This must read refs, not render state. Carbon registers its Escape listener
   // once per open and keeps the onClose from that render, when nothing was busy.
   const onCloseRef = useRef(onClose);
@@ -188,11 +194,20 @@ export function ConfigStoreModal({
   const requestClose = useCallback(() => {
     const op = busyRef.current;
     if (op && op.kind !== 'load') return false;
+    if (deleteTargetRef.current) return false;
     // The `!open` effect ends the session as well, but only once React has
     // committed the close; ending it here leaves no gap for a response.
     endSession();
     onCloseRef.current();
   }, [endSession]);
+
+  // The delete confirmation's X, Escape and Cancel. It stays open while the
+  // Delete's server call runs, so a failure can show in it. Reads the slot's
+  // ref for the same reason as requestClose.
+  const requestCancelDelete = useCallback(() => {
+    if (busyRef.current?.kind === 'delete') return false;
+    setDeleteTarget(null);
+  }, [setDeleteTarget]);
 
   // Claim the slot for `op`. Returns the session it runs in, or null if another
   // operation holds the slot.
@@ -202,8 +217,9 @@ export function ConfigStoreModal({
     setError(null);
     return sessionRef.current;
   };
-  // Release the slot only if `op` still holds it: a reopen may have taken a
-  // dismissed Load's slot and given it to a newer operation.
+  // Release the slot only if `op` still holds it: Save, Rename and Delete free
+  // it before their refresh or copy, so by their `finally` another operation
+  // may have claimed it.
   const end = (op: BusyOp) => {
     if (busyRef.current === op) setBusy(null);
   };
@@ -230,7 +246,8 @@ export function ConfigStoreModal({
       }
       // Don't claim a copy that didn't happen: the clipboard API is absent on a
       // non-secure origin and rejects when permission is denied or the document
-      // isn't focused. Show the link itself so it can still be copied by hand.
+      // isn't focused. Show the link itself so it can still be copied by hand,
+      // in a toast that stays until it's dismissed.
       const link = shareUrl(dto.slug);
       const copied = await copyToClipboard(link);
       // The toast goes out regardless, even if the dialog has closed since: the
@@ -239,6 +256,7 @@ export function ConfigStoreModal({
         kind: 'success',
         title: 'Workspace saved',
         subtitle: copied ? `Share link copied to clipboard (${dto.slug})` : `Share link: ${link}`,
+        timeout: copied ? undefined : 0,
       });
     } catch (err) {
       if (session === sessionRef.current) setError(errText(err));
@@ -262,7 +280,11 @@ export function ConfigStoreModal({
       onToast({
         kind: 'success',
         title: 'Workspace loaded',
-        subtitle: dto.name ? `Loaded "${dto.name}"` : `Loaded config ${config.slug}`,
+        subtitle: [
+          dto.name ? `Loaded "${dto.name}"` : `Loaded config ${config.slug}`,
+          ...result.warnings,
+        ].join('\n'),
+        timeout: result.warnings.length > 0 ? 0 : undefined,
       });
       // Like requestClose, end the session before the parent sees the close.
       endSession();
@@ -299,18 +321,28 @@ export function ConfigStoreModal({
     }
   };
 
-  const handleDelete = async (config: ConfigDTO) => {
+  // A row's Delete opens the confirmation; only its Delete button deletes.
+  const askDelete = (config: ConfigDTO) => {
+    // Don't ask about an action that can't start.
     if (busyRef.current) return;
-    if (!window.confirm(`Delete "${configLabel(config)}"? This cannot be undone.`)) return;
+    setError(null);
+    setDeleteTarget(config);
+  };
+
+  const handleDelete = async () => {
+    const config = deleteTargetRef.current;
+    if (!config) return;
     const op: BusyOp = { kind: 'delete', slug: config.slug, label: configLabel(config) };
     const session = begin(op);
     if (session === null) return;
     try {
       await deleteConfig(config.slug);
       if (session !== sessionRef.current) return;
+      setDeleteTarget(null);
       end(op);
       await refresh();
     } catch (err) {
+      // The confirmation stays open and shows it, so the Delete can be retried.
       if (session === sessionRef.current) setError(errText(err));
     } finally {
       end(op);
@@ -327,142 +359,178 @@ export function ConfigStoreModal({
   };
 
   return (
-    <ComposedModal open={open} onClose={requestClose} size="lg">
-      <ModalHeader title="Config store" />
-      <ModalBody hasScrollingContent>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 4 }}>
+    <>
+      <ComposedModal open={open} onClose={requestClose} size="lg">
+        <ModalHeader title="Config store" />
+        <ModalBody hasScrollingContent>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 4 }}>
+            {error && !deleteTarget && (
+              <InlineNotification
+                kind="error"
+                title="Error"
+                subtitle={error}
+                onCloseButtonClick={() => setError(null)}
+              />
+            )}
+
+            {/* Save the current workspace */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <span className="cds--label" style={{ marginBottom: 0 }}>
+                Save current workspace
+              </span>
+              <TextInput
+                id="config-name"
+                labelText="Name"
+                value={name}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
+                placeholder="e.g. LI22 klystron overview"
+                maxLength={255}
+              />
+              <TextArea
+                id="config-description"
+                labelText="Description (optional)"
+                value={description}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                  setDescription(e.target.value)
+                }
+                rows={2}
+              />
+              <div>
+                <Button onClick={handleSave} disabled={busy !== null}>
+                  {saving ? 'Saving…' : 'Save & copy share link'}
+                </Button>
+              </div>
+            </div>
+
+            {/* Browse / manage saved configs */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="cds--label" style={{ marginBottom: 0 }}>
+                  Saved configs
+                  {totalCount !== null && totalCount > configs.length
+                    ? ` (showing ${configs.length} of ${totalCount})`
+                    : ''}
+                </span>
+                <Button
+                  kind="ghost"
+                  size="sm"
+                  hasIconOnly
+                  iconDescription="Refresh"
+                  renderIcon={Renew}
+                  onClick={() => void refresh()}
+                  disabled={listing}
+                />
+                {/* Save shows its progress on its own button. */}
+                {busy && busy.kind !== 'save' && (
+                  <InlineLoading description={`${BUSY_VERB[busy.kind]} "${busy.label}"…`} />
+                )}
+              </div>
+
+              {listing ? (
+                <InlineLoading description="Loading configs…" />
+              ) : configs.length === 0 ? (
+                <p style={{ color: 'var(--cds-text-secondary)' }}>No saved configs yet.</p>
+              ) : (
+                <StructuredListWrapper isCondensed>
+                  <StructuredListHead>
+                    <StructuredListRow head>
+                      <StructuredListCell head>Name</StructuredListCell>
+                      <StructuredListCell head>Created</StructuredListCell>
+                      <StructuredListCell head>Actions</StructuredListCell>
+                    </StructuredListRow>
+                  </StructuredListHead>
+                  <StructuredListBody>
+                    {configs.map((c) => (
+                      <StructuredListRow key={c.slug}>
+                        <StructuredListCell>
+                          {c.name || (
+                            <em style={{ color: 'var(--cds-text-secondary)' }}>untitled</em>
+                          )}
+                          <div style={{ fontSize: 12, color: 'var(--cds-text-secondary)' }}>
+                            {c.slug}
+                          </div>
+                        </StructuredListCell>
+                        <StructuredListCell>
+                          {new Date(c.createdDate).toLocaleString()}
+                        </StructuredListCell>
+                        <StructuredListCell>
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            <Button
+                              size="sm"
+                              kind="tertiary"
+                              onClick={() => void handleLoad(c)}
+                              disabled={busy !== null}
+                            >
+                              Load
+                            </Button>
+                            <Button
+                              size="sm"
+                              kind="ghost"
+                              onClick={() => void handleRename(c)}
+                              disabled={busy !== null}
+                            >
+                              Rename
+                            </Button>
+                            <Button
+                              size="sm"
+                              kind="ghost"
+                              hasIconOnly
+                              iconDescription="Copy share link"
+                              renderIcon={Copy}
+                              onClick={() => void handleCopyLink(c.slug)}
+                            />
+                            <Button
+                              size="sm"
+                              kind="danger--ghost"
+                              hasIconOnly
+                              iconDescription="Delete"
+                              renderIcon={TrashCan}
+                              onClick={() => askDelete(c)}
+                              disabled={busy !== null}
+                            />
+                          </div>
+                        </StructuredListCell>
+                      </StructuredListRow>
+                    ))}
+                  </StructuredListBody>
+                </StructuredListWrapper>
+              )}
+            </div>
+          </div>
+        </ModalBody>
+      </ComposedModal>
+
+      <ComposedModal open={Boolean(deleteTarget)} onClose={requestCancelDelete} size="sm" danger>
+        <ModalHeader title="Delete config?" />
+        <ModalBody>
           {error && (
             <InlineNotification
               kind="error"
-              title="Error"
+              title="Could not delete config"
               subtitle={error}
               onCloseButtonClick={() => setError(null)}
             />
           )}
-
-          {/* Save the current workspace */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <span className="cds--label" style={{ marginBottom: 0 }}>
-              Save current workspace
-            </span>
-            <TextInput
-              id="config-name"
-              labelText="Name"
-              value={name}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
-              placeholder="e.g. LI22 klystron overview"
-              maxLength={255}
-            />
-            <TextArea
-              id="config-description"
-              labelText="Description (optional)"
-              value={description}
-              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                setDescription(e.target.value)
-              }
-              rows={2}
-            />
-            <div>
-              <Button onClick={handleSave} disabled={busy !== null}>
-                {saving ? 'Saving…' : 'Save & copy share link'}
-              </Button>
-            </div>
-          </div>
-
-          {/* Browse / manage saved configs */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className="cds--label" style={{ marginBottom: 0 }}>
-                Saved configs
-                {totalCount !== null && totalCount > configs.length
-                  ? ` (showing ${configs.length} of ${totalCount})`
-                  : ''}
-              </span>
-              <Button
-                kind="ghost"
-                size="sm"
-                hasIconOnly
-                iconDescription="Refresh"
-                renderIcon={Renew}
-                onClick={() => void refresh()}
-                disabled={listing}
-              />
-              {/* Save shows its progress on its own button. */}
-              {busy && busy.kind !== 'save' && (
-                <InlineLoading description={`${BUSY_VERB[busy.kind]} "${busy.label}"…`} />
-              )}
-            </div>
-
-            {listing ? (
-              <InlineLoading description="Loading configs…" />
-            ) : configs.length === 0 ? (
-              <p style={{ color: 'var(--cds-text-secondary)' }}>No saved configs yet.</p>
-            ) : (
-              <StructuredListWrapper isCondensed>
-                <StructuredListHead>
-                  <StructuredListRow head>
-                    <StructuredListCell head>Name</StructuredListCell>
-                    <StructuredListCell head>Created</StructuredListCell>
-                    <StructuredListCell head>Actions</StructuredListCell>
-                  </StructuredListRow>
-                </StructuredListHead>
-                <StructuredListBody>
-                  {configs.map((c) => (
-                    <StructuredListRow key={c.slug}>
-                      <StructuredListCell>
-                        {c.name || <em style={{ color: 'var(--cds-text-secondary)' }}>untitled</em>}
-                        <div style={{ fontSize: 12, color: 'var(--cds-text-secondary)' }}>
-                          {c.slug}
-                        </div>
-                      </StructuredListCell>
-                      <StructuredListCell>
-                        {new Date(c.createdDate).toLocaleString()}
-                      </StructuredListCell>
-                      <StructuredListCell>
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                          <Button
-                            size="sm"
-                            kind="tertiary"
-                            onClick={() => void handleLoad(c)}
-                            disabled={busy !== null}
-                          >
-                            Load
-                          </Button>
-                          <Button
-                            size="sm"
-                            kind="ghost"
-                            onClick={() => void handleRename(c)}
-                            disabled={busy !== null}
-                          >
-                            Rename
-                          </Button>
-                          <Button
-                            size="sm"
-                            kind="ghost"
-                            hasIconOnly
-                            iconDescription="Copy share link"
-                            renderIcon={Copy}
-                            onClick={() => void handleCopyLink(c.slug)}
-                          />
-                          <Button
-                            size="sm"
-                            kind="danger--ghost"
-                            hasIconOnly
-                            iconDescription="Delete"
-                            renderIcon={TrashCan}
-                            onClick={() => void handleDelete(c)}
-                            disabled={busy !== null}
-                          />
-                        </div>
-                      </StructuredListCell>
-                    </StructuredListRow>
-                  ))}
-                </StructuredListBody>
-              </StructuredListWrapper>
-            )}
-          </div>
-        </div>
-      </ModalBody>
-    </ComposedModal>
+          {deleteTarget && (
+            <p>
+              Delete <strong>{configLabel(deleteTarget)}</strong>? This will break any shared links
+              to it. This action cannot be undone.
+            </p>
+          )}
+        </ModalBody>
+        {deleteTarget && (
+          <ModalFooter
+            dangerDescription="This will permanently delete the config and break its shared links."
+            secondaryButtonText="Cancel"
+            primaryButtonText={deleting ? 'Deleting…' : 'Delete'}
+            primaryButtonDisabled={deleting}
+            onRequestClose={requestCancelDelete}
+            onRequestSubmit={() => void handleDelete()}
+          >
+            {null}
+          </ModalFooter>
+        )}
+      </ComposedModal>
+    </>
   );
 }

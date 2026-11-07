@@ -104,6 +104,11 @@ describe('deserializeConfigData — native workspace', () => {
     ['null trace', { ...validPlot, traces: [null] }, /traces\[0\] is not an object/],
     ['trace missing id', { ...validPlot, traces: [{}] }, /traces\[0\] is missing an id/],
     [
+      'formula trace with a non-string expression',
+      { ...validPlot, traces: [{ id: 'formula-1', kind: 'formula', expression: {} }] },
+      /traces\[0\]\.expression must be a string/,
+    ],
+    [
       'trace with non-array data',
       { ...validPlot, traces: [{ id: 'trace-1', data: 'nope' }] },
       /traces\[0\]\.data is not an array/,
@@ -112,6 +117,11 @@ describe('deserializeConfigData — native workspace', () => {
       'trace with a null data point',
       { ...validPlot, traces: [{ id: 'trace-1', data: [null] }] },
       /traces\[0\]\.data\[0\] is not an object/,
+    ],
+    [
+      'trace with a non-numeric data point value',
+      { ...validPlot, traces: [{ id: 'trace-1', data: [{ time: 1, value: '<img>' }] }] },
+      /traces\[0\]\.data\[0\]\.value must be a finite number/,
     ],
     ['null axis', { ...validPlot, axes: [null] }, /axes\[0\] is not an object/],
     ['axis missing id', { ...validPlot, axes: [{}] }, /axes\[0\] is missing an id/],
@@ -127,6 +137,12 @@ describe('deserializeConfigData — native workspace', () => {
 
   it('reports the index of the offending plot', () => {
     expect(() => deserializeConfigData(nativeWorkspace([validPlot, {}]))).toThrow(/plots\[1\]/);
+  });
+
+  it('rejects duplicate plot ids', () => {
+    expect(() => deserializeConfigData(nativeWorkspace([validPlot, validPlot]))).toThrow(
+      /duplicate plot id 'plot-1'/
+    );
   });
 
   it('accepts a trace with data omitted (rehydratePlot fills it)', () => {
@@ -145,9 +161,7 @@ describe('deserializeConfigData — native workspace', () => {
 
 describe('deserializeWorkspace — legacy .trc formula import', () => {
   it('imports a formula curve and resolves bindings to base curves', () => {
-    const result = deserializeWorkspace(
-      trcWithFormula({ x1: 'TEST:SINE', x2: 'TEST:COUNTER' })
-    );
+    const result = deserializeWorkspace(trcWithFormula({ x1: 'TEST:SINE', x2: 'TEST:COUNTER' }));
     const traces = result.plots[0].traces;
     expect(traces).toHaveLength(3);
 
@@ -166,9 +180,7 @@ describe('deserializeWorkspace — legacy .trc formula import', () => {
   });
 
   it('warns and omits a binding when a variable references a PV not on the plot', () => {
-    const result = deserializeWorkspace(
-      trcWithFormula({ x1: 'TEST:SINE', x2: 'NOT:ON:PLOT' })
-    );
+    const result = deserializeWorkspace(trcWithFormula({ x1: 'TEST:SINE', x2: 'NOT:ON:PLOT' }));
     const traces = result.plots[0].traces;
     const formula = traces.find((t) => t.kind === 'formula')!;
     const a = traces.find((t) => t.pvName === 'TEST:SINE')!;

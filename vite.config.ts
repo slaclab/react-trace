@@ -71,6 +71,15 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        '/vole': {
+          target,
+          changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
+            });
+          },
+        },
         ...(elogTarget
           ? {
               '/elog': {
@@ -89,6 +98,7 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       passWithNoTests: true,
+      setupFiles: ['./src/test/setup.ts'],
     },
   };
 });
