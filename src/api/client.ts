@@ -2,9 +2,15 @@ import type { ErrorEnvelope } from './types';
 
 // Vite dev server proxies /mole/* (and /fox/*) to the Canopy backend (see
 // vite.config.ts) and injects X-API-Key, so the browser bundle never sees the
-// key. In a non-dev build the same paths can be served by a reverse proxy with
-// the same header-injection responsibility.
-const BASE = '';
+// key. In deployed builds, VITE_CANOPY_BASE_PATH is served by Trace's reverse
+// proxy, for example /trace/api/canopy.
+const BASE = (import.meta.env.VITE_CANOPY_BASE_PATH ?? '').replace(/\/$/, '');
+
+export function canopyWebSocketUrl(path: string): string {
+  if (typeof window === 'undefined') return '';
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${window.location.host}${BASE}${path}`;
+}
 
 export class CanopyError extends Error {
   readonly code: string;
@@ -23,9 +29,10 @@ export class CanopyError extends Error {
 export interface FetchOptions {
   query?: Record<string, string | number | boolean | null | undefined>;
   signal?: AbortSignal;
-  // HTTP method; defaults to GET. POST is used for Fox's validate/evaluate.
-  method?: 'GET' | 'POST';
-  // JSON request body (POST only). Serialized with a JSON content-type.
+  // HTTP method; defaults to GET. POST is used for Fox's validate/evaluate;
+  // PUT/DELETE by Magpie's config-store CRUD.
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  // JSON request body (POST/PUT). Serialized with a JSON content-type.
   body?: unknown;
 }
 

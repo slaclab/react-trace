@@ -14,6 +14,8 @@ interface DetachedWindowProps {
    * uses this to reattach the plot.
    */
   onClose: () => void;
+  /** Called just before onClose when the browser blocked the popup, so the parent can say why. */
+  onBlocked?: () => void;
   children: React.ReactNode;
 }
 
@@ -51,6 +53,7 @@ export function DetachedWindow({
   width = 960,
   height = 640,
   onClose,
+  onBlocked,
   children,
 }: DetachedWindowProps) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
@@ -61,6 +64,7 @@ export function DetachedWindow({
     if (!popup) {
       // Popup blocked — fall back to reattaching so the plot isn't lost.
       console.warn('[DetachedWindow] popup blocked by the browser; reattaching plot.');
+      onBlocked?.();
       onClose();
       return;
     }

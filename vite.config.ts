@@ -14,10 +14,22 @@ export default defineConfig(({ mode }) => {
   const elogKey = env.ELOG_API_KEY ?? '';
 
   return {
+    base: env.VITE_BASE_PATH || '/',
     plugins: [react()],
     server: {
       proxy: {
         '/mole': {
+          target,
+          changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
+            });
+          },
+        },
+        // Magpie (config store): REST CRUD for saving/sharing workspaces. Same
+        // X-API-Key injection as /mole so the bundle never holds the key.
+        '/magpie': {
           target,
           changeOrigin: true,
           configure: (proxy) => {
@@ -59,6 +71,15 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        '/vole': {
+          target,
+          changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
+            });
+          },
+        },
         ...(elogTarget
           ? {
               '/elog': {
@@ -77,6 +98,7 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       passWithNoTests: true,
+      setupFiles: ['./src/test/setup.ts'],
     },
   };
 });

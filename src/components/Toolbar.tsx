@@ -11,9 +11,11 @@ import {
   DataTable,
   Renew,
   SendAlt,
+  Bookmark,
 } from '@carbon/icons-react';
 import { HeaderGlobalAction } from '@carbon/react';
 import type { ColorMode } from '../state/themeStore';
+import { formatShortcut } from '../hooks/useKeyboardShortcuts';
 
 interface ToolbarProps {
   colorMode: ColorMode;
@@ -27,6 +29,8 @@ interface ToolbarProps {
   onOpenDocs: () => void;
   onOpenDataInsight: () => void;
   onRefreshArchive: () => void;
+  /** Open the config-store dialog (save / browse / share workspaces). */
+  onOpenConfigStore: () => void;
   /** When set, shows a "Post to E-Log" action. Hidden when e-log is unconfigured. */
   onPostElog?: () => void;
 }
@@ -47,6 +51,7 @@ export function Toolbar({
   onOpenDocs,
   onOpenDataInsight,
   onRefreshArchive,
+  onOpenConfigStore,
   onPostElog,
 }: ToolbarProps) {
   return (
@@ -59,34 +64,63 @@ export function Toolbar({
         <Renew size={20} />
       </HeaderGlobalAction>
       <HeaderGlobalAction
-        aria-label="Data Insight"
+        aria-label={`Data Insight (${formatShortcut('alt', 'D')})`}
         tooltipAlignment="end"
         onClick={onOpenDataInsight}
       >
         <DataTable size={20} />
       </HeaderGlobalAction>
       {onPostElog && (
-        <HeaderGlobalAction aria-label="Post to E-Log" tooltipAlignment="end" onClick={onPostElog}>
+        <HeaderGlobalAction
+          aria-label={`Post to E-Log (${formatShortcut('primary', 'E')})`}
+          tooltipAlignment="end"
+          onClick={onPostElog}
+        >
           <SendAlt size={20} />
         </HeaderGlobalAction>
       )}
-      <HeaderGlobalAction aria-label="Save" tooltipAlignment="end" onClick={onSave}>
+      <HeaderGlobalAction
+        aria-label={`Save (${formatShortcut('primary', 'S')})`}
+        tooltipAlignment="end"
+        onClick={onSave}
+      >
         <Save size={20} />
       </HeaderGlobalAction>
-      <HeaderGlobalAction aria-label="Print" tooltipAlignment="end" onClick={onPrint}>
+      <HeaderGlobalAction
+        aria-label="Config store (save / share workspace)"
+        tooltipAlignment="end"
+        onClick={onOpenConfigStore}
+      >
+        <Bookmark size={20} />
+      </HeaderGlobalAction>
+      <HeaderGlobalAction
+        aria-label={`Print (${formatShortcut('primary', 'P')})`}
+        tooltipAlignment="end"
+        onClick={onPrint}
+      >
         <Printer size={20} />
       </HeaderGlobalAction>
-      <HeaderGlobalAction aria-label="Import" tooltipAlignment="end" onClick={onImport}>
+      <HeaderGlobalAction
+        aria-label={`Import (${formatShortcut('primary', 'O')})`}
+        tooltipAlignment="end"
+        onClick={onImport}
+      >
         <Upload size={20} />
       </HeaderGlobalAction>
       <HeaderGlobalAction aria-label="Export CSV" tooltipAlignment="end" onClick={onExport}>
         <Download size={20} />
       </HeaderGlobalAction>
-      <HeaderGlobalAction aria-label="Export PNG" tooltipAlignment="end" onClick={onExportImage}>
+      <HeaderGlobalAction
+        aria-label={`Export PNG (${formatShortcut('primary', 'I')})`}
+        tooltipAlignment="end"
+        onClick={onExportImage}
+      >
         <Image size={20} />
       </HeaderGlobalAction>
       <HeaderGlobalAction
-        aria-label={colorMode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        aria-label={`${
+          colorMode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
+        } (${formatShortcut('alt', 'T')})`}
         tooltipAlignment="end"
         onClick={onToggleTheme}
       >
