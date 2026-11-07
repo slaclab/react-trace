@@ -45,15 +45,10 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Stage build-time resources
-        # tauri-build verifies the bundle resources exist even for `cargo test`:
-        # config.json is gitignored (it can hold an API key) and dist/ is the
-        # frontend build output (not needed by the Rust tests themselves).
-        run: |
-          cp src-tauri/config.json.example src-tauri/config.json
-          mkdir -p dist && touch dist/index.html
-
       - name: Run Rust tests
+        # Deliberately no config.json / dist staging: build.rs drops those
+        # release-only bundle resources in non-release builds, and this job
+        # checks that a fresh checkout builds and tests without them.
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
   build:

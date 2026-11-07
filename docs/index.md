@@ -1,172 +1,41 @@
----
-icon: lucide/rocket
----
+# Overview
 
-# Get started
+[➡ Go to User Guide](users/user_guide.md)
 
-For full documentation visit [zensical.org](https://zensical.org/docs/).
+Trace is a web application for plotting live and archived EPICS process variables (PVs) at SLAC. It is the browser version of Trace, the PyDM-based plotting tool, and it can open that tool's `.trc` files. Trace shows current values as they change and fills in history from the archiver, so you can compare signals over any time range without installing anything.
 
-## Commands
+This guide is intended for:
 
-- [`zensical new`][new] - Create a new project
-- [`zensical serve`][serve] - Start local web server
-- [`zensical build`][build] - Build your site
+- Operators, physicists, and engineers who need to plot, compare, and share PV data.
 
-  [new]: https://zensical.org/docs/usage/new/
-  [serve]: https://zensical.org/docs/usage/preview/
-  [build]: https://zensical.org/docs/usage/build/
+## Opening Trace
 
-## Examples
+Open Trace in a web browser. No installation is needed.
 
-### Admonitions
+Trace remembers your light/dark mode and color palette choices in the browser. To keep a set of plots, save it as a workspace (see [Save and Open Workspaces](users/user_guide.md#save-and-open-workspaces)).
 
-> Go to [documentation](https://zensical.org/docs/authoring/admonitions/)
+## Support and Contact Information
 
-!!! note
+### Feedback/Issue Reporting
 
-    This is a **note** admonition. Use it to provide helpful information.
+Users can submit feedback or report issues via the [Microsoft Form](https://forms.office.com/r/qV7BmK2xi9), or by clicking the bug icon in Trace's header.
 
-!!! warning
+Please include as much detail as possible, such as:
 
-    This is a **warning** admonition. Be careful!
+- Steps to reproduce the issue
+- Screenshots or attachments
+- The PVs and time range involved
+- Browser or system information
 
-### Details
+Attaching a saved workspace (`.trc.json`) helps the team see exactly what you were looking at.
 
-> Go to [documentation](https://zensical.org/docs/authoring/admonitions/#collapsible-blocks)
+## Glossary
 
-??? info "Click to expand for more info"
-
-    This content is hidden until you click to expand it.
-    Great for FAQs or long explanations.
-
-## Code Blocks
-
-> Go to [documentation](https://zensical.org/docs/authoring/code-blocks/)
-
-```python hl_lines="2" title="Code blocks"
-def greet(name):
-    print(f"Hello, {name}!") # (1)!
-
-greet("Python")
-```
-
-1.  > Go to [documentation](https://zensical.org/docs/authoring/code-blocks/#code-annotations)
-
-    Code annotations allow to attach notes to lines of code.
-
-Code can also be highlighted inline: `#!python print("Hello, Python!")`.
-
-## Content tabs
-
-> Go to [documentation](https://zensical.org/docs/authoring/content-tabs/)
-
-=== "Python"
-
-    ``` python
-    print("Hello from Python!")
-    ```
-
-=== "Rust"
-
-    ``` rs
-    println!("Hello from Rust!");
-    ```
-
-## Diagrams
-
-> Go to [documentation](https://zensical.org/docs/authoring/diagrams/)
-
-```mermaid
-graph LR
-  A[Start] --> B{Error?};
-  B -->|Yes| C[Hmm...];
-  C --> D[Debug];
-  D --> B;
-  B ---->|No| E[Yay!];
-```
-
-## Footnotes
-
-> Go to [documentation](https://zensical.org/docs/authoring/footnotes/)
-
-Here's a sentence with a footnote.[^1]
-
-Hover it, to see a tooltip.
-
-[^1]: This is the footnote.
-
-## Formatting
-
-> Go to [documentation](https://zensical.org/docs/authoring/formatting/)
-
-- ==This was marked (highlight)==
-- ^^This was inserted (underline)^^
-- ~~This was deleted (strikethrough)~~
-- H~2~O
-- A^T^A
-- ++ctrl+alt+del++
-
-## Icons, Emojis
-
-> Go to [documentation](https://zensical.org/docs/authoring/icons-emojis/)
-
-- :sparkles: `:sparkles:`
-- :rocket: `:rocket:`
-- :tada: `:tada:`
-- :memo: `:memo:`
-- :eyes: `:eyes:`
-
-## Maths
-
-> Go to [documentation](https://zensical.org/docs/authoring/math/)
-
-$$
-\cos x=\sum_{k=0}^{\infty}\frac{(-1)^k}{(2k)!}x^{2k}
-$$
-
-!!! warning "Needs configuration"
-Note that MathJax is included via a `script` tag on this page and is not
-configured in the generated default configuration to avoid including it
-in a pages that do not need it. See the documentation for details on how
-to configure it on all your pages if they are more Maths-heavy than these
-simple starter pages.
-
-<script id="MathJax-script" src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
-<script>
-  window.MathJax = {
-    tex: {
-      inlineMath: [["\\(", "\\)"]],
-      displayMath: [["\\[", "\\]"]],
-      processEscapes: true,
-      processEnvironments: true
-    },
-    options: {
-      ignoreHtmlClass: ".*|",
-      processHtmlClass: "arithmatex"
-    }
-  };
-
-  document$.subscribe(() => {
-    MathJax.startup.output.clearCache()
-    MathJax.typesetClear()
-    MathJax.texReset()
-    MathJax.typesetPromise()
-  })
-</script>
-
-## Task Lists
-
-> Go to [documentation](https://zensical.org/docs/authoring/lists/#using-task-lists)
-
-- [x] Install Zensical
-- [x] Configure `zensical.toml`
-- [x] Write amazing documentation
-- [ ] Deploy anywhere
-
-## Tooltips
-
-> Go to [documentation](https://zensical.org/docs/authoring/tooltips/)
-
-[Hover me][example]
-
-[example]: https://example.com "I'm a tooltip!"
+- PV (process variable): A named value in the EPICS control system, such as `TEST:SINE`.
+- Trace: A line on a plot that follows one PV, or a formula.
+- Axis: A vertical scale on a plot. Each trace belongs to one axis.
+- Archiver: The service that stores PV history.
+- Live data: Values streamed from the control system as they change.
+- Binned data: Averaged archive data, with minimum and maximum, used for time ranges longer than 30 minutes.
+- Formula curve: A trace calculated from other traces.
+- Workspace: A saved file (`.trc.json`) with your plots, axes, traces, and settings.

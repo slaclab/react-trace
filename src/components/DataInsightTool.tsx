@@ -64,12 +64,16 @@ export function DataInsightTool({
   const traceId = selected?.trace.id;
   const archiver = selected?.trace.archiver ?? selected?.plot.archiver;
   const windowNs = selected ? windowByPlotId.get(selected.plot.id) : undefined;
+  // A trace with Archive off is inspected from its live samples alone; the
+  // archiver isn't queried for it.
+  const useArchive = selected?.trace.useArchive ?? true;
 
-  const { rows, meta, status, error, decimated, refreshing, refetch } = useInsightData(
+  const { rows, meta, status, error, decimated, refreshing, refetch, archiveNote } = useInsightData(
     pv,
     archiver,
     windowNs,
-    traceId
+    traceId,
+    { archive: useArchive }
   );
 
   const totalPages = Math.max(1, Math.ceil(rows.length / ROWS_PER_PAGE));
@@ -133,6 +137,7 @@ export function DataInsightTool({
             {rows.length > ROWS_PER_PAGE
               ? ` · showing ${(startIdx + 1).toLocaleString()}-${endIdx.toLocaleString()}`
               : ''}
+            {archiveNote ? ` · ${archiveNote}` : ''}
           </span>
         )}
         {status === 'ready' && rows.length > ROWS_PER_PAGE && (
@@ -206,7 +211,11 @@ export function DataInsightTool({
         {status === 'error' ? (
           <div className="insight-tool__empty insight-tool__empty--error">{error}</div>
         ) : status === 'ready' && rows.length === 0 ? (
-          <div className="insight-tool__empty">No data in the plot's time range.</div>
+          <div className="insight-tool__empty">
+            {archiveNote
+              ? "No live samples in the plot's time range."
+              : "No data in the plot's time range."}
+          </div>
         ) : status === 'idle' ? (
           <div className="insight-tool__empty">Add a PV to the plot to inspect its data.</div>
         ) : (

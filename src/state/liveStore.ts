@@ -5,8 +5,10 @@
 // refcounted so two traces watching the same PV produce one outbound subscribe.
 
 import { liveWsUrl } from '../api/hare';
-import { nsToMs } from '../api/time';
-import type { AlarmSeverity, PVValueDTO, WsFrame } from '../api/types';
+import { msToNs, nsToMs } from '../api/time';
+import { fetchBackfill, subscribeVoleBuffer } from '../api/vole';
+import { CanopyError } from '../api/client';
+import type { AlarmSeverity, PVValueDTO, SampleDTO, WsFrame } from '../api/types';
 
 export interface LivePoint {
   time: number;
@@ -60,6 +62,8 @@ interface PVState {
   // `entryFor()` reuses the cached LiveEntry when the rev is unchanged so
   // downstream shallow-equality / React.memo checks hold across frames.
   rev: number;
+  // In-flight backfill controller — aborted on release or superseded request.
+  backfillController: AbortController | null;
 }
 
 interface TraceRef {
@@ -78,6 +82,8 @@ export class LiveStore {
 
   private pvs = new Map<string, PVState>();
   private byTrace = new Map<string, TraceRef>();
+  // PVs we've asked Vole to buffer during their current watch.
+  private voleSubscribed = new Set<string>();
 
   // Per-PV cached entry keyed by a signature of its published inputs. Lets
   // `rebuild()` reuse the prior LiveEntry object when nothing changed, so
@@ -133,6 +139,7 @@ export class LiveStore {
         connected: false,
         severity: null,
         rev: 0,
+        backfillController: null,
       };
       this.pvs.set(pv, state);
     }
@@ -140,7 +147,10 @@ export class LiveStore {
     state.rev++;
 
     this.ensureConnected();
-    if (isFirst) this.sendSubscribe([pv]);
+    if (isFirst) {
+      this.sendSubscribe([pv]);
+      if (this.wsStatus === 'connected') this.startBackfill(pv, state);
+    }
     this.markDirty();
   }
 
@@ -152,17 +162,41 @@ export class LiveStore {
     if (!state) return true;
     state.refs.delete(traceId);
     if (state.refs.size === 0) {
+      state.backfillController?.abort();
+      state.backfillController = null;
       this.pvs.delete(prev.pv);
+      this.voleSubscribed.delete(prev.pv);
       this.sendUnsubscribe([prev.pv]);
     }
     return true;
   }
 
   release(traceId: string): void {
-    if (this.detach(traceId)) this.markDirty();
+    if (this.detach(traceId)) {
+      if (this.pvs.size === 0) this.closeSocket();
+      this.markDirty();
+    }
   }
 
-  /** Released for tests so we can assert post-disconnect state. */
+  private closeSocket(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempt = 0;
+    if (this.ws) {
+      // Closing a connecting socket fires `error`; don't surface it.
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
+    this.wsStatus = 'idle';
+  }
+
+  /** Exposed for tests so we can assert post-disconnect state. */
   forceDisconnect(): void {
     this.ws?.close();
   }
@@ -200,10 +234,14 @@ export class LiveStore {
   private handleOpen(): void {
     this.wsStatus = 'connected';
     this.reconnectAttempt = 0;
-    // A clean open clears any prior connection error.
     this.clearError();
     const pvs = [...this.pvs.keys()];
     if (pvs.length) this.sendSubscribe(pvs);
+    // Backfill on every (re)connect so the fetched window aligns with the WS
+    // subscribe moment — no gap between backfill coverage and first live sample.
+    for (const [pv, state] of this.pvs) {
+      this.startBackfill(pv, state);
+    }
     this.markDirty();
   }
 
@@ -283,7 +321,20 @@ export class LiveStore {
     state.severity = v.severity;
     state.rev++;
     if (typeof v.value === 'number' && Number.isFinite(v.value)) {
-      state.points.push({ time: nsToMs(v.tsNs), value: v.value, severity: v.severity });
+      const point = { time: nsToMs(v.tsNs), value: v.value, severity: v.severity };
+      const points = state.points;
+      const last = points[points.length - 1];
+      if (!last || point.time > last.time) {
+        points.push(point);
+      } else {
+        // Out of order (clock skew or step): insert in place so the trace keeps
+        // updating. Skip only an exact repeat, e.g. Hare's reconnect re-send.
+        let i = lowerBound(points, point.time);
+        for (; i < points.length && points[i].time === point.time; i++) {
+          if (points[i].value === point.value) return;
+        }
+        points.splice(i, 0, point);
+      }
       this.trim(state);
     }
   }
@@ -297,12 +348,10 @@ export class LiveStore {
     // buffer overshoot the window by up to TRIM_SLACK_POINTS, then evict in a
     // single pass. This amortizes eviction to O(1) per sample while never
     // exposing more than `slack` stale points to consumers.
-    let maxRetention = 0;
-    for (const r of state.refs.values()) if (r > maxRetention) maxRetention = r;
-
+    const retention = maxRetention(state);
     const points = state.points;
-    if (maxRetention > 0) {
-      const cutoff = Date.now() - maxRetention;
+    if (retention > 0) {
+      const cutoff = Date.now() - retention;
       // Only scan once enough stale points have accumulated. The newest point
       // is always within the window, so a quick check of the slack-th point
       // tells us whether a trim is even worth attempting.
@@ -385,6 +434,113 @@ export class LiveStore {
     this.entryCache.set(pv, { sig, entry });
     return entry;
   }
+
+  // ── backfill ───────────────────────────────────────────────────────────
+
+  private startBackfill(pv: string, state: PVState): void {
+    state.backfillController?.abort();
+    const controller = new AbortController();
+    state.backfillController = controller;
+
+    // Fill from the newest point, but never past the retention window.
+    const last = state.points[state.points.length - 1];
+    const fromMs = Math.max(last ? last.time : -Infinity, Date.now() - maxRetention(state));
+    const fromNs = msToNs(fromMs);
+
+    fetchBackfill(pv, fromNs, { signal: controller.signal })
+      .then((res) => {
+        if (controller.signal.aborted) return;
+        const current = this.pvs.get(pv);
+        if (!current || current.backfillController !== controller) return;
+        current.backfillController = null;
+        this.mergeBackfill(current, res.samples);
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        if ((err as { name?: string }).name === 'AbortError') return;
+        if (err instanceof CanopyError && err.code === 'pv_not_buffered') {
+          // Ask Vole to buffer it for the next backfill, once per watch.
+          if (this.voleSubscribed.has(pv)) return;
+          this.voleSubscribed.add(pv);
+          subscribeVoleBuffer([pv], { signal: controller.signal }).catch((subErr) => {
+            // Let a later 404 try again.
+            this.voleSubscribed.delete(pv);
+            if (controller.signal.aborted) return;
+            console.warn('vole subscribe failed for', pv, subErr);
+          });
+          return;
+        }
+        console.warn('backfill failed for', pv, err);
+      });
+  }
+
+  private mergeBackfill(state: PVState, samples: SampleDTO[]): void {
+    const incoming: LivePoint[] = [];
+    for (const s of samples) {
+      if (typeof s.value !== 'number' || !Number.isFinite(s.value)) continue;
+      incoming.push({ time: nsToMs(s.tsNs), value: s.value, severity: s.severity });
+    }
+    if (incoming.length === 0) return;
+
+    // Merge only the tail that overlaps the backfill, not the whole buffer.
+    const points = state.points;
+    const start = lowerBound(points, incoming[0].time);
+    const merged = mergeSorted(points.slice(start), incoming);
+    if (merged.length === points.length - start) return;
+    points.length = start;
+    for (const p of merged) points.push(p);
+    state.rev++;
+    this.trim(state);
+    this.markDirty();
+  }
+}
+
+// Longest retention requested by any trace on this PV.
+function maxRetention(state: PVState): number {
+  let max = 0;
+  for (const r of state.refs.values()) if (r > max) max = r;
+  return max;
+}
+
+// Index of the first point at or after `time`. `points` is time-sorted.
+function lowerBound(points: readonly LivePoint[], time: number): number {
+  let lo = 0;
+  let hi = points.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (points[mid].time < time) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+// Merge two time-sorted point lists, keeping a sample in both (same time and
+// value) once. Handles Hare's `initial` landing before or after the backfill.
+export function mergeSorted(
+  existing: readonly LivePoint[],
+  incoming: readonly LivePoint[]
+): LivePoint[] {
+  const out: LivePoint[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < existing.length && j < incoming.length) {
+    const a = existing[i];
+    const b = incoming[j];
+    if (a.time < b.time) {
+      out.push(a);
+      i++;
+    } else if (b.time < a.time) {
+      out.push(b);
+      j++;
+    } else {
+      out.push(a);
+      i++;
+      if (a.value === b.value) j++;
+    }
+  }
+  while (i < existing.length) out.push(existing[i++]);
+  while (j < incoming.length) out.push(incoming[j++]);
+  return out;
 }
 
 export const liveStore = new LiveStore();

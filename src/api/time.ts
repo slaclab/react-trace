@@ -1,6 +1,6 @@
-// Convert UI time-range strings into a (fromNs, toNs) pair. toNs defaults to "now".
-// Relative ranges are spans like "-1h"/"-90m"; "custom" resolves the plot's
-// absolute From/To datetime-local fields.
+// Convert UI time-range strings into a (fromNs, toNs) pair anchored to a
+// caller-supplied "now". Relative ranges are spans like "-30s"/"-1h"/"-90m";
+// "custom" resolves the plot's absolute From/To datetime-local fields.
 
 const NS_PER_MS = 1_000_000n;
 
@@ -19,6 +19,7 @@ export function nsToMs(ns: number): number {
 // Span multipliers in milliseconds. Lowercase `m` is minutes; uppercase `M` is
 // months (approximated as 30 days), matching the Python IOTimeParser units.
 const SPAN_UNIT_MS: Record<string, number> = {
+  s: 1000,
   m: 60 * 1000,
   h: 60 * 60 * 1000,
   d: 24 * 60 * 60 * 1000,
@@ -28,17 +29,17 @@ const SPAN_UNIT_MS: Record<string, number> = {
 
 const ONE_HOUR_MS = SPAN_UNIT_MS.h;
 
-// Parse a free-text span like "1.5h", "30m", "2w" into milliseconds. Returns
-// null for anything that isn't a positive number followed by a known unit.
+// Parse a free-text span like "30s", "1.5h", "30m", "2w" into milliseconds.
+// Returns null for anything that isn't a positive number followed by a known unit.
 export function parseSpanMs(span: string): number | null {
-  const match = /^\s*(\d+(?:\.\d+)?)\s*([mhdwM])\s*$/.exec(span);
+  const match = /^\s*(\d+(?:\.\d+)?)\s*([smhdwM])\s*$/.exec(span);
   if (!match) return null;
   const value = Number(match[1]);
   if (!Number.isFinite(value) || value <= 0) return null;
   return value * SPAN_UNIT_MS[match[2]];
 }
 
-// Resolve a relative range string ("-1h", "-90m") to a span in milliseconds.
+// Resolve a relative range string ("-30s", "-1h", "-90m") to a span in milliseconds.
 // The leading "-" is required; the remainder is a span. Returns null otherwise.
 export function relativeRangeMs(range: string): number | null {
   if (!range.startsWith('-')) return null;
@@ -70,31 +71,34 @@ export interface ResolvedTimeWindow {
   error?: string;
 }
 
-function lastHourWindow(): TimeWindowNs {
-  const toNs = nowNs();
+function lastHourWindow(nowMs: number): TimeWindowNs {
+  const toNs = msToNs(nowMs);
   return { fromNs: toNs - msToNs(ONE_HOUR_MS), toNs };
 }
 
-// Resolve a plot's x-axis into an absolute fetch window. Relative ranges anchor
-// to "now"; "custom" reads the From/To datetime-local fields (empty To = now).
-// Invalid custom ranges fall back to the last hour and report an error string.
-export function resolveTimeWindow(xAxis: XAxisLike): ResolvedTimeWindow {
+// Resolve a plot's x-axis into an absolute fetch window. Relative ranges end at
+// `nowMs`; "custom" reads the From/To datetime-local fields (empty To = `nowMs`).
+// Invalid custom ranges fall back to the hour before `nowMs` and report an error
+// string. `nowMs` is the plot's clock (see useAutoScrollTimers), not the wall
+// clock, so a plot that isn't tracking "now" resolves to the same window on
+// every render.
+export function resolveTimeWindow(xAxis: XAxisLike, nowMs: number): ResolvedTimeWindow {
   if (xAxis.timeRange === 'custom') {
     const fromMs = xAxis.timeFrom ? new Date(xAxis.timeFrom).getTime() : NaN;
     if (!Number.isFinite(fromMs)) {
-      return { window: lastHourWindow(), error: 'Enter a valid "From" date and time.' };
+      return { window: lastHourWindow(nowMs), error: 'Enter a valid "From" date and time.' };
     }
-    const toMs = xAxis.timeTo ? new Date(xAxis.timeTo).getTime() : Date.now();
+    const toMs = xAxis.timeTo ? new Date(xAxis.timeTo).getTime() : nowMs;
     if (!Number.isFinite(toMs)) {
-      return { window: lastHourWindow(), error: 'Enter a valid "To" date and time.' };
+      return { window: lastHourWindow(nowMs), error: 'Enter a valid "To" date and time.' };
     }
     if (fromMs >= toMs) {
-      return { window: lastHourWindow(), error: '"From" must be before "To".' };
+      return { window: lastHourWindow(nowMs), error: '"From" must be before "To".' };
     }
     return { window: { fromNs: msToNs(fromMs), toNs: msToNs(toMs) } };
   }
 
   const spanMs = relativeRangeMs(xAxis.timeRange) ?? ONE_HOUR_MS;
-  const toNs = nowNs();
+  const toNs = msToNs(nowMs);
   return { window: { fromNs: toNs - msToNs(spanMs), toNs } };
 }
