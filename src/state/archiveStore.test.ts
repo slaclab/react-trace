@@ -466,7 +466,7 @@ function decimatingFetch(rawCapS: number): Impl {
     return {
       mode: 'binned',
       pv: PV,
-      archiver: 'lcls',
+      archiver: 'test',
       from: params.fromNs,
       to: toNs,
       binning: 'auto',
