@@ -69,6 +69,12 @@ const HARE_WS_PATH = '/hare/v1/ws/pvs';
 // HarePVService reports a null wire value as 0, with this display value.
 const NO_VALUE_DISPLAY = '---';
 
+// The error shown while the socket is down. The service's own connection errors
+// (the socket couldn't be created; a terminal close such as a rejected key) say
+// more, so they aren't replaced by it.
+const WS_DISCONNECTED_CODE = 'ws_disconnected';
+const SOCKET_ERROR_CODES = new Set(['ws_connect_failed', 'ws_terminal_close']);
+
 const HARD_CAP_POINTS = 100_000;
 // Eviction slack: defer the O(n) front-trim until the buffer holds noticeably
 // more than the retention window calls for, then trim in one pass. Bounds the
@@ -267,6 +273,16 @@ export class LiveStore {
       if (!wasConnected) {
         for (const [pv, state] of this.pvs) this.startBackfill(pv, state);
       }
+    } else if (
+      status === 'disconnected' &&
+      this.connectRequested &&
+      !SOCKET_ERROR_CODES.has(this.wsError?.code ?? '')
+    ) {
+      // The socket dropped, or never opened, while traces still watch. The
+      // service reports only connect failures and terminal closes, so say it
+      // here, under "Disconnected", until a clean reconnect clears it. Not on
+      // our own close after the last release (connectRequested is false then).
+      this.setError(WS_DISCONNECTED_CODE, 'Live connection error.');
     }
     this.markDirty();
   }

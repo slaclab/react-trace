@@ -918,4 +918,55 @@ describe('LiveStore on HarePVService', () => {
       { type: 'subscribe', pvNames: ['NEW'] },
     ]);
   });
+
+  describe('connection error text', () => {
+    const DROPPED = { code: 'ws_disconnected', message: 'Live connection error.' };
+
+    it('shows an error while a dropped socket reconnects and clears it on reopen', () => {
+      const store = newStore();
+      store.watch('t1', 'DROP', 60_000);
+      const ws = fake.instances[0];
+      ws.open();
+      expect(store.getSnapshot().get('t1')!.error).toBeNull();
+
+      ws.close(1006);
+      const entry = store.getSnapshot().get('t1')!;
+      expect(entry.status).toBe('disconnected');
+      expect(entry.error).toEqual(DROPPED);
+
+      vi.advanceTimersByTime(1_000);
+      fake.instances[1].open();
+      expect(store.getSnapshot().get('t1')!.error).toBeNull();
+    });
+
+    it('shows an error when the socket never opens', () => {
+      const store = newStore();
+      store.watch('t1', 'REFUSED', 60_000);
+      // A refused handshake (e.g. a rejected API key) closes before open.
+      fake.instances[0].error();
+      fake.instances[0].close(1006);
+      expect(store.getSnapshot().get('t1')!.error).toEqual(DROPPED);
+    });
+
+    it("keeps the service's message for a terminal close", () => {
+      const store = newStore();
+      store.watch('t1', 'KEY', 60_000);
+      const ws = fake.instances[0];
+      ws.open();
+      ws.close(1008, 'invalid_api_key');
+      const error = store.getSnapshot().get('t1')!.error!;
+      expect(error.code).toBe('ws_terminal_close');
+      expect(error.message).toContain('1008');
+    });
+
+    it('shows no error after the last trace is released', () => {
+      const store = newStore();
+      store.watch('t1', 'GONE', 60_000);
+      fake.instances[0].open();
+      store.release('t1');
+
+      store.watch('t2', 'NEXT', 60_000);
+      expect(store.getSnapshot().get('t2')!.error).toBeNull();
+    });
+  });
 });
