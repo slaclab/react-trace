@@ -15,6 +15,13 @@ import { describeElogError, listLogbooks, postEntry } from '../api/elog';
 import type { ElogEntryCreatedDTO, ElogLogbookDTO } from '../api/types';
 import { capturedToFile, type CapturedPlot } from '../io/exportPlotImage';
 
+// Whether a cached plot file still matches the capture: the same image and title,
+// the inputs capturedToFile uses besides the position, which is in the cache key.
+// A re-capture of an unchanged plot keeps its upload.
+function sameCapture(a: CapturedPlot | undefined, b: CapturedPlot | undefined): boolean {
+  return a === b || (!!a && !!b && a.dataUrl === b.dataUrl && a.title === b.title);
+}
+
 interface PostToElogModalProps {
   open: boolean;
   /** Plots captured as PNGs at the moment the dialog opened. */
@@ -57,8 +64,10 @@ export function PostToElogModal({
   // Files built and attachments uploaded by earlier attempts in this open, so a
   // retry after a failed post reuses them instead of uploading them again. Plot
   // files are keyed by index too because the name embeds the plot's position
-  // among the selected ones.
-  const builtFiles = useRef(new Map<string, File>());
+  // among the selected ones. Each keeps the capture it was built from: Ctrl/Cmd+E
+  // can re-capture while the dialog stays open, and a retry must attach the image
+  // the preview shows, not the one the failed attempt uploaded.
+  const builtFiles = useRef(new Map<string, { source?: CapturedPlot; file: File }>());
   const uploaded = useRef(new Map<File, string>());
 
   // Initialize form state once per open. captured is a snapshot taken at open
@@ -127,16 +136,15 @@ export function PostToElogModal({
     setPosting(true);
     setError(null);
     try {
-      const fileFor = (key: string, build: () => File): File => {
-        let file = builtFiles.current.get(key);
-        if (!file) {
-          file = build();
-          builtFiles.current.set(key, file);
-        }
+      const fileFor = (key: string, build: () => File, source?: CapturedPlot): File => {
+        const cached = builtFiles.current.get(key);
+        if (cached && sameCapture(cached.source, source)) return cached.file;
+        const file = build();
+        builtFiles.current.set(key, { source, file });
         return file;
       };
       const files = selectedCaptured.map((c, i) =>
-        fileFor(`plot:${c.id}:${i}`, () => capturedToFile(c, i))
+        fileFor(`plot:${c.id}:${i}`, () => capturedToFile(c, i), c)
       );
       if (attachConfig) files.push(fileFor('config', buildConfigFile));
 
