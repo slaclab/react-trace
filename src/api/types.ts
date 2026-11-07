@@ -1,6 +1,6 @@
 // Transitional: trace's wire-type names, now backed by @slaclab/canopy-client.
-// The Mole DTOs and the error envelope are the SDK's own types. Vole, Magpie,
-// Hare and Fox below stay here until their clients move to the SDK.
+// The Mole DTOs and the error envelope are the SDK's own types. Vole, Magpie
+// and Fox below stay here until their clients move to the SDK.
 
 import type { SampleDTO as MoleSampleDTO, WireAlarmSeverity } from '@slaclab/canopy-client';
 
@@ -56,56 +56,6 @@ export interface PagedResult<T> {
   continuationToken: string | null;
   totalCount: number | null;
 }
-
-// ── Hare (live PV) DTOs ──────────────────────────────────────────────────────
-// Source: canopy.contracts.pv.PVValue + canopy.hare.api.v1.ws frame schema.
-// `tsNs` matches Mole's Sample.tsNs so live and archive share one time domain.
-
-export type PVScalarValue = number | string | boolean | null;
-export type PVValueType = PVScalarValue | PVScalarValue[];
-
-export interface PVValueDTO {
-  pv: string;
-  value: PVValueType;
-  severity: AlarmSeverity;
-  tsNs: number;
-  connected: boolean;
-  units: string | null;
-  precision: number | null;
-  error: string | null;
-}
-
-export interface WsInitialFrame {
-  type: 'initial';
-  data: Record<string, PVValueDTO>;
-  count: number;
-}
-
-export interface WsDiffFrame {
-  type: 'diff';
-  data: Record<string, PVValueDTO>;
-  count: number;
-  timestamp: number;
-}
-
-export interface WsHeartbeatFrame {
-  type: 'heartbeat';
-  timestamp: number;
-  backend: string | null;
-}
-
-export interface WsPongFrame {
-  type: 'pong';
-  timestamp: number;
-}
-
-export interface WsErrorFrame {
-  type: 'error';
-  code: string;
-  message: string;
-}
-
-export type WsFrame = WsInitialFrame | WsDiffFrame | WsHeartbeatFrame | WsPongFrame | WsErrorFrame;
 
 // ── Fox (formula) DTOs ───────────────────────────────────────────────────────
 // Source: canopy.contracts.formula + canopy.fox.schemas.formula (camelCase wire).
