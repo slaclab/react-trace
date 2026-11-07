@@ -25,9 +25,12 @@ cp src-tauri/config.json.example src-tauri/config.json   # required bundle resou
 pnpm tauri:build
 ```
 
-`config.json` is gitignored because it can hold real keys; the build fails
-without it because it is a declared bundle resource. Development runs
-(`pnpm tauri:dev`) don't need it.
+`config.json` is gitignored because it can hold real keys; the release build
+fails without it because it is a declared bundle resource. Development runs
+(`pnpm tauri:dev`) and `cargo test` / `cargo check` / `cargo clippy` need
+neither `config.json` nor `dist/`: `build.rs` drops both bundle resources
+when the `custom-protocol` feature is off (only `tauri build` turns it on),
+because only the release proxy reads them.
 
 ## Configuration
 
@@ -66,6 +69,30 @@ model of running the web stack's reverse proxy on the same host: the machine is
 assumed to be a trusted operator console. Don't put a production write-token in
 `config.json` on a shared machine.
 
+Web pages in a browser on the same machine are a different matter, so the
+proxy only answers requests addressed to its own origin:
+
+- `Host` must be `127.0.0.1:5178` or `localhost:5178`. This blocks DNS
+  rebinding, where another site's name resolves to 127.0.0.1.
+- `Origin`, when the request has one, must be `http://127.0.0.1:5178` or
+  `http://localhost:5178`. This blocks other sites from opening the live
+  WebSocket streams (WebSockets aren't covered by CORS) and from cross-site
+  form posts to `/elog`, which would otherwise carry the injected token.
+  `Origin: null` is rejected too.
+
+Anything else gets `403` before it reaches a backend. Requests without an
+`Origin` (non-browser clients, same-origin GETs) are allowed; they're covered by
+the local-process trust model above.
+
+The proxy never follows backend redirects itself, because the HTTP client
+would keep `X-API-Key` / `x-vouch-idp-accesstoken` on a redirect to another
+host. A 3xx goes back to the webview. A `Location` on the configured backend
+is rewritten to the matching proxy path (e-log paths get `/elog` back), so the
+browser's follow-up comes through the proxy and gets the key again. A
+`Location` on any other host is passed through unchanged, and the browser
+follows it without the keys. Hop-by-hop headers, including any named in
+`Connection`, are dropped in both directions.
+
 ## Known limitations
 
 - CI artifacts are unsigned (no macOS notarization, no Windows code signing);
@@ -79,9 +106,12 @@ assumed to be a trusted operator console. Don't put a production write-token in
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-Unit tests cover path routing and config precedence; in-process end-to-end
-tests run the real proxy against mock upstreams and assert header injection,
-`/elog` prefix stripping, multipart pass-through, the 502-when-unconfigured
-contract, SPA fallback, and WebSocket bridging including close-code
-passthrough. The `test` job in `.github/workflows/tauri.yml` runs these on
-pull requests.
+No `config.json` or `dist/` is needed. Unit tests cover path routing, config
+precedence (against a fixed environment, so your own `CANOPY_BASE_URL` etc.
+don't affect them), the origin check, hop-by-hop stripping and `Location`
+rewriting. In-process end-to-end tests run the real proxy against mock
+upstreams and assert header injection, `/elog` prefix stripping, multipart
+pass-through, the 502-when-unconfigured contract, SPA fallback, WebSocket
+bridging including close-code passthrough, `403` for foreign origins and
+rebound host names (HTTP and WebSocket), and that redirects aren't followed.
+The `test` job in `.github/workflows/tauri.yml` runs these on pull requests.

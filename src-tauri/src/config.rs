@@ -61,12 +61,22 @@ pub struct FileConfig {
     elog_api_key: Option<String>,
 }
 
+/// Environment lookup used by [`CanopyConfig::resolve_with_env`]: `std::env::var`
+/// in the app, a fixed map in tests (so they never see the operator's real
+/// `CANOPY_BASE_URL` etc. and never mutate process-wide env).
+type EnvLookup<'a> = &'a dyn Fn(&str) -> Option<String>;
+
 /// One precedence chain: CLI > env > file. Empty strings at any level are
 /// treated as unset so an empty CLI flag or `""` in config.json can't shadow a
 /// lower layer.
-fn pick(cli: Option<String>, env_name: &str, file: Option<String>) -> Option<String> {
+fn pick(
+    cli: Option<String>,
+    env: EnvLookup<'_>,
+    env_name: &str,
+    file: Option<String>,
+) -> Option<String> {
     cli.filter(|s| !s.is_empty())
-        .or_else(|| std::env::var(env_name).ok().filter(|s| !s.is_empty()))
+        .or_else(|| env(env_name).filter(|s| !s.is_empty()))
         .or(file.filter(|s| !s.is_empty()))
 }
 
@@ -81,13 +91,24 @@ impl CanopyConfig {
     /// `resource_config` is the parsed bundled `config.json` (if present), and
     /// `cli` carries the optional CLI overrides.
     pub fn resolve(resource_config: Option<FileConfig>, cli: CliOverrides) -> Self {
+        Self::resolve_with_env(resource_config, cli, &|name| std::env::var(name).ok())
+    }
+
+    /// [`Self::resolve`] with an injectable environment, so tests are
+    /// deterministic regardless of the caller's real env.
+    fn resolve_with_env(
+        resource_config: Option<FileConfig>,
+        cli: CliOverrides,
+        env: EnvLookup<'_>,
+    ) -> Self {
         let file = resource_config.unwrap_or_default();
 
-        let canopy_url = pick(cli.canopy_url, "CANOPY_BASE_URL", file.canopy_url)
+        let canopy_url = pick(cli.canopy_url, env, "CANOPY_BASE_URL", file.canopy_url)
             .unwrap_or_else(|| DEFAULT_CANOPY_URL.to_string());
-        let api_key = pick(cli.api_key, "CANOPY_API_KEY", file.api_key).unwrap_or_default();
-        let elog_url = pick(cli.elog_url, "ELOG_BASE_URL", file.elog_url).map(strip_slash);
-        let elog_key = pick(cli.elog_key, "ELOG_API_KEY", file.elog_api_key).unwrap_or_default();
+        let api_key = pick(cli.api_key, env, "CANOPY_API_KEY", file.api_key).unwrap_or_default();
+        let elog_url = pick(cli.elog_url, env, "ELOG_BASE_URL", file.elog_url).map(strip_slash);
+        let elog_key =
+            pick(cli.elog_key, env, "ELOG_API_KEY", file.elog_api_key).unwrap_or_default();
 
         Self {
             canopy_url: strip_slash(canopy_url),
@@ -128,6 +149,7 @@ pub fn read_resource_config(path: Option<&Path>) -> Option<FileConfig> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     fn cli(
         canopy_url: Option<&str>,
@@ -143,6 +165,24 @@ mod tests {
         }
     }
 
+    /// Resolve against a fixed env (`pairs`), never the process env.
+    fn resolve_env(
+        file: Option<FileConfig>,
+        cli: CliOverrides,
+        pairs: &[(&str, &str)],
+    ) -> CanopyConfig {
+        let env: HashMap<String, String> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        CanopyConfig::resolve_with_env(file, cli, &|name| env.get(name).cloned())
+    }
+
+    /// Resolve with an empty env.
+    fn resolve(file: Option<FileConfig>, cli: CliOverrides) -> CanopyConfig {
+        resolve_env(file, cli, &[])
+    }
+
     fn file_all() -> Option<FileConfig> {
         Some(FileConfig {
             canopy_url: Some("http://file:1".into()),
@@ -154,7 +194,7 @@ mod tests {
 
     #[test]
     fn cli_beats_env_and_file() {
-        let cfg = CanopyConfig::resolve(
+        let cfg = resolve(
             file_all(),
             cli(
                 Some("http://cli:2"),
@@ -171,7 +211,7 @@ mod tests {
 
     #[test]
     fn file_used_when_no_override() {
-        let cfg = CanopyConfig::resolve(file_all(), CliOverrides::default());
+        let cfg = resolve(file_all(), CliOverrides::default());
         assert_eq!(cfg.canopy_url, "http://file:1");
         assert_eq!(cfg.api_key, "filekey");
         // Trailing slash stripped on the elog URL too.
@@ -181,7 +221,7 @@ mod tests {
 
     #[test]
     fn falls_back_to_default_url() {
-        let cfg = CanopyConfig::resolve(None, CliOverrides::default());
+        let cfg = resolve(None, CliOverrides::default());
         assert_eq!(cfg.canopy_url, DEFAULT_CANOPY_URL);
         assert_eq!(cfg.api_key, "");
         // E-log defaults to disabled, matching the web app without ELOG_BASE_URL.
@@ -191,9 +231,55 @@ mod tests {
 
     #[test]
     fn empty_strings_do_not_shadow_lower_layers() {
-        let cfg = CanopyConfig::resolve(file_all(), cli(Some(""), Some(""), Some(""), Some("")));
+        let cfg = resolve(file_all(), cli(Some(""), Some(""), Some(""), Some("")));
         assert_eq!(cfg.canopy_url, "http://file:1");
         assert_eq!(cfg.elog_url.as_deref(), Some("http://file-elog:2"));
+    }
+
+    const ENV_ALL: &[(&str, &str)] = &[
+        ("CANOPY_BASE_URL", "http://env:4/"),
+        ("CANOPY_API_KEY", "envkey"),
+        ("ELOG_BASE_URL", "http://env-elog:5"),
+        ("ELOG_API_KEY", "envtoken"),
+    ];
+
+    #[test]
+    fn env_beats_file() {
+        let cfg = resolve_env(file_all(), CliOverrides::default(), ENV_ALL);
+        // Trailing slash stripped on env values too.
+        assert_eq!(cfg.canopy_url, "http://env:4");
+        assert_eq!(cfg.api_key, "envkey");
+        assert_eq!(cfg.elog_url.as_deref(), Some("http://env-elog:5"));
+        assert_eq!(cfg.elog_key, "envtoken");
+    }
+
+    #[test]
+    fn cli_beats_env() {
+        let cfg = resolve_env(
+            file_all(),
+            cli(Some("http://cli:2"), Some("clikey"), None, None),
+            ENV_ALL,
+        );
+        assert_eq!(cfg.canopy_url, "http://cli:2");
+        assert_eq!(cfg.api_key, "clikey");
+        // Values without a CLI override still come from env.
+        assert_eq!(cfg.elog_url.as_deref(), Some("http://env-elog:5"));
+        assert_eq!(cfg.elog_key, "envtoken");
+    }
+
+    #[test]
+    fn empty_env_does_not_shadow_file() {
+        let empty = &[
+            ("CANOPY_BASE_URL", ""),
+            ("CANOPY_API_KEY", ""),
+            ("ELOG_BASE_URL", ""),
+            ("ELOG_API_KEY", ""),
+        ];
+        let cfg = resolve_env(file_all(), CliOverrides::default(), empty);
+        assert_eq!(cfg.canopy_url, "http://file:1");
+        assert_eq!(cfg.api_key, "filekey");
+        assert_eq!(cfg.elog_url.as_deref(), Some("http://file-elog:2"));
+        assert_eq!(cfg.elog_key, "filetoken");
     }
 
     #[test]
