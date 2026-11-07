@@ -1,5 +1,5 @@
 import { fetchData as defaultFetchData } from '../api/mole';
-import type { ArchiverDataDTO, BinnedPointDTO, SampleDTO } from '../api/types';
+import type { AlarmSeverity, ArchiverDataDTO, BinnedPointDTO, SampleDTO } from '../api/types';
 import type { TimeWindowNs } from '../api/time';
 import { nsToMs } from '../api/time';
 
@@ -76,15 +76,19 @@ export function isNotArchivedError(info: { code: string }): boolean {
 
 // ── Buffer model ─────────────────────────────────────────────────────────────
 
+// `severity` is per sample (raw) or per bin (binned). PlotArea breaks the line
+// at INVALID points. Mole currently reports every bin as NO_ALARM.
 export interface ArchivePlotPoint {
   time: number;
   value: number;
+  severity: AlarmSeverity;
 }
 
 export interface ArchiveBandPoint {
   time: number;
   min: number;
   max: number;
+  severity: AlarmSeverity;
 }
 
 export type ArchiveStatus = 'loading' | 'ready' | 'error';
@@ -319,7 +323,9 @@ function dtoToData(
   if (dto.mode === 'raw') {
     const mean: ArchivePlotPoint[] = [];
     for (const s of dto.samples as SampleDTO[]) {
-      if (typeof s.value === 'number') mean.push({ time: nsToMs(s.tsNs), value: s.value });
+      if (typeof s.value === 'number') {
+        mean.push({ time: nsToMs(s.tsNs), value: s.value, severity: s.severity });
+      }
     }
     return {
       status: 'ready',
@@ -336,8 +342,8 @@ function dtoToData(
   const band: ArchiveBandPoint[] = [];
   for (const p of dto.points as BinnedPointDTO[]) {
     const t = nsToMs(p.tsNs);
-    mean.push({ time: t, value: p.mean });
-    band.push({ time: t, min: p.min, max: p.max });
+    mean.push({ time: t, value: p.mean, severity: p.severity });
+    band.push({ time: t, min: p.min, max: p.max, severity: p.severity });
   }
   return {
     status: 'ready',
@@ -371,7 +377,7 @@ function spliceTail(
   for (const s of dto.samples as SampleDTO[]) {
     if (typeof s.value !== 'number') continue;
     const time = nsToMs(s.tsNs);
-    if (time >= tailFromMs) mean.push({ time, value: s.value });
+    if (time >= tailFromMs) mean.push({ time, value: s.value, severity: s.severity });
   }
   return {
     status: 'ready',
@@ -544,6 +550,13 @@ export class ArchiveStore {
       const sameSig = fetchSigEqual(existing.fetchSig, fetchSig);
       const nowNs = this.now() * 1_000_000;
       if (sameSig && covers(existing, opts.window, nowNs)) {
+        // Back on the buffer, so the transient failure is behind us: drop its
+        // backoff, or it would hold up the next uncovered window. A failed
+        // re-ask after a verdict stays, so the verdict isn't adopted over it.
+        if (failure && !failure.revalidating) {
+          this.clearRetry(existing);
+          existing.failure = null;
+        }
         // Back inside the buffer (zoomed back out, or panned back) before the
         // fetch for the window in between answered. Its answer would replace
         // the buffer on screen, so cancel it unless it covers this window too,
