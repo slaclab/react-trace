@@ -415,6 +415,71 @@ describe('archiveStore: other failures back off', () => {
     expect(h.store.getSnapshot().get('t1')?.status).toBe('ready');
   });
 
+  it('fetches the window that failed when it is asked for again after that', async () => {
+    const pastToMs = T0_MS - 3_600_000;
+    const covered = windowAt(pastToMs, 30);
+    const failing = windowAt(pastToMs + 600_000, 30);
+    const h: Harness = setup(async (_pv, params) => {
+      if (h.fetchData.mock.calls.length === 2) throw unavailable();
+      return rawDto(params);
+    });
+    h.store.request('t1', { pv: PV, archiver: undefined, window: covered });
+    await flush();
+    h.store.request('t1', { pv: PV, archiver: undefined, window: failing });
+    await flush();
+    h.store.request('t1', { pv: PV, archiver: undefined, window: covered });
+    await flush();
+    // Back to the window that failed, with its backoff dropped: fetched now,
+    // not skipped as already asked for.
+    h.store.request('t1', { pv: PV, archiver: undefined, window: failing });
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+    expect(h.fetchData.mock.calls[2][1]).toMatchObject({
+      fromNs: failing.fromNs,
+      toNs: failing.toNs,
+    });
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.status).toBe('ready');
+    expect(entry.coverFromNs).toBe(failing.fromNs);
+  });
+
+  it('keeps a retry in flight whose answer covers the window it is back on', async () => {
+    const pastToMs = T0_MS - 3_600_000;
+    const here = windowAt(pastToMs, 600);
+    // Zoomed out around `here`: the same raw mode, twice the span.
+    const wide = { fromNs: here.fromNs - 300e9, toNs: here.toNs + 300e9 };
+    let release!: () => void;
+    const h: Harness = setup((_pv, params) => {
+      const call = h.fetchData.mock.calls.length;
+      if (call === 2) return Promise.reject(unavailable());
+      if (call === 3) {
+        return new Promise((r) => {
+          release = () => r(rawDto(params));
+        });
+      }
+      return Promise.resolve(rawDto(params));
+    });
+    h.store.request('t1', { pv: PV, archiver: undefined, window: here });
+    await flush();
+    h.store.request('t1', { pv: PV, archiver: undefined, window: wide });
+    await flush();
+    // The backoff expires and the timer retries `wide`, still in flight.
+    await idle(h, 1_000);
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+    // Zoom back in, then out again before the retry answers.
+    h.store.request('t1', { pv: PV, archiver: undefined, window: here });
+    await flush();
+    h.store.request('t1', { pv: PV, archiver: undefined, window: wide });
+    await flush();
+    expect(h.fetchData.mock.calls[2][2]?.aborted).toBe(false);
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+    release();
+    await flush();
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.status).toBe('ready');
+    expect(entry.coverFromNs).toBe(wide.fromNs);
+  });
+
   it('drops a scheduled retry on release() and refetchAll()', async () => {
     const times: number[] = [];
     const h: Harness = setup(async () => {
@@ -841,6 +906,29 @@ describe('archiveStore: zooming into a binned buffer', () => {
     await flush();
     expect(h.fetchData).toHaveBeenCalledTimes(3);
     expect(h.fetchData.mock.calls[2][1]).toMatchObject({ fromNs: zoom.fromNs, toNs: zoom.toNs });
+  });
+
+  it('a zoom whose finer bins failed fetches them when it comes back', async () => {
+    const h: Harness = setup(async (_pv, params) => {
+      if (h.fetchData.mock.calls.length === 2) throw unavailable();
+      return binnedDto(params);
+    });
+    const day = windowAt(h.now(), DAY_S);
+    ask(h, day);
+    await flush();
+    const zoom = zoomTo(day, 40 * 60);
+    ask(h, zoom);
+    await flush();
+    expect(h.store.getSnapshot().get('t1')!.status).toBe('error');
+    ask(h, day); // back out: the coarse buffer covers it, the backoff is dropped
+    await flush();
+    expect(h.store.getSnapshot().get('t1')!.status).toBe('ready');
+
+    ask(h, zoom);
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+    expect(h.fetchData.mock.calls[2][1]).toMatchObject({ fromNs: zoom.fromNs, toNs: zoom.toNs });
+    expect(h.store.getSnapshot().get('t1')!.coverFromNs).toBe(zoom.fromNs);
   });
 });
 

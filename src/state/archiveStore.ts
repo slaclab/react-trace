@@ -149,8 +149,10 @@ interface InternalEntry {
   data: ArchiveEntry;
   // Most recently *issued* window. We only fetch when a new request lands
   // outside this (with tolerance). The in-flight promise covers `requestedWindow`.
-  // Null for an entry created already knowing the PV isn't archived, and after
-  // a fetch is cancelled because the window came back inside the buffer.
+  // Null for an entry created already knowing the PV isn't archived, and when
+  // the window comes back inside the buffer after a fetch for another window:
+  // one in flight that wouldn't cover it is cancelled, a failed one's backoff
+  // is dropped.
   requestedWindow: TimeWindowNs | null;
   // Most recent request, issued or not. `refetchAll()` re-issues this one so a
   // manual refresh uses the current window, not one from before a long sticky
@@ -556,6 +558,10 @@ export class ArchiveStore {
         if (failure && !failure.revalidating) {
           this.clearRetry(existing);
           existing.failure = null;
+          // Forget the window that failed too, or asking for it again would be
+          // taken for a request already answered. A retry still in flight
+          // keeps its window: the check below needs it.
+          if (!existing.controller) existing.requestedWindow = null;
         }
         // Back inside the buffer (zoomed back out, or panned back) before the
         // fetch for the window in between answered. Its answer would replace
