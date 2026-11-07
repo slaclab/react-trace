@@ -756,7 +756,7 @@ describe('archiveStore: zooming into a binned buffer', () => {
     return {
       mode: 'binned',
       pv: PV,
-      archiver: 'lcls',
+      archiver: 'test',
       from: params.fromNs,
       to: toNs,
       binning: 'auto',
