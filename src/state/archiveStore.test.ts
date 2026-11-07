@@ -908,6 +908,74 @@ describe('archiveStore: zooming into a binned buffer', () => {
     expect(h.fetchData.mock.calls[2][1]).toMatchObject({ fromNs: zoom.fromNs, toNs: zoom.toNs });
   });
 
+  // Day bins on screen, the first raw fetch (call 2) held until release().
+  function rawZoomHeld() {
+    let release!: () => void;
+    const h: Harness = setup((_pv, params) => {
+      const dto = params.binning ? binnedDto(params) : rawDto(params);
+      if (h.fetchData.mock.calls.length !== 2) return Promise.resolve(dto);
+      return new Promise((r) => {
+        release = () => r(dto);
+      });
+    });
+    return { h, release: () => release() };
+  }
+
+  it('a zoom back out before raw data lands fetches the new window, not day bins', async () => {
+    const { h, release } = rawZoomHeld();
+    const day = windowAt(h.now(), DAY_S);
+    ask(h, day);
+    await flush();
+    ask(h, zoomTo(day, 10 * 60)); // raw: the day bins stay on screen meanwhile
+    await flush();
+    const out = zoomTo(day, 20 * 60);
+    ask(h, out); // inside the day, but the day bins are too coarse for it
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+    expect(h.fetchData.mock.calls[1][2]?.aborted).toBe(true);
+    expect(h.fetchData.mock.calls[2][1]).toMatchObject({ fromNs: out.fromNs, toNs: out.toNs });
+    expect(h.fetchData.mock.calls[2][1].binning).toBeUndefined();
+    // Not shown as ready on the day bins: 'ready' again only once the 20 min
+    // answer is in.
+    expect(h.published.t1).toEqual(['loading', 'ready', 'loading', 'loading', 'ready']);
+
+    release(); // the cancelled 10 min answer doesn't land
+    await flush();
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.mode).toBe('raw');
+    expect(entry.status).toBe('ready');
+    expect(entry.coverFromNs).toBe(out.fromNs);
+    ask(h, out);
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+  });
+
+  it('a zoom further in before raw data lands waits for it', async () => {
+    const { h, release } = rawZoomHeld();
+    const day = windowAt(h.now(), DAY_S);
+    ask(h, day);
+    await flush();
+    const zoom = zoomTo(day, 10 * 60);
+    ask(h, zoom);
+    await flush();
+    const closer = zoomTo(day, 5 * 60);
+    ask(h, closer); // the pending 10 min answer draws this too
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    expect(h.fetchData.mock.calls[1][2]?.aborted).toBe(false);
+    expect(h.store.getSnapshot().get('t1')!.status).toBe('loading');
+
+    release();
+    await flush();
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.mode).toBe('raw');
+    expect(entry.status).toBe('ready');
+    expect(entry.coverFromNs).toBe(zoom.fromNs);
+    ask(h, closer);
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+  });
+
   it('a zoom whose finer bins failed fetches them when it comes back', async () => {
     const h: Harness = setup(async (_pv, params) => {
       if (h.fetchData.mock.calls.length === 2) throw unavailable();

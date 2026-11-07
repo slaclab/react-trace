@@ -160,10 +160,12 @@ interface InternalEntry {
   wanted: RequestOpts;
   controller: AbortController | null;
   failure: Failure | null;
-  // A fetch under this identity has succeeded, so `data.cover*` is real
-  // coverage. Distinguishes an archived PV with no samples in the window
-  // (covered, empty) from one never loaded.
-  hasCover: boolean;
+  // Signature of the fetch the buffer came from. Set once a fetch under this
+  // identity succeeds, so `data.cover*` is real coverage: an archived PV with
+  // no samples in the window is covered and empty, one never loaded is null.
+  // `fetchSig` moves to a new request as soon as it's issued while the buffer
+  // stays on screen, so only a buffer with the same signature counts as cover.
+  coverSig: FetchSig | null;
   // Pending retry of `wanted` after a transient failure (see scheduleRetry).
   retryTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -191,8 +193,14 @@ function coverageTolerance(win: TimeWindowNs): number {
   return Math.max(1, (win.toNs - win.fromNs) * 0.01);
 }
 
+// The buffer was fetched under the current signature: a binned buffer kept on
+// screen while a raw fetch is pending (or the reverse) doesn't count.
+function bufferMatches(entry: InternalEntry): boolean {
+  return !!entry.coverSig && fetchSigEqual(entry.coverSig, entry.fetchSig);
+}
+
 function covers(entry: InternalEntry, win: TimeWindowNs, nowNs: number): boolean {
-  if (!entry.hasCover) return false;
+  if (!bufferMatches(entry)) return false;
   const cover = { fromNs: entry.data.coverFromNs, toNs: entry.data.coverToNs };
   return coverDraws(cover, entry.fetchSig.mode, win, nowNs);
 }
@@ -226,10 +234,15 @@ function coverDraws(
 // sliding forward with "now"), the range to fetch: the new part plus
 // TAIL_OVERLAP_MS of what's buffered. Null when a full fetch is needed: binned
 // mode (bins are relative to the whole window), a decimated buffer (a sparse
-// tail would mix densities), after a failure, or when the gap is over half
-// the span.
+// tail would mix densities), a buffer fetched under another signature, after
+// a failure, or when the gap is over half the span.
 function tailRange(entry: InternalEntry, win: TimeWindowNs): TimeWindowNs | null {
-  if (!entry.hasCover || entry.failure || entry.fetchSig.mode !== 'raw' || entry.data.decimated) {
+  if (
+    !bufferMatches(entry) ||
+    entry.failure ||
+    entry.fetchSig.mode !== 'raw' ||
+    entry.data.decimated
+  ) {
     return null;
   }
   const { coverFromNs, coverToNs } = entry.data;
@@ -495,7 +508,9 @@ export class ArchiveStore {
    *   into a binned buffer past ZOOM_REFETCH_RATIO isn't covered: it refetches
    *   with the coarse buffer still on screen and status 'ready'. Coming back
    *   inside the buffer (zooming back out, panning back) cancels a fetch still
-   *   in flight for a window that doesn't cover this one.
+   *   in flight for a window that doesn't cover this one. A buffer kept on
+   *   screen while a fetch under another signature is pending (binned ↔ raw)
+   *   covers nothing; a window inside the pending one waits for its answer.
    * - Window slid forward past the buffer (raw mode): fetch only the new tail
    *   (plus TAIL_OVERLAP_MS) and splice it in, keeping status 'ready'. If that
    *   would take the buffer past the raw point budget, the whole window is
@@ -586,12 +601,16 @@ export class ArchiveStore {
       // Transient failure: wait out the backoff regardless of window drift.
       if (failure && !failure.notArchived && this.now() < failure.retryAtMs) return;
 
-      // A fetch is in flight and the window only moved forward: let it land.
+      // A fetch is in flight and the window only moved forward, or its answer
+      // will draw this window too (a zoom into it while the buffer on screen is
+      // from another signature): let it land. Its answer re-asks for the latest
+      // window.
       if (
         sameSig &&
         existing.controller &&
         existing.requestedWindow &&
-        forwardSlide(existing.requestedWindow, opts.window)
+        (forwardSlide(existing.requestedWindow, opts.window) ||
+          coverDraws(existing.requestedWindow, fetchSig.mode, opts.window, nowNs))
       ) {
         return;
       }
@@ -628,7 +647,7 @@ export class ArchiveStore {
         wanted: opts,
         controller: null,
         failure: notArchivedFailure(known, spanNs),
-        hasCover: false,
+        coverSig: null,
         retryTimer: null,
       });
       this.publish();
@@ -673,7 +692,7 @@ export class ArchiveStore {
       wanted: opts,
       controller,
       failure: sameIdentity ? existing!.failure : null,
-      hasCover: sameIdentity ? existing!.hasCover : false,
+      coverSig: sameIdentity ? existing!.coverSig : null,
       retryTimer: null,
     };
     this.entries.set(traceId, entry);
@@ -728,7 +747,7 @@ export class ArchiveStore {
       cur.data = data;
       cur.controller = null;
       cur.failure = null;
-      cur.hasCover = true;
+      cur.coverSig = cur.fetchSig;
       this.publish();
       // The window may have moved on while this was in flight (a forward pan
       // doesn't abort it). One that then stays put gets no other request(),
