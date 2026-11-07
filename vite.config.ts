@@ -1,100 +1,87 @@
 import { defineConfig } from 'vitest/config';
-import { loadEnv } from 'vite';
+import { loadEnv, type ProxyOptions } from 'vite';
 import react from '@vitejs/plugin-react';
+import { canopyDevProxy, type CanopyDevProxyOptions } from '@slaclab/canopy-vite';
+
+// The Canopy modules Trace calls, as same-origin per-module paths.
+export const CANOPY_MODULES = ['/mole', '/hare', '/fox', '/magpie', '/vole'];
+
+// Trace's app in Canopy's e-log module: the only e-log path the dev proxy
+// forwards. Canopy doesn't bind keys to apps ({app} only picks the server-side
+// elog-plus token), so a key with e-log write sent on a wider prefix could post
+// as any app configured in Canopy.
+export const ELOG_APP_PATH = '/elog/v1/apps/trace';
+
+// Dev-server proxy options for the Canopy modules. The key stays server-side
+// (no VITE_ prefix): the proxy injects X-API-Key on requests and WebSocket
+// upgrades, so the browser bundle never holds it. In prod a reverse proxy owns
+// the same paths and headers.
+//
+// The proxy serves the layout the bundle uses (src/api/connection.ts):
+// - VITE_CANOPY_BASE_PATH unset: the per-module paths in CANOPY_MODULES,
+//   forwarded unchanged.
+// - VITE_CANOPY_BASE_PATH set (the deployed layout, e.g. /trace/api/canopy):
+//   that one prefix, stripped before forwarding, like the container's nginx.
+export function canopyProxyOptions(env: Record<string, string>): CanopyDevProxyOptions {
+  const basePath = env.VITE_CANOPY_BASE_PATH?.trim();
+  return {
+    target: env.CANOPY_BASE_URL,
+    apiKey: env.CANOPY_API_KEY,
+    // canopy-vite would otherwise put CANOPY_ELOG_API_KEY on all of
+    // ${basePath}/elog when it is set in the environment; the e-log key is
+    // scoped to ELOG_APP_PATH by elogProxy() instead.
+    elogApiKey: '',
+    ...(basePath ? { basePath } : { modules: CANOPY_MODULES }),
+  };
+}
+
+// The e-log route: ELOG_APP_PATH (under VITE_CANOPY_BASE_PATH when set) with
+// CANOPY_ELOG_API_KEY, or CANOPY_API_KEY when that is unset. Built by
+// canopyDevProxy, so it refuses cross-origin requests and drops cookies like
+// the Canopy routes. On top of that the key is only sent when the path, with
+// `..` and %2e%2e resolved as Canopy will, is still under ELOG_APP_PATH: Vite
+// matches the prefix against the raw URL, so /elog/v1/apps/trace/../other
+// would match too.
+export function elogProxy(env: Record<string, string>): Record<string, ProxyOptions> {
+  const basePath = env.VITE_CANOPY_BASE_PATH?.trim().replace(/\/+$/, '') ?? '';
+  const routes = canopyDevProxy({
+    target: env.CANOPY_BASE_URL,
+    apiKey: env.CANOPY_ELOG_API_KEY || env.CANOPY_API_KEY,
+    modules: [`${basePath}${ELOG_APP_PATH}`],
+  });
+  return Object.fromEntries(
+    Object.entries(routes).map(([key, route]) => [
+      key,
+      {
+        ...route,
+        // E-log is REST only.
+        ws: false,
+        ...(basePath ? { rewrite: (path: string) => path.slice(basePath.length) } : {}),
+        configure: (proxy, options) => {
+          route.configure?.(proxy, options);
+          proxy.on('proxyReq', (proxyReq) => {
+            const path = new URL(proxyReq.path, 'http://localhost').pathname;
+            if (path !== ELOG_APP_PATH && !path.startsWith(`${ELOG_APP_PATH}/`)) {
+              proxyReq.removeHeader('X-API-Key');
+            }
+          });
+        },
+      } satisfies ProxyOptions,
+    ])
+  );
+}
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const target = env.CANOPY_BASE_URL ?? 'http://localhost:8000';
-  const apiKey = env.CANOPY_API_KEY ?? '';
-  // E-log (elog-plus) is a separate microservice; the dev proxy injects its
-  // access token so the key never reaches the browser bundle. In prod a reverse
-  // proxy owns the same /elog -> elog-plus rewrite + header injection.
-  const elogTarget = env.ELOG_BASE_URL ?? '';
-  const elogKey = env.ELOG_API_KEY ?? '';
 
   return {
     base: env.VITE_BASE_PATH || '/',
     plugins: [react()],
     server: {
-      proxy: {
-        '/mole': {
-          target,
-          changeOrigin: true,
-          configure: (proxy) => {
-            proxy.on('proxyReq', (proxyReq) => {
-              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
-            });
-          },
-        },
-        // Magpie (config store): REST CRUD for saving/sharing workspaces. Same
-        // X-API-Key injection as /mole so the bundle never holds the key.
-        '/magpie': {
-          target,
-          changeOrigin: true,
-          configure: (proxy) => {
-            proxy.on('proxyReq', (proxyReq) => {
-              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
-            });
-          },
-        },
-        // Hare lives behind the same backend host. WebSocket upgrades for the
-        // live-PV stream go through this proxy with `ws: true`. The same
-        // X-API-Key injection covers both the HTTP and the WS upgrade path so
-        // the bundle never holds the key.
-        '/hare': {
-          target,
-          changeOrigin: true,
-          ws: true,
-          configure: (proxy) => {
-            proxy.on('proxyReq', (proxyReq) => {
-              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
-            });
-            proxy.on('proxyReqWs', (proxyReq) => {
-              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
-            });
-          },
-        },
-        // Fox (formula evaluation): REST validate/evaluate plus the live-formula
-        // WebSocket. `ws: true` upgrades /fox/v1/ws/formulas; X-API-Key is injected
-        // on both the HTTP and WS paths so the bundle never holds the key.
-        '/fox': {
-          target,
-          changeOrigin: true,
-          ws: true,
-          configure: (proxy) => {
-            proxy.on('proxyReq', (proxyReq) => {
-              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
-            });
-            proxy.on('proxyReqWs', (proxyReq) => {
-              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
-            });
-          },
-        },
-        '/vole': {
-          target,
-          changeOrigin: true,
-          configure: (proxy) => {
-            proxy.on('proxyReq', (proxyReq) => {
-              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
-            });
-          },
-        },
-        ...(elogTarget
-          ? {
-              '/elog': {
-                target: elogTarget,
-                changeOrigin: true,
-                rewrite: (path: string) => path.replace(/^\/elog/, ''),
-                configure: (proxy) => {
-                  proxy.on('proxyReq', (proxyReq) => {
-                    if (elogKey) proxyReq.setHeader('x-vouch-idp-accesstoken', elogKey);
-                  });
-                },
-              },
-            }
-          : {}),
-      },
+      // The e-log route first: Vite uses the first matching key, and under
+      // VITE_CANOPY_BASE_PATH the Canopy route's prefix covers it too.
+      proxy: { ...elogProxy(env), ...canopyDevProxy(canopyProxyOptions(env)) },
     },
     test: {
       passWithNoTests: true,

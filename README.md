@@ -30,17 +30,25 @@ cp .env.example .env
 ```
 
 `CANOPY_API_KEY` is a server-side env var (no `VITE_` prefix). The Vite dev server proxies
-`/mole/*` to `CANOPY_BASE_URL` and injects the `X-API-Key` header, so the key never reaches
-the browser bundle.
+`/mole`, `/hare`, `/fox`, `/magpie` and `/vole` (HTTP and WebSocket) to `CANOPY_BASE_URL` and
+injects the `X-API-Key` header, so the key never reaches the browser bundle. The same key goes
+to every one of these modules, so it must be scoped to all of them (`@*`) or to each one. If
+`VITE_CANOPY_BASE_PATH` is set (for example `/trace/api/canopy`), the dev server proxies that
+one prefix instead and strips it before forwarding, like the container's nginx.
+
+The proxy is [`canopyDevProxy`](https://github.com/slaclab/canopy-sdk-js/tree/main/packages/vite)
+from `@slaclab/canopy-vite`. It refuses cross-origin browser requests, including pages on
+another `localhost` port, so other sites open in your browser can't use the injected key.
+A trusted page on another origin needs to be listed in `allowedOrigins` in `vite.config.ts`.
 
 #### E-Log posting (optional)
 
-Set `ELOG_BASE_URL` to an [elog-plus](https://github.com/eed-web-application/elog-plus)
-instance and `ELOG_API_KEY` to an application token. The dev server proxies `/elog/*` to
-that service (stripping the `/elog` prefix) and injects the `x-vouch-idp-accesstoken` header,
-so the token never reaches the browser bundle. Leave `ELOG_BASE_URL` unset to disable the
-feature (the "Post to E-Log" toolbar button hides). `VITE_ELOG_DEFAULT_LOGBOOKS` is an
-optional comma-separated list of logbook names to preselect in the dialog.
+E-log goes through Canopy's e-log module. The dev server proxies only Trace's app path,
+`/elog/v1/apps/trace/`, and injects `CANOPY_ELOG_API_KEY` there (`read+write@elog`), or
+`CANOPY_API_KEY` when it is unset. The key stays on that path because Canopy doesn't bind
+keys to apps: sent on every `/elog` path, it could post as any app configured in Canopy.
+Other `/elog` paths aren't proxied. `VITE_ELOG_DEFAULT_LOGBOOKS` is an optional
+comma-separated list of logbook names to preselect in the dialog.
 
 In production the Trace container reverse-proxies `/trace/api/canopy/*` to the
 in-cluster Canopy service and injects `X-API-Key`, so the browser bundle never

@@ -2,6 +2,7 @@
   "name": "trace",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "React implementation of Trace",
   "scripts": {
     "dev": "vite",
