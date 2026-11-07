@@ -39,7 +39,8 @@ one prefix instead and strips it before forwarding, like the container's nginx.
 The proxy is [`canopyDevProxy`](https://github.com/slaclab/canopy-sdk-js/tree/main/packages/vite)
 from `@slaclab/canopy-vite`. It refuses cross-origin browser requests, including pages on
 another `localhost` port, so other sites open in your browser can't use the injected key.
-A trusted page on another origin needs to be listed in `allowedOrigins` in `vite.config.ts`.
+To let a trusted page on another origin use it, add `allowedOrigins` to the options
+`canopyProxyOptions()` returns in `vite.config.ts`.
 
 #### E-Log posting (optional)
 
@@ -47,8 +48,10 @@ E-log goes through Canopy's e-log module. The dev server proxies only Trace's ap
 `/elog/v1/apps/trace/`, and injects `CANOPY_ELOG_API_KEY` there (`read+write@elog`), or
 `CANOPY_API_KEY` when it is unset. The key stays on that path because Canopy doesn't bind
 keys to apps: sent on every `/elog` path, it could post as any app configured in Canopy.
-Other `/elog` paths aren't proxied. `VITE_ELOG_DEFAULT_LOGBOOKS` is an optional
-comma-separated list of logbook names to preselect in the dialog.
+Other `/elog` paths aren't proxied. Under `VITE_CANOPY_BASE_PATH` they go through that prefix
+with `CANOPY_API_KEY`, like every other Canopy path in the container's nginx.
+`VITE_ELOG_DEFAULT_LOGBOOKS` is an optional comma-separated list of logbook names to
+preselect in the dialog.
 
 In production the Trace container reverse-proxies `/trace/api/canopy/*` to the
 in-cluster Canopy service and injects `X-API-Key`, so the browser bundle never
