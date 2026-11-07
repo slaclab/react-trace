@@ -7,10 +7,10 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const target = env.CANOPY_BASE_URL ?? 'http://localhost:8000';
   const apiKey = env.CANOPY_API_KEY ?? '';
-  // E-log has its own key (read+write@elog) so CANOPY_API_KEY can stay read-only:
-  // Canopy's write scope is per key, so one key with write would also allow PV
-  // writes through Hare. Local dev keys are usually @*, so fall back to
-  // CANOPY_API_KEY when CANOPY_ELOG_API_KEY is unset.
+  // E-log has its own key (read+write@elog), sent only on Trace's e-log app path,
+  // so CANOPY_API_KEY needs no e-log scope (see the proxy entry below). Local dev
+  // keys are usually @*, so fall back to CANOPY_API_KEY when CANOPY_ELOG_API_KEY
+  // is unset.
   const elogApiKey = env.CANOPY_ELOG_API_KEY || apiKey;
   // Trace's app in Canopy's e-log module, the only e-log path the proxy forwards.
   const elogAppPath = '/elog/v1/apps/trace/';
