@@ -5,6 +5,18 @@ name: Build Dev RPM
 # workflow only builds and publishes. The DEV deploy lives in the internal
 # slaclab/swapps-sf-deployment repo, whose scheduled autodeploy picks the newest
 # dev-[0-9a-f]* prerelease and its trace-*.x86_64.rpm asset.
+#
+# Two jobs:
+# - build: one per push, never cancelled. Publishes dev-<sha>; a rerun keeps
+#   the RPM already published there (overwrite_files: false).
+# - publish-latest: serialized across runs (concurrency group). Moves dev-latest
+#   forward only: a build whose commit is older than the one dev-latest already
+#   points at is skipped. It copies the RPM from dev-<sha>, moves the tag, and
+#   leaves exactly that one RPM on the release.
+#   GitHub keeps at most one pending job per concurrency group, so when several
+#   publishes overlap the queued one can be cancelled (shown as a cancelled run
+#   on main). If that was the newest commit, dev-latest lags until the next push
+#   to main; the per-commit dev-<sha> releases are unaffected.
 on:
   push:
     branches:
@@ -16,6 +28,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    outputs:
+      release_tag: ${{ steps.vars.outputs.release_tag }}
+      rpm_name: ${{ steps.find-rpm.outputs.rpm_name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -69,6 +84,7 @@ jobs:
             exit 1
           fi
           echo "rpm_path=${RPMS[0]}" >> "$GITHUB_OUTPUT"
+          echo "rpm_name=$(basename "${RPMS[0]}")" >> "$GITHUB_OUTPUT"
           echo "Found RPM: $(basename "${RPMS[0]}")"
 
       - name: Create immutable dev-<sha> pre-release
@@ -79,20 +95,79 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: true
           files: ${{ steps.find-rpm.outputs.rpm_path }}
+          # A rerun finds this release already published: keep its RPM rather
+          # than deleting and replacing it with a rebuild.
+          overwrite_files: false
           body: |
             Dev build from main branch.
             Commit: ${{ github.sha }}
             Built: ${{ github.event.head_commit.timestamp }}
 
+  publish-latest:
+    needs: build
+    runs-on: ubuntu-22.04
+    concurrency:
+      group: dev-latest-release
+      cancel-in-progress: false
+    steps:
       - name: Update dev-latest rolling pre-release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
-        with:
-          tag_name: dev-latest
-          name: Dev Latest
-          prerelease: true
-          files: ${{ steps.find-rpm.outputs.rpm_path }}
-          body: |
-            Rolling dev build from main branch.
-            Points at: ${{ steps.vars.outputs.release_tag }}
-            Commit: ${{ github.sha }}
-            Built: ${{ github.event.head_commit.timestamp }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+          RPM_NAME: ${{ needs.build.outputs.rpm_name }}
+          BUILT: ${{ github.event.head_commit.timestamp }}
+        # No checkout here, so every gh release call names the repo.
+        run: |
+          set -euo pipefail
+
+          # Only move dev-latest forward. "behind" means this commit is an
+          # ancestor of the one dev-latest points at: a newer push already
+          # published, so this build is stale. "diverged" (main rewritten)
+          # publishes. With no tag yet there is nothing to compare.
+          if gh api "repos/$REPO/git/ref/tags/dev-latest" --silent 2>/dev/null; then
+            status=$(gh api "repos/$REPO/compare/dev-latest...$SHA" --jq .status)
+            echo "dev-latest...${SHA::7}: $status"
+            if [ "$status" = behind ]; then
+              echo "::notice::dev-latest already points at a newer commit than ${SHA::7}; not publishing."
+              exit 0
+            fi
+            tag_exists=true
+          else
+            tag_exists=false
+          fi
+
+          # Same bytes as the immutable per-commit release, including on reruns.
+          workdir=$(mktemp -d)
+          gh release download "$RELEASE_TAG" --repo "$REPO" --pattern "$RPM_NAME" --dir "$workdir"
+
+          # Move the tag first: updating a release doesn't move its tag, and
+          # the release's source archives come from the tag.
+          if [ "$tag_exists" = true ]; then
+            gh api -X PATCH "repos/$REPO/git/refs/tags/dev-latest" -f sha="$SHA" -F force=true --silent
+          else
+            gh api -X POST "repos/$REPO/git/refs" -f ref=refs/tags/dev-latest -f sha="$SHA" --silent
+          fi
+
+          notes="Rolling dev build from main branch.
+          Points at: $RELEASE_TAG
+          Commit: $SHA
+          Built: $BUILT"
+          if gh release view dev-latest --repo "$REPO" >/dev/null 2>&1; then
+            gh release edit dev-latest --repo "$REPO" --title "Dev Latest" --prerelease \
+              --target "$SHA" --notes "$notes"
+          else
+            gh release create dev-latest --repo "$REPO" --verify-tag --title "Dev Latest" \
+              --prerelease --notes "$notes"
+          fi
+
+          # Upload first so the release is never empty, then remove every
+          # other asset (e.g. the previous version's RPM after a version bump).
+          gh release upload dev-latest "$workdir/$RPM_NAME" --repo "$REPO" --clobber
+          gh release view dev-latest --repo "$REPO" --json assets --jq '.assets[].name' |
+            while IFS= read -r name; do
+              if [ "$name" != "$RPM_NAME" ]; then
+                gh release delete-asset dev-latest "$name" --repo "$REPO" --yes
+              fi
+            done
