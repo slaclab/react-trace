@@ -1,8 +1,8 @@
 //! In-process reverse proxy for the desktop app.
 //!
-//! Serves the bundled SPA (`dist/`) at `/` and forwards the three Canopy path
-//! prefixes (`/mole`, `/hare`, `/fox`) to the configured backend, injecting the
-//! `X-API-Key` header. Because the webview is pointed at this proxy's localhost
+//! Serves the bundled SPA (`dist/`) at `/` and forwards the Canopy path
+//! prefixes the frontend uses (`/mole`, `/hare`, `/fox`, `/magpie`, `/vole`)
+//! to the configured backend, injecting the `X-API-Key` header. Because the webview is pointed at this proxy's localhost
 //! origin (see `main.rs`), the frontend's relative fetches and
 //! `window.location.host`-derived WebSocket URLs resolve here unchanged, so no
 //! frontend code differs between the web and desktop targets.
@@ -41,7 +41,9 @@ use tower_http::services::{ServeDir, ServeFile};
 use crate::config::CanopyConfig;
 
 /// Path prefixes that get forwarded to Canopy (everything else is static SPA).
-const API_PREFIXES: [&str; 3] = ["/mole", "/hare", "/fox"];
+/// Keep in sync with the Canopy entries in vite.config.ts `server.proxy`: a
+/// prefix missing here falls through to the SPA and gets index.html back.
+const API_PREFIXES: [&str; 5] = ["/mole", "/hare", "/fox", "/magpie", "/vole"];
 
 /// Prefix forwarded to elog-plus. Unlike the Canopy prefixes the `/elog` prefix
 /// is STRIPPED before forwarding and a different auth header is injected,
@@ -517,7 +519,30 @@ mod tests {
         assert!(is_api_path("/mole/v1/data"));
         assert!(is_api_path("/hare/v1/ws/pvs"));
         assert!(is_api_path("/fox/v1/validate"));
+        assert!(is_api_path("/magpie/v1/configs"));
+        assert!(is_api_path("/vole/v1/health"));
         assert!(is_api_path("/mole"));
+    }
+
+    /// The desktop proxy must forward the same Canopy prefixes as the Vite dev
+    /// proxy; a prefix missing here would get the SPA's index.html instead.
+    #[test]
+    fn api_prefixes_match_vite_dev_proxy() {
+        let vite = include_str!("../../vite.config.ts");
+        let mut vite_prefixes: Vec<&str> = vite
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix('\''))
+            .filter_map(|rest| rest.split_once("': {").map(|(key, _)| key))
+            .filter(|key| key.starts_with('/') && *key != ELOG_PREFIX)
+            .collect();
+        vite_prefixes.sort_unstable();
+        let mut ours = API_PREFIXES.to_vec();
+        ours.sort_unstable();
+        assert!(
+            !vite_prefixes.is_empty(),
+            "no proxy keys found in vite.config.ts"
+        );
+        assert_eq!(ours, vite_prefixes);
     }
 
     #[test]
@@ -759,6 +784,22 @@ mod e2e {
             .unwrap();
         // Key injected; path AND query forwarded unchanged.
         assert_eq!(body, "secret123|GET|/mole/v1/data?binning=auto&n=1");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn forwards_magpie_and_vole_with_api_key() {
+        let upstream = spawn_upstream(echo_router("x-api-key")).await;
+        let proxy = spawn_proxy(config(upstream, None), no_dist()).await;
+
+        for path in ["/magpie/v1/configs?app=trace", "/vole/v1/health"] {
+            let body = reqwest::get(format!("http://{proxy}{path}"))
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap();
+            assert_eq!(body, format!("secret123|GET|{path}"));
+        }
     }
 
     #[tokio::test(flavor = "multi_thread")]

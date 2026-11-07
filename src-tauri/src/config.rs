@@ -1,7 +1,7 @@
 //! Runtime resolution of backend URLs and keys for the desktop app.
 //!
 //! Two upstreams are configured here:
-//! - Canopy (`/mole`, `/hare`, `/fox`): base URL + `X-API-Key`.
+//! - Canopy (`/mole`, `/hare`, `/fox`, `/magpie`, `/vole`): base URL + `X-API-Key`.
 //! - E-Log / elog-plus (`/elog`): base URL + `x-vouch-idp-accesstoken`. Optional;
 //!   when no URL is configured the proxy answers 502 and the frontend hides the
 //!   Post to E-Log button (same behavior as the web app without `ELOG_BASE_URL`).

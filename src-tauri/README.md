@@ -5,8 +5,9 @@ builds the native process runs an in-process reverse proxy on
 `127.0.0.1:5178` that:
 
 - serves the bundled frontend (`dist/`) with SPA deep-link fallback,
-- forwards `/mole`, `/hare`, `/fox` (HTTP + WebSocket) to the configured Canopy
-  backend, injecting `X-API-Key`,
+- forwards `/mole`, `/hare`, `/fox`, `/magpie`, `/vole` (HTTP + WebSocket) to
+  the configured Canopy backend, injecting `X-API-Key` (the same prefixes as
+  the Vite dev proxy in `vite.config.ts`),
 - forwards `/elog` to the configured elog-plus backend with the `/elog` prefix
   stripped, injecting `x-vouch-idp-accesstoken` — the same contract the web
   deployment's reverse proxy owns (see the repo README's "E-Log posting"
