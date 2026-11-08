@@ -12,6 +12,7 @@ import { echartsLineType, echartsSymbol } from '../curveStyle';
 import { isFollowing } from '../hooks/useAutoScrollTimers';
 import { useFollowNow } from '../hooks/useFollowNow';
 import { traceLabel } from '../traceLabel';
+import { ErrorBoundary } from '@slaclab/canopy-shell';
 import { useColorMode } from '@slaclab/canopy-shell/color-mode';
 import type { PngSource } from '../io/exportPlotImage';
 import {
@@ -1205,31 +1206,34 @@ export function PlotArea({
               onReattach={() => onReattachPlot(activePlot.id)}
             />
           ) : (
-            <SinglePlot
-              key={activePlot.id}
-              plot={activePlot}
-              endMs={axisEndFor(activePlot.id)}
-              following={isFollowing(activePlot, viewWindowByPlot)}
-              onFollowStop={onFollowStop ? () => onFollowStop(activePlot.id) : undefined}
-              archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
-              liveResults={liveResultsByPlot.get(activePlot.id) ?? EMPTY_LIVE_RESULTS}
-              formulaResults={formulaResultsByPlot.get(activePlot.id) ?? EMPTY_FORMULA_RESULTS}
-              onViewWindowChange={
-                onViewWindowChange ? (w) => onViewWindowChange(activePlot.id, w) : undefined
-              }
-              initialViewWindowNs={viewWindowByPlot.get(activePlot.id)}
-              onAxisRangesChange={
-                onAxisRangesChange ? (r) => onAxisRangesChange(activePlot.id, r) : undefined
-              }
-              onUpdateAxis={
-                onUpdateAxis ? (id, u) => onUpdateAxis(activePlot.id, id, u) : undefined
-              }
-              onChartInstance={
-                onChartInstance
-                  ? (inst, active) => onChartInstance(activePlot.id, inst, active)
-                  : undefined
-              }
-            />
+            // Each chart has its own boundary, so a crash leaves the plot tabs and
+            // view controls usable (switch to another plot, remove or detach this one).
+            <ErrorBoundary key={activePlot.id}>
+              <SinglePlot
+                plot={activePlot}
+                endMs={axisEndFor(activePlot.id)}
+                following={isFollowing(activePlot, viewWindowByPlot)}
+                onFollowStop={onFollowStop ? () => onFollowStop(activePlot.id) : undefined}
+                archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
+                liveResults={liveResultsByPlot.get(activePlot.id) ?? EMPTY_LIVE_RESULTS}
+                formulaResults={formulaResultsByPlot.get(activePlot.id) ?? EMPTY_FORMULA_RESULTS}
+                onViewWindowChange={
+                  onViewWindowChange ? (w) => onViewWindowChange(activePlot.id, w) : undefined
+                }
+                initialViewWindowNs={viewWindowByPlot.get(activePlot.id)}
+                onAxisRangesChange={
+                  onAxisRangesChange ? (r) => onAxisRangesChange(activePlot.id, r) : undefined
+                }
+                onUpdateAxis={
+                  onUpdateAxis ? (id, u) => onUpdateAxis(activePlot.id, id, u) : undefined
+                }
+                onChartInstance={
+                  onChartInstance
+                    ? (inst, active) => onChartInstance(activePlot.id, inst, active)
+                    : undefined
+                }
+              />
+            </ErrorBoundary>
           )
         ) : (
           <div
@@ -1272,30 +1276,32 @@ export function PlotArea({
                     onReattach={() => onReattachPlot(plot.id)}
                   />
                 ) : (
-                  <SinglePlot
-                    plot={plot}
-                    endMs={axisEndFor(plot.id)}
-                    following={isFollowing(plot, viewWindowByPlot)}
-                    onFollowStop={onFollowStop ? () => onFollowStop(plot.id) : undefined}
-                    archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
-                    liveResults={liveResultsByPlot.get(plot.id) ?? EMPTY_LIVE_RESULTS}
-                    formulaResults={formulaResultsByPlot.get(plot.id) ?? EMPTY_FORMULA_RESULTS}
-                    onViewWindowChange={
-                      onViewWindowChange ? (w) => onViewWindowChange(plot.id, w) : undefined
-                    }
-                    initialViewWindowNs={viewWindowByPlot.get(plot.id)}
-                    onAxisRangesChange={
-                      onAxisRangesChange ? (r) => onAxisRangesChange(plot.id, r) : undefined
-                    }
-                    onUpdateAxis={
-                      onUpdateAxis ? (id, u) => onUpdateAxis(plot.id, id, u) : undefined
-                    }
-                    onChartInstance={
-                      onChartInstance
-                        ? (inst, active) => onChartInstance(plot.id, inst, active)
-                        : undefined
-                    }
-                  />
+                  <ErrorBoundary>
+                    <SinglePlot
+                      plot={plot}
+                      endMs={axisEndFor(plot.id)}
+                      following={isFollowing(plot, viewWindowByPlot)}
+                      onFollowStop={onFollowStop ? () => onFollowStop(plot.id) : undefined}
+                      archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
+                      liveResults={liveResultsByPlot.get(plot.id) ?? EMPTY_LIVE_RESULTS}
+                      formulaResults={formulaResultsByPlot.get(plot.id) ?? EMPTY_FORMULA_RESULTS}
+                      onViewWindowChange={
+                        onViewWindowChange ? (w) => onViewWindowChange(plot.id, w) : undefined
+                      }
+                      initialViewWindowNs={viewWindowByPlot.get(plot.id)}
+                      onAxisRangesChange={
+                        onAxisRangesChange ? (r) => onAxisRangesChange(plot.id, r) : undefined
+                      }
+                      onUpdateAxis={
+                        onUpdateAxis ? (id, u) => onUpdateAxis(plot.id, id, u) : undefined
+                      }
+                      onChartInstance={
+                        onChartInstance
+                          ? (inst, active) => onChartInstance(plot.id, inst, active)
+                          : undefined
+                      }
+                    />
+                  </ErrorBoundary>
                 )}
               </div>
             ))}
