@@ -102,9 +102,9 @@ export type SelectedItem = {
   plotId: string;
 } | null;
 
-// The docked Data Insight tool's close and minimize buttons are inside the tool,
-// so its error fallback adds a way to close the dock; the header action only
-// opens it.
+// Data Insight's close, minimize and reattach buttons are inside the tool, so
+// its error fallback (docked or detached) adds a way to close it; the header
+// action only opens it.
 function DataInsightFallback({
   error,
   reset,
@@ -1273,21 +1273,25 @@ export function TraceApp() {
                   </button>
                 </div>
                 <div style={{ flex: 1, overflow: 'hidden' }}>
-                  <SinglePlot
-                    plot={plot}
-                    endMs={axisEndFor(plot.id)}
-                    following={isFollowing(plot, viewWindowByPlot)}
-                    onFollowStop={() => handleFollowStop(plot.id)}
-                    fullscreen
-                    archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
-                    liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
-                    formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
-                    // eslint-disable-next-line react-hooks/refs -- ref is written from ECharts' finished event, not during render
-                    onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
-                    onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
-                    // eslint-disable-next-line react-hooks/refs -- ref is written on mount/unmount, not during render
-                    onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
-                  />
+                  {/* The close button above stays outside, so a chart error
+                      can be dismissed. */}
+                  <ErrorBoundary>
+                    <SinglePlot
+                      plot={plot}
+                      endMs={axisEndFor(plot.id)}
+                      following={isFollowing(plot, viewWindowByPlot)}
+                      onFollowStop={() => handleFollowStop(plot.id)}
+                      fullscreen
+                      archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
+                      liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
+                      formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
+                      // eslint-disable-next-line react-hooks/refs -- ref is written from ECharts' finished event, not during render
+                      onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
+                      onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
+                      // eslint-disable-next-line react-hooks/refs -- ref is written on mount/unmount, not during render
+                      onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
+                    />
+                  </ErrorBoundary>
                 </div>
               </div>
             </div>
@@ -1371,20 +1375,24 @@ export function TraceApp() {
                 </button>
               </div>
               <div style={{ flex: 1, minHeight: 0 }}>
-                <SinglePlot
-                  plot={plot}
-                  endMs={axisEndFor(plot.id)}
-                  following={isFollowing(plot, viewWindowByPlot)}
-                  onFollowStop={() => handleFollowStop(plot.id)}
-                  archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
-                  liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
-                  formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
-                  onViewWindowChange={(w) => handleViewWindowChange(plot.id, w)}
-                  initialViewWindowNs={viewWindowByPlot.get(plot.id)}
-                  onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
-                  onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
-                  onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
-                />
+                {/* The portal shares this React tree: without a boundary a chart
+                    error here would unmount the whole app. Reattach stays outside. */}
+                <ErrorBoundary>
+                  <SinglePlot
+                    plot={plot}
+                    endMs={axisEndFor(plot.id)}
+                    following={isFollowing(plot, viewWindowByPlot)}
+                    onFollowStop={() => handleFollowStop(plot.id)}
+                    archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
+                    liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
+                    formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
+                    onViewWindowChange={(w) => handleViewWindowChange(plot.id, w)}
+                    initialViewWindowNs={viewWindowByPlot.get(plot.id)}
+                    onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
+                    onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
+                    onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
+                  />
+                </ErrorBoundary>
               </div>
             </ColorModeTheme>
           </DetachedWindow>
@@ -1408,15 +1416,26 @@ export function TraceApp() {
               color: 'var(--cds-text-primary)',
             }}
           >
-            <DataInsightTool
-              plots={insightPlots}
-              windowByPlotId={windowByPlotId}
-              selectedPv={insightPv}
-              detached
-              onSelectPv={(id) => setInsight((p) => ({ ...p, pv: id }))}
-              onClose={() => setInsight((p) => ({ ...p, open: false, detached: false }))}
-              onReattach={() => setInsight((p) => ({ ...p, detached: false }))}
-            />
+            <ErrorBoundary
+              resetKeys={[insightPv, workspaceGeneration]}
+              fallback={(error, reset) => (
+                <DataInsightFallback
+                  error={error}
+                  reset={reset}
+                  onClose={() => setInsight((p) => ({ ...p, open: false, detached: false }))}
+                />
+              )}
+            >
+              <DataInsightTool
+                plots={insightPlots}
+                windowByPlotId={windowByPlotId}
+                selectedPv={insightPv}
+                detached
+                onSelectPv={(id) => setInsight((p) => ({ ...p, pv: id }))}
+                onClose={() => setInsight((p) => ({ ...p, open: false, detached: false }))}
+                onReattach={() => setInsight((p) => ({ ...p, detached: false }))}
+              />
+            </ErrorBoundary>
           </ColorModeTheme>
         </DetachedWindow>
       )}
