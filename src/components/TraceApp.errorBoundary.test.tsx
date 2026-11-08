@@ -17,7 +17,7 @@ import {
 } from '../test/traceAppHarness';
 import { TraceApp } from './TraceApp';
 
-const boom = vi.hoisted(() => ({ left: false }));
+const boom = vi.hoisted(() => ({ left: false, insight: false }));
 
 vi.mock('./Toolbar', async () => (await import('../test/traceAppHarness')).mocks.Toolbar);
 vi.mock('./PlotArea', async () => (await import('../test/traceAppHarness')).mocks.PlotArea);
@@ -31,6 +31,12 @@ vi.mock('./LeftPanel', async () => {
   }
   return { LeftPanel };
 });
+vi.mock('./DataInsightTool', () => ({
+  DataInsightTool: () => {
+    if (boom.insight) throw new Error('data insight exploded');
+    return <div data-testid="data-insight" />;
+  },
+}));
 vi.mock(
   '../hooks/useElogConfig',
   async () => (await import('../test/traceAppHarness')).mocks.useElogConfig
@@ -40,6 +46,7 @@ vi.mock('../io/download', async () => (await import('../test/traceAppHarness')).
 beforeEach(() => {
   resetHarness();
   boom.left = false;
+  boom.insight = false;
   // React reports the caught render error on the console.
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -86,5 +93,54 @@ describe('panel error boundaries', () => {
 
     expect(screen.queryByText('Something went wrong')).toBeNull();
     expect(captured.leftPanel).not.toBeNull();
+  });
+
+  it('recovers the layers panel when the view mode changes', async () => {
+    boom.left = true;
+    render(<TraceApp />);
+    expect(screen.getByText('Something went wrong')).toBeTruthy();
+
+    boom.left = false;
+    await act(async () => captured.plotArea!.onSetViewMode('grid'));
+
+    expect(screen.queryByText('Something went wrong')).toBeNull();
+    expect(captured.leftPanel).not.toBeNull();
+  });
+
+  describe('docked Data Insight', () => {
+    function openInsight() {
+      act(() => captured.toolbar!.onOpenDataInsight());
+    }
+
+    it('can be closed from its fallback', () => {
+      boom.insight = true;
+      render(<TraceApp />);
+      openInsight();
+      expect(screen.getByText('data insight exploded')).toBeTruthy();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Close Data Insight' }));
+
+      expect(screen.queryByText('data insight exploded')).toBeNull();
+      expect(screen.queryByText('Something went wrong')).toBeNull();
+    });
+
+    it('recovers by itself when a workspace reusing the inspected trace id is loaded', async () => {
+      boom.insight = true;
+      render(<TraceApp />);
+      openInsight();
+      // Workspace A: Data Insight inspects trace t1 and keeps failing.
+      await loadWorkspace(workspace([plot('plot-1', [axis('axis-1')], [pvTrace('t1', 'TEST:A')])]));
+      await act(async () => {});
+      expect(screen.getByText('data insight exploded')).toBeTruthy();
+
+      // Workspace B reuses the id t1, so the inspected trace id doesn't change;
+      // the load itself has to reset the boundary.
+      boom.insight = false;
+      await loadWorkspace(workspace([plot('plot-1', [axis('axis-1')], [pvTrace('t1', 'TEST:B')])]));
+      await act(async () => {});
+
+      expect(screen.queryByText('Something went wrong')).toBeNull();
+      expect(screen.getByTestId('data-insight')).toBeTruthy();
+    });
   });
 });

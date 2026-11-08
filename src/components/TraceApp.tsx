@@ -7,7 +7,7 @@ import {
   usePanelRef,
 } from 'react-resizable-panels';
 import { Close, Login, ChevronUp } from '@carbon/icons-react';
-import { ToastNotification } from '@carbon/react';
+import { Button, ToastNotification } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
 import { LeftPanel } from './LeftPanel';
 import { DetachedWindow } from './DetachedWindow';
@@ -25,7 +25,13 @@ import { useFormulaSeries, type FormulaSeriesResult } from '../hooks/useFormulaS
 import type { TimeWindowNs } from '../api/time';
 import { resolveTimeWindow } from '../api/time';
 import { fetchMetadata } from '../api/mole';
-import { ColorModeTheme, ErrorBoundary, setColorMode, useColorMode } from '@slaclab/canopy-shell';
+import {
+  ColorModeTheme,
+  ErrorBoundary,
+  ErrorFallback,
+  setColorMode,
+  useColorMode,
+} from '@slaclab/canopy-shell';
 import { usePaletteId } from '../state/paletteStore';
 import { getPalette, colorForIndex } from '../palettes';
 import { downloadBlob, downloadDataUrl, pickFile } from '../io/download';
@@ -95,6 +101,28 @@ export type SelectedItem = {
   id: string;
   plotId: string;
 } | null;
+
+// The docked Data Insight tool's close and minimize buttons are inside the tool,
+// so its error fallback adds a way to close the dock; the header action only
+// opens it.
+function DataInsightFallback({
+  error,
+  reset,
+  onClose,
+}: {
+  error: Error;
+  reset: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="insight-fallback">
+      <ErrorFallback error={error} reset={reset} />
+      <Button kind="ghost" size="sm" onClick={onClose}>
+        Close Data Insight
+      </Button>
+    </div>
+  );
+}
 
 export function TraceApp() {
   const [plots, setPlots] = useState<Plot[]>(INITIAL_PLOTS);
@@ -1032,7 +1060,7 @@ export function TraceApp() {
               if (next !== leftCollapsed) setLeftCollapsed(next);
             }}
           >
-            <ErrorBoundary resetKeys={[activePlotId, workspaceGeneration]}>
+            <ErrorBoundary resetKeys={[activePlotId, viewMode, workspaceGeneration]}>
               <LeftPanel
                 plots={plots}
                 activePlotId={activePlotId}
@@ -1112,7 +1140,16 @@ export function TraceApp() {
               )}
               {insight.open && !insight.detached && !insight.minimized && (
                 <div className="insight-dock">
-                  <ErrorBoundary resetKeys={[insightPv]}>
+                  <ErrorBoundary
+                    resetKeys={[insightPv, workspaceGeneration]}
+                    fallback={(error, reset) => (
+                      <DataInsightFallback
+                        error={error}
+                        reset={reset}
+                        onClose={() => setInsight((p) => ({ ...p, open: false }))}
+                      />
+                    )}
+                  >
                     <DataInsightTool
                       plots={insightPlots}
                       windowByPlotId={windowByPlotId}

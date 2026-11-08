@@ -54,6 +54,11 @@
   flex-wrap: wrap;
 }
 
+/* The docked Data Insight fallback's extra "Close Data Insight" action. */
+.insight-fallback > .cds--btn {
+  margin: 0 1rem 1rem;
+}
+
 .trace-resize-handle {
   width: 1px;
   background-color: var(--cds-border-subtle);
