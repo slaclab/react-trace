@@ -119,6 +119,20 @@ describe('elogProxy', () => {
     expect(forwardedHeaders(route, '/elog/v1/apps/trace?x=1')).toEqual({ 'X-API-Key': 'e' });
   });
 
+  it('keeps the key under a CANOPY_BASE_URL path and still drops it on an escape', () => {
+    // http-proxy puts the target's path in front of the forwarded path.
+    const route = elogProxy({
+      ...base,
+      CANOPY_BASE_URL: 'http://canopy.test:9000/canopy/',
+      CANOPY_ELOG_API_KEY: 'e',
+    })[KEY];
+    expect(forwardedHeaders(route, '/canopy/elog/v1/apps/trace/config')).toEqual({
+      'X-API-Key': 'e',
+    });
+    expect(forwardedHeaders(route, '/canopy/elog/v1/apps/trace/../other/entries')).toEqual({});
+    expect(forwardedHeaders(route, '/elog/v1/apps/trace/config')).toEqual({});
+  });
+
   it('refuses cross-origin requests like the Canopy routes', () => {
     const route = elogProxy({ ...base, CANOPY_ELOG_API_KEY: 'e' })[KEY];
     const crossOrigin = { headers: { origin: 'http://evil.example', host: 'localhost:5173' } };

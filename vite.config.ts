@@ -49,7 +49,9 @@ export function canopyProxyOptions(env: Record<string, string>): CanopyDevProxyO
 // the Canopy routes. On top of that the key is only sent when the path, with
 // `..` and %2e%2e resolved as Canopy will, is still under ELOG_APP_PATH: Vite
 // matches the prefix against the raw URL, so /elog/v1/apps/trace/../other
-// would match too.
+// would match too. The forwarded path starts with the target's own path when
+// CANOPY_BASE_URL has one (Canopy mounted under a prefix), so the check allows
+// for it.
 export function elogProxy(env: Record<string, string>): Record<string, ProxyOptions> {
   const basePath = normalizeBasePath(env.VITE_CANOPY_BASE_PATH);
   const routes = canopyDevProxy({
@@ -58,25 +60,39 @@ export function elogProxy(env: Record<string, string>): Record<string, ProxyOpti
     modules: [`${basePath}${ELOG_APP_PATH}`],
   });
   return Object.fromEntries(
-    Object.entries(routes).map(([key, route]) => [
-      key,
-      {
-        ...route,
-        // E-log is REST only.
-        ws: false,
-        ...(basePath ? { rewrite: (path: string) => path.slice(basePath.length) } : {}),
-        configure: (proxy, options) => {
-          route.configure?.(proxy, options);
-          proxy.on('proxyReq', (proxyReq) => {
-            const path = new URL(proxyReq.path, 'http://localhost').pathname;
-            if (path !== ELOG_APP_PATH && !path.startsWith(`${ELOG_APP_PATH}/`)) {
-              proxyReq.removeHeader('X-API-Key');
-            }
-          });
-        },
-      } satisfies ProxyOptions,
-    ])
+    Object.entries(routes).map(([key, route]) => {
+      const appPath = `${targetPath(route.target)}${ELOG_APP_PATH}`;
+      return [
+        key,
+        {
+          ...route,
+          // E-log is REST only.
+          ws: false,
+          ...(basePath ? { rewrite: (path: string) => path.slice(basePath.length) } : {}),
+          configure: (proxy, options) => {
+            route.configure?.(proxy, options);
+            proxy.on('proxyReq', (proxyReq) => {
+              const path = new URL(proxyReq.path, 'http://localhost').pathname;
+              if (path !== appPath && !path.startsWith(`${appPath}/`)) {
+                proxyReq.removeHeader('X-API-Key');
+              }
+            });
+          },
+        } satisfies ProxyOptions,
+      ];
+    })
   );
+}
+
+// The path part of a proxy target URL, without a trailing slash: '' for
+// http://host:8000, '/canopy' for http://host/canopy/.
+function targetPath(target: ProxyOptions['target']): string {
+  if (typeof target !== 'string') return '';
+  try {
+    return new URL(target).pathname.replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
 }
 
 // https://vite.dev/config/
