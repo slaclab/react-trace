@@ -2,9 +2,9 @@ name: Build Dev RPM
 
 # On every push to main: build the Linux RPM and publish it as an immutable
 # dev-<7-char sha> prerelease plus a rolling dev-latest prerelease. This
-# workflow only builds and publishes. The DEV deploy lives in the internal
-# slaclab/swapps-sf-deployment repo, whose scheduled autodeploy picks the newest
-# dev-[0-9a-f]* prerelease and its trace-*.x86_64.rpm asset.
+# workflow only builds and publishes. The DEV deploy lives in an internal
+# deploy repo, whose scheduled autodeploy picks the newest dev-[0-9a-f]*
+# prerelease and its trace-*.x86_64.rpm asset.
 #
 # Two jobs:
 # - build: one per push, never cancelled. Publishes dev-<sha>; a rerun keeps
@@ -74,7 +74,7 @@ jobs:
       - name: Find RPM file
         id: find-rpm
         # The asset name (trace-<version>-1.x86_64.rpm, version from
-        # tauri.conf.json) is what swapps-sf-deployment matches, so fail rather
+        # tauri.conf.json) is what the deploy repo matches, so fail rather
         # than publish anything else.
         run: |
           shopt -s nullglob

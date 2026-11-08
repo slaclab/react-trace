@@ -2,8 +2,8 @@ name: Build Release Artifact
 
 # On a published GitHub release, build the Linux RPM (version stamped from the
 # tag) and attach it to the release. This workflow only builds and publishes;
-# deploys to the facility servers live in the internal
-# slaclab/swapps-sf-deployment repo, which pulls this RPM by release tag.
+# deploys live in an internal deploy repo, which pulls this RPM by release
+# tag.
 on:
   release:
     types: [published]
