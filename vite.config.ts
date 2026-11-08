@@ -12,6 +12,14 @@ export const CANOPY_MODULES = ['/mole', '/hare', '/fox', '/magpie', '/vole'];
 // as any app configured in Canopy.
 export const ELOG_APP_PATH = '/elog/v1/apps/trace';
 
+// VITE_CANOPY_BASE_PATH as the bundle reads it (src/api/connection.ts): trimmed,
+// without trailing slashes. '' (unset, empty or '/') means the per-module paths.
+// Kept here rather than imported: connection.ts reads import.meta.env, which
+// vite.config.ts can't.
+export function normalizeBasePath(raw: string | undefined): string {
+  return (raw ?? '').trim().replace(/\/+$/, '');
+}
+
 // Dev-server proxy options for the Canopy modules. The key stays server-side
 // (no VITE_ prefix): the proxy injects X-API-Key on requests and WebSocket
 // upgrades, so the browser bundle never holds it. In prod a reverse proxy owns
@@ -23,7 +31,7 @@ export const ELOG_APP_PATH = '/elog/v1/apps/trace';
 // - VITE_CANOPY_BASE_PATH set (the deployed layout, e.g. /trace/api/canopy):
 //   that one prefix, stripped before forwarding, like the container's nginx.
 export function canopyProxyOptions(env: Record<string, string>): CanopyDevProxyOptions {
-  const basePath = env.VITE_CANOPY_BASE_PATH?.trim();
+  const basePath = normalizeBasePath(env.VITE_CANOPY_BASE_PATH);
   return {
     target: env.CANOPY_BASE_URL,
     apiKey: env.CANOPY_API_KEY,
@@ -43,7 +51,7 @@ export function canopyProxyOptions(env: Record<string, string>): CanopyDevProxyO
 // matches the prefix against the raw URL, so /elog/v1/apps/trace/../other
 // would match too.
 export function elogProxy(env: Record<string, string>): Record<string, ProxyOptions> {
-  const basePath = env.VITE_CANOPY_BASE_PATH?.trim().replace(/\/+$/, '') ?? '';
+  const basePath = normalizeBasePath(env.VITE_CANOPY_BASE_PATH);
   const routes = canopyDevProxy({
     target: env.CANOPY_BASE_URL,
     apiKey: env.CANOPY_ELOG_API_KEY || env.CANOPY_API_KEY,

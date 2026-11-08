@@ -59,6 +59,23 @@ describe('canopyProxyOptions', () => {
     expect(Object.keys(canopyDevProxy(options))).toEqual(['^/trace/api/canopy(?=[/?#]|$)']);
   });
 
+  it('treats a root or blank base path as the per-module layout', () => {
+    for (const raw of ['/', ' / ', '//', '   ']) {
+      const env = { ...base, VITE_CANOPY_BASE_PATH: raw };
+      const options = canopyProxyOptions(env);
+      expect(options.basePath).toBeUndefined();
+      expect(options.modules).toEqual(['/mole', '/hare', '/fox', '/magpie', '/vole']);
+      // canopyDevProxy rejects a root prefix, so this would stop the dev server.
+      expect(() => canopyDevProxy(options)).not.toThrow();
+      expect(Object.keys(elogProxy(env))).toEqual(['^/elog/v1/apps/trace(?=[/?#]|$)']);
+    }
+  });
+
+  it('drops trailing slashes from the deployed base path', () => {
+    const options = canopyProxyOptions({ ...base, VITE_CANOPY_BASE_PATH: '/trace/api/canopy/' });
+    expect(options.basePath).toBe('/trace/api/canopy');
+  });
+
   it("doesn't let canopy-vite put an e-log key on all of /elog", () => {
     const previous = process.env.CANOPY_ELOG_API_KEY;
     process.env.CANOPY_ELOG_API_KEY = 'elog-key';
