@@ -8,24 +8,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { PlotArea } from './PlotArea';
 import type { Plot, PVTrace } from '../types';
+import { chartStub } from '../test/chartStub';
 
-// echarts-for-react replaced by a stand-in that throws for any chart showing a
-// trace named BOOM, and otherwise renders a marker.
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component<{ option: { series?: { name?: string }[] } }> {
-    getEchartsInstance() {
-      return undefined;
-    }
-    render() {
-      if ((this.props.option.series ?? []).some((s) => s.name === 'BOOM')) {
-        throw new Error('chart exploded');
-      }
-      return React.createElement('div', { 'data-testid': 'chart' });
-    }
-  }
-  return { default: MockECharts };
-});
+// CanopyChart replaced by a stand-in that throws for any chart showing a trace
+// named BOOM, and otherwise renders a marker.
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.onRender = ({ option }) => {
+  const series = (option as { series?: { name?: string }[] }).series ?? [];
+  if (series.some((s) => s.name === 'BOOM')) throw new Error('chart exploded');
+};
 
 function trace(displayName: string): PVTrace {
   return {

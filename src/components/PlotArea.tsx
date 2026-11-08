@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import ReactECharts from 'echarts-for-react';
-import type { LegendComponentOption, TooltipComponentOption } from 'echarts';
+import type {
+  ECharts,
+  EChartsOption,
+  LegendComponentOption,
+  TooltipComponentOption,
+} from 'echarts';
 import {
+  CanopyChart,
   baseChartOption,
   chartAxisStyle,
   formatAxisTick,
@@ -420,7 +425,18 @@ export function SinglePlot({
     };
   }, [plot.traces, plot.axes, archiveResults, liveResults, formulaResults]);
 
-  const chartRef = useRef<ReactECharts>(null);
+  // The chart's ECharts instance. CanopyChart hands over each new instance
+  // through onReady (after the first render and after any re-init) but never
+  // reports a disposal, so reads go through liveChart(), which treats a
+  // disposed instance as no instance.
+  const chartRef = useRef<ECharts | null>(null);
+  const handleReady = useCallback((chart: ECharts) => {
+    chartRef.current = chart;
+  }, []);
+  const liveChart = useCallback((): ECharts | null => {
+    const chart = chartRef.current;
+    return chart && !chart.isDisposed() ? chart : null;
+  }, []);
   // Our own wrapper around the chart; the per-axis pointer listeners attach
   // here because it survives echarts-for-react's dispose/recreate cycles.
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -479,8 +495,8 @@ export function SinglePlot({
   useEffect(() => {
     const source: PngSource = {
       getDataURL(opts) {
-        const inst = chartRef.current?.getEchartsInstance();
-        if (!inst || !inst.getDom()) return '';
+        const inst = liveChart();
+        if (!inst) return '';
         return inst.getDataURL(opts) ?? '';
       },
     };
@@ -503,8 +519,8 @@ export function SinglePlot({
     zoomTriggerRef.current = { rangeKey, following };
     const resumed = following && !prev.following;
     if (prev.rangeKey === rangeKey && !resumed) return;
-    const inst = chartRef.current?.getEchartsInstance();
-    if (!inst || !inst.getDom()) return;
+    const inst = liveChart();
+    if (!inst) return;
     programmaticZoomRef.current = true;
     inst.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
     // If the chart was already at 0-100 the action is a no-op and no `datazoom`
@@ -516,7 +532,7 @@ export function SinglePlot({
       programmaticZoomRef.current = false;
     }, 0);
     return () => window.clearTimeout(clearTimer);
-  }, [rangeKey, following]);
+  }, [rangeKey, following, liveChart]);
 
   // Seed the saved sub-range directly into the inside-dataZoom on first render
   // so popping a plot out (or reattaching) preserves the user's wheel-zoom.
@@ -536,58 +552,63 @@ export function SinglePlot({
         }
       : null;
 
-  const handleFinished = useCallback(() => {
-    if (!onAxisRangesChange) return;
-    const inst = chartRef.current?.getEchartsInstance();
-    // `finished` can fire mid-mount or after disposal when the DOM and model
-    // aren't both ready; bail in those cases instead of crashing.
-    if (!inst || !inst.getDom()) return;
-    type AxisModel = { axis: { scale: { getExtent: () => [number, number] } } };
-    const model = (
-      inst as unknown as {
-        getModel: () => { getComponent: (n: string, i: number) => AxisModel } | undefined;
-      }
-    ).getModel();
-    if (!model) return;
-    const next = new Map<string, [number, number]>();
-    visibleAxes.forEach((axis, idx) => {
-      const ext = model.getComponent('yAxis', idx)?.axis?.scale?.getExtent();
-      if (ext) next.set(axis.id, [ext[0], ext[1]]);
-    });
-    onAxisRangesChange(next);
-  }, [onAxisRangesChange, visibleAxes]);
+  // Chart event handlers get the chart that fired the event. CanopyChart drops
+  // events from a disposed chart before they reach us.
+  const handleFinished = useCallback(
+    (_params: unknown, chart: ECharts) => {
+      if (!onAxisRangesChange) return;
+      // `finished` can fire before the model is ready; bail instead of crashing.
+      type AxisModel = { axis: { scale: { getExtent: () => [number, number] } } };
+      const model = (
+        chart as unknown as {
+          getModel: () => { getComponent: (n: string, i: number) => AxisModel } | undefined;
+        }
+      ).getModel();
+      if (!model) return;
+      const next = new Map<string, [number, number]>();
+      visibleAxes.forEach((axis, idx) => {
+        const ext = model.getComponent('yAxis', idx)?.axis?.scale?.getExtent();
+        if (ext) next.set(axis.id, [ext[0], ext[1]]);
+      });
+      onAxisRangesChange(next);
+    },
+    [onAxisRangesChange, visibleAxes]
+  );
 
-  const handleDataZoom = useCallback(() => {
-    // Ignore the zoom reset we dispatched on a range re-select; only genuine
-    // user pan/zoom should record a manual window and disable autoscroll.
-    if (programmaticZoomRef.current) {
-      programmaticZoomRef.current = false;
-      return;
-    }
-    // A genuine pan/zoom takes the window over. Stop following at once (the
-    // app freezes the plot at the `endMs` it gave us), so no tick or live batch
-    // can slide the axis under the user's drag while the view window below is
-    // debounced.
-    if (following) onFollowStop?.();
-    if (!onViewWindowChange) return;
-    const inst = chartRef.current?.getEchartsInstance();
-    if (!inst) return;
-    // Read the current x-axis extent (in ms) directly from the model — this
-    // reflects the visible time range after the user has zoomed/panned.
-    type AxisModel = { axis: { scale: { getExtent: () => [number, number] } } };
-    const xModel = (
-      inst as unknown as { getModel: () => { getComponent: (n: string, i: number) => AxisModel } }
-    )
-      .getModel()
-      .getComponent('xAxis', 0);
-    const ext = xModel?.axis?.scale?.getExtent();
-    if (!ext) return;
-    const [fromMs, toMs] = ext;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      onViewWindowChange({ fromNs: msToNs(fromMs), toNs: msToNs(toMs) });
-    }, 400);
-  }, [onViewWindowChange, following, onFollowStop]);
+  const handleDataZoom = useCallback(
+    (_params: unknown, chart: ECharts) => {
+      // Ignore the zoom reset we dispatched on a range re-select; only genuine
+      // user pan/zoom should record a manual window and disable autoscroll.
+      if (programmaticZoomRef.current) {
+        programmaticZoomRef.current = false;
+        return;
+      }
+      // A genuine pan/zoom takes the window over. Stop following at once (the
+      // app freezes the plot at the `endMs` it gave us), so no tick or live batch
+      // can slide the axis under the user's drag while the view window below is
+      // debounced.
+      if (following) onFollowStop?.();
+      if (!onViewWindowChange) return;
+      // Read the current x-axis extent (in ms) directly from the model — this
+      // reflects the visible time range after the user has zoomed/panned.
+      type AxisModel = { axis: { scale: { getExtent: () => [number, number] } } };
+      const xModel = (
+        chart as unknown as {
+          getModel: () => { getComponent: (n: string, i: number) => AxisModel };
+        }
+      )
+        .getModel()
+        .getComponent('xAxis', 0);
+      const ext = xModel?.axis?.scale?.getExtent();
+      if (!ext) return;
+      const [fromMs, toMs] = ext;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        onViewWindowChange({ fromNs: msToNs(fromMs), toNs: msToNs(toMs) });
+      }, 400);
+    },
+    [onViewWindowChange, following, onFollowStop]
+  );
 
   // Per-Y-axis mouse interactions (issue 45): scrolling over a single axis zooms
   // only that axis; dragging an axis pans only that axis. The whole-plot X
@@ -619,12 +640,8 @@ export function SinglePlot({
       getWidth: () => number;
       getHeight: () => number;
       getZr: () => { setCursorStyle: (cursor: string) => void };
-      isDisposed: () => boolean;
     };
-    const liveEc = (): Ecm | null => {
-      const inst = chartRef.current?.getEchartsInstance() as unknown as Ecm | undefined;
-      return inst && !inst.isDisposed() ? inst : null;
-    };
+    const liveEc = () => liveChart() as unknown as Ecm | null;
 
     // Wrapper-local coordinates. The wrapper exactly overlays the chart canvas
     // (both fill 100% × 100% with no padding), so these are canvas pixels.
@@ -786,7 +803,7 @@ export function SinglePlot({
       win.removeEventListener('mousemove', onWindowMouseMove);
       win.removeEventListener('mouseup', onWindowMouseUp);
     };
-  }, []);
+  }, [liveChart]);
 
   // Axes sharing a side (left/right) would otherwise stack at the same spot and
   // overlap, so we offset each one outward by its position within that side.
@@ -904,7 +921,7 @@ export function SinglePlot({
   const baseLegend = base.legend as LegendComponentOption;
   const axisStyle = chartAxisStyle(theme);
 
-  const option = {
+  const option: EChartsOption = {
     ...base,
     backgroundColor: effectiveBackground(plot.backgroundColor, theme),
     grid: {
@@ -1013,9 +1030,12 @@ export function SinglePlot({
         snap: false,
         label: {
           ...baseTooltip.axisPointer?.label,
-          formatter: (
-            p: { value: number; axisDimension?: string } // X --> timestamp, Y --> raw value
-          ) => (p.axisDimension === 'y' ? formatValue(p.value) : formatCrosshairTime(p.value)),
+          // X --> timestamp, Y --> raw value. Both axes are numeric (time in ms,
+          // value or log), so the label value is always a number here.
+          formatter: (p) =>
+            p.axisDimension === 'y'
+              ? formatValue(Number(p.value))
+              : formatCrosshairTime(Number(p.value)),
         },
       },
       textStyle: { ...baseTooltip.textStyle, fontSize: 11 },
@@ -1025,10 +1045,12 @@ export function SinglePlot({
       // closure captures `traceData` and `visibleTraces` from the surrounding
       // render so each line shows the trace's nearest sample plus the time
       // offset between cursor and that sample.
-      formatter: (params: { axisValue: number }[] | { axisValue: number }) => {
+      formatter: (params) => {
         const arr = Array.isArray(params) ? params : [params];
         if (arr.length === 0) return '';
-        const cursorMs = arr[0]?.axisValue;
+        // Axis-triggered params carry the cursor's axis value, which ECharts'
+        // callback types leave out.
+        const cursorMs = (arr[0] as { axisValue?: unknown } | undefined)?.axisValue;
         if (typeof cursorMs !== 'number' || !Number.isFinite(cursorMs)) return '';
         const time = formatCrosshairTime(cursorMs);
         const lines: string[] = [];
@@ -1054,7 +1076,7 @@ export function SinglePlot({
       show: plot.showLegend,
       bottom: 8,
       textStyle: { ...baseLegend.textStyle, fontSize: 11 },
-      data: visibleTraces.map((t) => labels.get(t.id)),
+      data: visibleTraces.map((t) => labels.get(t.id) ?? ''),
       selectedMode: false, // legend clicks aren't wired to trace.visible --> disable to + avoid drift
     },
   };
@@ -1071,13 +1093,11 @@ export function SinglePlot({
       data-fullscreen={fullscreen ? 'true' : undefined}
       style={{ height: '100%', width: '100%' }}
     >
-      <ReactECharts
-        ref={chartRef}
+      <CanopyChart
         option={option}
         replaceMerge={['series', 'yAxis']}
         onEvents={{ datazoom: handleDataZoom, finished: handleFinished }}
-        style={{ height: '100%', width: '100%' }}
-        opts={{ renderer: 'canvas' }}
+        onReady={handleReady}
       />
     </div>
   );
