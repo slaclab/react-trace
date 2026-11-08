@@ -21,12 +21,25 @@ export function capturePlotPng(
   colorMode: 'dark' | 'light',
   preferFullscreen = false
 ): string | null {
-  const host =
-    (preferFullscreen &&
-      document.querySelector(`[data-plot-id="${plot.id}"][data-fullscreen] > div`)) ||
-    document.querySelector(`[data-plot-id="${plot.id}"] > div`);
-  if (!(host instanceof HTMLElement)) return null;
-  return captureChartPng(getInstanceByDom(host), {
+  const root =
+    (preferFullscreen && document.querySelector(`[data-plot-id="${plot.id}"][data-fullscreen]`)) ||
+    document.querySelector(`[data-plot-id="${plot.id}"]`);
+  if (!root) return null;
+  return captureChartPng(chartUnder(root), {
     background: effectiveBackground(plot.backgroundColor, chartThemeFor(colorMode)),
   });
+}
+
+/**
+ * The ECharts instance mounted below a plot's `data-plot-id` wrapper. The
+ * chart's host div isn't a fixed number of levels down (the chart component
+ * may add wrappers of its own), so walk the wrapper's divs in document order
+ * and take the first one ECharts was initialized on.
+ */
+function chartUnder(root: Element) {
+  for (const el of root.querySelectorAll('div')) {
+    const chart = getInstanceByDom(el);
+    if (chart) return chart;
+  }
+  return undefined;
 }

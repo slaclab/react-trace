@@ -33,13 +33,22 @@ function plot(backgroundColor = '#161616'): Plot {
   };
 }
 
-// Mount a SinglePlot-shaped wrapper: [data-plot-id] > (chart host div).
-function mountChart(opts: { fullscreen?: boolean; dataUrl?: string } = {}) {
+// Mount a SinglePlot-shaped wrapper: [data-plot-id] > (chart component's
+// wrapper div) > (chart host div) > (zrender's own div). `flat` drops the
+// component wrapper, the layout echarts-for-react used on its own.
+function mountChart(opts: { fullscreen?: boolean; dataUrl?: string; flat?: boolean } = {}) {
   const wrap = document.createElement('div');
   wrap.dataset.plotId = 'p1';
   if (opts.fullscreen) wrap.dataset.fullscreen = 'true';
   const host = document.createElement('div');
-  wrap.appendChild(host);
+  host.appendChild(document.createElement('div'));
+  if (opts.flat) {
+    wrap.appendChild(host);
+  } else {
+    const component = document.createElement('div');
+    component.appendChild(host);
+    wrap.appendChild(component);
+  }
   document.body.appendChild(wrap);
   const getDataURL = vi.fn(() => opts.dataUrl ?? PNG);
   h.charts.set(host, { getDataURL });
@@ -88,6 +97,31 @@ describe('capturePlotPng', () => {
     expect(fullscreen).toHaveBeenCalledTimes(1);
     expect(capturePlotPng(plot(), 'dark')).toBe('data:image/png;base64,aW4=');
     expect(inWindow).toHaveBeenCalledTimes(1);
+  });
+
+  it('finds a chart host directly under the plot wrapper too', () => {
+    const getDataURL = mountChart({ flat: true });
+    expect(capturePlotPng(plot(), 'dark')).toBe(PNG);
+    expect(getDataURL).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns null while the plot is mounted but its chart is not ready', () => {
+    const wrap = document.createElement('div');
+    wrap.dataset.plotId = 'p1';
+    wrap.appendChild(document.createElement('div'));
+    document.body.appendChild(wrap);
+    expect(capturePlotPng(plot(), 'dark')).toBeNull();
+  });
+
+  it('does not fall back to the in-window copy while the fullscreen chart is not ready', () => {
+    const inWindow = mountChart();
+    const fullscreen = document.createElement('div');
+    fullscreen.dataset.plotId = 'p1';
+    fullscreen.dataset.fullscreen = 'true';
+    fullscreen.appendChild(document.createElement('div'));
+    document.body.appendChild(fullscreen);
+    expect(capturePlotPng(plot(), 'dark', true)).toBeNull();
+    expect(inWindow).not.toHaveBeenCalled();
   });
 
   it('returns null instead of throwing when the chart yields no image', () => {
