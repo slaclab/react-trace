@@ -69,6 +69,15 @@ const HARE_WS_PATH = '/hare/v1/ws/pvs';
 // HarePVService reports a null wire value as 0, with this display value.
 const NO_VALUE_DISPLAY = '---';
 
+// Whether an update stands for a null value. An enum PV whose choice label at
+// that index is literally '---' displays the same, so that case is a real
+// value. (A null on such a PV still reads as that index: PVData can't tell
+// them apart, slaclab/canopy-sdk-js#42.)
+function isNullValue(data: PVData): boolean {
+  if (data.displayValue !== NO_VALUE_DISPLAY) return false;
+  return !(typeof data.value === 'number' && data.enumChoices?.[data.value] === NO_VALUE_DISPLAY);
+}
+
 // The error shown while the socket is down. The service's own connection errors
 // (the socket couldn't be created; a terminal close such as a rejected key) say
 // more, so they aren't replaced by it.
@@ -299,11 +308,7 @@ export class LiveStore {
     // the service reports as 0.
     if (data.connected) {
       state.severity = toWireSeverity(data.severity);
-      if (
-        typeof data.value === 'number' &&
-        Number.isFinite(data.value) &&
-        data.displayValue !== NO_VALUE_DISPLAY
-      ) {
+      if (typeof data.value === 'number' && Number.isFinite(data.value) && !isNullValue(data)) {
         this.insertPoint(state, {
           time: data.timestamp,
           value: data.value,

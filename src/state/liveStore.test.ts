@@ -858,6 +858,39 @@ describe('LiveStore on HarePVService', () => {
     expect(entry.points).toEqual([{ time: tsMs + 100, value: 0, severity: 'NO_ALARM' }]);
   });
 
+  it("keeps an enum sample whose choice label is '---'", () => {
+    const store = newStore();
+    store.watch('t1', 'MODE', 60_000);
+    const ws = fake.instances[0];
+    ws.open();
+
+    const tsMs = Date.now();
+    ws.message({
+      type: 'initial',
+      data: { MODE: { ...pvValue('MODE', 0, tsMs), valueKind: 'enum' } },
+      meta: {
+        MODE: {
+          pv: 'MODE',
+          valueKind: 'enum',
+          units: null,
+          precision: null,
+          enumChoices: ['---', 'ON'],
+          displayLow: null,
+          displayHigh: null,
+        },
+      },
+      count: 1,
+    });
+    ws.message(diff({ MODE: { ...pvValue('MODE', 1, tsMs + 100), valueKind: 'enum' } }));
+
+    const entry = store.getSnapshot().get('t1')!;
+    expect(entry.latest!.displayValue).toBe('ON');
+    expect(entry.points).toEqual([
+      { time: tsMs, value: 0, severity: 'NO_ALARM' },
+      { time: tsMs + 100, value: 1, severity: 'NO_ALARM' },
+    ]);
+  });
+
   it('reports a socket that cannot be created and retries with backoff', () => {
     const later = createFakeWebSocketFactory();
     let failNext = true;
