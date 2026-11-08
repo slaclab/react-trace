@@ -437,8 +437,9 @@ export function SinglePlot({
     const chart = chartRef.current;
     return chart && !chart.isDisposed() ? chart : null;
   }, []);
-  // Our own wrapper around the chart; the per-axis pointer listeners attach
-  // here because it survives echarts-for-react's dispose/recreate cycles.
+  // Our own wrapper around the chart. It carries data-plot-id for capture, and
+  // the per-axis pointer listeners attach here because it outlives any ECharts
+  // instance created under it.
   const wrapRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Set while we programmatically reset the zoom on a range re-select, so the
@@ -488,10 +489,9 @@ export function SinglePlot({
 
   // Publish a stable PngSource proxy up to the app for PNG capture; clear on
   // unmount so a captured-but-gone plot (closed tab, reattached window) isn't
-  // stale. The proxy resolves the *live* ECharts instance on each call instead
-  // of capturing one at mount: echarts-for-react disposes and recreates its
-  // internal instance across some re-renders, so a snapshotted reference goes
-  // stale and getDataURL() silently returns undefined on the dead instance.
+  // stale. The proxy reads the current ECharts instance on each call instead of
+  // capturing one at mount: the chart isn't ready at mount, and a re-created
+  // chart leaves a disposed instance behind that yields no image.
   useEffect(() => {
     const source: PngSource = {
       getDataURL(opts) {
@@ -615,12 +615,13 @@ export function SinglePlot({
   // pan/zoom (the `inside` dataZoom) still owns the plot interior.
   //
   // Listeners live on OUR wrapper div (and its window), never on the ECharts /
-  // zrender instance: echarts-for-react 3.x initializes asynchronously. It
-  // measures with a throwaway instance that it disposes right after the first
-  // `finished` event, then builds the real chart, and also disposes/rebuilds on
-  // some prop changes. Anything subscribed to a zrender instance at mount time
-  // dies within the first frame. The wrapper div is stable for the lifetime of
-  // this component, so each handler resolves the *live* instance on demand.
+  // zrender instance: CanopyChart initializes asynchronously through
+  // echarts-for-react, which measures with a throwaway instance that it
+  // disposes right after the first `finished` event, then builds the real
+  // chart, and re-creates it if the init options change. Anything subscribed
+  // to a zrender instance at mount time dies within the first frame. The
+  // wrapper div is stable for the lifetime of this component, so each handler
+  // resolves the *live* instance on demand.
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
