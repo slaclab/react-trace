@@ -22,7 +22,7 @@ import { archiveStore } from '../state/archiveStore';
 import { axisEndMs, isFollowing, useAutoScrollTimers } from '../hooks/useAutoScrollTimers';
 import { useFormulaSeries, type FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
-import { resolveTimeWindow } from '../api/time';
+import { resolveTimeWindow, parseOffsetMs, msToNs } from '../api/time';
 import { fetchMetadata } from '../api/mole';
 import { setColorMode, useColorMode } from '../state/themeStore';
 import { usePaletteId } from '../state/paletteStore';
@@ -197,11 +197,27 @@ export function TraceApp() {
     const win =
       viewWindowByPlot.get(plot.id) ?? resolveTimeWindow(plot.xAxis, clock.nowFor(plot.id)).window;
     fetchWindowByPlot.set(plot.id, win);
+    // Quantize the clock to 30s buckets so offset trace windows don't shift
+    // on every autoscroll tick and thrash the archive store with refetches.
+    const OFFSET_BUCKET_MS = 30_000;
+    const quantizedNow = Math.floor(clock.nowFor(plot.id) / OFFSET_BUCKET_MS) * OFFSET_BUCKET_MS;
+    const offsetBaseWin =
+      viewWindowByPlot.get(plot.id) ?? resolveTimeWindow(plot.xAxis, quantizedNow).window;
+
     for (const trace of plot.traces) {
-      if (trace.useArchive) windowByTrace.set(trace.id, win);
+      const offsetMs = trace.timeOffset ? parseOffsetMs(trace.timeOffset) : null;
+      const traceWin =
+        offsetMs != null
+          ? {
+              fromNs: offsetBaseWin.fromNs + msToNs(offsetMs),
+              toNs: offsetBaseWin.toNs + msToNs(offsetMs),
+            }
+          : win;
+
+      if (trace.useArchive) windowByTrace.set(trace.id, traceWin);
       plotArchiverByTrace.set(trace.id, plot.archiver);
       if (trace.kind === 'formula') {
-        windowByTrace.set(trace.id, win);
+        windowByTrace.set(trace.id, traceWin);
         formulaSpecByTrace.set(trace.id, resolveFormulaSpec(trace, plot.traces));
       }
     }
@@ -628,7 +644,32 @@ export function TraceApp() {
     if (selectedItem?.id === traceId && selectedItem.plotId === plotId) setSelectedItem(null);
   };
 
+  const duplicateTraceWithOffset = (plotId: string, sourceTraceId: string, offset: string) => {
+    const plot = plots.find((p) => p.id === plotId);
+    const source = plot?.traces.find((t) => t.id === sourceTraceId);
+    if (!plot || !source) return;
+    const id = makeId('trace');
+    const newTrace: PVTrace = {
+      ...source,
+      id,
+      color: colorForIndex(getPalette(paletteId), plot.traces.length),
+      displayName: '',
+      timeOffset: offset,
+      lineStyle: 'dashed',
+      useLive: false,
+      useArchive: true,
+      data: [],
+    };
+    setPlots((prev) =>
+      prev.map((p) => (p.id === plotId ? { ...p, traces: [...p.traces, newTrace] } : p))
+    );
+    selectItem({ type: 'trace', id, plotId });
+  };
+
   const updateTrace = (traceId: string, updates: Partial<PVTrace>) => {
+    if (updates.timeOffset && parseOffsetMs(updates.timeOffset) != null) {
+      updates = { ...updates, useLive: false, useArchive: true };
+    }
     setPlots((prev) =>
       prev.map((p) =>
         p.id === activePlotId
@@ -1174,6 +1215,7 @@ export function TraceApp() {
               onAddTrace={addTrace}
               onAddFormula={addFormula}
               onDeleteTrace={deleteTrace}
+              onDuplicateWithOffset={duplicateTraceWithOffset}
               onAddAxis={addAxis}
               onDeleteAxis={deleteAxis}
               onMoveTrace={moveTrace}

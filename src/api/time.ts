@@ -46,6 +46,33 @@ export function relativeRangeMs(range: string): number | null {
   return parseSpanMs(range.slice(1));
 }
 
+// Parse a signed offset like "-1d", "+2h" into milliseconds. Returns null if invalid.
+export function parseOffsetMs(offset: string): number | null {
+  const trimmed = offset.trim();
+  if (!trimmed) return null;
+  const neg = trimmed.startsWith('-');
+  const raw = neg || trimmed.startsWith('+') ? trimmed.slice(1) : trimmed;
+  const ms = parseSpanMs(raw);
+  return ms != null ? (neg ? -ms : ms) : null;
+}
+
+// Human-readable label for a millisecond offset, e.g. "−1 d", "+2 h".
+export function formatOffsetLabel(offsetMs: number): string {
+  const sign = offsetMs < 0 ? '−' : '+';
+  const abs = Math.abs(offsetMs);
+  const units: [number, string][] = [
+    [SPAN_UNIT_MS.w, 'w'],
+    [SPAN_UNIT_MS.d, 'd'],
+    [SPAN_UNIT_MS.h, 'h'],
+    [SPAN_UNIT_MS.m, 'm'],
+    [SPAN_UNIT_MS.s, 's'],
+  ];
+  for (const [ms, label] of units) {
+    if (abs >= ms && abs % ms === 0) return `${sign}${abs / ms} ${label}`;
+  }
+  return `${sign}${abs} ms`;
+}
+
 // Format an epoch-ms instant as a datetime-local value ("YYYY-MM-DDTHH:mm") in
 // local time, suitable for seeding the From/To inputs from an absolute time.
 export function toDatetimeLocal(ms: number): string {

@@ -23,8 +23,10 @@ import {
   Archive,
   TrashCan,
   Function as FunctionIcon,
+  Time,
 } from '@carbon/icons-react';
 import { Button, Tag } from '@carbon/react';
+import { parseOffsetMs } from '../api/time';
 import type { Plot, PVTrace, Axis } from '../types';
 import { traceLabel } from '../traceLabel';
 import type { SelectedItem } from './TraceApp';
@@ -55,6 +57,7 @@ interface LeftPanelProps {
   onAddTrace: (plotId: string, axisId: string) => void;
   onAddFormula: (plotId: string, axisId: string) => void;
   onDeleteTrace: (plotId: string, traceId: string) => void;
+  onDuplicateWithOffset: (plotId: string, sourceTraceId: string, offset: string) => void;
   onAddAxis: (plotId: string) => void;
   onDeleteAxis: (plotId: string, axisId: string) => void;
   onMoveTrace: (
@@ -102,6 +105,118 @@ function ArchiveStatusChip({ result }: { result: ArchiveSeriesResult | undefined
   return null;
 }
 
+const OFFSET_PRESETS = ['-1h', '-1d', '-7d', '-30d'];
+
+function OffsetPopover({
+  onSelect,
+  onClose,
+}: {
+  onSelect: (offset: string) => void;
+  onClose: () => void;
+}) {
+  const [custom, setCustom] = useState('');
+  const validCustom = !!custom && parseOffsetMs(custom) != null;
+  const submitCustom = () => {
+    if (validCustom) {
+      onSelect(custom);
+      onClose();
+    }
+  };
+
+  return (
+    <div
+      role="menu"
+      className="offset-popover"
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onClose();
+      }}
+      style={{
+        position: 'absolute',
+        top: '100%',
+        right: 0,
+        zIndex: 100,
+        background: 'var(--cds-layer)',
+        border: '1px solid var(--cds-border-subtle)',
+        borderRadius: 4,
+        padding: 8,
+        boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+        minWidth: 140,
+      }}
+    >
+      <div style={{ fontSize: 11, color: 'var(--cds-text-helper)', marginBottom: 4 }}>
+        Compare with
+      </div>
+      {OFFSET_PRESETS.map((preset) => (
+        <button
+          key={preset}
+          onClick={() => {
+            onSelect(preset);
+            onClose();
+          }}
+          style={{
+            display: 'block',
+            width: '100%',
+            textAlign: 'left',
+            padding: '4px 8px',
+            border: 'none',
+            background: 'transparent',
+            color: 'var(--cds-text-primary)',
+            fontSize: 12,
+            cursor: 'pointer',
+            borderRadius: 2,
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--cds-layer-hover)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent';
+          }}
+        >
+          {preset}
+        </button>
+      ))}
+      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+        <input
+          type="text"
+          placeholder="-2h, -3d…"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submitCustom();
+          }}
+          style={{
+            flex: 1,
+            fontSize: 11,
+            padding: '2px 4px',
+            border: '1px solid var(--cds-border-strong)',
+            borderRadius: 2,
+            background: 'var(--cds-field)',
+            color: 'var(--cds-text-primary)',
+            minWidth: 0,
+          }}
+        />
+        <button
+          disabled={!validCustom}
+          onClick={submitCustom}
+          style={{
+            fontSize: 11,
+            padding: '2px 6px',
+            border: '1px solid var(--cds-border-strong)',
+            borderRadius: 2,
+            background: 'var(--cds-button-tertiary)',
+            color: 'var(--cds-text-inverse)',
+            cursor: validCustom ? 'pointer' : 'not-allowed',
+            opacity: validCustom ? 1 : 0.5,
+          }}
+        >
+          Go
+        </button>
+      </div>
+    </div>
+  );
+}
+
 interface TraceRowProps {
   trace: PVTrace;
   label: string;
@@ -110,6 +225,7 @@ interface TraceRowProps {
   isSelected: boolean;
   onSelect: () => void;
   onDelete: () => void;
+  onDuplicateWithOffset?: (offset: string) => void;
 }
 
 function TraceRow({
@@ -120,7 +236,9 @@ function TraceRow({
   isSelected,
   onSelect,
   onDelete,
+  onDuplicateWithOffset,
 }: TraceRowProps) {
+  const [showOffsetPopover, setShowOffsetPopover] = useState(false);
   const data: DragData = { plotId, axisId: trace.axisId, traceId: trace.id };
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `${plotId}::${trace.id}`,
@@ -131,6 +249,8 @@ function TraceRow({
     transform: CSS.Transform.toString(transform),
     transition,
   };
+
+  const canDuplicate = onDuplicateWithOffset && trace.kind !== 'formula' && !!trace.pvName;
 
   return (
     <div
@@ -158,6 +278,45 @@ function TraceRow({
         )}
         <ArchiveStatusChip result={archiveResult} />
       </div>
+      {canDuplicate && (
+        <div style={{ position: 'relative' }}>
+          <button
+            title="Duplicate with time offset"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowOffsetPopover((v) => !v);
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 20,
+              height: 20,
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--cds-text-helper)',
+              cursor: 'pointer',
+              padding: 0,
+              borderRadius: 2,
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor =
+                'var(--cds-layer-hover)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent';
+            }}
+          >
+            <Time size={12} />
+          </button>
+          {showOffsetPopover && (
+            <OffsetPopover
+              onSelect={(offset) => onDuplicateWithOffset!(offset)}
+              onClose={() => setShowOffsetPopover(false)}
+            />
+          )}
+        </div>
+      )}
       <button
         className="layer-row__delete"
         title="Delete trace"
@@ -209,6 +368,7 @@ interface AxisSectionProps {
   onDeleteAxis: () => void;
   onSelectTrace: (traceId: string) => void;
   onDeleteTrace: (traceId: string) => void;
+  onDuplicateWithOffset: (traceId: string, offset: string) => void;
   onAddTrace: () => void;
   onAddFormula: () => void;
 }
@@ -228,6 +388,7 @@ function AxisSection({
   onDeleteAxis,
   onSelectTrace,
   onDeleteTrace,
+  onDuplicateWithOffset,
   onAddTrace,
   onAddFormula,
 }: AxisSectionProps) {
@@ -339,6 +500,7 @@ function AxisSection({
                 }
                 onSelect={() => onSelectTrace(trace.id)}
                 onDelete={() => onDeleteTrace(trace.id)}
+                onDuplicateWithOffset={(offset) => onDuplicateWithOffset(trace.id, offset)}
               />
             ))}
           </SortableContext>
@@ -390,6 +552,7 @@ interface PlotAxesProps {
   onAddTrace: (plotId: string, axisId: string) => void;
   onAddFormula: (plotId: string, axisId: string) => void;
   onDeleteTrace: (plotId: string, traceId: string) => void;
+  onDuplicateWithOffset: (plotId: string, traceId: string, offset: string) => void;
   onDeleteAxis: (plotId: string, axisId: string) => void;
 }
 
@@ -405,6 +568,7 @@ function PlotAxes({
   onAddTrace,
   onAddFormula,
   onDeleteTrace,
+  onDuplicateWithOffset,
   onDeleteAxis,
 }: PlotAxesProps) {
   return (
@@ -432,6 +596,7 @@ function PlotAxes({
             onDeleteAxis={() => onDeleteAxis(plot.id, axis.id)}
             onSelectTrace={(id) => onSelectItem({ type: 'trace', id, plotId: plot.id })}
             onDeleteTrace={(id) => onDeleteTrace(plot.id, id)}
+            onDuplicateWithOffset={(id, offset) => onDuplicateWithOffset(plot.id, id, offset)}
             onAddTrace={() => onAddTrace(plot.id, axis.id)}
             onAddFormula={() => onAddFormula(plot.id, axis.id)}
           />
@@ -452,6 +617,7 @@ export function LeftPanel({
   onAddTrace,
   onAddFormula,
   onDeleteTrace,
+  onDuplicateWithOffset,
   onAddAxis,
   onDeleteAxis,
   onMoveTrace,
@@ -550,6 +716,7 @@ export function LeftPanel({
                 onAddTrace={onAddTrace}
                 onAddFormula={onAddFormula}
                 onDeleteTrace={onDeleteTrace}
+                onDuplicateWithOffset={onDuplicateWithOffset}
                 onDeleteAxis={onDeleteAxis}
               />
 

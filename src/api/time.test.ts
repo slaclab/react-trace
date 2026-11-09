@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { parseSpanMs, relativeRangeMs, resolveTimeWindow, toDatetimeLocal, msToNs } from './time';
+import {
+  parseSpanMs,
+  relativeRangeMs,
+  resolveTimeWindow,
+  toDatetimeLocal,
+  msToNs,
+  parseOffsetMs,
+  formatOffsetLabel,
+} from './time';
 
 const SEC = 1000;
 const MIN = 60 * SEC;
@@ -138,6 +146,27 @@ describe('resolveTimeWindow', () => {
   it('errors on an unparseable From', () => {
     const { error } = resolveTimeWindow({ timeRange: 'custom', timeFrom: 'not-a-date' }, NOW);
     expect(error).toBeDefined();
+  });
+});
+
+describe('parseOffsetMs', () => {
+  it('parses signed and bare offsets, rejects invalid input', () => {
+    expect(parseOffsetMs('-1d')).toBe(-DAY);
+    expect(parseOffsetMs('-7d')).toBe(-7 * DAY);
+    expect(parseOffsetMs('+2h')).toBe(2 * HOUR);
+    expect(parseOffsetMs('30s')).toBe(30 * SEC);
+    expect(parseOffsetMs('')).toBeNull();
+    expect(parseOffsetMs('abc')).toBeNull();
+    expect(parseOffsetMs('-0h')).toBeNull();
+  });
+});
+
+describe('formatOffsetLabel', () => {
+  it('picks the largest whole unit with the correct sign', () => {
+    expect(formatOffsetLabel(-DAY)).toBe('−1 d');
+    expect(formatOffsetLabel(-14 * DAY)).toBe('−2 w');
+    expect(formatOffsetLabel(2 * HOUR)).toBe('+2 h');
+    expect(formatOffsetLabel(-500)).toBe('−500 ms');
   });
 });
 

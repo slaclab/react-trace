@@ -29,7 +29,7 @@ import {
 import { PALETTES, getPalette } from '../palettes';
 import { usePaletteId } from '../state/paletteStore';
 import type { SelectedItem } from './TraceApp';
-import { parseSpanMs, resolveTimeWindow } from '../api/time';
+import { parseSpanMs, parseOffsetMs, resolveTimeWindow } from '../api/time';
 import { DEFAULT_OPTIMIZED_BINS, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { LIVE_RETENTION_DEFAULT_MS, type LiveSeriesResult } from '../hooks/useLiveSeries';
 import {
@@ -583,6 +583,25 @@ function TraceGeneralTab({
             ))}
           </Select>
         </div>
+        {trace.kind !== 'formula' &&
+          (() => {
+            const offsetInvalid = !!trace.timeOffset && parseOffsetMs(trace.timeOffset) == null;
+            return (
+              <div className="prop-row">
+                <TextInput
+                  id="time-offset"
+                  labelText="Time Offset"
+                  value={trace.timeOffset ?? ''}
+                  placeholder="-1d, -7d, -2h…"
+                  helperText="Overlay past data on the current axis"
+                  invalid={offsetInvalid}
+                  invalidText="Invalid offset — use e.g. -1d, -7d, -2h"
+                  onChange={(e) => onUpdate({ timeOffset: e.target.value || undefined })}
+                  size="sm"
+                />
+              </div>
+            );
+          })()}
         <div className="prop-row prop-row--inline">
           <Toggle
             id="trace-visible"
@@ -654,6 +673,7 @@ function TraceGeneralTab({
             onToggle={(checked) => onUpdate({ useLive: checked })}
             size="sm"
             hideLabel
+            disabled={!!trace.timeOffset && parseOffsetMs(trace.timeOffset) != null}
           />
         </div>
         {trace.useLive && (

@@ -23,6 +23,10 @@ export interface PVTrace {
   showArchiveBand?: boolean;
   // Per-curve archiver override; undefined means "use the global selection".
   archiver?: string;
+  // Relative time offset for historical comparison, e.g. "-1d", "-7d".
+  // When set, the trace fetches [from+offset, to+offset] and timestamps
+  // are shifted back onto the plot's axis. Implies archive-only (no live).
+  timeOffset?: string;
   // ── Formula curves (kind === 'formula') ──────────────────────────────────
   // Fox expression with {var} placeholders, e.g. "{x1} + {x2}".
   expression?: string;

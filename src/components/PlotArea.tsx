@@ -18,7 +18,7 @@ import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 import type { FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
-import { msToNs, nsToMs, resolveTimeWindow } from '../api/time';
+import { msToNs, nsToMs, resolveTimeWindow, parseOffsetMs } from '../api/time';
 import { formatShortcut } from '../hooks/useKeyboardShortcuts';
 import { echartsLineType, echartsSymbol } from '../curveStyle';
 import { isFollowing } from '../hooks/useAutoScrollTimers';
@@ -234,31 +234,43 @@ function traceSamples(
   live: LiveSeriesResult | undefined,
   formula: FormulaSeriesResult | undefined
 ): readonly PlotSample[] {
+  let samples: readonly PlotSample[];
+
   // Formula curves are evaluated server-side (Fox); their points are the only
   // source — no archive/live merge, no mock seed.
   if (trace.kind === 'formula') {
-    return formula ? formula.points.map(([time, value]) => ({ time, value })) : [];
-  }
-  // Mirror old Trace's independent toggles. Archive feeds the past, live
-  // feeds the present; with both on, archive runs up to the last archive
-  // sample and live takes over afterwards (de-duped at the seam). Both keep
-  // their per-sample severity.
-  const archivePts = trace.useArchive && archive && archive.mean.length > 0 ? archive.mean : null;
-  const livePts = trace.useLive && live && live.points.length > 0 ? live.points : null;
+    samples = formula ? formula.points.map(([time, value]) => ({ time, value })) : [];
+  } else {
+    // Mirror old Trace's independent toggles. Archive feeds the past, live
+    // feeds the present; with both on, archive runs up to the last archive
+    // sample and live takes over afterwards (de-duped at the seam). Both keep
+    // their per-sample severity.
+    const archivePts = trace.useArchive && archive && archive.mean.length > 0 ? archive.mean : null;
+    const livePts = trace.useLive && live && live.points.length > 0 ? live.points : null;
 
-  if (archivePts && livePts) {
-    const seamMs = archivePts[archivePts.length - 1].time;
-    let head = 0;
-    while (head < livePts.length && livePts[head].time <= seamMs) head++;
-    return head === 0 ? archivePts.concat(livePts) : archivePts.concat(livePts.slice(head));
+    if (archivePts && livePts) {
+      const seamMs = archivePts[archivePts.length - 1].time;
+      let head = 0;
+      while (head < livePts.length && livePts[head].time <= seamMs) head++;
+      samples = head === 0 ? archivePts.concat(livePts) : archivePts.concat(livePts.slice(head));
+    } else if (archivePts) {
+      samples = archivePts;
+    } else if (livePts) {
+      samples = livePts;
+    } else if (trace.useLive || trace.useArchive) {
+      samples = [];
+    } else {
+      samples = trace.data;
+    }
   }
-  if (archivePts) return archivePts;
-  if (livePts) return livePts;
-  // Live-capable trace that has no live yet (pre-connect or no samples) and
-  // no archive: render nothing rather than the mock seed. Mock data stays
-  // for traces with neither toggle on, since there's no other source to show.
-  if (trace.useLive || trace.useArchive) return [];
-  return trace.data;
+
+  // Shifted traces: move timestamps back onto the plot's native time axis.
+  const offsetMs = trace.timeOffset ? parseOffsetMs(trace.timeOffset) : null;
+  if (offsetMs != null && samples.length > 0) {
+    samples = samples.map((s) => ({ ...s, time: s.time - offsetMs }));
+  }
+
+  return samples;
 }
 
 // Binary search for the sample whose `time` is nearest to `tMs`. Series are
@@ -363,6 +375,8 @@ export function SinglePlot({
       const series: Record<string, unknown>[] = [];
       if (points.some(isInvalid)) tracesWithInvalid.add(trace.id);
 
+      const bandOffsetMs = trace.timeOffset ? parseOffsetMs(trace.timeOffset) : null;
+
       // Min/max band, drawn as two stacked area series so ECharts fills between them.
       // Keep the previous band rendered while a fetch is in flight (status may
       // be 'loading') so the band doesn't disappear during panning/zooming.
@@ -374,13 +388,17 @@ export function SinglePlot({
         archive.mode === 'binned' &&
         archive.band.length > 0
       ) {
+        const band =
+          bandOffsetMs != null
+            ? archive.band.map((p) => ({ ...p, time: p.time - bandOffsetMs }))
+            : archive.band;
         const stackId = `band-${trace.id}`;
         series.push({
           id: `${trace.id}-band-min`,
           name: `${labels.get(trace.id)} (min)`,
           type: 'line',
           yAxisIndex,
-          data: gappedLineData(archive.band, (p) => p.min, step),
+          data: gappedLineData(band, (p) => p.min, step),
           stack: stackId,
           lineStyle: { opacity: 0 },
           areaStyle: { opacity: 0 },
@@ -397,7 +415,7 @@ export function SinglePlot({
           name: `${labels.get(trace.id)} (max)`,
           type: 'line',
           yAxisIndex,
-          data: gappedLineData(archive.band, (p) => p.max - p.min, step),
+          data: gappedLineData(band, (p) => p.max - p.min, step),
           stack: stackId,
           lineStyle: { opacity: 0 },
           areaStyle: { color: trace.color, opacity: 0.18 },
