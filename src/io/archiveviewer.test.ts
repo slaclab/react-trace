@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { convertArchiveViewer, decodeArchiveViewerXml } from './archiveviewer';
+import { extractFormulaVars, resolveFormulaSpec } from '../formula';
 
 // Mirrors the reconstructed sample in ARCHIVEVIEWER_XML_FORMAT.md, minus the
 // XML prolog (DOMParser doesn't need it for this test's purposes).
@@ -62,7 +63,10 @@ describe('convertArchiveViewer', () => {
     expect(pv.useArchive).toBe(true);
     expect(pv.useLive).toBe(false);
 
-    expect(formula.expression).toBe('A+B');
+    // ArchiveViewer's bare "A+B" term is braced into Fox's {var} placeholder
+    // syntax (src/formula.ts's extractFormulaVars only recognizes braces) for
+    // each variable with an argument_ave — this fixture only declares "A".
+    expect(formula.expression).toBe('{A}+B');
     expect(formula.bindings).toEqual({ A: pv.id });
     expect(formula.lineType).toBe('step');
     // -65536 & 0xffffff == 0xff0000
@@ -105,6 +109,121 @@ describe('convertArchiveViewer', () => {
     const result = convertArchiveViewer(xmlWithTwoTimeAxes);
     expect(result.plots[0].xAxis).toEqual({ timeRange: '-1d' });
     expect(result.warnings.some((w) => w.includes('Secondary Time Axis'))).toBe(true);
+  });
+
+  it('resolves a formula end to end from a real exported file (issue: formulas never evaluated)', () => {
+    // A bare "A+B" term matched against <argument_ave variable="A"/|"B"/> — the
+    // real-world shape that exposed resolveFormulaSpec returning null forever,
+    // because extractFormulaVars only recognizes brace-delimited placeholders.
+    const xml = `<AVConfiguration>
+  <pv name="SIOC:SYS0:ML00:AO001" directory_name="MainArchive">
+    <time_axis_name>Main Time Axis</time_axis_name>
+    <range_axis_name>Main Range Axis</range_axis_name>
+    <color>-16776961</color>
+    <draw_type>lines</draw_type>
+    <draw_width>1.0</draw_width>
+    <visibility>true</visibility>
+  </pv>
+  <pv name="BPMS:LI21:233:X" directory_name="MainArchive">
+    <time_axis_name>Main Time Axis</time_axis_name>
+    <range_axis_name>Main Range Axis</range_axis_name>
+    <color>-65536</color>
+    <draw_type>scatter</draw_type>
+    <draw_width>2.0</draw_width>
+    <visibility>true</visibility>
+  </pv>
+  <formula name="SUM_OF_PVS" directory_name="MainArchive">
+    <term>A+B</term>
+    <argument_ave name="SIOC:SYS0:ML00:AO001" variable="A"/>
+    <argument_ave name="BPMS:LI21:233:X" variable="B"/>
+    <method_name>average</method_name>
+    <nr_values>800</nr_values>
+    <time_axis_name>Main Time Axis</time_axis_name>
+    <range_axis_name></range_axis_name>
+    <color>-16711936</color>
+    <draw_type>steps</draw_type>
+    <draw_width>1.0</draw_width>
+    <visibility>false</visibility>
+  </formula>
+  <time_axis name="Main Time Axis">
+    <start>-1d</start>
+    <end>now</end>
+    <location>bottom</location>
+  </time_axis>
+  <range_axis name="Main Range Axis">
+    <min></min>
+    <max></max>
+    <type>normal</type>
+    <location>left</location>
+  </range_axis>
+  <plot_title>Sample Save File</plot_title>
+</AVConfiguration>`;
+    const result = convertArchiveViewer(xml);
+    const traces = result.plots[0].traces;
+    const a = traces.find((t) => t.pvName === 'SIOC:SYS0:ML00:AO001')!;
+    const b = traces.find((t) => t.pvName === 'BPMS:LI21:233:X')!;
+    const formula = traces.find((t) => t.kind === 'formula')!;
+
+    expect(formula.expression).toBe('{A}+{B}');
+    expect(formula.bindings).toEqual({ A: a.id, B: b.id });
+    // Surfaced for traceLabel (formulas have no pvName to fall back to), so
+    // the layer tree shows "SUM_OF_PVS" rather than a numbered placeholder.
+    expect(formula.displayName).toBe('SUM_OF_PVS');
+    expect(extractFormulaVars(formula.expression!)).toEqual(['A', 'B']);
+    expect(resolveFormulaSpec(formula, traces)).toEqual({
+      kind: 'timeseries',
+      expression: '{A}+{B}',
+      bindings: { A: 'SIOC:SYS0:ML00:AO001', B: 'BPMS:LI21:233:X' },
+    });
+  });
+
+  it('braces the longer variable name first so one is not split by the other (e.g. "A" inside "AB")', () => {
+    const xml = `<AVConfiguration>
+  <pv name="PV1" directory_name="Default">
+    <time_axis_name>Main Time Axis</time_axis_name>
+    <range_axis_name>Main Range Axis</range_axis_name>
+    <color>-1</color>
+    <draw_type>lines</draw_type>
+    <draw_width>1.0</draw_width>
+    <visibility>true</visibility>
+  </pv>
+  <pv name="PV2" directory_name="Default">
+    <time_axis_name>Main Time Axis</time_axis_name>
+    <range_axis_name>Main Range Axis</range_axis_name>
+    <color>-1</color>
+    <draw_type>lines</draw_type>
+    <draw_width>1.0</draw_width>
+    <visibility>true</visibility>
+  </pv>
+  <formula name="F" directory_name="Default">
+    <term>AB+A</term>
+    <argument_ave name="PV1" variable="AB"/>
+    <argument_ave name="PV2" variable="A"/>
+    <method_name>average</method_name>
+    <nr_values>800</nr_values>
+    <time_axis_name>Main Time Axis</time_axis_name>
+    <range_axis_name></range_axis_name>
+    <color>-1</color>
+    <draw_type>steps</draw_type>
+    <draw_width>1.0</draw_width>
+    <visibility>true</visibility>
+  </formula>
+  <time_axis name="Main Time Axis">
+    <start>-1d</start>
+    <end>now</end>
+    <location>bottom</location>
+  </time_axis>
+  <range_axis name="Main Range Axis">
+    <min></min>
+    <max></max>
+    <type>normal</type>
+    <location>left</location>
+  </range_axis>
+  <plot_title></plot_title>
+</AVConfiguration>`;
+    const result = convertArchiveViewer(xml);
+    const formula = result.plots[0].traces.find((t) => t.kind === 'formula')!;
+    expect(formula.expression).toBe('{AB}+{A}');
   });
 
   it('warns when a formula argument cannot be resolved', () => {

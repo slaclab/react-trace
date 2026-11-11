@@ -52,6 +52,19 @@ function argbIntToHex(raw: string): string | undefined {
   return `#${rgb.toString(16).padStart(6, '0')}`;
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Wrap each bare variable identifier in a term with Fox's {var} placeholder
+// syntax, e.g. bracePlaceholders('A+B', ['A', 'B']) -> '{A}+{B}'.
+function bracePlaceholders(term: string, variables: string[]): string {
+  if (variables.length === 0) return term;
+  const sorted = [...variables].sort((a, b) => b.length - a.length);
+  const pattern = new RegExp(`\\b(${sorted.map(escapeRegExp).join('|')})\\b`, 'g');
+  return term.replace(pattern, '{$1}');
+}
+
 function mapDrawType(drawType: string): Pick<PVTrace, 'lineType' | 'lineStyle' | 'showSymbol'> {
   switch (drawType.toLowerCase()) {
     case 'scatter':
@@ -224,16 +237,23 @@ export function convertArchiveViewer(xmlText: string): DeserializeResult {
     if (el.tagName !== 'formula') return;
     const name = el.getAttribute('name') ?? '';
     const id = `trace-${index + 1}`;
-    const expression = text(el, 'term');
     const bindings: Record<string, string> = {};
     const unresolved: string[] = [];
+    const variables: string[] = [];
     el.querySelectorAll('argument_ave').forEach((arg) => {
       const argName = arg.getAttribute('name') ?? '';
       const variable = arg.getAttribute('variable') ?? '';
       const targetId = idByAveName.get(argName);
-      if (targetId && variable) bindings[variable] = targetId;
-      else unresolved.push(`${variable} → ${argName}`);
+      if (targetId && variable) {
+        bindings[variable] = targetId;
+        variables.push(variable);
+      } else unresolved.push(`${variable} → ${argName}`);
     });
+    // ArchiveViewer's <term> uses bare identifiers (e.g. "A+B") matched by
+    // <argument_ave variable="A">, but Fox expressions require brace-delimited
+    // placeholders (e.g. "{A}+{B}") — see src/formula.ts's VAR_RE. Brace each
+    // declared variable; longest names first so "AB" isn't split by a "A" match.
+    const expression = bracePlaceholders(text(el, 'term'), variables);
     if (unresolved.length > 0) {
       warnings.push(
         `Formula '${name || expression}': could not bind ${unresolved.join(', ')} (not found among pv/formula entries).`
