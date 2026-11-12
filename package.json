@@ -15,7 +15,7 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
     "preview": "vite preview",
     "prepare": "husky",
-    "test": "vitest run",
+    "test": "node scripts/check-chrome-literals.mjs && vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },
