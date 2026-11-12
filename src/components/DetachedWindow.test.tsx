@@ -73,7 +73,7 @@ describe('DetachedWindow', () => {
     setupColorMode(); // nothing stored: dark
     const popup = fakePopup();
     const html = popup.document.documentElement;
-    html.classList.add('cds--white', 'cds--g90'); // stale Carbon themes to clear
+    html.classList.add('cds--white', 'cds--g10', 'cds--g90'); // stale Carbon themes to clear
     vi.spyOn(window, 'open').mockReturnValue(popup);
     render(
       <DetachedWindow name="w" title="Plot 1" onClose={vi.fn()}>
