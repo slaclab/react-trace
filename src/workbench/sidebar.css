@@ -1,0 +1,159 @@
+/* The workbench Sidebar: one pane, its header, the 32 px
+ * rail, and the resizable edge beside the canvas. Chrome tokens only: colours
+ * from the canopy contract and Carbon theme variables, no hex or font literal.
+ * Imported by workbench.css. */
+
+.wb-sidebar {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background-color: var(--cds-layer);
+  color: var(--cds-text-primary);
+}
+
+.wb-sidebar__pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.wb-sidebar__pane[hidden] {
+  display: none;
+}
+
+/* The pane's header: its title (the shell's section-heading recipe) and the
+ * collapse button. */
+.wb-sidebar__header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.25rem;
+  box-sizing: border-box;
+  block-size: var(--canopy-control-h-xs);
+  padding-inline: 0.75rem 0.25rem;
+  border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.wb-sidebar__title {
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--cds-text-secondary);
+  font-size: var(--canopy-text-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.wb-sidebar__collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--canopy-control-h-xs);
+  block-size: 100%;
+  border: 0;
+  background: none;
+  color: var(--cds-icon-secondary);
+  cursor: pointer;
+}
+
+.wb-sidebar__collapse:hover {
+  background-color: var(--cds-layer-hover);
+  color: var(--cds-icon-primary);
+}
+
+.wb-sidebar__collapse:focus-visible,
+.wb-sidebar__rail-target:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+
+.wb-sidebar__content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* --- the resizable edge beside the canvas ----------------------------- */
+
+.wb-split {
+  height: 100%;
+  min-height: 0;
+}
+
+.wb-split--static {
+  display: flex;
+}
+
+.wb-split--static > .wb-split__side {
+  flex: 0 0 auto;
+  width: 300px;
+}
+
+.wb-split--static > .wb-split__canvas {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wb-split__slot {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* On the rail the sidebar is 32 px; the library keeps the page's width for the
+ * re-expand. */
+.wb-split[data-wb-rail] > [data-panel][data-wb-slot='sidebar'] {
+  flex: 0 0 32px !important;
+}
+
+.wb-split__edge {
+  width: 1px;
+  background-color: var(--cds-border-subtle);
+  outline: none;
+}
+
+.wb-split__edge[aria-disabled] {
+  display: none;
+}
+
+.wb-split__edge[data-separator='hover'],
+.wb-split__edge[data-separator='active'] {
+  background-color: var(--canopy-accent, var(--cds-interactive));
+}
+
+.wb-split__edge[data-separator='focus'] {
+  background-color: var(--cds-focus);
+}
+
+/* --- the 32 px rail: the pane's expand target ------------------------- */
+
+.wb-sidebar__rail {
+  display: flex;
+  flex: 0 0 32px;
+  flex-direction: column;
+  width: 32px;
+  border-inline-end: 1px solid var(--cds-border-subtle);
+}
+
+.wb-sidebar__rail-target {
+  display: flex;
+  flex: 1 1 0;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0.5rem 0;
+  border: 0;
+  background: none;
+  color: var(--cds-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.wb-sidebar__rail-target:hover {
+  background-color: var(--cds-layer-hover);
+  color: var(--cds-text-primary);
+}
+
+.wb-sidebar__rail-label {
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+}
