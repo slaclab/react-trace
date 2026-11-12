@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useColorMode, type CarbonColorModeTheme, type ColorMode } from '@slaclab/canopy-shell';
+import { CARBON_THEME, useColorMode, type ColorMode } from '@slaclab/canopy-shell';
 
 interface DetachedWindowProps {
   /** Stable window name; reused so re-opening targets the same browsing context. */
@@ -43,18 +43,18 @@ function cloneStyles(dest: Document): Promise<void> {
   return Promise.all(linkLoads).then(() => undefined);
 }
 
-// Mirror the colour mode onto the popup's <html>, as the colour-mode store does
-// for the opener's: `data-theme` for plain CSS, and the Carbon class
-// (cds--g10/cds--g100), which gives the popup page its background and native
-// color-scheme (scrollbars, form controls). The content inside the popup takes
-// its tokens from the ColorModeTheme wrapper the parent renders around it.
-function syncPopupTheme(doc: Document, mode: ColorMode, carbonTheme: CarbonColorModeTheme): void {
+// Mirror the colour mode onto the popup's <html>, as canopy-shell's
+// syncDocumentColorMode does for the opener's: `data-theme` for plain CSS, and
+// the Carbon class (cds--g10/cds--g100), which gives the popup page its
+// background and native color-scheme (scrollbars, form controls). The content
+// inside the popup takes its tokens from the ColorModeTheme wrapper the parent
+// renders around it. syncDocumentColorMode only writes to the global document,
+// hence this copy; DetachedWindow.test.tsx fails if the two drift apart.
+function syncPopupTheme(doc: Document, mode: ColorMode): void {
   const html = doc.documentElement;
   html.dataset.theme = mode;
-  for (const c of Array.from(html.classList)) {
-    if (/^cds--(white|g10|g90|g100)$/.test(c)) html.classList.remove(c);
-  }
-  html.classList.add(`cds--${carbonTheme}`);
+  html.classList.remove('cds--white', 'cds--g10', 'cds--g90', 'cds--g100');
+  html.classList.add(`cds--${CARBON_THEME[mode]}`);
 }
 
 /**
@@ -73,7 +73,7 @@ export function DetachedWindow({
 }: DetachedWindowProps) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
   const winRef = useRef<Window | null>(null);
-  const { colorMode, carbonTheme } = useColorMode();
+  const { colorMode } = useColorMode();
 
   useEffect(() => {
     const popup = window.open('', name, `popup=yes,width=${width},height=${height}`);
@@ -120,8 +120,8 @@ export function DetachedWindow({
   // opens. Declared after the open effect, so the popup exists on the first run.
   useEffect(() => {
     const popup = winRef.current;
-    if (popup) syncPopupTheme(popup.document, colorMode, carbonTheme);
-  }, [colorMode, carbonTheme]);
+    if (popup) syncPopupTheme(popup.document, colorMode);
+  }, [colorMode]);
 
   // Keep the OS window title in sync with the plot title.
   useEffect(() => {

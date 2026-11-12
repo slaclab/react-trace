@@ -21,6 +21,11 @@ function fakePopup() {
   } as unknown as Window;
 }
 
+// A document's <html> attributes as { name: value }, to compare two documents.
+function htmlAttributes(doc: Document): Record<string, string> {
+  return Object.fromEntries(Array.from(doc.documentElement.attributes, (a) => [a.name, a.value]));
+}
+
 describe('DetachedWindow', () => {
   afterEach(() => {
     cleanup();
@@ -57,10 +62,18 @@ describe('DetachedWindow', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("themes the pop-up's page and follows a later colour-mode change", async () => {
+  it("themes the pop-up's page like the opener's and follows a later colour-mode change", async () => {
+    // The opener's <html> carries only what canopy-shell's syncDocumentColorMode
+    // paints; the pop-up's must end up identical, so syncPopupTheme can't drift
+    // from it on a canopy-shell upgrade.
+    const opener = document.documentElement;
+    opener.className = '';
+    delete opener.dataset.theme;
     vi.stubGlobal('localStorage', memoryStorage());
     setupColorMode(); // nothing stored: dark
     const popup = fakePopup();
+    const html = popup.document.documentElement;
+    html.classList.add('cds--white', 'cds--g90'); // stale Carbon themes to clear
     vi.spyOn(window, 'open').mockReturnValue(popup);
     render(
       <DetachedWindow name="w" title="Plot 1" onClose={vi.fn()}>
@@ -68,14 +81,14 @@ describe('DetachedWindow', () => {
       </DetachedWindow>
     );
     await waitFor(() => expect(popup.document.body.textContent).toContain('plot'));
-    const html = popup.document.documentElement;
     expect(html.dataset.theme).toBe('dark');
-    expect(html.classList.contains('cds--g100')).toBe(true);
+    expect(html.className).toBe('cds--g100');
+    expect(htmlAttributes(popup.document)).toEqual(htmlAttributes(document));
 
     act(() => setColorMode('light'));
 
     expect(html.dataset.theme).toBe('light');
-    expect(html.classList.contains('cds--g10')).toBe(true);
-    expect(html.classList.contains('cds--g100')).toBe(false);
+    expect(html.className).toBe('cds--g10');
+    expect(htmlAttributes(popup.document)).toEqual(htmlAttributes(document));
   });
 });
