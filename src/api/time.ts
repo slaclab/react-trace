@@ -1,6 +1,6 @@
 // Convert UI time-range strings into a (fromNs, toNs) pair anchored to a
-// caller-supplied "now". Relative ranges are spans like "-1h"/"-90m"; "custom"
-// resolves the plot's absolute From/To datetime-local fields.
+// caller-supplied "now". Relative ranges are spans like "-30s"/"-1h"/"-90m";
+// "custom" resolves the plot's absolute From/To datetime-local fields.
 
 const NS_PER_MS = 1_000_000n;
 
@@ -19,6 +19,7 @@ export function nsToMs(ns: number): number {
 // Span multipliers in milliseconds. Lowercase `m` is minutes; uppercase `M` is
 // months (approximated as 30 days), matching the Python IOTimeParser units.
 const SPAN_UNIT_MS: Record<string, number> = {
+  s: 1000,
   m: 60 * 1000,
   h: 60 * 60 * 1000,
   d: 24 * 60 * 60 * 1000,
@@ -28,17 +29,17 @@ const SPAN_UNIT_MS: Record<string, number> = {
 
 const ONE_HOUR_MS = SPAN_UNIT_MS.h;
 
-// Parse a free-text span like "1.5h", "30m", "2w" into milliseconds. Returns
-// null for anything that isn't a positive number followed by a known unit.
+// Parse a free-text span like "30s", "1.5h", "30m", "2w" into milliseconds.
+// Returns null for anything that isn't a positive number followed by a known unit.
 export function parseSpanMs(span: string): number | null {
-  const match = /^\s*(\d+(?:\.\d+)?)\s*([mhdwM])\s*$/.exec(span);
+  const match = /^\s*(\d+(?:\.\d+)?)\s*([smhdwM])\s*$/.exec(span);
   if (!match) return null;
   const value = Number(match[1]);
   if (!Number.isFinite(value) || value <= 0) return null;
   return value * SPAN_UNIT_MS[match[2]];
 }
 
-// Resolve a relative range string ("-1h", "-90m") to a span in milliseconds.
+// Resolve a relative range string ("-30s", "-1h", "-90m") to a span in milliseconds.
 // The leading "-" is required; the remainder is a span. Returns null otherwise.
 export function relativeRangeMs(range: string): number | null {
   if (!range.startsWith('-')) return null;

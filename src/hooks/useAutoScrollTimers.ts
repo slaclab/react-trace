@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Plot } from '../types';
 import type { TimeWindowNs } from '../api/time';
+import { relativeRangeMs } from '../api/time';
 import type { LiveSeriesResult } from './useLiveSeries';
 
 export const DEFAULT_REFRESH_INTERVAL_S = 5;
 export const MIN_REFRESH_S = 1;
 export const MAX_REFRESH_S = 60;
+
+// Longest refresh interval a following plot gets, as a fraction of its span.
+// Only its axis scrolls between refreshes (useFollowNow), so archive and
+// formula samples end where the last refresh left them: at -30s with a 60 s
+// interval the axis would scroll past all of them before the next one. A sixth
+// leaves the default 5 s at -30s alone and caps -1m at 10 s and -5m at 50 s.
+const MAX_REFRESH_SPAN_FRACTION = 1 / 6;
 
 // Treat a plot as due this many ms before its interval elapses, so a timer that
 // fires a hair early still advances it instead of rescheduling a 1ms timeout.
@@ -13,6 +21,16 @@ const DUE_SLOP_MS = 5;
 
 export function clampInterval(s: number | undefined): number {
   return Math.min(MAX_REFRESH_S, Math.max(MIN_REFRESH_S, s ?? DEFAULT_REFRESH_INTERVAL_S));
+}
+
+// How often a following plot's clock advances, in ms: its refresh interval
+// (clamped), but no longer than MAX_REFRESH_SPAN_FRACTION of a relative range's
+// span, and never under MIN_REFRESH_S.
+export function refreshIntervalMs(plot: Plot): number {
+  const ms = clampInterval(plot.refreshIntervalS) * 1000;
+  const spanMs = relativeRangeMs(plot.xAxis.timeRange);
+  if (spanMs === null) return ms;
+  return Math.min(ms, Math.max(MIN_REFRESH_S * 1000, spanMs * MAX_REFRESH_SPAN_FRACTION));
 }
 
 // A plot tracks "now" only with autoscroll on, a relative range (not custom),
@@ -47,8 +65,21 @@ export function followingEndMs(
   anchorMs: number,
   liveResults: Map<string, LiveSeriesResult>
 ): number {
-  const capMs = anchorMs + clampInterval(plot.refreshIntervalS) * 1000;
+  const capMs = anchorMs + refreshIntervalMs(plot);
   return Math.min(Math.max(anchorMs, liveEdgeMs(plot, liveResults)), capMs);
+}
+
+// Where the plot's time axis ends: a frozen plot ends exactly at its anchor; a
+// following one keeps up with live samples between ticks (see followingEndMs).
+// The one place this is worked out, so the chart draws to the same instant
+// that stopping Autoscroll or a pan freezes the plot at.
+export function axisEndMs(
+  plot: Plot,
+  anchorMs: number,
+  following: boolean,
+  liveResults: Map<string, LiveSeriesResult>
+): number {
+  return following ? followingEndMs(plot, anchorMs, liveResults) : anchorMs;
 }
 
 interface ClockState {
@@ -60,8 +91,9 @@ interface ClockState {
 }
 
 export interface PlotClock {
-  // The instant this plot's time range ends at ("now" for a relative range or a
-  // custom range with a blank To). Read this instead of the wall clock.
+  // The plot's anchor: "now" for its relative range or a custom range with a
+  // blank To. Read this instead of the wall clock. A following plot's axis may
+  // end a little past it (see axisEndMs).
   nowFor: (plotId: string) => number;
   // Set the given plots' anchors to `atMs` (default: the current time). Call it
   // from event handlers when a plot appears, resumes following, or freezes at a
@@ -96,19 +128,16 @@ export function useAutoScrollTimers(
     });
   }, []);
 
-  // Following plots and their cadence in ms. The effect parses this string back
-  // so it re-subscribes only when the following set or an interval changes.
-  const signature = plots
-    .filter((p) => isFollowing(p, viewWindowByPlot))
-    .map((p) => `${p.id}:${clampInterval(p.refreshIntervalS) * 1000}`)
-    .join('|');
+  // Following plots and their cadence in ms, as `[id, ms]` pairs in JSON. The
+  // effect parses it back so it re-subscribes only when the following set or an
+  // interval changes. JSON keeps any plot id intact (imports keep ids as saved).
+  const signature = JSON.stringify(
+    plots.filter((p) => isFollowing(p, viewWindowByPlot)).map((p) => [p.id, refreshIntervalMs(p)])
+  );
 
   useEffect(() => {
-    if (!signature) return;
-    const cadence = signature.split('|').map((entry) => {
-      const i = entry.lastIndexOf(':');
-      return [entry.slice(0, i), Number(entry.slice(i + 1))] as const;
-    });
+    const cadence = JSON.parse(signature) as [string, number][];
+    if (cadence.length === 0) return;
     const anchorOf = (state: ClockState, id: string) => state.byPlot.get(id) ?? state.lastWriteMs;
     let nextDue = Infinity;
     for (const [id, ms] of cadence) nextDue = Math.min(nextDue, anchorOf(clock, id) + ms);

@@ -4,37 +4,14 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
-    name: ESLint & Prettier
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          run_install: false
-          # cache is documented but unavailable as of v4.2
-          # when available, enable and remove separate npm setup below
-          # cache: true
-
-      - name: Install pnpm dependencies with caching
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 23.11.0
-          cache: pnpm
-      - run: pnpm install
-
-      - name: Run ESLint
-        run: pnpm run lint
-
-      - name: Check Prettier formatting
-        run: pnpm run format:check
-
-      - name: TypeScript type check
-        run: pnpm exec tsc --noEmit
+    uses: slaclab/swapps-ci-helpers/.github/workflows/js-check.yml@afaac9fd67e0b31c887a48c19d9a6b219ea72a8f
+    with:
+      node-version: "23.11.0"
+      check-command: "pnpm run lint && pnpm run format:check && pnpm exec tsc --noEmit"
