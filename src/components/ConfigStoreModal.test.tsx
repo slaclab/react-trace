@@ -176,7 +176,32 @@ describe('ConfigStoreModal', () => {
     await waitFor(() => expect(deleteConfig).toHaveBeenCalledWith('test-config'));
     await screen.findByText('No saved configs yet.');
     // The row's button went with the row, so focus falls back to the store body.
-    expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Config store' }));
+    expect(document.activeElement).toBe(
+      screen.getByRole('region', { name: 'Config store contents' })
+    );
+  });
+
+  it('falls back to the store body when the delete trigger is disabled on close', async () => {
+    vi.mocked(listConfigs).mockResolvedValue({
+      results: [listedConfig],
+      continuationToken: null,
+      totalCount: 1,
+    });
+    renderModal();
+    await screen.findByText('test-config');
+
+    const trigger = screen.getAllByRole('button', { name: 'Delete' })[0];
+    fireEvent.click(trigger);
+    // Stands in for a row still mid-delete (busySlug) when the dialog closes.
+    (trigger as HTMLButtonElement).disabled = true;
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() =>
+      expect(document.querySelectorAll('.cds--modal.is-visible')).toHaveLength(1)
+    );
+    expect(document.activeElement).toBe(
+      screen.getByRole('region', { name: 'Config store contents' })
+    );
   });
 
   it('moves focus into the delete confirmation and back to its trigger on Escape', async () => {

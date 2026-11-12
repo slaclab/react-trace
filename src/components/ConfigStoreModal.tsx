@@ -100,7 +100,7 @@ export function ConfigStoreModal({
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ConfigDTO | null>(null);
   // The row button that opened the delete confirmation, to refocus on close.
-  const deleteTriggerRef = useRef<HTMLElement | null>(null);
+  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
   const storeBodyRef = useRef<HTMLDivElement>(null);
   const loadAbortRef = useRef<AbortController | null>(null);
   // Monotonic refresh id. A Save/Delete fires its own refresh while the open
@@ -148,7 +148,8 @@ export function ConfigStoreModal({
   // Return focus to the store when the delete confirmation closes. Otherwise it
   // stays on the hidden confirmation, and the next Tab leaves the store for the
   // page behind it. After a delete the row's button is gone (the list reloads),
-  // so fall back to the store's scrollable body, which Carbon makes focusable.
+  // or still disabled if that reload lands in a later render, so fall back to
+  // the store's scrollable body, which Carbon makes focusable.
   // Runs as the cleanup, i.e. after the commit that closes the confirmation, so
   // its focus wrap is already off and doesn't pull focus back.
   const deleteConfirmOpen = deleteTarget !== null;
@@ -157,7 +158,8 @@ export function ConfigStoreModal({
     const trigger = deleteTriggerRef.current;
     const storeBody = storeBodyRef.current;
     return () => {
-      (trigger?.isConnected ? trigger : storeBody)?.focus();
+      const triggerUsable = trigger?.isConnected && !trigger.disabled;
+      (triggerUsable ? trigger : storeBody)?.focus();
     };
   }, [deleteConfirmOpen]);
 
@@ -278,7 +280,7 @@ export function ConfigStoreModal({
         selectorsFloatingMenus={[`.${DELETE_CONFIRM_CLASS}`]}
       >
         <ModalHeader title="Config store" />
-        <ModalBody hasScrollingContent aria-label="Config store" ref={storeBodyRef}>
+        <ModalBody hasScrollingContent aria-label="Config store contents" ref={storeBodyRef}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 4 }}>
             {error && !deleteTarget && (
               <InlineNotification
