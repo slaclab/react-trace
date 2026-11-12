@@ -312,6 +312,20 @@ describe('PVSearchModal', () => {
     expect(onAdd).toHaveBeenCalledWith('plot-2', ['KLYS:F']);
   });
 
+  it('does not bring the ticks back when the target returns to the first archiver', async () => {
+    renderModal({ plots: [plot1, plot2] });
+    await typePattern('KLYS');
+    await resolveSearch(0, ['KLYS:A', 'KLYS:B']);
+    tick('KLYS:A');
+
+    fireEvent.click(screen.getByRole('combobox'));
+    fireEvent.click(screen.getByRole('option', { name: 'Plot 2' }));
+    fireEvent.click(screen.getByRole('combobox'));
+    fireEvent.click(screen.getByRole('option', { name: 'Plot 1' }));
+    expect(addButton().disabled).toBe(true);
+    expect(screen.queryByText(/^Selected/)).toBeNull();
+  });
+
   it('drops the ticks when the target plot itself moves to another archiver', async () => {
     const { onAdd, rerender } = renderModal();
     await typePattern('KLYS');

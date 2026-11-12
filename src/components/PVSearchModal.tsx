@@ -45,20 +45,25 @@ export function PVSearchModal({ open, plots, initialPlotId, onAdd, onClose }: PV
   const [pattern, setPattern] = useState('');
   const [targetPlotId, setTargetPlotId] = useState(initialPlotId);
   // Ticks name PVs on the archiver that listed them, which another archiver
-  // may not have, so the selection remembers its archiver and counts for
-  // nothing once the target reads from a different one. Insertion-ordered:
-  // PVs are added in the order they were ticked.
+  // may not have, so the selection remembers its archiver and is cleared once
+  // the target reads from a different one. Insertion-ordered: PVs are added
+  // in the order they were ticked.
   const [selection, setSelection] = useState<{
     archiver: string | undefined;
     pvs: ReadonlySet<string>;
   }>(() => ({ archiver: plots.find((p) => p.id === initialPlotId)?.archiver, pvs: new Set() }));
 
   const target = plots.find((p) => p.id === targetPlotId) ?? plots[0];
+  // Cleared during render rather than in the picker's handler, because the
+  // target plot can also change archiver under an open dialog. Clearing, not
+  // just hiding, so the ticks don't come back with the first archiver.
+  if (selection.archiver !== target?.archiver) {
+    setSelection({ archiver: target?.archiver, pvs: EMPTY_SELECTION });
+  }
   // Search the target plot's archiver: that is where the new traces will read.
   // A closed dialog searches nothing, even if its pattern or plot changes.
   const search = usePVSearch(open ? pattern : '', target?.archiver, 300, PV_SEARCH_LIMIT);
   const selected = selection.archiver === target?.archiver ? selection.pvs : EMPTY_SELECTION;
-  // Every change starts from the effective selection, so a stale one is dropped.
   const setSelected = (update: (prev: ReadonlySet<string>) => ReadonlySet<string>) =>
     setSelection({ archiver: target?.archiver, pvs: update(selected) });
 

@@ -41,8 +41,36 @@ describe('toSearchRegex', () => {
     // Regex group prefixes survive; `?*` means one character then any.
     ['^KLYS(?:A|B).*$', '(?:^KLYS(?:A|B).*$)'],
     ['KLYS:LI2?*:PDES', '.*(?:KLYS:LI2..*:PDES).*'],
+    // An escaped wildcard character stays literal.
+    ['KLYS\\*', '.*(?:KLYS\\*).*'],
+    ['KLYS\\?A', '.*(?:KLYS\\?A).*'],
+    ['KLYS\\.*', '.*(?:KLYS\\..*)'],
+    // An end of the text belongs to one branch of a top-level alternation, so
+    // a wildcard or anchor there does not stand in for the wrap.
+    ['KLYS|FOO*', '.*(?:KLYS|FOO.*).*'],
+    ['*KLYS|FOO', '.*(?:.*KLYS|FOO).*'],
+    ['^KLYS|FOO', '.*(?:^KLYS|FOO).*'],
+    ['KLYS|FOO$', '.*(?:KLYS|FOO$).*'],
+    // Not top level: inside a group, a character class, or escaped.
+    ['^KLYS(A|B)$', '(?:^KLYS(A|B)$)'],
+    ['^KLYS[|]A', '(?:^KLYS[|]A).*'],
+    ['^KLYS\\|A', '(?:^KLYS\\|A).*'],
   ])('%j becomes %j', (text, regex) => {
     expect(toSearchRegex(text)).toBe(regex);
+  });
+
+  // The Appliance matches the regex against the whole PV name.
+  it.each([
+    ['KLYS|FOO*', 'KLYS:LI21:PDES'],
+    ['KLYS|FOO*', 'FOO:LI21:PDES'],
+    ['^KLYS|FOO', 'X:FOO:1'],
+    ['^KLYS|FOO', 'KLYS:1'],
+    ['KLYS|FOO$', 'KLYS:1'],
+  ])('%j full-matches %j', (text, pv) => {
+    expect(new RegExp(`^(?:${toSearchRegex(text)})$`).test(pv)).toBe(true);
+  });
+  it('keeps an anchor meaningful within its alternation branch', () => {
+    expect(new RegExp(`^(?:${toSearchRegex('^KLYS|FOO')})$`).test('X:KLYS:1')).toBe(false);
   });
 });
 

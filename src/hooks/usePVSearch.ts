@@ -31,16 +31,38 @@ interface Stored {
 // so a fragment matches anywhere in the name. Other regex syntax passes
 // through, and an explicit `.*`, `^` or `$` at either end is left alone, so
 // `KLYS.*` and `^KLYS` keep meaning what they say. The group keeps an
-// alternation such as `KLYS|FOO` inside the wrap.
+// alternation such as `KLYS|FOO` inside the wrap. With a top-level alternation
+// an end of the text belongs to one branch only, so `KLYS|FOO*` is wrapped on
+// both sides: otherwise the KLYS branch would have to end the PV name.
 export function toSearchRegex(text: string): string {
-  // One pass, so a converted character is never read again: `(?` keeps its
-  // group prefix, an explicit `.*` stays as typed, and `?*` becomes `..*`.
+  // One pass, so a converted character is never read again: an escaped
+  // character such as `\*` stays literal, `(?` keeps its group prefix, an
+  // explicit `.*` stays as typed, and `?*` becomes `..*`.
   const body = text
     .trim()
-    .replace(/\(\?|\.\*|[?*%]/g, (m) => (m === '(?' || m === '.*' ? m : m === '?' ? '.' : '.*'));
-  const lead = body.startsWith('^') || body.startsWith('.*') ? '' : '.*';
-  const tail = body.endsWith('$') || body.endsWith('.*') ? '' : '.*';
+    .replace(/\\.|\(\?|\.\*|[?*%]/g, (m) =>
+      m[0] === '\\' || m === '(?' || m === '.*' ? m : m === '?' ? '.' : '.*'
+    );
+  const branches = hasTopLevelAlternation(body);
+  const lead = !branches && (body.startsWith('^') || body.startsWith('.*')) ? '' : '.*';
+  const tail = !branches && (body.endsWith('$') || body.endsWith('.*')) ? '' : '.*';
   return `${lead}(?:${body})${tail}`;
+}
+
+// A `|` outside every group and character class, and not escaped.
+function hasTopLevelAlternation(regex: string): boolean {
+  let depth = 0;
+  let inClass = false;
+  for (let i = 0; i < regex.length; i++) {
+    const c = regex[i];
+    if (c === '\\') i++;
+    else if (inClass) inClass = c !== ']';
+    else if (c === '[') inClass = true;
+    else if (c === '(') depth++;
+    else if (c === ')') depth--;
+    else if (c === '|' && depth === 0) return true;
+  }
+  return false;
 }
 
 export function usePVSearch(
