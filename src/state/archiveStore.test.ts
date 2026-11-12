@@ -673,6 +673,53 @@ describe('archiveStore: archived PV while the window tracks now', () => {
     expect(signals.map((s) => s.aborted)).toEqual([false, false]);
   });
 
+  it('treats a catch-up of a live window as live, though it starts after the window was asked for', async () => {
+    const signals: AbortSignal[] = [];
+    let land!: () => void;
+    const h = setup((_pv, params, signal) => {
+      signals.push(signal!);
+      if (signals.length > 1) return new Promise<ArchiverDataDTO>(() => {});
+      return new Promise((r) => (land = () => r(secondsDto(params))));
+    });
+    await drift(h, { spanS: 10, steps: 6 });
+    // Renders stop for 3 s, then the first fetch lands: the catch-up fetches
+    // the rest of the window last asked for, at 0.5 s.
+    await idle(h, 3_000);
+    land();
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+
+    // The next render's live window has slid past it entirely.
+    await idle(h, 8_000);
+    h.store.request('t1', { pv: PV, archiver: undefined, window: windowAt(h.now(), 10) });
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    expect(signals[1].aborted).toBe(false);
+  });
+
+  it('judges a refetchAll() of a historical window as historical', async () => {
+    const signals: AbortSignal[] = [];
+    const h = setup((_pv, params, signal) => {
+      signals.push(signal!);
+      if (signals.length > 1) return new Promise<ArchiverDataDTO>(() => {});
+      return Promise.resolve(secondsDto(params));
+    });
+    // Loaded live, then left in place for a minute: no longer following now.
+    const fixed = windowAt(T0_MS, 10);
+    h.store.request('t1', { pv: PV, archiver: undefined, window: fixed });
+    await flush();
+    await idle(h, 60_000);
+    h.store.request('t1', { pv: PV, archiver: undefined, window: fixed });
+    h.store.refetchAll();
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+
+    // Back to now at the same span: no overlap, so the refetch is dropped.
+    h.store.request('t1', { pv: PV, archiver: undefined, window: windowAt(h.now(), 10) });
+    await flush();
+    expect(signals.map((s) => s.aborted)).toEqual([false, true, false]);
+  });
+
   it("doesn't wait on a live fetch when the window jumps to end in the future", async () => {
     const signals: AbortSignal[] = [];
     const h = setup((_pv, _params, signal) => {
