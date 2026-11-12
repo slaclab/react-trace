@@ -11,8 +11,9 @@ name: Build Dev RPM
 #   the RPM already published there (overwrite_files: false).
 # - publish-latest: serialized across runs (concurrency group). Moves dev-latest
 #   forward only: a build whose commit is older than the one dev-latest already
-#   points at is skipped. It copies the RPM from dev-<sha>, moves the tag, and
-#   leaves exactly that one RPM on the release.
+#   points at is skipped. It copies the RPM from dev-<sha>, moves the tag (on
+#   the first run, creates it together with the release), and leaves exactly
+#   that one RPM on the release.
 #   GitHub keeps at most one pending job per concurrency group, so when several
 #   publishes overlap the queued one can be cancelled (shown as a cancelled run
 #   on main). If that was the newest commit, dev-latest lags until the next push
@@ -106,11 +107,29 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Succeeds if the API path exists and fails on a 404. Any other
+          # error (network, rate limit, 5xx) stops the job with gh's message
+          # instead of reading as "doesn't exist".
+          exists() {
+            local err
+            if err=$(gh api "$1" --silent 2>&1); then
+              return 0
+            fi
+            # gh prints "Not Found (HTTP 404)", or "HTTP 404" with no body.
+            if [[ $err == *"HTTP 404"* ]]; then
+              return 1
+            fi
+            echo "$err" >&2
+            echo "::error::GET $1 failed; dev-latest was not changed."
+            exit 1
+          }
+
           # Only move dev-latest forward. "behind" means this commit is an
           # ancestor of the one dev-latest points at: a newer push already
           # published, so this build is stale. "diverged" (main rewritten)
           # publishes. With no tag yet there is nothing to compare.
-          if gh api "repos/$REPO/git/ref/tags/dev-latest" --silent 2>/dev/null; then
+          tag_exists=false
+          if exists "repos/$REPO/git/ref/tags/dev-latest"; then
             status=$(gh api "repos/$REPO/compare/dev-latest...$SHA" --jq .status)
             echo "dev-latest...${SHA::7}: $status"
             if [ "$status" = behind ]; then
@@ -118,31 +137,45 @@ jobs:
               exit 0
             fi
             tag_exists=true
-          else
-            tag_exists=false
+          fi
+
+          # This script creates the release and its tag together and only ever
+          # moves the tag, so a published release with no tag means the tag
+          # isn't visible yet or someone changed it by hand: stop rather than
+          # guess.
+          release_exists=false
+          if exists "repos/$REPO/releases/tags/dev-latest"; then
+            release_exists=true
+            if [ "$tag_exists" = false ]; then
+              echo "::error::dev-latest has a published release but no tag; not publishing. Rerun this job, and if it fails again check the dev-latest tag."
+              exit 1
+            fi
           fi
 
           # Same bytes as the immutable per-commit release, including on reruns.
           workdir=$(mktemp -d)
           gh release download "$RELEASE_TAG" --repo "$REPO" --pattern "$RPM_NAME" --dir "$workdir"
 
-          # Move the tag first: updating a release doesn't move its tag, and
-          # the release's source archives come from the tag.
+          # Move an existing tag first: updating a release doesn't move its
+          # tag, and the release's source archives come from the tag. With no
+          # tag yet (first run), the release create below makes it at $SHA in
+          # the same call, so nothing waits on a newly created ref.
           if [ "$tag_exists" = true ]; then
             gh api -X PATCH "repos/$REPO/git/refs/tags/dev-latest" -f sha="$SHA" -F force=true --silent
-          else
-            gh api -X POST "repos/$REPO/git/refs" -f ref=refs/tags/dev-latest -f sha="$SHA" --silent
           fi
 
           notes="Rolling dev build from main branch.
           Points at: $RELEASE_TAG
           Commit: $SHA
           Built: $BUILT"
-          if gh release view dev-latest --repo "$REPO" >/dev/null 2>&1; then
+          if [ "$release_exists" = true ]; then
             gh release edit dev-latest --repo "$REPO" --title "Dev Latest" --prerelease \
               --target "$SHA" --notes "$notes"
           else
-            gh release create dev-latest --repo "$REPO" --verify-tag --title "Dev Latest" \
+            # --target only applies when the tag doesn't exist yet: GitHub
+            # then creates it at $SHA. An existing (just moved) tag is used
+            # as is.
+            gh release create dev-latest --repo "$REPO" --target "$SHA" --title "Dev Latest" \
               --prerelease --notes "$notes"
           fi
 
