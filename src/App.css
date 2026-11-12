@@ -1,7 +1,7 @@
 /* Application-level layout overrides
  *
  * Colors come from Carbon theme tokens (--cds-*) so panels follow the
- * <Theme theme="g10|g90"> wrapper in App.tsx automatically. Custom hex is
+ * <ColorModeTheme> (g10 | g100) wrapper in App.tsx automatically. Custom hex is
  * reserved for things Carbon doesn't ship a token for (semantic indicator
  * colors with fixed hue regardless of theme, e.g. live-data green).
  */
@@ -15,17 +15,8 @@
   overflow: hidden;
 }
 
-/* Carbon Header takes position: fixed by default; pin it to the flex column
-   instead so the panel group fills the rest of the height. */
-.trace-header {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.trace-header__name {
-  letter-spacing: 0.04em;
-}
-
+/* The header itself is canopy-shell's AppHeader (in-flow, see TraceHeader).
+   The live/archive counts sit in its middle slot, pushed to the right. */
 .trace-header__archiver {
   margin-left: auto;
   display: flex;
@@ -45,6 +36,27 @@
   min-height: 0;
   overflow: hidden;
   display: flex;
+}
+
+/* Focused only programmatically, by the header's "Skip to main content" link. */
+.trace-panel-group:focus {
+  outline: none;
+}
+
+/* A panel's error fallback (canopy-shell ErrorBoundary) is a Carbon inline
+   notification plus two buttons, wider than the side panels; let both wrap to
+   the panel instead of being cut off. */
+.trace-panel-group .canopy-error-fallback .cds--inline-notification {
+  min-width: 0;
+}
+
+.trace-panel-group .canopy-error-fallback__actions {
+  flex-wrap: wrap;
+}
+
+/* The docked Data Insight fallback's extra "Close Data Insight" action. */
+.insight-fallback > .cds--btn {
+  margin: 0 1rem 1rem;
 }
 
 .trace-resize-handle {
@@ -519,6 +531,10 @@
   top: 40px;
   background-color: var(--cds-layer);
   z-index: 1;
+  /* Carbon's condensed tab density (8px inline padding instead of 16px) for
+     every properties tab set, so the widest one (a trace's General, Line,
+     Symbol, Code) fits the default panel width without the scroll arrow. */
+  --cds-layout-density-padding-inline: var(--cds-layout-density-padding-inline-condensed);
 }
 
 .properties-panel .cds--tab-content {
@@ -609,6 +625,17 @@
 .properties-panel .cds--btn--ghost:hover {
   background-color: var(--cds-layer-hover);
   color: var(--cds-text-primary);
+}
+
+/* Carbon's slider track has a 200px minimum, which with its range labels is
+   wider than the panel at its default width. Let the track shrink instead; the
+   row then needs an explicit width, since Carbon's form item shrink-wraps it. */
+.properties-panel .cds--slider-container {
+  inline-size: 100%;
+}
+
+.properties-panel .cds--slider {
+  min-inline-size: 0;
 }
 
 /* Carbon Tabs in properties panel */
