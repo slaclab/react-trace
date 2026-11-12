@@ -203,9 +203,11 @@ export function ConfigStoreModal({
 
   // The delete confirmation's X, Escape and Cancel. It stays open while the
   // Delete's server call runs, so a failure can show in it. Reads the slot's
-  // ref for the same reason as requestClose.
+  // ref for the same reason as requestClose. Closing it drops that failure too,
+  // or the store's banner would show it for a Delete that was cancelled.
   const requestCancelDelete = useCallback(() => {
     if (busyRef.current?.kind === 'delete') return false;
+    setError(null);
     setDeleteTarget(null);
   }, [setDeleteTarget]);
 
@@ -360,7 +362,7 @@ export function ConfigStoreModal({
 
   return (
     <>
-      <ComposedModal open={open} onClose={requestClose} size="lg">
+      <ComposedModal open={open} onClose={requestClose} size="lg" aria-label="Config store">
         <ModalHeader title="Config store" />
         <ModalBody hasScrollingContent>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 4 }}>
@@ -500,7 +502,13 @@ export function ConfigStoreModal({
         </ModalBody>
       </ComposedModal>
 
-      <ComposedModal open={Boolean(deleteTarget)} onClose={requestCancelDelete} size="sm" danger>
+      <ComposedModal
+        open={Boolean(deleteTarget)}
+        onClose={requestCancelDelete}
+        size="sm"
+        danger
+        aria-label="Delete config?"
+      >
         <ModalHeader title="Delete config?" />
         <ModalBody>
           {error && (

@@ -128,30 +128,33 @@ async function reopen() {
   await settle();
 }
 
+// Each ComposedModal renders a dialog named by its aria-label. Carbon marks a
+// closed one aria-hidden, which only a `hidden` query finds.
+function dialog(name: string, hidden: boolean): HTMLElement | null {
+  return screen.queryByRole('dialog', { name, hidden });
+}
+
 // The config store, or null once TraceApp has unmounted it.
 function storeModal(): HTMLElement | null {
-  return document.querySelector('.cds--modal:not(.cds--modal--danger)');
+  return dialog('Config store', true);
 }
 
 // The delete confirmation. It stays mounted, hidden, while the store is.
 function confirmModal(): HTMLElement | null {
-  return document.querySelector('.cds--modal--danger');
+  return dialog('Delete config?', true);
 }
 
-function shown(modal: HTMLElement | null): boolean {
-  return modal?.classList.contains('is-visible') ?? false;
-}
-
-const storeOpen = () => shown(storeModal());
-const confirmOpen = () => shown(confirmModal());
+const storeOpen = () => dialog('Config store', false) !== null;
+const confirmOpen = () => dialog('Delete config?', false) !== null;
 
 type RowAction = 'Load' | 'Rename' | 'Delete';
 const ROW_ACTIONS: RowAction[] = ['Load', 'Rename', 'Delete'];
 
-// `hidden: true` throughout: Carbon hides what's under a modal from the
-// accessibility tree, including the store under the delete confirmation.
+// `hidden: true` throughout: these also reach the store while the delete
+// confirmation is open over it, which a browser hides from assistive tech
+// (the confirmation is aria-modal). Testing Library's check ignores aria-modal.
 function rowButton(name: string, action: RowAction): HTMLButtonElement {
-  const row = screen.getByText(name).closest('.cds--structured-list-row') as HTMLElement;
+  const row = screen.getByText(name).closest('[role="row"]') as HTMLElement;
   return within(row).getByRole('button', { name: action, hidden: true }) as HTMLButtonElement;
 }
 
@@ -167,9 +170,12 @@ function allRowButtons(): HTMLButtonElement[] {
 }
 
 // The confirmation's own Delete button, which starts the delete. Its
-// accessible name starts with the danger description, so find it by class.
+// accessible name starts with the danger description, so match the end.
 function confirmDeleteButton(): HTMLButtonElement {
-  return confirmModal()!.querySelector('.cds--modal-footer .cds--btn--danger')!;
+  return within(confirmModal()!).getByRole('button', {
+    name: /(Delete|Deleting…)$/,
+    hidden: true,
+  }) as HTMLButtonElement;
 }
 
 // A row's Delete, then the confirmation's.
@@ -197,10 +203,13 @@ function dismiss(path: DismissPath) {
     case 'Escape':
       fireEvent.keyDown(document, { key: 'Escape', keyCode: 27 });
       break;
-    case 'backdrop':
-      fireEvent.mouseDown(store);
-      fireEvent.click(store);
+    case 'backdrop': {
+      // The dialog's presentation wrapper is the overlay around it.
+      const backdrop = store.closest('[role="presentation"]')!;
+      fireEvent.mouseDown(backdrop);
+      fireEvent.click(backdrop);
       break;
+    }
   }
 }
 
@@ -559,6 +568,14 @@ describe('ConfigStoreModal: Save, Rename and Delete block dismissal', () => {
       expect(storeOpen()).toBe(true);
       expect(confirmOpen()).toBe(true);
       expect(parentClose).not.toHaveBeenCalled();
+
+      // Carbon hides a modal whose onClose doesn't return false, even while
+      // `open` stays true, and then sends Escape past it. So Escape closing
+      // the store shows both refusals left it open.
+      await settle(() => deletes[0].resolve());
+      dismiss('Escape');
+      expect(storeOpen()).toBe(false);
+      expect(parentClose).toHaveBeenCalledTimes(1);
     }
   );
 
@@ -576,14 +593,36 @@ describe('ConfigStoreModal: Save, Rename and Delete block dismissal', () => {
     expect(within(confirmModal()!).queryByText('not allowed')).toBeNull();
   });
 
+  it.each(CONFIRM_PATHS)(
+    "drops a failed Delete's error from the store when %s closes the confirmation",
+    async (path) => {
+      await mount();
+      startDelete('Config B');
+      // Refused while the Delete runs. It must leave Carbon's own state open
+      // too: for Escape, the second press below would otherwise go to the store.
+      dismissConfirm(path);
+      await settle(() => deletes[0].reject(new CanopyError('forbidden', 403, 'not allowed')));
+      expect(within(confirmModal()!).queryByText('not allowed')).not.toBeNull();
+
+      dismissConfirm(path);
+      expect(confirmOpen()).toBe(false);
+      expect(storeOpen()).toBe(true);
+      expect(parentClose).not.toHaveBeenCalled();
+      expect(within(storeModal()!).queryByText('not allowed')).toBeNull();
+    }
+  );
+
+  // Escape closing the store shows the refused X left Carbon's own state open
+  // (see the case above that refuses X under the delete confirmation).
   it('can still be used after X was pressed during a Save', async () => {
     await mount();
     fireEvent.click(saveButton());
     dismiss('X');
     await settle(() => saves[0].resolve(config('slug-new', 'New', '2026-10-03T00:00:00Z')));
-    await reopen();
-    expect(storeOpen()).toBe(true);
     expect(saveButton().disabled).toBe(false);
+    dismiss('Escape');
+    expect(storeOpen()).toBe(false);
+    expect(parentClose).toHaveBeenCalledTimes(1);
   });
 
   it('still toasts a Save that outlives the modal, and touches nothing else', async () => {
@@ -602,7 +641,7 @@ describe('ConfigStoreModal: the delete confirmation', () => {
     await mount();
     fireEvent.click(rowButton('Config B', 'Delete'));
 
-    expect(document.querySelectorAll('.cds--modal.is-visible')).toHaveLength(2);
+    expect(screen.getAllByRole('dialog')).toHaveLength(2);
     expect(screen.getByText('Save current workspace')).toBeTruthy();
     expect(
       within(confirmModal()!).getByText(
@@ -613,7 +652,7 @@ describe('ConfigStoreModal: the delete confirmation', () => {
     expect(api.deleteConfig).not.toHaveBeenCalled();
 
     dismissConfirm('Cancel');
-    expect(document.querySelectorAll('.cds--modal.is-visible')).toHaveLength(1);
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
     expect(screen.getByText('Config B')).toBeTruthy();
     expect(api.deleteConfig).not.toHaveBeenCalled();
   });
