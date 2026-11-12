@@ -94,6 +94,20 @@ browser's follow-up comes through the proxy and gets the key again. A
 follows it without the keys. Hop-by-hop headers, including any named in
 `Connection`, are dropped in both directions.
 
+Every proxy response carries a `Content-Security-Policy`. The page may fetch,
+open WebSockets to and load scripts, styles and images from the proxy's own
+origin only, with three exceptions: inline styles (ECharts tooltips and Carbon
+use them), `data:` and `blob:` images (Carbon's icons and plot captures), and
+the IBM Plex fonts `@carbon/styles` loads from IBM's CDN. Inline scripts,
+`eval` and plugins aren't allowed, and no other page may frame the app. So if
+the SPA ever had an XSS bug, injected script couldn't send data to another
+origin with `fetch`, XHR, a WebSocket or a subresource load. CSP doesn't
+restrict top-level navigation, so it narrows exfiltration rather than ruling it
+out. `security.csp` in `tauri.conf.json` stays `null` on purpose: Tauri v1
+applies it only to pages served over its own `tauri://` protocol, and this app
+never loads one. Release windows load the proxy origin, and `tauri dev` loads
+the Vite dev server.
+
 ## Known limitations
 
 - CI artifacts are unsigned (no macOS notarization, no Windows code signing);
@@ -107,12 +121,14 @@ follows it without the keys. Hop-by-hop headers, including any named in
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-No `config.json` or `dist/` is needed. Unit tests cover path routing, config
+No `config.json` or `dist/` is needed. Unit tests cover path routing and config
 precedence (against a fixed environment, so your own `CANOPY_BASE_URL` etc.
-don't affect them), the origin check, hop-by-hop stripping and `Location`
-rewriting. In-process end-to-end tests run the real proxy against mock
-upstreams and assert header injection, `/elog` prefix stripping, multipart
-pass-through, the 502-when-unconfigured contract, SPA fallback, WebSocket
-bridging including close-code passthrough, `403` for foreign origins and
-rebound host names (HTTP and WebSocket), and that redirects aren't followed.
-The `test` job in `.github/workflows/tauri.yml` runs these on pull requests.
+don't affect them). In-process end-to-end tests run the real proxy against
+mock upstreams and assert header injection, `/elog` prefix stripping,
+multipart pass-through, request bodies streamed upstream with their framing
+kept, the 502-when-unconfigured contract, SPA fallback, WebSocket bridging
+including close-code passthrough, `403` for foreign and near-miss origins and
+for rebound or wrong-port host names (HTTP and WebSocket), hop-by-hop
+stripping in both directions, that redirects aren't followed and how
+`Location` is rewritten, and that every response carries the CSP. The `test`
+job in `.github/workflows/tauri.yml` runs these on pull requests.

@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{
-    body::Body,
+    body::{Body, HttpBody},
     extract::{
         ws::CloseFrame as AxCloseFrame, ws::Message as AxumMsg, ws::WebSocket, State,
         WebSocketUpgrade,
@@ -37,6 +37,7 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode as TgClos
 use tokio_tungstenite::tungstenite::protocol::CloseFrame as TgCloseFrame;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMsg;
 use tower_http::services::{ServeDir, ServeFile};
+use tower_http::set_header::SetResponseHeaderLayer;
 
 use crate::config::CanopyConfig;
 
@@ -125,6 +126,41 @@ fn is_own_origin(headers: &HeaderMap, port: u16) -> bool {
     }
 }
 
+/// Content-Security-Policy for every response. Tauri's `tauri.security.csp`
+/// doesn't reach this app's pages: Tauri v1 adds it only to pages it serves
+/// over its own `tauri://` protocol, and the webview loads this proxy's origin
+/// instead, so the proxy sends the policy itself.
+///
+/// Everything is limited to this origin, except:
+/// - `connect-src` also lists the WebSocket origins, because older WebKit
+///   doesn't match `ws:` under `'self'`. Both [`LOCAL_HOSTS`] names are listed.
+/// - `style-src 'unsafe-inline'`: ECharts tooltips are HTML strings with
+///   `style` attributes, and Carbon sets inline styles.
+/// - `img-src data: blob:`: Carbon's CSS has `data:` SVG icons, and plot
+///   captures (the e-log preview, image export) are `data:`/`blob:` URLs.
+/// - `font-src`: `@carbon/styles` loads IBM Plex from IBM's CDN.
+///
+/// Scripts are `'self'` only (the Vite build has no inline scripts and
+/// nothing uses `eval`), and `frame-ancestors 'none'` stops any other page,
+/// including one in a local browser, from framing the app.
+fn content_security_policy(port: u16) -> String {
+    let ws_origins = LOCAL_HOSTS
+        .map(|host| format!("ws://{host}:{port}"))
+        .join(" ");
+    format!(
+        "default-src 'self'; \
+         script-src 'self'; \
+         style-src 'self' 'unsafe-inline'; \
+         img-src 'self' data: blob:; \
+         font-src 'self' https://1.www.s81c.com; \
+         connect-src 'self' {ws_origins}; \
+         object-src 'none'; \
+         base-uri 'self'; \
+         form-action 'self'; \
+         frame-ancestors 'none'"
+    )
+}
+
 /// Start the proxy on a fixed loopback port. Returns the bound address (so the
 /// caller can point the webview at it). Runs the server on the given Tokio
 /// runtime; the task lives for the process lifetime.
@@ -158,11 +194,21 @@ pub async fn bind(
         bound,
     };
 
+    let csp = HeaderValue::from_str(&content_security_policy(bound.port()))
+        .expect("CSP is a valid header value");
+
     let app = Router::new()
         // API prefixes are matched inside the handler; catch-all sends
         // everything here and we branch on the path.
         .fallback(any(route))
-        .with_state((state, Arc::new(static_service)));
+        .with_state((state, Arc::new(static_service)))
+        // On every response, not just the SPA's: injected script could open
+        // any same-origin URL in a window or frame, and a page there without
+        // the policy would let it get around it.
+        .layer(SetResponseHeaderLayer::overriding(
+            http::header::CONTENT_SECURITY_POLICY,
+            csp,
+        ));
 
     tokio::spawn(async move {
         if let Err(err) = axum::serve(listener, app).await {
@@ -256,13 +302,9 @@ async fn serve_static(service: SharedStatic, req: axum::http::Request<Body>) -> 
     }
 }
 
-/// Cap on buffered request bodies. E-log posts multipart PNG attachments that
-/// can total a few MB; 64 MiB is far above anything legitimate while still
-/// bounding memory.
-const MAX_REQUEST_BODY: usize = 64 * 1024 * 1024;
-
 /// Forward an HTTP request upstream per `forward` (target base, optional
-/// prefix strip, auth header), streaming the response body back.
+/// prefix strip, auth header), streaming the request body up and the response
+/// body back.
 async fn proxy_http(
     state: &ProxyState,
     method: Method,
@@ -286,8 +328,11 @@ async fn proxy_http(
     let target = format!("{}{}", forward.base, forwarded_path);
 
     // Strip origin + hop-by-hop request headers; inject the auth header.
+    // Content-Length stays: the body is streamed, and hyper frames a streamed
+    // body by a Content-Length it is given, so a fixed-length upload goes
+    // upstream with the same length. Without one (a chunked upload) it goes
+    // up chunked.
     headers.remove(http::header::HOST);
-    headers.remove(http::header::CONTENT_LENGTH);
     strip_hop_by_hop(&mut headers);
     if !forward.header_value.is_empty() {
         if let Ok(val) = HeaderValue::from_str(forward.header_value) {
@@ -295,23 +340,18 @@ async fn proxy_http(
         }
     }
 
-    let body_bytes = match axum::body::to_bytes(body, MAX_REQUEST_BODY).await {
-        Ok(b) => b,
-        Err(err) => {
-            tracing::warn!(%err, "failed reading request body");
-            return (StatusCode::BAD_REQUEST, "bad request body").into_response();
-        }
-    };
-
     let reqwest_method = match reqwest::Method::from_bytes(method.as_str().as_bytes()) {
         Ok(m) => m,
         Err(_) => return (StatusCode::BAD_REQUEST, "bad method").into_response(),
     };
 
-    let mut builder = state
-        .http
-        .request(reqwest_method, target.as_str())
-        .body(body_bytes);
+    let mut builder = state.http.request(reqwest_method, target.as_str());
+    // Stream the body through rather than reading it into memory first, so a
+    // large e-log upload isn't held whole. A request with no body gets none
+    // upstream either, instead of an empty chunked one.
+    if !body.is_end_stream() {
+        builder = builder.body(reqwest::Body::wrap_stream(body.into_data_stream()));
+    }
     for (name, value) in headers.iter() {
         builder = builder.header(name.as_str(), value.as_bytes());
     }
@@ -563,156 +603,6 @@ mod tests {
         assert!(!is_elog_path("/elogbook"));
         assert!(!is_api_path("/elog/v1/logbooks"));
     }
-
-    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
-        let mut map = HeaderMap::new();
-        for (name, value) in pairs {
-            map.append(
-                HeaderName::from_bytes(name.as_bytes()).unwrap(),
-                HeaderValue::from_str(value).unwrap(),
-            );
-        }
-        map
-    }
-
-    #[test]
-    fn own_origin_accepts_bound_authority() {
-        for host in ["127.0.0.1:5178", "localhost:5178"] {
-            // No Origin (same-origin GET, non-browser client).
-            assert!(is_own_origin(&headers(&[("host", host)]), 5178));
-            for origin in ["http://127.0.0.1:5178", "http://localhost:5178"] {
-                assert!(is_own_origin(
-                    &headers(&[("host", host), ("origin", origin)]),
-                    5178
-                ));
-            }
-        }
-    }
-
-    #[test]
-    fn own_origin_rejects_foreign_host_or_origin() {
-        // Missing Host, DNS-rebound name, wrong port.
-        assert!(!is_own_origin(&headers(&[]), 5178));
-        assert!(!is_own_origin(
-            &headers(&[("host", "attacker.example:5178")]),
-            5178
-        ));
-        assert!(!is_own_origin(
-            &headers(&[("host", "127.0.0.1:5179")]),
-            5178
-        ));
-        assert!(!is_own_origin(&headers(&[("host", "127.0.0.1")]), 5178));
-        // Right Host, foreign or opaque Origin.
-        for origin in [
-            "https://attacker.example",
-            "http://attacker.example:5178",
-            "https://127.0.0.1:5178",
-            "http://127.0.0.1:5179",
-            "http://127.0.0.1:5178.attacker.example",
-            "null",
-        ] {
-            assert!(
-                !is_own_origin(
-                    &headers(&[("host", "127.0.0.1:5178"), ("origin", origin)]),
-                    5178
-                ),
-                "origin {origin} accepted"
-            );
-        }
-    }
-
-    #[test]
-    fn strips_connection_nominated_headers() {
-        let mut map = headers(&[
-            ("connection", "keep-alive, X-Local-State"),
-            ("connection", " x-other ,,"),
-            ("x-local-state", "1"),
-            ("x-other", "1"),
-            ("keep-alive", "timeout=5"),
-            ("transfer-encoding", "chunked"),
-            ("proxy-connection", "keep-alive"),
-            ("x-end-to-end", "1"),
-            ("content-type", "text/plain"),
-        ]);
-        strip_hop_by_hop(&mut map);
-        let mut left: Vec<&str> = map.keys().map(|k| k.as_str()).collect();
-        left.sort_unstable();
-        assert_eq!(left, ["content-type", "x-end-to-end"]);
-    }
-
-    fn fwd<'a>(base: &'a str, strip_prefix: Option<&'a str>) -> Forward<'a> {
-        Forward {
-            base,
-            strip_prefix,
-            header_name: HeaderName::from_static("x-api-key"),
-            header_value: "",
-        }
-    }
-
-    #[test]
-    fn location_on_canopy_upstream_maps_to_proxy_path() {
-        let canopy = fwd("http://canopy.example:8000", None);
-        let target = "http://canopy.example:8000/mole/v1/data/?n=1";
-        for (location, expected) in [
-            (
-                "http://canopy.example:8000/mole/v1/data?n=1",
-                "/mole/v1/data?n=1",
-            ),
-            // Host case and explicit default-less forms compare as one origin.
-            ("http://CANOPY.example:8000/mole/x", "/mole/x"),
-            ("/mole/v1/data?n=1", "/mole/v1/data?n=1"),
-            ("../other", "/mole/v1/other"),
-            ("http://canopy.example:8000", "/"),
-            ("http://canopy.example:8000/x#frag", "/x#frag"),
-        ] {
-            assert_eq!(
-                rewrite_location(location, target, &canopy).as_deref(),
-                Some(expected),
-                "{location}"
-            );
-        }
-    }
-
-    #[test]
-    fn location_on_elog_upstream_gets_prefix_back() {
-        // Base with a path: only locations under it map back.
-        let elog = fwd("https://elog.example/api", Some("/elog"));
-        let target = "https://elog.example/api/v1/entries";
-        assert_eq!(
-            rewrite_location("/api/v1/entries/42", target, &elog).as_deref(),
-            Some("/elog/v1/entries/42")
-        );
-        assert_eq!(
-            rewrite_location("https://elog.example/api", target, &elog).as_deref(),
-            Some("/elog")
-        );
-        assert_eq!(rewrite_location("/apix/v1", target, &elog), None);
-        assert_eq!(rewrite_location("/login", target, &elog), None);
-        // Base without a path: an upstream-relative path gets /elog prepended.
-        let bare = fwd("http://elog.example:8080", Some("/elog"));
-        assert_eq!(
-            rewrite_location("/v1/new", "http://elog.example:8080/v1/old", &bare).as_deref(),
-            Some("/elog/v1/new")
-        );
-    }
-
-    #[test]
-    fn location_off_upstream_is_left_alone() {
-        let canopy = fwd("http://canopy.example:8000", None);
-        let target = "http://canopy.example:8000/mole/v1/data";
-        for location in [
-            "http://attacker.example/steal",
-            "//attacker.example/steal",
-            "https://canopy.example:8000/mole/x",
-            "http://canopy.example:8001/mole/x",
-        ] {
-            assert_eq!(
-                rewrite_location(location, target, &canopy),
-                None,
-                "{location}"
-            );
-        }
-    }
 }
 
 // In-process end-to-end tests: real proxy (bind on an ephemeral port) against a
@@ -724,6 +614,7 @@ mod e2e {
     use axum::routing::{get, post};
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
 
     /// Serve `router` on an ephemeral loopback port; returns the bound addr.
     async fn spawn_upstream(router: Router) -> SocketAddr {
@@ -876,6 +767,91 @@ mod e2e {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn request_body_streams_to_upstream() {
+        // The client only sends its second chunk once upstream has the first.
+        // A proxy that read the whole body before forwarding would never pass
+        // the first one on, and the request would time out.
+        let first_seen = Arc::new(tokio::sync::Notify::new());
+        let handler = {
+            let first_seen = first_seen.clone();
+            move |body: Body| {
+                let first_seen = first_seen.clone();
+                async move {
+                    let mut chunks = body.into_data_stream();
+                    let mut got = Vec::new();
+                    while let Some(chunk) = chunks.next().await {
+                        got.extend_from_slice(&chunk.unwrap());
+                        first_seen.notify_one();
+                    }
+                    String::from_utf8(got).unwrap()
+                }
+            }
+        };
+        let elog = spawn_upstream(Router::new().route("/v2/entries", post(handler))).await;
+        let canopy = spawn_upstream(echo_router("x-api-key")).await;
+        let proxy = spawn_proxy(config(canopy, Some(elog)), no_dist()).await;
+
+        let chunks = futures_util::stream::once(async { Ok::<_, std::io::Error>("first,") }).chain(
+            futures_util::stream::once(async move {
+                first_seen.notified().await;
+                Ok("second")
+            }),
+        );
+        let send = reqwest::Client::new()
+            .post(format!("http://{proxy}/elog/v2/entries"))
+            .body(reqwest::Body::wrap_stream(chunks))
+            .send();
+        let res = tokio::time::timeout(Duration::from_secs(10), send)
+            .await
+            .expect("upstream never got the first chunk: the proxy buffered the body")
+            .unwrap();
+        assert_eq!(res.text().await.unwrap(), "first,second");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn request_body_keeps_its_framing() {
+        // Upstream reports "<content-length>|<transfer-encoding>|<body length>".
+        let handler = |headers: HeaderMap, body: axum::body::Bytes| async move {
+            let get = |name: HeaderName| {
+                headers
+                    .get(name)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("-")
+                    .to_string()
+            };
+            format!(
+                "{}|{}|{}",
+                get(http::header::CONTENT_LENGTH),
+                get(http::header::TRANSFER_ENCODING),
+                body.len()
+            )
+        };
+        let canopy = spawn_upstream(Router::new().fallback(any(handler))).await;
+        let proxy = spawn_proxy(config(canopy, None), no_dist()).await;
+        let client = reqwest::Client::new();
+        let url = format!("http://{proxy}/mole/v1/data");
+        let send = |req: reqwest::RequestBuilder| async move {
+            req.send().await.unwrap().text().await.unwrap()
+        };
+
+        // No body: none upstream either, not an empty chunked one.
+        assert_eq!(send(client.get(&url)).await, "-|-|0");
+        assert_eq!(
+            send(client.post(&url).header("content-length", "0")).await,
+            "0|-|0"
+        );
+        // A fixed-length body keeps its Content-Length instead of going up
+        // chunked.
+        assert_eq!(send(client.post(&url).body("hello")).await, "5|-|5");
+        // A chunked upload has no length to keep, so it goes up chunked.
+        let chunks = futures_util::stream::iter(["hel", "lo"].map(Ok::<_, std::io::Error>));
+        assert_eq!(
+            send(client.post(&url).body(reqwest::Body::wrap_stream(chunks))).await,
+            "-|chunked|5"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn elog_unconfigured_is_502() {
         let canopy = spawn_upstream(echo_router("x-api-key")).await;
         let proxy = spawn_proxy(config(canopy, None), no_dist()).await;
@@ -904,6 +880,64 @@ mod e2e {
             .await
             .unwrap();
         assert!(deep.text().await.unwrap().contains("trace-spa"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn every_response_carries_the_csp() {
+        let dist =
+            std::env::temp_dir().join(format!("trace-proxy-test-csp-{}", std::process::id()));
+        std::fs::create_dir_all(&dist).unwrap();
+        std::fs::write(dist.join("index.html"), "<html>trace-spa</html>").unwrap();
+        // An upstream policy is replaced, not merged.
+        let upstream_csp = || async { ([("content-security-policy", "upstream")], "data") };
+        let canopy = spawn_upstream(Router::new().fallback(any(upstream_csp))).await;
+        let proxy = spawn_proxy(config(canopy, None), dist).await;
+        let port = proxy.port();
+        let client = reqwest::Client::new();
+
+        let responses = [
+            ("SPA", client.get(format!("http://{proxy}/"))),
+            (
+                "SPA deep link",
+                client.get(format!("http://{proxy}/some/deep/link")),
+            ),
+            ("Canopy", client.get(format!("http://{proxy}/mole/v1/data"))),
+            (
+                "e-log 502",
+                client.get(format!("http://{proxy}/elog/v1/logbooks")),
+            ),
+            (
+                "foreign-origin 403",
+                client
+                    .get(format!("http://{proxy}/mole/v1/data"))
+                    .header("origin", "https://attacker.example"),
+            ),
+        ];
+        for (what, req) in responses {
+            let res = req.send().await.unwrap();
+            let csp: Vec<_> = res
+                .headers()
+                .get_all(http::header::CONTENT_SECURITY_POLICY)
+                .iter()
+                .map(|v| v.to_str().unwrap().to_string())
+                .collect();
+            assert_eq!(csp, [content_security_policy(port)], "{what}");
+        }
+
+        // The page may connect only to this proxy, over HTTP and WebSocket,
+        // and runs only its own scripts.
+        let csp = content_security_policy(port);
+        for directive in [
+            "default-src 'self'".to_string(),
+            "script-src 'self'".to_string(),
+            format!("connect-src 'self' ws://127.0.0.1:{port} ws://localhost:{port}"),
+            "frame-ancestors 'none'".to_string(),
+        ] {
+            assert!(
+                csp.split("; ").any(|d| d == directive),
+                "missing `{directive}` in {csp}"
+            );
+        }
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1147,11 +1181,21 @@ mod e2e {
             .await
             .unwrap();
         assert_eq!(res.status().as_u16(), 403);
-        // Cross-origin read of Canopy data, and an opaque origin.
-        for origin in ["https://attacker.example", "null"] {
+        // Cross-origin reads of Canopy data: another site, an opaque origin,
+        // and near misses on the proxy's own origin (wrong host, scheme or
+        // port, or its authority as a prefix of another host).
+        let port = proxy.port();
+        for origin in [
+            "https://attacker.example".to_string(),
+            "null".to_string(),
+            format!("http://attacker.example:{port}"),
+            format!("https://127.0.0.1:{port}"),
+            format!("http://127.0.0.1:{}", port.wrapping_add(1)),
+            format!("http://127.0.0.1:{port}.attacker.example"),
+        ] {
             let res = reqwest::Client::new()
                 .get(format!("http://{proxy}/mole/v1/data"))
-                .header("origin", origin)
+                .header("origin", &origin)
                 .send()
                 .await
                 .unwrap();
@@ -1159,17 +1203,20 @@ mod e2e {
         }
         assert_eq!(hits.load(Ordering::SeqCst), 0);
 
-        // Same request from the app's own origin goes through.
-        let body = reqwest::Client::new()
-            .get(format!("http://{proxy}/mole/v1/data"))
-            .header("origin", format!("http://127.0.0.1:{}", proxy.port()))
-            .send()
-            .await
-            .unwrap()
-            .text()
-            .await
-            .unwrap();
-        assert_eq!(body, "secret123");
+        // Same request from the app's own origin (either host name) goes
+        // through.
+        for host in LOCAL_HOSTS {
+            let body = reqwest::Client::new()
+                .get(format!("http://{proxy}/mole/v1/data"))
+                .header("origin", format!("http://{host}:{port}"))
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap();
+            assert_eq!(body, "secret123", "{host}");
+        }
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1192,24 +1239,44 @@ mod e2e {
                 .unwrap();
             assert_eq!(res.status().as_u16(), 403, "{path}");
         }
-        // `localhost` is one of the proxy's own names.
-        let body = via("localhost")
-            .get(format!("http://localhost:{}/mole/v1/data", proxy.port()))
-            .send()
-            .await
-            .unwrap()
-            .text()
-            .await
-            .unwrap();
-        assert_eq!(body, "secret123|GET|/mole/v1/data");
+        // A local name on the wrong port, or with no port, isn't this proxy.
+        for host in [
+            format!("127.0.0.1:{}", proxy.port().wrapping_add(1)),
+            "127.0.0.1".to_string(),
+        ] {
+            let res = reqwest::Client::new()
+                .get(format!("http://{proxy}/mole/v1/data"))
+                .header("host", &host)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(res.status().as_u16(), 403, "{host}");
+        }
+        // `localhost` is one of the proxy's own names, with or without the
+        // matching Origin.
+        let own = format!("http://localhost:{}", proxy.port());
+        for origin in [None, Some(own.as_str())] {
+            let mut req = via("localhost").get(format!("{own}/mole/v1/data"));
+            if let Some(origin) = origin {
+                req = req.header("origin", origin);
+            }
+            let body = req.send().await.unwrap().text().await.unwrap();
+            assert_eq!(body, "secret123|GET|/mole/v1/data", "{origin:?}");
+        }
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn connection_nominated_headers_are_not_forwarded() {
         let handler = |headers: HeaderMap| async move {
-            let seen = ["x-local-state", "x-end-to-end"]
-                .map(|name| format!("{name}={}", headers.contains_key(name)))
-                .join(",");
+            let seen = [
+                "x-local-state",
+                "x-other",
+                "keep-alive",
+                "proxy-connection",
+                "x-end-to-end",
+            ]
+            .map(|name| format!("{name}={}", headers.contains_key(name)))
+            .join(",");
             (
                 [
                     ("connection", "x-up-state"),
@@ -1222,10 +1289,15 @@ mod e2e {
         let canopy = spawn_upstream(Router::new().fallback(any(handler))).await;
         let proxy = spawn_proxy(config(canopy, None), no_dist()).await;
 
+        // Two Connection values, with mixed case, padding and empty tokens.
         let res = reqwest::Client::new()
             .get(format!("http://{proxy}/mole/v1/data"))
-            .header("connection", "x-local-state")
+            .header("connection", "keep-alive, X-Local-State")
+            .header("connection", " x-other ,,")
             .header("x-local-state", "1")
+            .header("x-other", "1")
+            .header("keep-alive", "timeout=5")
+            .header("proxy-connection", "keep-alive")
             .header("x-end-to-end", "1")
             .send()
             .await
@@ -1233,10 +1305,98 @@ mod e2e {
         // Response side: the field upstream nominated is dropped, others kept.
         assert!(!res.headers().contains_key("x-up-state"));
         assert_eq!(res.headers()["x-kept"], "1");
-        // Request side: same for the field the client nominated.
+        // Request side: nominated fields and the fixed hop-by-hop list are
+        // dropped, end-to-end fields kept.
         assert_eq!(
             res.text().await.unwrap(),
-            "x-local-state=false,x-end-to-end=true"
+            "x-local-state=false,x-other=false,keep-alive=false,\
+             proxy-connection=false,x-end-to-end=true"
         );
+    }
+
+    /// Upstream that redirects to whatever `x-test-location` names.
+    fn redirect_router() -> Router {
+        Router::new().fallback(any(|headers: HeaderMap| async move {
+            let to = headers["x-test-location"].clone();
+            (StatusCode::FOUND, [(http::header::LOCATION, to)])
+        }))
+    }
+
+    /// The `Location` the proxy hands back when upstream redirects `path` to
+    /// `location`.
+    async fn location_via_proxy(proxy: SocketAddr, path: &str, location: &str) -> String {
+        let res = no_follow()
+            .get(format!("http://{proxy}{path}"))
+            .header("x-test-location", location)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status().as_u16(), 302, "{location}");
+        res.headers()[http::header::LOCATION]
+            .to_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn canopy_redirect_locations_map_onto_proxy() {
+        let upstream = spawn_upstream(redirect_router()).await;
+        // A host name rather than an IP, so host case can be checked.
+        let base = format!("http://localhost:{}", upstream.port());
+        let other_port = format!("http://localhost:{}", upstream.port().wrapping_add(1));
+        let cfg = CanopyConfig {
+            canopy_url: base.clone(),
+            ..config(upstream, None)
+        };
+        let proxy = spawn_proxy(cfg, no_dist()).await;
+        let path = "/mole/v1/data/?n=1";
+
+        // On the upstream: absolute (host case doesn't matter), path-absolute
+        // and relative forms all come back as proxy paths, keeping query and
+        // fragment.
+        let upper = base.replace("localhost", "LOCALHOST");
+        for (location, expected) in [
+            (format!("{base}/mole/v1/data?n=1"), "/mole/v1/data?n=1"),
+            (format!("{upper}/mole/x"), "/mole/x"),
+            ("/mole/v1/data?n=1".to_string(), "/mole/v1/data?n=1"),
+            ("../other".to_string(), "/mole/v1/other"),
+            (base.clone(), "/"),
+            (format!("{base}/x#frag"), "/x#frag"),
+        ] {
+            assert_eq!(location_via_proxy(proxy, path, &location).await, expected);
+        }
+        // Another host, scheme or port: passed through unchanged.
+        for location in [
+            "http://attacker.example/steal".to_string(),
+            "//attacker.example/steal".to_string(),
+            base.replace("http:", "https:") + "/mole/x",
+            format!("{other_port}/mole/x"),
+        ] {
+            assert_eq!(location_via_proxy(proxy, path, &location).await, location);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn elog_redirect_locations_under_base_path_get_prefix_back() {
+        let elog = spawn_upstream(redirect_router()).await;
+        let canopy = spawn_upstream(echo_router("x-api-key")).await;
+        // An e-log base with a path: only locations under it map back.
+        let cfg = CanopyConfig {
+            elog_url: Some(format!("http://{elog}/api")),
+            ..config(canopy, None)
+        };
+        let proxy = spawn_proxy(cfg, no_dist()).await;
+        let path = "/elog/v1/entries";
+
+        let base_root = format!("http://{elog}/api");
+        for (location, expected) in [
+            ("/api/v1/entries/42", "/elog/v1/entries/42"),
+            (base_root.as_str(), "/elog"),
+            // Outside the base path: passed through unchanged.
+            ("/apix/v1", "/apix/v1"),
+            ("/login", "/login"),
+        ] {
+            assert_eq!(location_via_proxy(proxy, path, location).await, expected);
+        }
     }
 }
