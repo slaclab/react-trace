@@ -100,6 +100,9 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       passWithNoTests: true,
+      // Node >= 25 ships a global localStorage that shadows jsdom's; turn it
+      // off in the test workers so the tests see jsdom's Storage.
+      execArgv: ['--no-experimental-webstorage'],
     },
   };
 });
