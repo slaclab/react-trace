@@ -16,14 +16,21 @@ Trace remembers your light/dark mode in the browser. To keep a set of plots, sav
 
 ## Tools
 
-Trace plots PVs over time, from the archiver and live. Its layout is a canvas,
-an actions bar above it and a properties panel beside it.
+Trace comes as three tools that share one layout: a canvas, an actions bar
+above it and a properties panel beside it.
+
+- **Trace**: PVs over time, from the archiver and live.
+- **Correlation**: one PV against others, as a scatter or a density plot.
+- **Waveform**: array PVs drawn element by element, live.
 
 These pages describe them:
 
 - [The properties panel](workbench.md): signals and cards, the plot-wide
   sections, the modified dot and reset, More, the chart source, collapsing
   and resizing, and where the actions are.
+- [Waveform](waveform.md): its lists, Snapshot → reference, Δ, persistence
+  and averaging, the X-axis PV rule and what its statistics compute over.
+- [Correlation](correlation.md): its built-in metrics, variables and units.
 - [Statistics](statistics.md): the panel every tool docks under its chart,
   the Metrics list, writing your own metric, the function reference and the
   URL grammar.

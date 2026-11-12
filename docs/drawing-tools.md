@@ -14,8 +14,9 @@ listed under **Drawings** in the properties panel, edited in their cards, undone
 Every plot behaves the same way wherever it is shown: as a tab, as a cell of
 the grid, full screen, or in a detached window.
 
-The same drawing tools work in Correlation and Waveform; see [Drawing in
-Correlation and Waveform](#other-plots) for what differs there.
+The same drawing tools work in [Correlation](correlation.md) and
+[Waveform](waveform.md); see [Drawing in Correlation and
+Waveform](#other-plots) for what differs there.
 
 ## Moving through time { #navigation }
 

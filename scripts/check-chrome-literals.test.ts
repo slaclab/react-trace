@@ -192,6 +192,7 @@ describe('defaults', () => {
     expect(DEFAULT_FILES.map(keyOf)).toEqual([
       'src/App.css',
       'src/index.css',
+      'src/tools/correlation/correlation.css',
       'src/components/PvCombo.tsx',
     ]);
   });
