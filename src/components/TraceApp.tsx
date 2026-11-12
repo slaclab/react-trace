@@ -40,6 +40,7 @@ import { makeId } from '../id';
 import { resolveFormulaSpec } from '../formula';
 import type { FormulaSpecDTO } from '../api/types';
 import { capturePlots, type PngSource, type CapturedPlot } from '../io/exportPlotImage';
+import { createChartRegistry } from '../io/chartRegistry';
 import { PostToElogModal } from './PostToElogModal';
 import { ConfigStoreModal } from './ConfigStoreModal';
 import { getConfig } from '../api/magpie';
@@ -298,18 +299,16 @@ export function TraceApp() {
   );
 
   // Live ECharts instances per plot, for capturing PNGs to post to the e-log.
-  // A plot can be mounted twice (e.g. grid cell + fullscreen overlay); we keep
-  // whichever instance most recently registered and only clear on a matching
-  // unregister so a stale unmount can't wipe a live instance.
-  const chartInstancesRef = useRef(new Map<string, PngSource>());
+  // A plot can be mounted twice (its tab or grid cell plus the fullscreen
+  // overlay), so the registry keeps every mounted copy: closing the overlay
+  // falls back to the in-window copy, and while popped out the fullscreen copy
+  // is captured, as print and PNG export do.
+  const chartInstancesRef = useRef(createChartRegistry());
   const handleChartInstance = useCallback(
-    (plotId: string, instance: PngSource, active: boolean) => {
-      const map = chartInstancesRef.current;
-      if (active) {
-        map.set(plotId, instance);
-      } else if (map.get(plotId) === instance) {
-        map.delete(plotId);
-      }
+    (plotId: string, instance: PngSource, active: boolean, fullscreen = false) => {
+      const registry = chartInstancesRef.current;
+      if (active) registry.register(plotId, instance, fullscreen);
+      else registry.unregister(plotId, instance);
     },
     []
   );
@@ -1259,8 +1258,10 @@ export function TraceApp() {
                     // eslint-disable-next-line react-hooks/refs -- ref is written from ECharts' finished event, not during render
                     onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
                     onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
-                    // eslint-disable-next-line react-hooks/refs -- ref is written on mount/unmount, not during render
-                    onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
+                    onChartInstance={(inst, active) =>
+                      // eslint-disable-next-line react-hooks/refs -- ref is written on mount/unmount, not during render
+                      handleChartInstance(plot.id, inst, active, true)
+                    }
                   />
                 </div>
               </div>
