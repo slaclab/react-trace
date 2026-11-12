@@ -4,7 +4,8 @@ import type { CanopyConnection } from '@slaclab/canopy-client';
 // (vite.config.ts) and Trace's reverse proxy in deployed builds forward it to
 // Canopy and inject X-API-Key, so the bundle never holds the key.
 //
-// - '' (the local-dev default): per-module paths, /mole/..., /hare/..., /fox/...
+// - '' (the local-dev default): per-module paths, /mole/..., /hare/...,
+//   /formula-engine/...
 // - VITE_CANOPY_BASE_PATH, e.g. /trace/api/canopy: one prefix in front of them.
 export function canopyBaseUrl(raw: string | undefined): string {
   return (raw ?? '').trim().replace(/\/+$/, '');

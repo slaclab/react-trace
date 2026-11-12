@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 //
-// Mounts SinglePlot with a mocked echarts-for-react and drives REAL DOM mouse
-// events through the wrapper div. This pins the wiring that broke the first
-// version of issue 45: listeners must live on the wrapper (not a zrender
+// Mounts SinglePlot with canopy-charts' CanopyChart stubbed out and drives REAL
+// DOM mouse events through the wrapper div. This pins the wiring that broke the
+// first version of issue 45: listeners must live on the wrapper (not a zrender
 // instance that echarts-for-react disposes right after mount) and resolve the
 // chart lazily, and a downward drag must RAISE min/max so curves follow the
 // cursor.
@@ -11,6 +11,7 @@ import { render } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
 import { SinglePlot } from './PlotArea';
 import type { Axis, Plot } from '../types';
+import { chartStub } from '../test/chartStub';
 
 // Chart geometry the fake instance reports: 800x400 canvas, grid insets
 // top 40 / bottom 60 / left 70 / right 20 (one left axis), so the y-axis spans
@@ -33,18 +34,10 @@ const { fakeInstance } = vi.hoisted(() => {
   return { fakeInstance };
 });
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
 
 function makePlot(axis: Partial<Axis> = {}): Plot {
   return {

@@ -22,17 +22,14 @@ jobs:
       contents: read
       packages: write
     with:
+      # The deployment's own feedback form and docs site, from repository
+      # variables. Unset, the app links this repo's issues and public docs.
+      build-args: |
+        VITE_BUG_REPORT_URL=${{ vars.BUG_REPORT_URL }}
+        VITE_DOCS_URL=${{ vars.DOCS_URL }}
       dockerfile: docker/Dockerfile
       context: .
-
-  dispatch-dev-deploy:
-    name: Trigger swapps-deployment dev deploy
-    needs: build-image
-    uses: slaclab/swapps-ci-helpers/.github/workflows/dispatch-swapps-deployment.yml@73e6ba924aac5f822b050bd6bed12b0e45c64034 # v1.1.0
-    with:
-      app: trace
-      environment: dev
-      image: ${{ needs.build-image.outputs.image }}
-    secrets:
-      APP_ID: ${{ secrets.APP_ID }}
-      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+      # Tag main builds with the bare short SHA (plus latest), as canopy and
+      # canopy-screen-builder do. Deploying is up to the deployment repo: it
+      # pulls one of these tags.
+      sha-tag-prefix: ''

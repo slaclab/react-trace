@@ -11,8 +11,8 @@ import {
   type FormulaErrorInfo,
 } from './formulaStore';
 
-// ── Fake Fox: each evaluation stays pending until settled (by the test, or by
-// `reply` right away) ─────────────────────────────────────────────────────────
+// ── Fake Formula Engine: each evaluation stays pending until settled (by the
+// test, or by `reply` right away) ─────────────────────────────────────────────
 
 interface Call {
   expression: string;
@@ -27,7 +27,7 @@ interface Call {
 
 // Deliberately ignores `signal`: the store must not rely on an aborted
 // request rejecting.
-function fakeFox(reply?: (call: Call) => void) {
+function fakeEngine(reply?: (call: Call) => void) {
   const calls: Call[] = [];
   const evaluate: EvaluateFn = (spec, t0Ns, t1Ns, signal) =>
     new Promise<FormulaResultDTO>((resolve, reject) => {
@@ -81,9 +81,9 @@ const flush = async () => {
 };
 
 function setup(reply?: (call: Call) => void) {
-  const fox = fakeFox(reply);
-  const store = new FormulaStore({ evaluate: fox.evaluate });
-  return { fox, store, entry: (id: string) => store.getSnapshot().get(id) };
+  const engine = fakeEngine(reply);
+  const store = new FormulaStore({ evaluate: engine.evaluate });
+  return { engine, store, entry: (id: string) => store.getSnapshot().get(id) };
 }
 
 const err = (status: number, code: string): FormulaErrorInfo & { status: number } => ({
@@ -102,42 +102,42 @@ afterEach(() => {
 
 describe('FormulaStore identity', () => {
   it('starts a new spec from no points and replaces the previous one', async () => {
-    const { fox, store, entry } = setup();
+    const { engine, store, entry } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     expect(entry('f1')).toMatchObject({ status: 'loading', points: [] });
 
-    fox.calls[0].resolve([5]);
+    engine.calls[0].resolve([5]);
     await flush();
     expect(entry('f1')).toMatchObject({ status: 'ready', points: [[3_600_000, 5]] });
 
     store.request('f1', { spec: spec('{x1}*3'), window: HOUR });
     expect(entry('f1')).toMatchObject({ status: 'loading', points: [] });
-    expect(fox.calls).toHaveLength(2);
+    expect(engine.calls).toHaveLength(2);
   });
 
   it('aborts and ignores the outgoing spec when the spec changes mid-flight', async () => {
-    const { fox, store, entry } = setup();
+    const { engine, store, entry } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     store.request('f1', { spec: spec('{x1}*3'), window: HOUR });
-    expect(fox.calls[0].signal.aborted).toBe(true);
+    expect(engine.calls[0].signal.aborted).toBe(true);
 
-    fox.calls[0].resolve([5]);
+    engine.calls[0].resolve([5]);
     await flush();
     expect(entry('f1')).toMatchObject({ status: 'loading', points: [] });
 
-    fox.calls[1].resolve([9]);
+    engine.calls[1].resolve([9]);
     await flush();
     expect(entry('f1')).toMatchObject({ status: 'ready', points: [[3_600_000, 9]] });
   });
 
   it('shows an error under a new spec with no points', async () => {
-    const { fox, store, entry } = setup();
+    const { engine, store, entry } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
-    fox.calls[0].resolve([5]);
+    engine.calls[0].resolve([5]);
     await flush();
 
     store.request('f1', { spec: spec('{x1}*'), window: HOUR });
-    fox.calls[1].reject({ code: 'formula_parse_error', detail: 'bad', status: 400 });
+    engine.calls[1].reject({ code: 'formula_parse_error', detail: 'bad', status: 400 });
     await flush();
     expect(entry('f1')).toMatchObject({
       status: 'error',
@@ -147,33 +147,33 @@ describe('FormulaStore identity', () => {
   });
 
   it("keeps the last good points when the same spec's re-evaluation fails", async () => {
-    const { fox, store, entry } = setup();
+    const { engine, store, entry } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
-    fox.calls[0].resolve([5]);
+    engine.calls[0].resolve([5]);
     await flush();
 
     store.request('f1', { spec: spec('{x1}*2'), window: win(0, 7_200_000) });
-    fox.calls[1].reject({ code: 'buffer_at_capacity', detail: 'full', status: 503 });
+    engine.calls[1].reject({ code: 'buffer_at_capacity', detail: 'full', status: 503 });
     await flush();
     expect(entry('f1')).toMatchObject({ status: 'error', points: [[3_600_000, 5]] });
   });
 
   it('drops the entry when the spec becomes unevaluable', async () => {
-    const { fox, store, entry } = setup();
+    const { engine, store, entry } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
-    fox.calls[0].resolve([5]);
+    engine.calls[0].resolve([5]);
     await flush();
     store.request('f1', { spec: spec('{x1}*2'), window: win(0, 7_200_000) });
 
     store.request('f1', { spec: null, window: HOUR });
     expect(entry('f1')).toBeUndefined();
-    expect(fox.calls[1].signal.aborted).toBe(true);
+    expect(engine.calls[1].signal.aborted).toBe(true);
   });
 
   it('reads a non-Canopy failure as unknown_error', async () => {
-    const { fox, store, entry } = setup();
+    const { engine, store, entry } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
-    fox.calls[0].reject(new TypeError('Failed to fetch'));
+    engine.calls[0].reject(new TypeError('Failed to fetch'));
     await flush();
     expect(entry('f1')?.error).toEqual({ code: 'unknown_error', detail: 'Failed to fetch' });
   });
@@ -181,12 +181,12 @@ describe('FormulaStore identity', () => {
 
 describe('FormulaStore requests', () => {
   it("never aborts another trace's request", () => {
-    const { fox, store } = setup();
+    const { engine, store } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     store.request('f2', { spec: spec('{x1}*3'), window: HOUR });
     store.request('f1', { spec: spec('{x1}*2'), window: win(0, 7_200_000) });
 
-    expect(fox.calls.map((c) => [c.expression, c.signal.aborted])).toEqual([
+    expect(engine.calls.map((c) => [c.expression, c.signal.aborted])).toEqual([
       ['{x1}*2', true],
       ['{x1}*3', false],
       ['{x1}*2', false],
@@ -194,9 +194,9 @@ describe('FormulaStore requests', () => {
   });
 
   it("doesn't publish or evaluate for a request that changes nothing", async () => {
-    const { fox, store } = setup();
+    const { engine, store } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
-    fox.calls[0].resolve();
+    engine.calls[0].resolve();
     await flush();
     const before = store.getSnapshot();
     let published = 0;
@@ -208,73 +208,73 @@ describe('FormulaStore requests', () => {
 
     expect(store.getSnapshot()).toBe(before);
     expect(published).toBe(0);
-    expect(fox.calls).toHaveLength(1);
+    expect(engine.calls).toHaveLength(1);
   });
 
   it('retain releases every trace not listed', () => {
-    const { fox, store, entry } = setup();
+    const { engine, store, entry } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     store.request('f2', { spec: spec('{x1}*3'), window: HOUR });
 
     store.retain(new Set(['f1']));
     expect(entry('f2')).toBeUndefined();
-    expect(fox.calls[1].signal.aborted).toBe(true);
-    expect(fox.calls[0].signal.aborted).toBe(false);
+    expect(engine.calls[1].signal.aborted).toBe(true);
+    expect(engine.calls[0].signal.aborted).toBe(false);
   });
 
   it('dispose aborts everything without publishing, and the store stays usable', async () => {
-    const { fox, store, entry } = setup();
+    const { engine, store, entry } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     store.request('f2', { spec: spec('{x1}*3'), window: HOUR });
     let published = 0;
     store.subscribe(() => published++);
 
     store.dispose();
-    expect(fox.calls.every((c) => c.signal.aborted)).toBe(true);
+    expect(engine.calls.every((c) => c.signal.aborted)).toBe(true);
     expect(published).toBe(0);
-    fox.calls[0].resolve();
+    engine.calls[0].resolve();
     await flush();
     expect(published).toBe(0);
 
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
-    expect(fox.calls).toHaveLength(3);
-    fox.calls[2].resolve([4]);
+    expect(engine.calls).toHaveLength(3);
+    engine.calls[2].resolve([4]);
     await flush();
     expect(entry('f1')).toMatchObject({ status: 'ready', points: [[3_600_000, 4]] });
   });
 });
 
 describe('FormulaStore coverage', () => {
-  it('draws a window inside the evaluated range without asking Fox', async () => {
-    const { fox, store } = setup((c) => c.resolve());
+  it('draws a window inside the evaluated range without asking the Formula Engine', async () => {
+    const { engine, store } = setup((c) => c.resolve());
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     await flush();
 
     store.request('f1', { spec: spec('{x1}*2'), window: win(10 * MINUTE, 20 * MINUTE) });
     store.request('f1', { spec: spec('{x1}*2'), window: win(0, 3_600_000 + 30_000) });
-    expect(fox.calls).toHaveLength(1);
+    expect(engine.calls).toHaveLength(1);
 
     store.request('f1', { spec: spec('{x1}*2'), window: win(0, 7_200_000) });
-    expect(fox.calls).toHaveLength(2);
+    expect(engine.calls).toHaveLength(2);
   });
 
   it('re-evaluates a window following "now" once it drifts past the slack', async () => {
-    const { fox, store } = setup((c) => c.resolve());
+    const { engine, store } = setup((c) => c.resolve());
     // 1% of 5 minutes is 3 s, which outweighs the 2 s minimum slack.
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });
     await flush();
 
     vi.setSystemTime(T0 + 2_900);
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });
-    expect(fox.calls).toHaveLength(1);
+    expect(engine.calls).toHaveLength(1);
 
     vi.setSystemTime(T0 + 3_100);
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });
-    expect(fox.calls).toHaveLength(2);
+    expect(engine.calls).toHaveLength(2);
   });
 
   it('applies the near-now slack only to windows that reach "now"', async () => {
-    const { fox, store } = setup((c) => c.resolve());
+    const { engine, store } = setup((c) => c.resolve());
     const slid = (w: TimeWindowNs, ms: number) => ({
       fromNs: w.fromNs + ms * 1e6,
       toNs: w.toNs + ms * 1e6,
@@ -290,19 +290,19 @@ describe('FormulaStore coverage', () => {
     vi.setSystemTime(T0 + drift);
     store.request('recent', { spec: spec('{x1}*2'), window: slid(recent, drift) });
     store.request('historical', { spec: spec('{x1}*3'), window: slid(historical, drift) });
-    expect(fox.calls.map((c) => c.expression)).toEqual(['{x1}*2', '{x1}*3', '{x1}*3']);
+    expect(engine.calls.map((c) => c.expression)).toEqual(['{x1}*2', '{x1}*3', '{x1}*3']);
   });
 });
 
 describe('FormulaStore decimated results', () => {
   // Evaluate the historical hour, answered with `decimated`, then zoom to `zoom`.
   async function zoomInto(decimated: boolean, zoom: TimeWindowNs) {
-    const { fox, store } = setup((c) => c.resolve([1], decimated));
+    const { engine, store } = setup((c) => c.resolve([1], decimated));
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     await flush();
     store.request('f1', { spec: spec('{x1}*2'), window: zoom });
     await flush();
-    return fox.calls;
+    return engine.calls;
   }
 
   it('re-evaluates a zoom into under half of a decimated result', async () => {
@@ -320,106 +320,106 @@ describe('FormulaStore decimated results', () => {
   });
 
   it('re-evaluates when zooming back out past the detailed window', async () => {
-    const { fox, store } = setup((c) => c.resolve([1], true));
+    const { engine, store } = setup((c) => c.resolve([1], true));
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     await flush();
     store.request('f1', { spec: spec('{x1}*2'), window: win(10 * MINUTE, 20 * MINUTE) });
     await flush();
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     await flush();
-    expect(fox.calls).toHaveLength(3);
+    expect(engine.calls).toHaveLength(3);
   });
 });
 
 describe('FormulaStore in-flight requests', () => {
   it("doesn't abort or repeat a request when the window only slides forward", async () => {
-    const { fox, store, entry } = setup();
+    const { engine, store, entry } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });
     for (let ms = 100; ms <= 2_000; ms += 100) {
       vi.setSystemTime(T0 + ms);
       store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });
     }
-    expect(fox.calls).toHaveLength(1);
-    expect(fox.calls[0].signal.aborted).toBe(false);
+    expect(engine.calls).toHaveLength(1);
+    expect(engine.calls[0].signal.aborted).toBe(false);
 
-    fox.calls[0].resolve();
+    engine.calls[0].resolve();
     await flush();
     expect(entry('f1')?.status).toBe('ready');
-    expect(fox.calls).toHaveLength(1);
+    expect(engine.calls).toHaveLength(1);
   });
 
   it('re-sends when the window moves back or changes span', () => {
-    const { fox, store } = setup();
+    const { engine, store } = setup();
     // Panned back by a whole span, then zoomed out.
     store.request('f1', { spec: spec('{x1}*2'), window: win(3_600_000, 7_200_000) });
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     store.request('f1', { spec: spec('{x1}*2'), window: win(0, 7_200_000) });
 
-    expect(fox.calls.map((c) => c.signal.aborted)).toEqual([true, true, false]);
+    expect(engine.calls.map((c) => c.signal.aborted)).toEqual([true, true, false]);
   });
 
   it('re-sends when the window jumps forward past the in-flight one', () => {
-    const { fox, store } = setup();
+    const { engine, store } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     store.request('f1', { spec: spec('{x1}*2'), window: win(10 * 3_600_000, 11 * 3_600_000) });
 
-    expect(fox.calls.map((c) => c.signal.aborted)).toEqual([true, false]);
+    expect(engine.calls.map((c) => c.signal.aborted)).toEqual([true, false]);
   });
 
   it('drops an in-flight request when the window comes back inside the evaluated range', async () => {
-    const { fox, store, entry } = setup();
+    const { engine, store, entry } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
-    fox.calls[0].resolve([5]);
+    engine.calls[0].resolve([5]);
     await flush();
     store.request('f1', { spec: spec('{x1}*2'), window: win(3_600_000, 7_200_000) });
     store.request('f1', { spec: spec('{x1}*2'), window: win(10 * MINUTE, 50 * MINUTE) });
-    expect(fox.calls[1].signal.aborted).toBe(true);
+    expect(engine.calls[1].signal.aborted).toBe(true);
 
-    fox.calls[1].resolve([9]);
+    engine.calls[1].resolve([9]);
     await flush();
     expect(entry('f1')).toMatchObject({ status: 'ready', points: [[3_600_000, 5]] });
-    expect(fox.calls).toHaveLength(2);
+    expect(engine.calls).toHaveLength(2);
     expect(vi.getTimerCount()).toBe(0);
   });
 
   it('drops an in-flight request when the window slides forward back into the evaluated range', async () => {
-    const { fox, store, entry } = setup();
+    const { engine, store, entry } = setup();
     const evaluated = win(60 * MINUTE, 120 * MINUTE);
     store.request('f1', { spec: spec('{x1}*2'), window: evaluated });
-    fox.calls[0].resolve([5]);
+    engine.calls[0].resolve([5]);
     await flush();
     // Pan back half a span, then return while that request is still out: a
     // forward slide from it, but the evaluated range already serves it.
     store.request('f1', { spec: spec('{x1}*2'), window: win(30 * MINUTE, 90 * MINUTE) });
     store.request('f1', { spec: spec('{x1}*2'), window: evaluated });
-    expect(fox.calls[1].signal.aborted).toBe(true);
+    expect(engine.calls[1].signal.aborted).toBe(true);
     expect(entry('f1')).toMatchObject({ status: 'ready', points: [[120 * MINUTE, 5]] });
 
-    fox.calls[1].resolve([9]);
+    engine.calls[1].resolve([9]);
     await flush();
     expect(entry('f1')).toMatchObject({ status: 'ready', points: [[120 * MINUTE, 5]] });
-    expect(fox.calls).toHaveLength(2);
+    expect(engine.calls).toHaveLength(2);
     expect(vi.getTimerCount()).toBe(0);
   });
 
   it('waits for an answer slower than a short following window spans', async () => {
-    const { fox, store, entry } = setup();
-    // 15 s span, and Fox takes 20 s: the window passes the request entirely.
+    const { engine, store, entry } = setup();
+    // 15 s span, and the Formula Engine takes 20 s: the window passes the request entirely.
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(15_000) });
     for (let ms = 100; ms <= 20_000; ms += 100) {
       await vi.advanceTimersByTimeAsync(100);
       store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(15_000) });
     }
-    expect(fox.calls).toHaveLength(1);
-    expect(fox.calls[0].signal.aborted).toBe(false);
+    expect(engine.calls).toHaveLength(1);
+    expect(engine.calls[0].signal.aborted).toBe(false);
 
-    fox.calls[0].resolve();
+    engine.calls[0].resolve();
     await flush();
     expect(entry('f1')?.status).toBe('ready');
   });
 
   it('keeps waiting when the window was resolved a little before the request went out', async () => {
-    const { fox, store } = setup();
+    const { engine, store } = setup();
     // Rendered 100 ms before the effect sent it: 2% of this 5 s span.
     const rendered = win(Date.now() - 5_100, Date.now() - 100);
     store.request('f1', { spec: spec('{x1}*2'), window: rendered });
@@ -427,47 +427,47 @@ describe('FormulaStore in-flight requests', () => {
       await vi.advanceTimersByTimeAsync(100);
       store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5_000) });
     }
-    expect(fox.calls).toHaveLength(1);
+    expect(engine.calls).toHaveLength(1);
   });
 
   it("doesn't wait on a historical request the window was panned past", async () => {
-    const { fox, store } = setup();
+    const { engine, store } = setup();
     const start = T0 - 60 * MINUTE;
     store.request('f1', { spec: spec('{x1}*2'), window: win(start, start + 10_000) });
-    // Fox is slow: 15 s in, the user drags the 10 s view 12 s forward.
+    // The Formula Engine is slow: 15 s in, the user drags the 10 s view 12 s forward.
     await vi.advanceTimersByTimeAsync(15_000);
     store.request('f1', { spec: spec('{x1}*2'), window: win(start + 12_000, start + 22_000) });
 
-    expect(fox.calls.map((c) => c.signal.aborted)).toEqual([true, false]);
+    expect(engine.calls.map((c) => c.signal.aborted)).toEqual([true, false]);
   });
 
   it("doesn't wait on a live request when the window jumps to end in the future", () => {
-    const { fox, store } = setup();
+    const { engine, store } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(10_000) });
     store.request('f1', { spec: spec('{x1}*2'), window: win(T0 + 20_000, T0 + 30_000) });
 
-    expect(fox.calls.map((c) => c.signal.aborted)).toEqual([true, false]);
+    expect(engine.calls.map((c) => c.signal.aborted)).toEqual([true, false]);
   });
 
   it('treats a retry of a live window as live, though it starts after the window was asked for', async () => {
-    const { fox, store } = setup((c) => {
-      if (fox.calls.length <= 3) c.reject(err(503, 'buffer_at_capacity'));
+    const { engine, store } = setup((c) => {
+      if (engine.calls.length <= 3) c.reject(err(503, 'buffer_at_capacity'));
     });
     // Nothing re-renders while it backs off, so the retries at 1, 3 and 7 s
     // all evaluate the window asked for at 0 s.
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5_000) });
     await vi.advanceTimersByTimeAsync(7_000);
-    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 1_000, 3_000, 7_000]);
+    expect(engine.calls.map((c) => c.atMs)).toEqual([0, 1_000, 3_000, 7_000]);
 
     // The next render's live window has slid past it entirely.
     await vi.advanceTimersByTimeAsync(100);
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5_000) });
-    expect(fox.calls).toHaveLength(4);
-    expect(fox.calls[3].signal.aborted).toBe(false);
+    expect(engine.calls).toHaveLength(4);
+    expect(engine.calls[3].signal.aborted).toBe(false);
   });
 
   it('gives a late answer the near-now slack of the window it was asked for', async () => {
-    const { fox, store } = setup();
+    const { engine, store } = setup();
     // 10 s span: 1% is 0.1 s, so the 2 s slack applies near "now".
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(10_000) });
     vi.setSystemTime(T0 + 1_000);
@@ -475,9 +475,9 @@ describe('FormulaStore in-flight requests', () => {
 
     // Nothing re-renders; the answer lands 3 s after that last ask.
     vi.setSystemTime(T0 + 4_000);
-    fox.calls[0].resolve();
+    engine.calls[0].resolve();
     await flush();
-    expect(fox.calls).toHaveLength(1);
+    expect(engine.calls).toHaveLength(1);
   });
 
   it('counts a window ending within the slack ahead of now as live, and one further out as not', () => {
@@ -486,26 +486,26 @@ describe('FormulaStore in-flight requests', () => {
     const near = setup();
     near.store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(500) });
     near.store.request('f1', { spec: spec('{x1}*2'), window: ahead(NEAR_NOW_SLACK_MS - 500) });
-    expect(near.fox.calls).toHaveLength(1);
+    expect(near.engine.calls).toHaveLength(1);
 
     const far = setup();
     far.store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(500) });
     far.store.request('f1', { spec: spec('{x1}*2'), window: ahead(NEAR_NOW_SLACK_MS + 500) });
-    expect(far.fox.calls.map((c) => c.signal.aborted)).toEqual([true, false]);
+    expect(far.engine.calls.map((c) => c.signal.aborted)).toEqual([true, false]);
   });
 
   it('catches up after an answer when the window slid past it and then stopped', async () => {
-    const { fox, store } = setup();
+    const { engine, store } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });
     vi.setSystemTime(T0 + 4_000);
     const frozen = lastSpan(5 * MINUTE);
     store.request('f1', { spec: spec('{x1}*2'), window: frozen });
-    expect(fox.calls).toHaveLength(1);
+    expect(engine.calls).toHaveLength(1);
 
-    fox.calls[0].resolve();
+    engine.calls[0].resolve();
     await flush();
-    expect(fox.calls).toHaveLength(2);
-    expect(fox.calls[1].t1Ns).toBe(frozen.toNs);
+    expect(engine.calls).toHaveLength(2);
+    expect(engine.calls[1].t1Ns).toBe(frozen.toNs);
   });
 });
 
@@ -535,17 +535,19 @@ describe('FormulaStore failures', () => {
   });
 
   it('retries a transient failure on a backoff timer: 1, 2, 4, 8, then every 15 s', async () => {
-    const { fox, store, entry } = setup((c) => c.reject(err(504, 'formula_eval_timeout')));
+    const { engine, store, entry } = setup((c) => c.reject(err(504, 'formula_eval_timeout')));
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     await vi.advanceTimersByTimeAsync(45_000);
 
-    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 1_000, 3_000, 7_000, 15_000, 30_000, 45_000]);
+    expect(engine.calls.map((c) => c.atMs)).toEqual([
+      0, 1_000, 3_000, 7_000, 15_000, 30_000, 45_000,
+    ]);
     expect(entry('f1')).toMatchObject({ status: 'error', error: { code: 'formula_eval_timeout' } });
   });
 
   it('waits out the backoff when the window moves, then retries the latest window', async () => {
-    const { fox, store } = setup((c) => {
-      if (fox.calls.length === 1) c.reject(err(503, 'buffer_at_capacity'));
+    const { engine, store } = setup((c) => {
+      if (engine.calls.length === 1) c.reject(err(503, 'buffer_at_capacity'));
     });
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });
     let latest = lastSpan(5 * MINUTE);
@@ -554,19 +556,19 @@ describe('FormulaStore failures', () => {
       latest = lastSpan(5 * MINUTE);
       store.request('f1', { spec: spec('{x1}*2'), window: latest });
     }
-    expect(fox.calls).toHaveLength(1);
+    expect(engine.calls).toHaveLength(1);
 
     await vi.advanceTimersByTimeAsync(100);
-    expect(fox.calls).toHaveLength(2);
-    expect(fox.calls[1].t1Ns).toBe(latest.toNs);
+    expect(engine.calls).toHaveLength(2);
+    expect(engine.calls[1].t1Ns).toBe(latest.toNs);
   });
 
   it('shows ready once the window is back inside the evaluated range', async () => {
-    const { fox, store, entry } = setup((c) => {
-      if (fox.calls.length > 1) c.reject(err(503, 'buffer_at_capacity'));
+    const { engine, store, entry } = setup((c) => {
+      if (engine.calls.length > 1) c.reject(err(503, 'buffer_at_capacity'));
     });
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
-    fox.calls[0].resolve([5]);
+    engine.calls[0].resolve([5]);
     await flush();
     store.request('f1', { spec: spec('{x1}*2'), window: win(3_600_000, 7_200_000) });
     await flush();
@@ -578,42 +580,42 @@ describe('FormulaStore failures', () => {
     expect(entry('f1')?.points).toEqual([[3_600_000, 5]]);
     // The retry finds the window covered and does nothing.
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(fox.calls).toHaveLength(2);
+    expect(engine.calls).toHaveLength(2);
     expect(vi.getTimerCount()).toBe(0);
   });
 
   it("doesn't let moves in and out of the evaluated range get round the backoff", async () => {
-    const { fox, store, entry } = setup((c) => {
-      if (fox.calls.length > 1) c.reject(err(503, 'buffer_at_capacity'));
+    const { engine, store, entry } = setup((c) => {
+      if (engine.calls.length > 1) c.reject(err(503, 'buffer_at_capacity'));
     });
     const inside = win(10 * MINUTE, 50 * MINUTE);
     const outside = win(3_600_000, 7_200_000);
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
-    fox.calls[0].resolve();
+    engine.calls[0].resolve();
     await flush();
     store.request('f1', { spec: spec('{x1}*2'), window: outside });
     await flush();
 
     store.request('f1', { spec: spec('{x1}*2'), window: inside });
     store.request('f1', { spec: spec('{x1}*2'), window: outside });
-    expect(fox.calls).toHaveLength(2);
+    expect(engine.calls).toHaveLength(2);
     expect(entry('f1')?.status).toBe('error');
 
     // The 1 s retry goes out, fails, and the next one waits 2 s.
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 0, 1_000]);
+    expect(engine.calls.map((c) => c.atMs)).toEqual([0, 0, 1_000]);
     store.request('f1', { spec: spec('{x1}*2'), window: inside });
     store.request('f1', { spec: spec('{x1}*2'), window: outside });
     await vi.advanceTimersByTimeAsync(1_999);
-    expect(fox.calls).toHaveLength(3);
+    expect(engine.calls).toHaveLength(3);
     await vi.advanceTimersByTimeAsync(1);
-    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 0, 1_000, 3_000]);
+    expect(engine.calls.map((c) => c.atMs)).toEqual([0, 0, 1_000, 3_000]);
   });
 
   it('shows ready over a failure for another window, and the failure again on its span', async () => {
     // A decimated hour, then a 10-minute zoom whose detail request times out.
-    const { fox, store, entry } = setup((c) => {
-      if (fox.calls.length === 1) c.resolve([1], true);
+    const { engine, store, entry } = setup((c) => {
+      if (engine.calls.length === 1) c.resolve([1], true);
     });
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     await flush();
@@ -626,24 +628,24 @@ describe('FormulaStore failures', () => {
 
     store.request('f1', { spec: spec('{x1}*2'), window: win(30 * MINUTE, 40 * MINUTE) });
     expect(entry('f1')).toMatchObject({ status: 'error', error: { code: 'client_timeout' } });
-    expect(fox.calls).toHaveLength(2);
+    expect(engine.calls).toHaveLength(2);
   });
 
   it('drops an in-flight request for another window when a terminal failure blocks the new one', async () => {
-    const { fox, store, entry } = setup((c) => {
-      if (fox.calls.length === 1) c.reject(err(422, 'window_too_large'));
+    const { engine, store, entry } = setup((c) => {
+      if (engine.calls.length === 1) c.reject(err(422, 'window_too_large'));
     });
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     await flush();
     store.request('f1', { spec: spec('{x1}*2'), window: win(0, 10 * MINUTE) });
-    expect(fox.calls).toHaveLength(2);
+    expect(engine.calls).toHaveLength(2);
 
     // Back to a 1-hour span, the one that failed.
     store.request('f1', { spec: spec('{x1}*2'), window: win(3_600_000, 7_200_000) });
-    expect(fox.calls[1].signal.aborted).toBe(true);
-    fox.calls[1].resolve([9]);
+    expect(engine.calls[1].signal.aborted).toBe(true);
+    engine.calls[1].resolve([9]);
     await flush();
-    expect(fox.calls).toHaveLength(2);
+    expect(engine.calls).toHaveLength(2);
     expect(entry('f1')).toMatchObject({
       status: 'error',
       points: [],
@@ -653,21 +655,21 @@ describe('FormulaStore failures', () => {
 
   it('starts the backoff over after a success', async () => {
     const outcomes = ['fail', 'fail', 'ok', 'fail'];
-    const { fox, store } = setup((c) => {
-      if (outcomes[fox.calls.length - 1] === 'ok') c.resolve();
+    const { engine, store } = setup((c) => {
+      if (outcomes[engine.calls.length - 1] === 'ok') c.resolve();
       else c.reject(err(503, 'buffer_at_capacity'));
     });
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     await vi.advanceTimersByTimeAsync(3_000);
-    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 1_000, 3_000]);
+    expect(engine.calls.map((c) => c.atMs)).toEqual([0, 1_000, 3_000]);
 
     store.request('f1', { spec: spec('{x1}*2'), window: win(0, 7_200_000) });
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 1_000, 3_000, 3_000, 4_000]);
+    expect(engine.calls.map((c) => c.atMs)).toEqual([0, 1_000, 3_000, 3_000, 4_000]);
   });
 
   it("doesn't retry a terminal failure as the window moves; a new span or spec does", async () => {
-    const { fox, store, entry } = setup((c) => {
+    const { engine, store, entry } = setup((c) => {
       if (c.expression === '{x1}*') c.reject(err(400, 'formula_parse_error'));
     });
     store.request('f1', { spec: spec('{x1}*'), window: lastSpan(5 * MINUTE) });
@@ -675,23 +677,23 @@ describe('FormulaStore failures', () => {
       await vi.advanceTimersByTimeAsync(1_000);
       store.request('f1', { spec: spec('{x1}*'), window: lastSpan(5 * MINUTE) });
     }
-    expect(fox.calls).toHaveLength(1);
+    expect(engine.calls).toHaveLength(1);
     expect(vi.getTimerCount()).toBe(0);
     expect(entry('f1')).toMatchObject({ status: 'error', error: { status: 400 } });
 
     store.request('f1', { spec: spec('{x1}*'), window: lastSpan(10 * MINUTE) });
     await flush();
     store.request('f1', { spec: spec('{x1}*'), window: lastSpan(10 * MINUTE) });
-    expect(fox.calls).toHaveLength(2);
+    expect(engine.calls).toHaveLength(2);
 
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(10 * MINUTE) });
-    expect(fox.calls).toHaveLength(3);
+    expect(engine.calls).toHaveLength(3);
   });
 });
 
 describe('FormulaStore client timeout', () => {
   it('gives up after EVAL_TIMEOUT_MS and shows an error, even if the request ignores its signal', async () => {
-    const { fox, store, entry } = setup();
+    const { engine, store, entry } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });
     await vi.advanceTimersByTimeAsync(EVAL_TIMEOUT_MS - 1);
     expect(entry('f1')?.status).toBe('loading');
@@ -702,18 +704,18 @@ describe('FormulaStore client timeout', () => {
       points: [],
       error: { code: 'client_timeout' },
     });
-    expect(fox.calls[0].signal.aborted).toBe(true);
+    expect(engine.calls[0].signal.aborted).toBe(true);
 
     // A late answer for the abandoned request is ignored.
-    fox.calls[0].resolve();
+    engine.calls[0].resolve();
     await flush();
     expect(entry('f1')?.status).toBe('error');
   });
 
   it('keeps the last good points when a re-evaluation of the same spec times out', async () => {
-    const { fox, store, entry } = setup();
+    const { engine, store, entry } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
-    fox.calls[0].resolve([5]);
+    engine.calls[0].resolve([5]);
     await flush();
 
     store.request('f1', { spec: spec('{x1}*2'), window: win(0, 7_200_000) });
@@ -726,31 +728,31 @@ describe('FormulaStore client timeout', () => {
   });
 
   it('retries at the last backoff step, and gives up on its span after MAX_CLIENT_TIMEOUTS', async () => {
-    const { fox, store, entry } = setup();
+    const { engine, store, entry } = setup();
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });
     for (let s = 1; s <= 180; s++) {
       await vi.advanceTimersByTimeAsync(1_000);
       store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(5 * MINUTE) });
     }
     // Each attempt times out after 30 s, and the next goes out 15 s later.
-    expect(fox.calls).toHaveLength(MAX_CLIENT_TIMEOUTS);
-    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 45_000, 90_000]);
+    expect(engine.calls).toHaveLength(MAX_CLIENT_TIMEOUTS);
+    expect(engine.calls.map((c) => c.atMs)).toEqual([0, 45_000, 90_000]);
     expect(entry('f1')).toMatchObject({ status: 'error', error: { code: 'client_timeout' } });
     expect(vi.getTimerCount()).toBe(0);
 
     // A new span starts the count over.
     store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(10 * MINUTE) });
     await vi.advanceTimersByTimeAsync(45_000);
-    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 45_000, 90_000, 180_000, 225_000]);
+    expect(engine.calls.map((c) => c.atMs)).toEqual([0, 45_000, 90_000, 180_000, 225_000]);
 
     store.request('f1', { spec: spec('{x1}*3'), window: lastSpan(10 * MINUTE) });
-    expect(fox.calls).toHaveLength(6);
+    expect(engine.calls).toHaveLength(6);
   });
 
   it('recovers a following window from a one-off hang', async () => {
-    // The first evaluation hangs; Fox answers the rest right away.
-    const { fox, store, entry } = setup((c) => {
-      if (fox.calls.length > 1) c.resolve([7]);
+    // The first evaluation hangs; the Formula Engine answers the rest right away.
+    const { engine, store, entry } = setup((c) => {
+      if (engine.calls.length > 1) c.resolve([7]);
     });
     const render = () =>
       store.request('f1', { spec: spec('{x1}*2'), window: lastSpan(60 * MINUTE) });
@@ -759,7 +761,7 @@ describe('FormulaStore client timeout', () => {
       await vi.advanceTimersByTimeAsync(1_000);
       render();
     }
-    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 45_000]);
+    expect(engine.calls.map((c) => c.atMs)).toEqual([0, 45_000]);
     expect(entry('f1')?.status).toBe('ready');
     expect(entry('f1')?.error).toBeUndefined();
 
@@ -769,23 +771,23 @@ describe('FormulaStore client timeout', () => {
       await vi.advanceTimersByTimeAsync(1_000);
       render();
     }
-    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 45_000, 81_000]);
+    expect(engine.calls.map((c) => c.atMs)).toEqual([0, 45_000, 81_000]);
   });
 
   it('keeps retrying at the last backoff step after a timeout, until a success', async () => {
     // Hangs, fails twice with a 503, then answers; a later failure fails once.
-    const { fox, store } = setup((c) => {
-      const n = fox.calls.length;
+    const { engine, store } = setup((c) => {
+      const n = engine.calls.length;
       if (n === 2 || n === 3 || n === 5) c.reject(err(503, 'buffer_at_capacity'));
       else if (n !== 1) c.resolve();
     });
     store.request('f1', { spec: spec('{x1}*2'), window: HOUR });
     await vi.advanceTimersByTimeAsync(75_000);
-    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 45_000, 60_000, 75_000]);
+    expect(engine.calls.map((c) => c.atMs)).toEqual([0, 45_000, 60_000, 75_000]);
 
     store.request('f1', { spec: spec('{x1}*2'), window: win(0, 7_200_000) });
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(fox.calls.map((c) => c.atMs)).toEqual([0, 45_000, 60_000, 75_000, 75_000, 76_000]);
+    expect(engine.calls.map((c) => c.atMs)).toEqual([0, 45_000, 60_000, 75_000, 75_000, 76_000]);
   });
 });
 

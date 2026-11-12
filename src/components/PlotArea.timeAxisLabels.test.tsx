@@ -7,24 +7,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { SinglePlot } from './PlotArea';
 import type { Plot } from '../types';
+import { chartStub } from '../test/chartStub';
 
 // Every option SinglePlot hands to the chart, newest last.
 const { options } = vi.hoisted(() => ({ options: [] as Record<string, unknown>[] }));
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component<{ option: Record<string, unknown> }> {
-    // No instance: SinglePlot's effects bail out early without one.
-    getEchartsInstance() {
-      return undefined;
-    }
-    render() {
-      options.push(this.props.option);
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+// No instance: the chart never becomes ready, so SinglePlot's effects bail out
+// early without one.
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.onRender = (props) => {
+  options.push(props.option as Record<string, unknown>);
+};
 
 function makePlot(): Plot {
   return {

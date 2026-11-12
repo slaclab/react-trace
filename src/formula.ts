@@ -20,7 +20,7 @@ export function extractFormulaVars(expression: string): string[] {
 }
 
 // Resolve the bound variables a formula trace currently has (variable ->
-// referenced trace id) into Fox's wire form (variable -> PV name). Unbound or
+// referenced trace id) into the Formula Engine's wire form (variable -> PV name). Unbound or
 // unresolvable variables are simply omitted, so this is the "best effort" spec
 // used for live validation as the user types. Formula-to-formula references and
 // non-PV targets are skipped (deferred — see #33).
@@ -34,7 +34,7 @@ export function resolveBindings(trace: PVTrace, candidates: PVTrace[]): Record<s
   return out;
 }
 
-// Build the Fox spec for evaluating/subscribing a formula trace, or null when
+// Build the Formula Engine spec for evaluating/subscribing a formula trace, or null when
 // it isn't ready: empty expression, no variables, or any referenced variable
 // still unbound (so we don't fire incomplete evaluations).
 export function resolveFormulaSpec(trace: PVTrace, candidates: PVTrace[]): FormulaSpec | null {

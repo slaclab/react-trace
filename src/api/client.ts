@@ -1,6 +1,8 @@
 // Transitional shim over @slaclab/canopy-client: keeps trace's original
 // signatures while call sites move to the SDK (which takes the connection as
-// its first argument). The Vole, Magpie and archive clients still call it.
+// its first argument). The Vole, Magpie, archive and e-log clients still call
+// it. The SDK's canopyFetch sends a FormData body as multipart and turns
+// FastAPI's 422 detail list into a readable `detail`.
 import {
   canopyFetch as sdkCanopyFetch,
   toWsUrl,

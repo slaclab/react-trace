@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CanopyError, type FormulaSpec } from '@slaclab/canopy-client';
 import { createFakeFetch, jsonResponse } from '@slaclab/canopy-client/testing';
 import type { FakeRoutes } from '@slaclab/canopy-client/testing';
-import { evaluateFormula, validateFormula } from './fox';
+import { evaluateFormula, validateFormula } from './formulaEngine';
 
 const SPEC: FormulaSpec = {
   kind: 'timeseries',
@@ -16,9 +16,13 @@ function connection(routes: FakeRoutes) {
 }
 
 describe('validateFormula', () => {
-  it('posts the spec to Fox and returns the validation result', async () => {
+  it('posts the spec to the Formula Engine and returns the validation result', async () => {
     const { conn, fetch } = connection({
-      'POST /fox/v1/validate': jsonResponse({ valid: true, tokens: ['a', 'b'], errors: [] }),
+      'POST /formula-engine/v1/validate': jsonResponse({
+        valid: true,
+        tokens: ['a', 'b'],
+        errors: [],
+      }),
     });
 
     await expect(validateFormula(conn, SPEC)).resolves.toEqual({
@@ -26,14 +30,14 @@ describe('validateFormula', () => {
       tokens: ['a', 'b'],
       errors: [],
     });
-    expect(fetch.calls[0].url).toBe('/trace/api/canopy/fox/v1/validate');
+    expect(fetch.calls[0].url).toBe('/trace/api/canopy/formula-engine/v1/validate');
     expect(fetch.calls[0].headers['Content-Type']).toBe('application/json');
     expect(fetch.calls[0].json).toEqual(SPEC);
   });
 
   it('reads a FastAPI 422 as a validation_error with a readable detail', async () => {
     const { conn } = connection({
-      'POST /fox/v1/validate': jsonResponse(
+      'POST /formula-engine/v1/validate': jsonResponse(
         { detail: [{ loc: ['body', 'expression'], msg: 'Field required', type: 'missing' }] },
         { status: 422 }
       ),
@@ -63,7 +67,9 @@ describe('evaluateFormula', () => {
         decimated: false,
       },
     };
-    const { conn, fetch } = connection({ 'POST /fox/v1/evaluate': jsonResponse(result) });
+    const { conn, fetch } = connection({
+      'POST /formula-engine/v1/evaluate': jsonResponse(result),
+    });
 
     await expect(evaluateFormula(conn, SPEC, 10, 20)).resolves.toEqual(result);
     expect(fetch.calls[0].json).toEqual({ spec: SPEC, t0Ns: 10, t1Ns: 20 });
@@ -71,7 +77,7 @@ describe('evaluateFormula', () => {
 
   it('keeps the Canopy error envelope', async () => {
     const { conn } = connection({
-      'POST /fox/v1/evaluate': jsonResponse(
+      'POST /formula-engine/v1/evaluate': jsonResponse(
         { code: 'formula_eval_failed', detail: 'division by zero' },
         { status: 400 }
       ),

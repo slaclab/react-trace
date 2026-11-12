@@ -1,3 +1,5 @@
+import { dataUrlToBlob } from '@slaclab/canopy-charts';
+
 // Tiny helper: trigger a browser download for an in-memory string blob.
 export function downloadBlob(filename: string, mime: string, body: BlobPart): void {
   const blob = new Blob([body], { type: mime });
@@ -14,15 +16,18 @@ export function downloadBlob(filename: string, mime: string, body: BlobPart): vo
 }
 
 // Trigger a download for a `data:` URL (e.g. a canvas-rendered PNG). We decode
-// the data URL to a Blob and hand off to downloadBlob so the download goes
-// through a `blob:` URL. Anchoring the `data:` URL directly fails in two ways:
-// Safari caps `data:` downloads at ~1MB, and browsers block multiple `data:`
-// anchor clicks from one user gesture (so a grid export would drop all but the
-// first file). `blob:` URLs sidestep both.
+// the data URL to a Blob (canopy-charts' dataUrlToBlob, no fetch round-trip)
+// and hand off to downloadBlob so the download goes through a `blob:` URL.
+// Anchoring the `data:` URL directly fails in two ways: Safari caps `data:`
+// downloads at ~1MB, and browsers block multiple `data:` anchor clicks from one
+// user gesture (so a grid export would drop all but the first file). `blob:`
+// URLs sidestep both. Rejects if the URL can't be decoded.
 export function downloadDataUrl(filename: string, dataUrl: string): Promise<void> {
-  return fetch(dataUrl)
-    .then((r) => r.blob())
-    .then((blob) => downloadBlob(filename, blob.type, blob));
+  return new Promise((resolve) => {
+    const blob = dataUrlToBlob(dataUrl);
+    downloadBlob(filename, blob.type, blob);
+    resolve();
+  });
 }
 
 export function pickFile(accept: string): Promise<File | null> {
