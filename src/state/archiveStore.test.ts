@@ -331,7 +331,7 @@ describe('archiveStore: value at the window start', () => {
       return {
         mode: 'raw',
         pv: PV,
-        archiver: 'lcls',
+        archiver: 'test',
         from: params.fromNs,
         to: toNs,
         decimated: false,
@@ -474,7 +474,7 @@ describe('archiveStore: value at the window start', () => {
     const h = setup(async (_pv, params) => ({
       mode: 'binned',
       pv: PV,
-      archiver: 'lcls',
+      archiver: 'test',
       from: params.fromNs,
       to: params.toNs ?? params.fromNs,
       binning: 'auto',
