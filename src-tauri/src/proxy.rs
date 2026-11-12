@@ -37,6 +37,7 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode as TgClos
 use tokio_tungstenite::tungstenite::protocol::CloseFrame as TgCloseFrame;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMsg;
 use tower_http::services::{ServeDir, ServeFile};
+use tower_http::set_header::SetResponseHeaderLayer;
 
 use crate::config::CanopyConfig;
 
@@ -125,6 +126,41 @@ fn is_own_origin(headers: &HeaderMap, port: u16) -> bool {
     }
 }
 
+/// Content-Security-Policy for every response. Tauri's `tauri.security.csp`
+/// doesn't reach this app's pages: Tauri v1 adds it only to pages it serves
+/// over its own `tauri://` protocol, and the webview loads this proxy's origin
+/// instead, so the proxy sends the policy itself.
+///
+/// Everything is limited to this origin, except:
+/// - `connect-src` also lists the WebSocket origins, because older WebKit
+///   doesn't match `ws:` under `'self'`. Both [`LOCAL_HOSTS`] names are listed.
+/// - `style-src 'unsafe-inline'`: ECharts tooltips are HTML strings with
+///   `style` attributes, and Carbon sets inline styles.
+/// - `img-src data: blob:`: Carbon's CSS has `data:` SVG icons, and plot
+///   captures (the e-log preview, image export) are `data:`/`blob:` URLs.
+/// - `font-src`: `@carbon/styles` loads IBM Plex from IBM's CDN.
+///
+/// Scripts are `'self'` only (the Vite build has no inline scripts and
+/// nothing uses `eval`), and `frame-ancestors 'none'` stops any other page,
+/// including one in a local browser, from framing the app.
+fn content_security_policy(port: u16) -> String {
+    let ws_origins = LOCAL_HOSTS
+        .map(|host| format!("ws://{host}:{port}"))
+        .join(" ");
+    format!(
+        "default-src 'self'; \
+         script-src 'self'; \
+         style-src 'self' 'unsafe-inline'; \
+         img-src 'self' data: blob:; \
+         font-src 'self' https://1.www.s81c.com; \
+         connect-src 'self' {ws_origins}; \
+         object-src 'none'; \
+         base-uri 'self'; \
+         form-action 'self'; \
+         frame-ancestors 'none'"
+    )
+}
+
 /// Start the proxy on a fixed loopback port. Returns the bound address (so the
 /// caller can point the webview at it). Runs the server on the given Tokio
 /// runtime; the task lives for the process lifetime.
@@ -158,11 +194,21 @@ pub async fn bind(
         bound,
     };
 
+    let csp = HeaderValue::from_str(&content_security_policy(bound.port()))
+        .expect("CSP is a valid header value");
+
     let app = Router::new()
         // API prefixes are matched inside the handler; catch-all sends
         // everything here and we branch on the path.
         .fallback(any(route))
-        .with_state((state, Arc::new(static_service)));
+        .with_state((state, Arc::new(static_service)))
+        // On every response, not just the SPA's: injected script could open
+        // any same-origin URL in a window or frame, and a page there without
+        // the policy would let it get around it.
+        .layer(SetResponseHeaderLayer::overriding(
+            http::header::CONTENT_SECURITY_POLICY,
+            csp,
+        ));
 
     tokio::spawn(async move {
         if let Err(err) = axum::serve(listener, app).await {
@@ -984,6 +1030,64 @@ mod e2e {
             .await
             .unwrap();
         assert!(deep.text().await.unwrap().contains("trace-spa"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn every_response_carries_the_csp() {
+        let dist =
+            std::env::temp_dir().join(format!("trace-proxy-test-csp-{}", std::process::id()));
+        std::fs::create_dir_all(&dist).unwrap();
+        std::fs::write(dist.join("index.html"), "<html>trace-spa</html>").unwrap();
+        // An upstream policy is replaced, not merged.
+        let upstream_csp = || async { ([("content-security-policy", "upstream")], "data") };
+        let canopy = spawn_upstream(Router::new().fallback(any(upstream_csp))).await;
+        let proxy = spawn_proxy(config(canopy, None), dist).await;
+        let port = proxy.port();
+        let client = reqwest::Client::new();
+
+        let responses = [
+            ("SPA", client.get(format!("http://{proxy}/"))),
+            (
+                "SPA deep link",
+                client.get(format!("http://{proxy}/some/deep/link")),
+            ),
+            ("Canopy", client.get(format!("http://{proxy}/mole/v1/data"))),
+            (
+                "e-log 502",
+                client.get(format!("http://{proxy}/elog/v1/logbooks")),
+            ),
+            (
+                "foreign-origin 403",
+                client
+                    .get(format!("http://{proxy}/mole/v1/data"))
+                    .header("origin", "https://attacker.example"),
+            ),
+        ];
+        for (what, req) in responses {
+            let res = req.send().await.unwrap();
+            let csp: Vec<_> = res
+                .headers()
+                .get_all(http::header::CONTENT_SECURITY_POLICY)
+                .iter()
+                .map(|v| v.to_str().unwrap().to_string())
+                .collect();
+            assert_eq!(csp, [content_security_policy(port)], "{what}");
+        }
+
+        // The page may connect only to this proxy, over HTTP and WebSocket,
+        // and runs only its own scripts.
+        let csp = content_security_policy(port);
+        for directive in [
+            "default-src 'self'".to_string(),
+            "script-src 'self'".to_string(),
+            format!("connect-src 'self' ws://127.0.0.1:{port} ws://localhost:{port}"),
+            "frame-ancestors 'none'".to_string(),
+        ] {
+            assert!(
+                csp.split("; ").any(|d| d == directive),
+                "missing `{directive}` in {csp}"
+            );
+        }
     }
 
     #[tokio::test(flavor = "multi_thread")]
