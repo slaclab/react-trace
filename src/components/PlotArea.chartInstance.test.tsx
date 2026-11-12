@@ -125,6 +125,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  cleanup();
   vi.useRealTimers();
 });
 
@@ -184,6 +185,24 @@ describe('SinglePlot chart instance', () => {
     expect(onUpdateAxis).not.toHaveBeenCalled();
     expect(png()).toBe('');
     expect(a.chart.getDataURL).not.toHaveBeenCalled();
+  });
+
+  it('leaves the axes alone while the chart has no model', () => {
+    chartStub.instance = { ...fakeChart('data:,').chart, getModel: () => undefined };
+    const { wrap, onUpdateAxis } = mountPlot();
+    // jsdom reports an exception in a DOM listener as a window error event
+    // instead of throwing it out of fireEvent.
+    const errors: unknown[] = [];
+    const onError = (e: ErrorEvent) => {
+      e.preventDefault();
+      errors.push(e.error);
+    };
+    window.addEventListener('error', onError);
+    wheelOverAxis(wrap);
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    window.removeEventListener('error', onError);
+    expect(errors).toEqual([]);
+    expect(onUpdateAxis).not.toHaveBeenCalled();
   });
 
   it('reads axis ranges from the chart that fired `finished`', () => {
