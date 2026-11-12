@@ -7,7 +7,7 @@ import {
   usePanelRef,
 } from 'react-resizable-panels';
 import { Close, Login, ChevronUp } from '@carbon/icons-react';
-import { Header, HeaderName, HeaderGlobalBar, Theme, ToastNotification } from '@carbon/react';
+import { Button, ToastNotification } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
 import { LeftPanel } from './LeftPanel';
 import { DetachedWindow } from './DetachedWindow';
@@ -16,6 +16,7 @@ import { PlotArea, SinglePlot } from './PlotArea';
 import { capturePlotPng } from '../capturePlot';
 import { RightPanel } from './RightPanel';
 import { Toolbar } from './Toolbar';
+import { TraceHeader } from './TraceHeader';
 import { useArchiveSeries, type ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { useLiveSeries, type LiveSeriesResult } from '../hooks/useLiveSeries';
 import { archiveStore } from '../state/archiveStore';
@@ -25,7 +26,14 @@ import type { TimeWindowNs } from '../api/time';
 import { resolveTimeWindow } from '../api/time';
 import { fetchMetadata } from '@slaclab/canopy-client';
 import { useCanopyConnection } from '@slaclab/canopy-react';
-import { setColorMode, useColorMode } from '../state/themeStore';
+import {
+  ColorModeTheme,
+  ErrorBoundary,
+  ErrorFallback,
+  setColorMode,
+  useColorMode,
+} from '@slaclab/canopy-shell';
+import { chartThemeFor } from '@slaclab/canopy-charts';
 import { usePaletteId } from '../state/paletteStore';
 import { getPalette, colorForIndex } from '../palettes';
 import { downloadBlob, downloadDataUrl, pickFile } from '../io/download';
@@ -47,9 +55,6 @@ import { getConfig } from '../api/magpie';
 import { errorInfo } from '../api/errorInfo';
 import { useElogConfig } from '../hooks/useElogConfig';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
-
-const BUG_REPORT_URL = 'https://forms.office.com/r/qV7BmK2xi9';
-const DOCS_URL = 'https://fuzzy-adventure-4qvly8m.pages.github.io/';
 
 function generateMockData(
   points: number,
@@ -98,6 +103,28 @@ export type SelectedItem = {
   id: string;
   plotId: string;
 } | null;
+
+// Data Insight's close, minimize and reattach buttons are inside the tool, so
+// its error fallback (docked or detached) adds a way to close it; the header
+// action only opens it.
+function DataInsightFallback({
+  error,
+  reset,
+  onClose,
+}: {
+  error: Error;
+  reset: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="insight-fallback">
+      <ErrorFallback error={error} reset={reset} />
+      <Button kind="ghost" size="sm" onClick={onClose}>
+        Close Data Insight
+      </Button>
+    </div>
+  );
+}
 
 export function TraceApp() {
   const canopy = useCanopyConnection();
@@ -187,7 +214,7 @@ export function TraceApp() {
   const windowByTrace = new Map<string, TimeWindowNs>();
   // Each trace inherits its plot's default archiver unless it sets its own.
   const plotArchiverByTrace = new Map<string, string | undefined>();
-  // Resolved Fox spec per formula trace (bindings mapped to PV names); null when
+  // Resolved Formula Engine spec per formula trace (bindings mapped to PV names); null when
   // the formula isn't ready to evaluate (empty expression or an unbound variable).
   const formulaSpecByTrace = new Map<string, FormulaSpec | null>();
   for (const plot of plots) {
@@ -469,7 +496,7 @@ export function TraceApp() {
       color: colorForIndex(getPalette(paletteId), traceCount),
       visible: true,
       axisId,
-      // Formula curves have no PV data source; their values come from Fox.
+      // Formula curves have no PV data source; their values come from the Formula Engine.
       useLive: false,
       updateRate: 'monitor',
       useArchive: false,
@@ -876,12 +903,13 @@ export function TraceApp() {
     { plotId: string; title: string; dataUrl: string }[] | null
   >(null);
 
-  // Export plots as PNG (one file each, mirroring the CSV export). Reuses the
-  // same DOM-based capturePlotPng as print, so it captures exactly what's on
-  // screen: the fullscreen copy if a plot is popped out, the active plot in tab
-  // view, or every plot in grid view. Detached plots live in another window, so
-  // capture returns null and they're skipped. Filenames share one timestamp so
-  // a grid export reads as a single batch.
+  // Export plots as PNG (one file each, mirroring the CSV export). Reuses
+  // print's capturePlotPng, which picks each plot's mounted copy from the DOM,
+  // so it captures exactly what's on screen: the fullscreen copy if a plot is
+  // popped out, the active plot in tab view, or every plot in grid view.
+  // Detached plots live in another window, so capture returns null and they're
+  // skipped. Filenames share one timestamp so a grid export reads as a single
+  // batch.
   const handleExportImage = () => {
     const targets = poppedOutPlot
       ? plots.filter((p) => p.id === poppedOutPlot)
@@ -949,16 +977,12 @@ export function TraceApp() {
     };
   }, [printShots]);
 
-  const handleReportBug = () => {
-    window.open(BUG_REPORT_URL, '_blank', 'noopener,noreferrer');
-  };
-
   // Capture context-aware plots (active plot in tabs view, all plots in grid)
   // and open the e-log post dialog. Background matches the current chart theme.
   const openElogPost = useCallback(() => {
     if (!elogConfig?.enabled) return;
     const targetPlots = viewMode === 'grid' ? plots : [activePlot];
-    const bg = colorMode === 'dark' ? '#161616' : '#ffffff';
+    const bg = chartThemeFor(colorMode).bg;
     const captured = capturePlots(
       targetPlots.map((p) => ({
         id: p.id,
@@ -974,10 +998,6 @@ export function TraceApp() {
     const json = serializeWorkspace({ theme: colorMode, plots });
     return new File([json], 'trace_config.json', { type: 'application/json' });
   }, [colorMode, plots]);
-
-  const handleOpenDocs = () => {
-    window.open(DOCS_URL, '_blank', 'noopener,noreferrer');
-  };
 
   const handleRefreshArchive = () => {
     archiveStore.refetchAll();
@@ -1016,39 +1036,26 @@ export function TraceApp() {
 
   return (
     <div className="trace-app">
-      {/* Header — wrapped in g100 so it stays a dark brand bar in light mode. */}
-      <Theme theme="g100">
-        <Header aria-label="Trace" className="trace-header">
-          <HeaderName href="#" prefix="" className="trace-header__name">
-            TRACE
-          </HeaderName>
-          <div className="trace-header__archiver">
-            <span className="trace-header__counts">
-              {liveCount} Live &bull; {archiveCount} Archive
-            </span>
-          </div>
-          <HeaderGlobalBar>
-            <Toolbar
-              colorMode={colorMode}
-              onSave={handleSave}
-              onPrint={handlePrint}
-              onImport={() => void handleImport()}
-              onExport={handleExport}
-              onExportImage={handleExportImage}
-              onToggleTheme={toggleTheme}
-              onReportBug={handleReportBug}
-              onOpenDocs={handleOpenDocs}
-              onOpenDataInsight={() => openInsight()}
-              onRefreshArchive={handleRefreshArchive}
-              onOpenConfigStore={() => setConfigModalOpen(true)}
-              onPostElog={elogConfig?.enabled ? openElogPost : undefined}
-            />
-          </HeaderGlobalBar>
-        </Header>
-      </Theme>
+      <TraceHeader
+        liveCount={liveCount}
+        archiveCount={archiveCount}
+        actions={
+          <Toolbar
+            onSave={handleSave}
+            onPrint={handlePrint}
+            onImport={() => void handleImport()}
+            onExport={handleExport}
+            onExportImage={handleExportImage}
+            onOpenDataInsight={() => openInsight()}
+            onRefreshArchive={handleRefreshArchive}
+            onOpenConfigStore={() => setConfigModalOpen(true)}
+            onPostElog={elogConfig?.enabled ? openElogPost : undefined}
+          />
+        }
+      />
 
-      {/* 3-panel layout */}
-      <div className="trace-panel-group">
+      {/* 3-panel layout. #main-content is the header's skip-link target. */}
+      <div className="trace-panel-group" id="main-content" tabIndex={-1}>
         <PanelGroup orientation="horizontal" style={{ flex: 1, height: '100%' }}>
           <Panel
             defaultSize="20%"
@@ -1062,29 +1069,31 @@ export function TraceApp() {
               if (next !== leftCollapsed) setLeftCollapsed(next);
             }}
           >
-            <LeftPanel
-              plots={plots}
-              activePlotId={activePlotId}
-              viewMode={viewMode}
-              archiveResultsByPlot={archiveResultsByPlot}
-              collapsed={leftCollapsed}
-              selectedItem={selectedItem}
-              onSelectItem={selectItem}
-              onAddTrace={addTrace}
-              onAddFormula={addFormula}
-              onDeleteTrace={deleteTrace}
-              onAddAxis={addAxis}
-              onDeleteAxis={deleteAxis}
-              onMoveTrace={moveTrace}
-              onCollapse={() => {
-                leftPanelRef.current?.collapse();
-                setLeftCollapsed(true);
-              }}
-              onExpand={() => {
-                leftPanelRef.current?.expand();
-                setLeftCollapsed(false);
-              }}
-            />
+            <ErrorBoundary resetKeys={[activePlotId, viewMode, workspaceGeneration]}>
+              <LeftPanel
+                plots={plots}
+                activePlotId={activePlotId}
+                viewMode={viewMode}
+                archiveResultsByPlot={archiveResultsByPlot}
+                collapsed={leftCollapsed}
+                selectedItem={selectedItem}
+                onSelectItem={selectItem}
+                onAddTrace={addTrace}
+                onAddFormula={addFormula}
+                onDeleteTrace={deleteTrace}
+                onAddAxis={addAxis}
+                onDeleteAxis={deleteAxis}
+                onMoveTrace={moveTrace}
+                onCollapse={() => {
+                  leftPanelRef.current?.collapse();
+                  setLeftCollapsed(true);
+                }}
+                onExpand={() => {
+                  leftPanelRef.current?.expand();
+                  setLeftCollapsed(false);
+                }}
+              />
+            </ErrorBoundary>
           </Panel>
 
           <PanelResizeHandle className="trace-resize-handle" />
@@ -1092,30 +1101,32 @@ export function TraceApp() {
           <Panel defaultSize="60%" minSize="30%">
             <div className="plot-and-insight">
               <div className="plot-and-insight__plot">
-                <PlotArea
-                  key={workspaceGeneration}
-                  plots={plots}
-                  activePlotId={activePlotId}
-                  viewMode={viewMode}
-                  archiveResultsByPlot={archiveResultsByPlot}
-                  liveResultsByPlot={liveResultsByPlot}
-                  formulaResultsByPlot={formulaResultsByPlot}
-                  onSetActivePlot={setActivePlotId}
-                  onAddPlot={addPlot}
-                  onRemovePlot={removePlot}
-                  onSetViewMode={setViewMode}
-                  onPopOutPlot={setPoppedOutPlot}
-                  detachedPlotIds={detachedPlotIds}
-                  onDetachPlot={detachPlot}
-                  onReattachPlot={reattachPlot}
-                  onViewWindowChange={handleViewWindowChange}
-                  onFollowStop={handleFollowStop}
-                  viewWindowByPlot={viewWindowByPlot}
-                  axisEndFor={axisEndFor}
-                  onAxisRangesChange={handleAxisRangesChange}
-                  onUpdateAxis={updateAxisInPlot}
-                  onChartInstance={handleChartInstance}
-                />
+                <ErrorBoundary resetKeys={[activePlotId, viewMode, workspaceGeneration]}>
+                  <PlotArea
+                    key={workspaceGeneration}
+                    plots={plots}
+                    activePlotId={activePlotId}
+                    viewMode={viewMode}
+                    archiveResultsByPlot={archiveResultsByPlot}
+                    liveResultsByPlot={liveResultsByPlot}
+                    formulaResultsByPlot={formulaResultsByPlot}
+                    onSetActivePlot={setActivePlotId}
+                    onAddPlot={addPlot}
+                    onRemovePlot={removePlot}
+                    onSetViewMode={setViewMode}
+                    onPopOutPlot={setPoppedOutPlot}
+                    detachedPlotIds={detachedPlotIds}
+                    onDetachPlot={detachPlot}
+                    onReattachPlot={reattachPlot}
+                    onViewWindowChange={handleViewWindowChange}
+                    onFollowStop={handleFollowStop}
+                    viewWindowByPlot={viewWindowByPlot}
+                    axisEndFor={axisEndFor}
+                    onAxisRangesChange={handleAxisRangesChange}
+                    onUpdateAxis={updateAxisInPlot}
+                    onChartInstance={handleChartInstance}
+                  />
+                </ErrorBoundary>
               </div>
               {insight.open && !insight.detached && insight.minimized && (
                 <div className="insight-minbar">
@@ -1138,15 +1149,26 @@ export function TraceApp() {
               )}
               {insight.open && !insight.detached && !insight.minimized && (
                 <div className="insight-dock">
-                  <DataInsightTool
-                    plots={insightPlots}
-                    windowByPlotId={windowByPlotId}
-                    selectedPv={insightPv}
-                    onSelectPv={(id) => setInsight((p) => ({ ...p, pv: id }))}
-                    onClose={() => setInsight((p) => ({ ...p, open: false }))}
-                    onMinimize={() => setInsight((p) => ({ ...p, minimized: true }))}
-                    onDetach={() => setInsight((p) => ({ ...p, detached: true }))}
-                  />
+                  <ErrorBoundary
+                    resetKeys={[insightPv, workspaceGeneration]}
+                    fallback={(error, reset) => (
+                      <DataInsightFallback
+                        error={error}
+                        reset={reset}
+                        onClose={() => setInsight((p) => ({ ...p, open: false }))}
+                      />
+                    )}
+                  >
+                    <DataInsightTool
+                      plots={insightPlots}
+                      windowByPlotId={windowByPlotId}
+                      selectedPv={insightPv}
+                      onSelectPv={(id) => setInsight((p) => ({ ...p, pv: id }))}
+                      onClose={() => setInsight((p) => ({ ...p, open: false }))}
+                      onMinimize={() => setInsight((p) => ({ ...p, minimized: true }))}
+                      onDetach={() => setInsight((p) => ({ ...p, detached: true }))}
+                    />
+                  </ErrorBoundary>
                 </div>
               )}
             </div>
@@ -1166,30 +1188,36 @@ export function TraceApp() {
               if (next !== rightCollapsed) setRightCollapsed(next);
             }}
           >
-            <RightPanel
-              selectedItem={selectedItem}
-              activePlot={activePlot}
-              nowMs={clock.nowFor(activePlot.id)}
-              archiveResults={archiveResultsByPlot.get(activePlot.id) ?? new Map()}
-              liveResults={liveResultsByPlot.get(activePlot.id) ?? new Map()}
-              collapsed={rightCollapsed}
-              onUpdateTrace={updateTrace}
-              onSelectPv={(traceId, pvName) => assignTraceToUnitAxis(activePlotId, traceId, pvName)}
-              onUpdateAxis={updateAxis}
-              onUpdatePlot={(updates) => updatePlot(activePlotId, updates)}
-              onApplyPalette={applyPalette}
-              getAxisRange={getAxisRange}
-              onInspectTrace={(id) => openInsight(id)}
-              onCreateFormula={(sourceId) => createFormulaFromTrace(activePlotId, sourceId)}
-              onCollapse={() => {
-                rightPanelRef.current?.collapse();
-                setRightCollapsed(true);
-              }}
-              onExpand={() => {
-                rightPanelRef.current?.expand();
-                setRightCollapsed(false);
-              }}
-            />
+            <ErrorBoundary
+              resetKeys={[activePlotId, selectedItem?.type, selectedItem?.id, workspaceGeneration]}
+            >
+              <RightPanel
+                selectedItem={selectedItem}
+                activePlot={activePlot}
+                nowMs={clock.nowFor(activePlot.id)}
+                archiveResults={archiveResultsByPlot.get(activePlot.id) ?? new Map()}
+                liveResults={liveResultsByPlot.get(activePlot.id) ?? new Map()}
+                collapsed={rightCollapsed}
+                onUpdateTrace={updateTrace}
+                onSelectPv={(traceId, pvName) =>
+                  assignTraceToUnitAxis(activePlotId, traceId, pvName)
+                }
+                onUpdateAxis={updateAxis}
+                onUpdatePlot={(updates) => updatePlot(activePlotId, updates)}
+                onApplyPalette={applyPalette}
+                getAxisRange={getAxisRange}
+                onInspectTrace={(id) => openInsight(id)}
+                onCreateFormula={(sourceId) => createFormulaFromTrace(activePlotId, sourceId)}
+                onCollapse={() => {
+                  rightPanelRef.current?.collapse();
+                  setRightCollapsed(true);
+                }}
+                onExpand={() => {
+                  rightPanelRef.current?.expand();
+                  setRightCollapsed(false);
+                }}
+              />
+            </ErrorBoundary>
           </Panel>
         </PanelGroup>
       </div>
@@ -1254,21 +1282,25 @@ export function TraceApp() {
                   </button>
                 </div>
                 <div style={{ flex: 1, overflow: 'hidden' }}>
-                  <SinglePlot
-                    plot={plot}
-                    endMs={axisEndFor(plot.id)}
-                    following={isFollowing(plot, viewWindowByPlot)}
-                    onFollowStop={() => handleFollowStop(plot.id)}
-                    fullscreen
-                    archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
-                    liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
-                    formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
-                    // eslint-disable-next-line react-hooks/refs -- ref is written from ECharts' finished event, not during render
-                    onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
-                    onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
-                    // eslint-disable-next-line react-hooks/refs -- ref is written on mount/unmount, not during render
-                    onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
-                  />
+                  {/* The close button above stays outside, so a chart error
+                      can be dismissed. */}
+                  <ErrorBoundary>
+                    <SinglePlot
+                      plot={plot}
+                      endMs={axisEndFor(plot.id)}
+                      following={isFollowing(plot, viewWindowByPlot)}
+                      onFollowStop={() => handleFollowStop(plot.id)}
+                      fullscreen
+                      archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
+                      liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
+                      formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
+                      // eslint-disable-next-line react-hooks/refs -- ref is written from ECharts' finished event, not during render
+                      onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
+                      onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
+                      // eslint-disable-next-line react-hooks/refs -- ref is written on mount/unmount, not during render
+                      onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
+                    />
+                  </ErrorBoundary>
                 </div>
               </div>
             </div>
@@ -1309,8 +1341,7 @@ export function TraceApp() {
             onBlocked={() => setBlockedPopup(plot.title || 'This plot')}
             onClose={() => reattachPlot(id)}
           >
-            <Theme
-              theme={colorMode === 'dark' ? 'g90' : 'g10'}
+            <ColorModeTheme
               style={{
                 height: '100vh',
                 background: 'var(--cds-background)',
@@ -1353,22 +1384,26 @@ export function TraceApp() {
                 </button>
               </div>
               <div style={{ flex: 1, minHeight: 0 }}>
-                <SinglePlot
-                  plot={plot}
-                  endMs={axisEndFor(plot.id)}
-                  following={isFollowing(plot, viewWindowByPlot)}
-                  onFollowStop={() => handleFollowStop(plot.id)}
-                  archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
-                  liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
-                  formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
-                  onViewWindowChange={(w) => handleViewWindowChange(plot.id, w)}
-                  initialViewWindowNs={viewWindowByPlot.get(plot.id)}
-                  onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
-                  onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
-                  onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
-                />
+                {/* The portal shares this React tree: without a boundary a chart
+                    error here would unmount the whole app. Reattach stays outside. */}
+                <ErrorBoundary>
+                  <SinglePlot
+                    plot={plot}
+                    endMs={axisEndFor(plot.id)}
+                    following={isFollowing(plot, viewWindowByPlot)}
+                    onFollowStop={() => handleFollowStop(plot.id)}
+                    archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
+                    liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
+                    formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
+                    onViewWindowChange={(w) => handleViewWindowChange(plot.id, w)}
+                    initialViewWindowNs={viewWindowByPlot.get(plot.id)}
+                    onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
+                    onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
+                    onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
+                  />
+                </ErrorBoundary>
               </div>
-            </Theme>
+            </ColorModeTheme>
           </DetachedWindow>
         );
       })}
@@ -1383,24 +1418,34 @@ export function TraceApp() {
           onBlocked={() => setBlockedPopup('Data Insight')}
           onClose={() => setInsight((p) => ({ ...p, detached: false }))}
         >
-          <Theme
-            theme={colorMode === 'dark' ? 'g90' : 'g10'}
+          <ColorModeTheme
             style={{
               height: '100vh',
               background: 'var(--cds-background)',
               color: 'var(--cds-text-primary)',
             }}
           >
-            <DataInsightTool
-              plots={insightPlots}
-              windowByPlotId={windowByPlotId}
-              selectedPv={insightPv}
-              detached
-              onSelectPv={(id) => setInsight((p) => ({ ...p, pv: id }))}
-              onClose={() => setInsight((p) => ({ ...p, open: false, detached: false }))}
-              onReattach={() => setInsight((p) => ({ ...p, detached: false }))}
-            />
-          </Theme>
+            <ErrorBoundary
+              resetKeys={[insightPv, workspaceGeneration]}
+              fallback={(error, reset) => (
+                <DataInsightFallback
+                  error={error}
+                  reset={reset}
+                  onClose={() => setInsight((p) => ({ ...p, open: false, detached: false }))}
+                />
+              )}
+            >
+              <DataInsightTool
+                plots={insightPlots}
+                windowByPlotId={windowByPlotId}
+                selectedPv={insightPv}
+                detached
+                onSelectPv={(id) => setInsight((p) => ({ ...p, pv: id }))}
+                onClose={() => setInsight((p) => ({ ...p, open: false, detached: false }))}
+                onReattach={() => setInsight((p) => ({ ...p, detached: false }))}
+              />
+            </ErrorBoundary>
+          </ColorModeTheme>
         </DetachedWindow>
       )}
 
@@ -1436,15 +1481,14 @@ export function TraceApp() {
         <PostToElogModal
           open={elogModal.open}
           captured={elogModal.captured}
-          logbooks={elogConfig.logbooks}
-          defaultLogbooks={elogConfig.defaultLogbooks}
+          defaultLogbookIds={elogConfig.defaultLogbookIds}
           buildConfigFile={buildElogConfigFile}
           onClose={() => setElogModal((p) => ({ ...p, open: false }))}
-          onPosted={(entryId) =>
+          onPosted={(entry) =>
             showToast({
               kind: 'success',
               title: 'Posted to E-Log',
-              subtitle: `Entry ${entryId} created`,
+              subtitle: `Entry ${entry.id} created`,
             })
           }
           onPostFailed={(message) =>

@@ -18,7 +18,7 @@ vi.stubGlobal('matchMedia', (query: string) => ({
 }));
 
 // An empty expression shows every help example (including the "Add a {var}"
-// hint) and skips the Fox validation request.
+// hint) and skips the Formula Engine validation request.
 const formulaTrace: PVTrace = {
   id: 't1',
   kind: 'formula',

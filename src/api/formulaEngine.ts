@@ -6,10 +6,12 @@ import {
   type FormulaSpec,
 } from '@slaclab/canopy-client';
 
-// Fox's REST endpoints. The SDK covers Fox's live-formula WebSocket
-// (FormulaEngineService) but not these, so they stay here on its REST core.
+// The Formula Engine's REST endpoints. The SDK covers its live-formula
+// WebSocket (FormulaEngineService) but not these, so they stay here on its REST
+// core.
 
-// Result of POST /fox/v1/validate (canopy.fox.schemas.formula).
+// Result of POST /formula-engine/v1/validate
+// (canopy.formula_engine.schemas.formula).
 export interface FormulaValidationDTO {
   valid: boolean;
   tokens: string[];
@@ -23,7 +25,7 @@ export async function validateFormula(
   spec: FormulaSpec,
   signal?: AbortSignalLike
 ): Promise<FormulaValidationDTO> {
-  return canopyFetch<FormulaValidationDTO>(conn, '/fox/v1/validate', {
+  return canopyFetch<FormulaValidationDTO>(conn, '/formula-engine/v1/validate', {
     method: 'POST',
     body: spec,
     signal,
@@ -38,7 +40,7 @@ export async function evaluateFormula(
   t1Ns: number,
   signal?: AbortSignalLike
 ): Promise<FormulaResultDTO> {
-  return canopyFetch<FormulaResultDTO>(conn, '/fox/v1/evaluate', {
+  return canopyFetch<FormulaResultDTO>(conn, '/formula-engine/v1/evaluate', {
     method: 'POST',
     body: { spec, t0Ns, t1Ns },
     signal,

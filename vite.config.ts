@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 import { canopyDevProxy, type CanopyDevProxyOptions } from '@slaclab/canopy-vite';
 
 // The Canopy modules Trace calls, as same-origin per-module paths.
-export const CANOPY_MODULES = ['/mole', '/hare', '/fox', '/magpie', '/vole'];
+export const CANOPY_MODULES = ['/mole', '/hare', '/formula-engine', '/magpie', '/vole'];
 
 // Trace's app in Canopy's e-log module: the only e-log path the dev proxy
 // forwards. Canopy doesn't bind keys to apps ({app} only picks the server-side

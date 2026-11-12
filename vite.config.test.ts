@@ -35,14 +35,14 @@ describe('canopyProxyOptions', () => {
     expect(options).toMatchObject({
       target: 'http://canopy.test:9000',
       apiKey: 'k',
-      modules: ['/mole', '/hare', '/fox', '/magpie', '/vole'],
+      modules: ['/mole', '/hare', '/formula-engine', '/magpie', '/vole'],
     });
     expect(options.basePath).toBeUndefined();
     const proxy = canopyDevProxy(options);
     expect(Object.keys(proxy)).toEqual([
       '^/mole(?=[/?#]|$)',
       '^/hare(?=[/?#]|$)',
-      '^/fox(?=[/?#]|$)',
+      '^/formula-engine(?=[/?#]|$)',
       '^/magpie(?=[/?#]|$)',
       '^/vole(?=[/?#]|$)',
     ]);
@@ -64,7 +64,7 @@ describe('canopyProxyOptions', () => {
       const env = { ...base, VITE_CANOPY_BASE_PATH: raw };
       const options = canopyProxyOptions(env);
       expect(options.basePath).toBeUndefined();
-      expect(options.modules).toEqual(['/mole', '/hare', '/fox', '/magpie', '/vole']);
+      expect(options.modules).toEqual(['/mole', '/hare', '/formula-engine', '/magpie', '/vole']);
       // canopyDevProxy rejects a root prefix, so this would stop the dev server.
       expect(() => canopyDevProxy(options)).not.toThrow();
       expect(Object.keys(elogProxy(env))).toEqual(['^/elog/v1/apps/trace(?=[/?#]|$)']);

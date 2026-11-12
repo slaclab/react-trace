@@ -1,6 +1,6 @@
 // Transitional: trace's wire-type names, now backed by @slaclab/canopy-client.
-// The Mole DTOs and the error envelope are the SDK's own types. Vole and Magpie
-// below stay here until their clients move to the SDK.
+// The Mole DTOs and the error envelope are the SDK's own types. Vole, Magpie and
+// E-log below stay here until their clients move to the SDK.
 
 import type { SampleDTO as MoleSampleDTO, WireAlarmSeverity } from '@slaclab/canopy-client';
 
@@ -55,4 +55,44 @@ export interface PagedResult<T> {
   results: T[];
   continuationToken: string | null;
   totalCount: number | null;
+}
+
+// ── E-Log DTOs ───────────────────────────────────────────────────────────────
+// Source: canopy.elog (camelCase wire), mounted at /elog. Each client app has its
+// own elog-plus application token server-side; Trace's app path is
+// /elog/v1/apps/trace. Logbooks and tags are referenced by id.
+
+export interface ElogConfigDTO {
+  enabled: boolean;
+  provider: string | null;
+  defaultLogbookIds: string[];
+  // Why posting is disabled (no provider configured, or no token for this app).
+  reason: string | null;
+}
+
+export interface ElogLogbookDTO {
+  id: string;
+  name: string;
+}
+
+export interface ElogAttachmentDTO {
+  id: string;
+}
+
+export interface ElogNewEntryDTO {
+  logbookIds: string[];
+  title: string;
+  // Canopy renders Markdown to HTML before handing the entry to elog-plus.
+  bodyMarkdown: string;
+  tagIds?: string[];
+  attachmentIds?: string[];
+  additionalAuthors?: string[];
+  important?: boolean;
+  eventAt?: string | null;
+  followsUpEntryId?: string | null;
+}
+
+export interface ElogEntryCreatedDTO {
+  id: string;
+  url: string | null;
 }
