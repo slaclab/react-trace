@@ -47,9 +47,10 @@ test.use({ viewport: { width: 1280, height: 800 } });
 test.describe.configure({ timeout: 60_000 });
 
 const WAVEFORM_PV = 'TEST:WF';
-// The app's links, as src/tools/standardActionsOptions.ts defines them.
-const DOCS_URL = 'https://fuzzy-adventure-4qvly8m.pages.github.io/';
-const BUG_URL = 'https://forms.office.com/r/qV7BmK2xi9';
+// The app's links: src/tools/standardActionsOptions.ts's defaults, as the e2e
+// build sets neither VITE_DOCS_URL nor VITE_BUG_REPORT_URL.
+const DOCS_URL = 'https://slaclab.github.io/react-trace/';
+const BUG_URL = 'https://github.com/slaclab/react-trace/issues/new/choose';
 /** How long a spec watches for something that must not happen. */
 const QUIET_MS = 1_000;
 
