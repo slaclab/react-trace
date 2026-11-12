@@ -257,7 +257,7 @@ describe('SinglePlot zoom reset', () => {
     const el = (p: Plot, following: boolean) => (
       <SinglePlot
         plot={p}
-        nowMs={T0}
+        endMs={T0}
         following={following}
         onFollowStop={() => {}}
         onViewWindowChange={onViewWindowChange}
@@ -268,7 +268,7 @@ describe('SinglePlot zoom reset', () => {
     );
     const plot = makePlot();
     const { rerender, unmount } = render(el(plot, true));
-    captured.onEvents.datazoom();
+    fireChartEvent('datazoom');
     rerender(el({ ...plot, autoScroll: false }, false));
     // Autoscroll back on (or the span re-committed) within the debounce.
     rerender(el(plot, true));

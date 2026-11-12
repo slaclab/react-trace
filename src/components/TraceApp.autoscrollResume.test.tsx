@@ -2,46 +2,30 @@
 //
 // Issue 109, end to end: after a pan or zoom, switching Autoscroll back on or
 // re-committing the current span must reset the chart's zoom, drop the saved
-// view window and follow "now" again. Mounts the whole app with a mocked
-// ECharts and no backend; the starting plot's chart is the only one on screen.
+// view window and follow "now" again. Mounts the whole app with CanopyChart
+// stubbed out and no backend; the starting plot's chart is the only one on screen.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { TraceApp } from './TraceApp';
 import { DEFAULT_REFRESH_INTERVAL_S } from '../hooks/useAutoScrollTimers';
+import { chartStub, fireChartEvent } from '../test/chartStub';
 
-const { captured, fakeInstance } = vi.hoisted(() => {
-  const captured: {
-    option: { xAxis: { max: number } } | null;
-    onEvents: Record<string, () => void>;
-  } = { option: null, onEvents: {} };
-  const fakeInstance = {
-    getDom: () => ({}),
-    isDisposed: () => false,
-    dispatchAction: vi.fn(),
-    getModel: () => ({
-      getComponent: () => ({ axis: { scale: { getExtent: (): [number, number] => [0, 1] } } }),
-    }),
-  };
-  return { captured, fakeInstance };
-});
+const fakeInstance = {
+  isDisposed: () => false,
+  dispatchAction: vi.fn(),
+  getModel: () => ({
+    getComponent: () => ({ axis: { scale: { getExtent: (): [number, number] => [0, 1] } } }),
+  }),
+};
+const captured: { option: { xAxis: { max: number } } | null } = { option: null };
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component<{
-    option: unknown;
-    onEvents: Record<string, () => void>;
-  }> {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      captured.option = this.props.option as typeof captured.option;
-      captured.onEvents = this.props.onEvents;
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
+chartStub.onRender = (props) => {
+  captured.option = props.option as typeof captured.option;
+};
 
 const T0 = new Date('2026-10-15T12:00:00Z').getTime();
 const RESET = { type: 'dataZoom', start: 0, end: 100 };
@@ -87,7 +71,7 @@ const axisEnd = () => captured.option!.xAxis.max;
 
 // A wheel zoom or drag pan on the plot (one datazoom event).
 function pan() {
-  act(() => captured.onEvents.datazoom());
+  act(() => fireChartEvent('datazoom'));
 }
 
 function advance(ms: number) {
