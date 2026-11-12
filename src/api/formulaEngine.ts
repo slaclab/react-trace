@@ -7,7 +7,7 @@ import {
 } from '@slaclab/canopy-client';
 
 // The Formula Engine's REST endpoints. The SDK covers its live-formula
-// WebSocket (FoxFormulaService) but not these, so they stay here on its REST
+// WebSocket (FormulaEngineService) but not these, so they stay here on its REST
 // core.
 
 // Result of POST /formula-engine/v1/validate (canopy.formula_engine.schemas.formula).
