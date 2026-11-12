@@ -576,35 +576,138 @@ describe('archiveStore: archived PV while the window tracks now', () => {
     expect(spanOf(h.fetchData.mock.calls[1][1])).toBeCloseTo(11, 3);
   });
 
-  for (const panS of [10, 60]) {
-    it(`fetches a historical window panned ${panS} s forward during a fetch`, async () => {
+  it('waits for the fetch in flight when a historical window slides forward within it', async () => {
+    const pending: (() => void)[] = [];
+    const h = setup((_pv, params) => new Promise((r) => pending.push(() => r(secondsDto(params)))));
+    const pastToMs = T0_MS - 3_600_000;
+    const panned = windowAt(pastToMs + 10_000, 30);
+    h.store.request('t1', { pv: PV, archiver: undefined, window: windowAt(pastToMs, 30) });
+    await flush();
+    h.store.request('t1', { pv: PV, archiver: undefined, window: panned });
+    await flush();
+    // The pending fetch isn't aborted for a forward move that overlaps it...
+    expect(h.fetchData).toHaveBeenCalledTimes(1);
+    pending[0]();
+    await flush();
+    // ...and once it lands, the rest of the new window is fetched without
+    // another request().
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    expect(h.fetchData.mock.calls[1][1].toNs).toBe(panned.toNs);
+    pending[1]();
+    await flush();
+
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.status).toBe('ready');
+    expect(entry.mean[0].time).toBe(panned.fromNs / 1e6);
+    expect(entry.mean[entry.mean.length - 1].time).toBe(panned.toNs / 1e6);
+  });
+
+  for (const [label, toMs] of [
+    ['60 s forward', T0_MS - 3_600_000 + 60_000],
+    ['back to now', T0_MS],
+  ] as const) {
+    it(`aborts the fetch in flight when a historical window jumps ${label}, past it`, async () => {
+      const signals: AbortSignal[] = [];
       const pending: (() => void)[] = [];
       const h = setup(
-        (_pv, params) => new Promise((r) => pending.push(() => r(secondsDto(params))))
+        (_pv, params, signal) =>
+          new Promise((r) => {
+            signals.push(signal!);
+            pending.push(() => r(secondsDto(params)));
+          })
       );
-      const pastToMs = T0_MS - 3_600_000;
-      const panned = windowAt(pastToMs + panS * 1000, 30);
-      h.store.request('t1', { pv: PV, archiver: undefined, window: windowAt(pastToMs, 30) });
+      const jumped = windowAt(toMs, 30);
+      h.store.request('t1', {
+        pv: PV,
+        archiver: undefined,
+        window: windowAt(T0_MS - 3_600_000, 30),
+      });
       await flush();
-      h.store.request('t1', { pv: PV, archiver: undefined, window: panned });
+      h.store.request('t1', { pv: PV, archiver: undefined, window: jumped });
       await flush();
-      // The pending fetch isn't aborted for a forward move...
-      expect(h.fetchData).toHaveBeenCalledTimes(1);
+      // The new window is fetched straight away, not after the old one lands.
+      expect(h.fetchData).toHaveBeenCalledTimes(2);
+      expect(signals[0].aborted).toBe(true);
+      expect(h.fetchData.mock.calls[1][1]).toMatchObject({
+        fromNs: jumped.fromNs,
+        toNs: jumped.toNs,
+      });
+      // The old window's answer arriving anyway isn't shown.
       pending[0]();
       await flush();
-      // ...and once it lands, the rest of the new window is fetched without
-      // another request().
-      expect(h.fetchData).toHaveBeenCalledTimes(2);
-      expect(h.fetchData.mock.calls[1][1].toNs).toBe(panned.toNs);
+      expect(h.store.getSnapshot().get('t1')).toMatchObject({ status: 'loading', mean: [] });
       pending[1]();
       await flush();
 
+      expect(h.fetchData).toHaveBeenCalledTimes(2);
       const entry = h.store.getSnapshot().get('t1')!;
       expect(entry.status).toBe('ready');
-      expect(entry.mean[0].time).toBe(panned.fromNs / 1e6);
-      expect(entry.mean[entry.mean.length - 1].time).toBe(panned.toNs / 1e6);
+      expect(entry.mean[0].time).toBe(jumped.fromNs / 1e6);
+      expect(entry.mean[entry.mean.length - 1].time).toBe(jumped.toNs / 1e6);
     });
   }
+
+  it('waits on a live fetch that outlasts its span instead of restarting it', async () => {
+    const signals: AbortSignal[] = [];
+    const pending: (() => void)[] = [];
+    const h = setup(
+      (_pv, params, signal) =>
+        new Promise((r) => {
+          signals.push(signal!);
+          pending.push(() => r(secondsDto(params)));
+        })
+    );
+    // 10 s span following now, and the archiver takes over 15 s: the window
+    // slides clear past the request, which still follows now.
+    await drift(h, { spanS: 10, steps: 150 });
+    expect(h.fetchData).toHaveBeenCalledTimes(1);
+    expect(signals[0].aborted).toBe(false);
+
+    // It lands, and the catch-up for the latest window waits the same way.
+    pending[0]();
+    await flush();
+    expect(h.store.getSnapshot().get('t1')?.status).toBe('ready');
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    await drift(h, { spanS: 10, steps: 150 });
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    expect(signals.map((s) => s.aborted)).toEqual([false, false]);
+  });
+
+  it("doesn't wait on a live fetch when the window jumps to end in the future", async () => {
+    const signals: AbortSignal[] = [];
+    const h = setup((_pv, _params, signal) => {
+      signals.push(signal!);
+      return new Promise<ArchiverDataDTO>(() => {});
+    });
+    h.store.request('t1', { pv: PV, archiver: undefined, window: windowAt(T0_MS, 10) });
+    await flush();
+    const ahead = windowAt(T0_MS + 20_000, 10);
+    h.store.request('t1', { pv: PV, archiver: undefined, window: ahead });
+    await flush();
+    expect(signals.map((s) => s.aborted)).toEqual([true, false]);
+    expect(h.fetchData.mock.calls[1][1]).toMatchObject({ fromNs: ahead.fromNs, toNs: ahead.toNs });
+  });
+
+  it('treats a retry of a live window as live, though it starts after the window was asked for', async () => {
+    const signals: AbortSignal[] = [];
+    const h = setup((_pv, _params, signal) => {
+      signals.push(signal!);
+      if (signals.length <= 3) return Promise.reject(unavailable());
+      return new Promise<ArchiverDataDTO>(() => {});
+    });
+    // Nothing re-renders while it backs off, so the retries at 1, 3 and 7 s
+    // all fetch the window asked for at 0 s.
+    h.store.request('t1', { pv: PV, archiver: undefined, window: windowAt(T0_MS, 5) });
+    await idle(h, 7_000);
+    expect(h.fetchData).toHaveBeenCalledTimes(4);
+
+    // The next render's live window has slid past it entirely.
+    h.advance(100);
+    h.store.request('t1', { pv: PV, archiver: undefined, window: windowAt(h.now(), 5) });
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(4);
+    expect(signals[3].aborted).toBe(false);
+  });
 
   it('refetches the whole window when tails would pass the raw point budget', async () => {
     // Quiet for the first fetch, then 200 Hz. Like the archiver, answer with at

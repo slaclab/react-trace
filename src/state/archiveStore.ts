@@ -147,10 +147,15 @@ interface InternalEntry {
   // outside this (with tolerance). The in-flight promise covers `requestedWindow`.
   // Null for an entry created already knowing the PV isn't archived.
   requestedWindow: TimeWindowNs | null;
-  // Most recent request, issued or not. `refetchAll()` re-issues this one so a
-  // manual refresh uses the current window, not one from before a long sticky
-  // or backoff stretch.
+  // Most recent request, issued or not, and when it was asked for (wall clock,
+  // ms). `refetchAll()` re-issues this one so a manual refresh uses the current
+  // window, not one from before a long sticky or backoff stretch. Retries and
+  // catch-ups re-issue it later than `wantedAtMs`.
   wanted: RequestOpts;
+  wantedAtMs: number;
+  // The in-flight request's window followed "now", judged when it was asked
+  // for (see forwardSlide).
+  requestedFollowedNow: boolean;
   controller: AbortController | null;
   failure: Failure | null;
   // A fetch under this identity has succeeded, so `data.cover*` is real
@@ -184,6 +189,18 @@ function coverageTolerance(win: TimeWindowNs): number {
   return Math.max(1, (win.toNs - win.fromNs) * 0.01);
 }
 
+// How far a window tracking "now" may drift: DRIFT_MIN_INTERVAL_MS, or 1% of
+// the span if that's longer.
+function driftSlack(win: TimeWindowNs): number {
+  return Math.max(coverageTolerance(win), DRIFT_MIN_INTERVAL_MS * 1_000_000);
+}
+
+// `win` ended at "now" (`atNs`, when it was asked for), within the slack
+// either way: a live window. One ending further in the future doesn't count.
+function followsNow(win: TimeWindowNs, atNs: number): boolean {
+  return Math.abs(win.toNs - atNs) <= driftSlack(win);
+}
+
 function covers(entry: InternalEntry, win: TimeWindowNs, nowNs: number): boolean {
   if (!entry.hasCover) return false;
   const tol = coverageTolerance(win);
@@ -192,7 +209,7 @@ function covers(entry: InternalEntry, win: TimeWindowNs, nowNs: number): boolean
   // A window tracking "now" can be behind by up to DRIFT_MIN_INTERVAL_MS
   // before it's worth asking the archiver for the newest part. Historical
   // windows (panned into the past) keep the plain tolerance.
-  const slack = Math.max(tol, DRIFT_MIN_INTERVAL_MS * 1_000_000);
+  const slack = driftSlack(win);
   return win.toNs >= nowNs - slack && entry.data.coverToNs >= win.toNs - slack;
 }
 
@@ -216,15 +233,24 @@ function tailRange(entry: InternalEntry, win: TimeWindowNs): TimeWindowNs | null
   };
 }
 
-// The in-flight request for `prev` will cover most of `win`, which only moved
-// forward: let it finish instead of aborting it. Aborting on every small
-// advance could starve the archive at short spans (a new request every few
-// tens of ms, each cancelled before the archiver answers).
-function forwardSlide(prev: TimeWindowNs, win: TimeWindowNs): boolean {
+// `win` is `prev` moved forward at the same span, and either still overlaps it
+// or both follow "now" (the same live window, further along because the
+// archiver is slower than the span). Let the in-flight request for `prev`
+// finish instead of aborting it: aborting on every small advance could starve
+// the archive at short spans (a new request every few tens of ms, each
+// cancelled before the archiver answers). Any other jump forward is a new
+// request, so its window isn't left showing the old one's data meanwhile.
+function forwardSlide(
+  prev: TimeWindowNs,
+  prevFollowedNow: boolean,
+  win: TimeWindowNs,
+  winFollowsNow: boolean
+): boolean {
   return (
     win.toNs >= prev.toNs &&
     win.fromNs >= prev.fromNs - coverageTolerance(win) &&
-    !spanChanged(prev.toNs - prev.fromNs, win)
+    !spanChanged(prev.toNs - prev.fromNs, win) &&
+    (win.fromNs < prev.toNs || (prevFollowedNow && winFollowsNow))
   );
 }
 
@@ -444,6 +470,7 @@ export class ArchiveStore {
       const controller = new AbortController();
       entry.fetchSig = fetchSig;
       entry.requestedWindow = opts.window;
+      entry.requestedFollowedNow = followsNow(opts.window, entry.wantedAtMs * 1_000_000);
       entry.controller = controller;
       entry.failure = null;
       entry.data = { ...entry.data, status: 'loading', error: undefined };
@@ -470,8 +497,9 @@ export class ArchiveStore {
    *   (plus TAIL_OVERLAP_MS) and splice it in, keeping status 'ready'. If that
    *   would take the buffer past the raw point budget, the whole window is
    *   fetched again instead and the archiver decimates it. An
-   *   in-flight fetch isn't aborted for a forward slide; once it lands, the
-   *   rest of the latest window is fetched.
+   *   in-flight fetch isn't aborted for a forward slide that still overlaps
+   *   it, or when both windows follow "now"; once it lands, the rest of the
+   *   latest window is fetched. A jump forward past it aborts it.
    * - Last fetch failed for another reason: no fetch until its backoff expires.
    *   Then a timer retries the latest request, so a window that never moves
    *   retries too.
@@ -487,6 +515,13 @@ export class ArchiveStore {
    * is backing off) doesn't flicker back to 'loading'.
    */
   request(traceId: string, opts: RequestOpts): void {
+    this.requestAt(traceId, opts, this.now());
+  }
+
+  // `request()` for a window asked for at `askedAtMs`. A retry or catch-up
+  // re-issues the latest window later than that, and passes its original time
+  // so a live window still counts as following "now".
+  private requestAt(traceId: string, opts: RequestOpts, askedAtMs: number): void {
     const { identityKey, fetchSig, mode, key, spanNs } = resolveRequest(opts);
     const known = this.notArchived.get(key);
 
@@ -495,6 +530,7 @@ export class ArchiveStore {
 
     if (existing && sameIdentity) {
       existing.wanted = opts;
+      existing.wantedAtMs = askedAtMs;
       const failure = existing.failure;
 
       if (known) {
@@ -538,12 +574,17 @@ export class ArchiveStore {
       // Transient failure: wait out the backoff regardless of window drift.
       if (failure && !failure.notArchived && this.now() < failure.retryAtMs) return;
 
-      // A fetch is in flight and the window only moved forward: let it land.
+      // A fetch is in flight and the window only slid forward from it: let it land.
       if (
         sameSig &&
         existing.controller &&
         existing.requestedWindow &&
-        forwardSlide(existing.requestedWindow, opts.window)
+        forwardSlide(
+          existing.requestedWindow,
+          existing.requestedFollowedNow,
+          opts.window,
+          followsNow(opts.window, askedAtMs * 1_000_000)
+        )
       ) {
         return;
       }
@@ -578,6 +619,8 @@ export class ArchiveStore {
         },
         requestedWindow: null,
         wanted: opts,
+        wantedAtMs: askedAtMs,
+        requestedFollowedNow: false,
         controller: null,
         failure: notArchivedFailure(known, spanNs),
         hasCover: false,
@@ -623,6 +666,8 @@ export class ArchiveStore {
           },
       requestedWindow: opts.window,
       wanted: opts,
+      wantedAtMs: askedAtMs,
+      requestedFollowedNow: followsNow(opts.window, askedAtMs * 1_000_000),
       controller,
       failure: sameIdentity ? existing!.failure : null,
       hasCover: sameIdentity ? existing!.hasCover : false,
@@ -670,7 +715,8 @@ export class ArchiveStore {
         // The tail would take the buffer past the raw point budget (the PV
         // got busier since the last full fetch). Fetch the whole window
         // instead, which the archiver decimates; the current buffer stays on
-        // screen meanwhile.
+        // screen meanwhile. It's the same window, asked for at the same time,
+        // so `requestedWindow` and `requestedFollowedNow` stand.
         const full = new AbortController();
         cur.controller = full;
         if (forgot) this.publish();
@@ -682,10 +728,10 @@ export class ArchiveStore {
       cur.failure = null;
       cur.hasCover = true;
       this.publish();
-      // The window may have moved on while this was in flight (a forward pan
-      // doesn't abort it). One that then stays put gets no other request(),
-      // so fetch whatever of the latest window is still missing.
-      this.request(traceId, cur.wanted);
+      // The window may have moved on while this was in flight (a forward
+      // slide doesn't abort it). One that then stays put gets no other
+      // request(), so fetch whatever of the latest window is still missing.
+      this.requestAt(traceId, cur.wanted, cur.wantedAtMs);
     } catch (err) {
       if ((err as { name?: string }).name === 'AbortError') return;
       const cur = this.entries.get(traceId);
@@ -730,7 +776,7 @@ export class ArchiveStore {
       }
       // Early by the injected clock: wait out the rest.
       if (this.now() < failure.retryAtMs) this.scheduleRetry(traceId, entry);
-      else this.request(traceId, entry.wanted);
+      else this.requestAt(traceId, entry.wanted, entry.wantedAtMs);
     }, failure.retryAtMs - this.now());
   }
 
