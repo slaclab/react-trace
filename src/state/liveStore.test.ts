@@ -1,6 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { createFakeWebSocketFactory, type FakeWebSocket } from '@slaclab/canopy-client/testing';
-import type { HareAlarmSeverity, PVValueDTO, WebSocketFactory } from '@slaclab/canopy-client';
+import {
+  AlarmSeverity,
+  HarePVService,
+  type HareAlarmSeverity,
+  type PVData,
+  type PVValueDTO,
+  type WebSocketFactory,
+} from '@slaclab/canopy-client';
 import { LiveStore } from './liveStore';
 import { CanopyError } from '../api/client';
 import type { VoleSeriesDTO } from '../api/types';
@@ -889,6 +896,86 @@ describe('LiveStore on HarePVService', () => {
       { time: tsMs, value: 0, severity: 'NO_ALARM' },
       { time: tsMs + 100, value: 1, severity: 'NO_ALARM' },
     ]);
+  });
+
+  describe('updates the socket frames cannot produce', () => {
+    // HarePVService reports DISCONNECTED only with connected: false, and reads
+    // an unknown wire severity as INVALID, but PVData allows either. These hand
+    // the store an update through the listener it subscribed with.
+    let deliver: (data: PVData) => void;
+    let spy: MockInstance<HarePVService['subscribe']>;
+
+    beforeEach(() => {
+      const subscribe = HarePVService.prototype.subscribe;
+      spy = vi.spyOn(HarePVService.prototype, 'subscribe').mockImplementation(function (
+        this: HarePVService,
+        pv,
+        listener
+      ) {
+        deliver = listener;
+        return subscribe.call(this, pv, listener);
+      });
+    });
+
+    afterEach(() => {
+      spy.mockRestore();
+    });
+
+    it('treats a DISCONNECTED severity as disconnected even when the update says connected', () => {
+      const store = newStore();
+      store.watch('t1', 'FLAP', 60_000);
+      const ws = fake.instances[0];
+      ws.open();
+
+      const tsMs = Date.now();
+      ws.message(initial({ FLAP: pvValue('FLAP', 4, tsMs, 'MINOR') }));
+      deliver({
+        ...store.getSnapshot().get('t1')!.latest!,
+        value: 5,
+        timestamp: tsMs + 100,
+        connected: true,
+        severity: AlarmSeverity.DISCONNECTED,
+      });
+
+      let entry = store.getSnapshot().get('t1')!;
+      expect(entry.connected).toBe(false);
+      expect(entry.severity).toBe('MINOR');
+      expect(entry.points).toEqual([{ time: tsMs, value: 4, severity: 'MINOR' }]);
+
+      // The next reading is a sample again.
+      ws.message(diff({ FLAP: pvValue('FLAP', 6, tsMs + 200) }));
+      entry = store.getSnapshot().get('t1')!;
+      expect(entry.connected).toBe(true);
+      expect(entry.severity).toBe('NO_ALARM');
+      expect(entry.points).toEqual([
+        { time: tsMs, value: 4, severity: 'MINOR' },
+        { time: tsMs + 200, value: 6, severity: 'NO_ALARM' },
+      ]);
+    });
+
+    it('reads a severity the SDK does not define as INVALID', () => {
+      const store = newStore();
+      store.watch('t1', 'ODD', 60_000);
+      const ws = fake.instances[0];
+      ws.open();
+
+      const tsMs = Date.now();
+      ws.message(initial({ ODD: pvValue('ODD', 4, tsMs) }));
+      deliver({
+        ...store.getSnapshot().get('t1')!.latest!,
+        value: 5,
+        timestamp: tsMs + 100,
+        severity: 9 as AlarmSeverity,
+      });
+
+      const entry = store.getSnapshot().get('t1')!;
+      expect(entry.connected).toBe(true);
+      expect(entry.severity).toBe('INVALID');
+      expect(entry.points).toEqual([
+        { time: tsMs, value: 4, severity: 'NO_ALARM' },
+        { time: tsMs + 100, value: 5, severity: 'INVALID' },
+      ]);
+    });
   });
 
   it('reports a socket that cannot be created and retries with backoff', () => {

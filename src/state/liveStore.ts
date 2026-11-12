@@ -9,6 +9,7 @@
 // subscription.
 
 import {
+  AlarmSeverity,
   HarePVService,
   toWsUrl,
   type CanopyConnection,
@@ -43,7 +44,8 @@ export interface LiveEntry {
   // Socket-level connection state (shared across all entries).
   status: LiveStatus;
   // PV-level connection (Hare's PVValue.connected). True only after an update
-  // for this PV has been received reporting connected=true.
+  // for this PV has been received reporting connected=true, with a severity
+  // other than DISCONNECTED.
   connected: boolean;
   // Last alarm severity reported while the PV was connected.
   severity: WireAlarmSeverity | null;
@@ -301,19 +303,21 @@ export class LiveStore {
     // PV may have been released between subscribe and a stray late update.
     if (!state) return;
     state.latest = data;
-    state.connected = data.connected;
     // A disconnected PV (or a dropped socket, which the service reports as a
     // DISCONNECTED update with the last value) keeps its last alarm severity
-    // and adds no sample: its value is stale. Neither does a null value, which
-    // the service reports as 0.
-    if (data.connected) {
-      state.severity = toWireSeverity(data.severity);
+    // and adds no sample: its value is stale. A DISCONNECTED severity counts as
+    // disconnected even if the update says connected: it's a connection state,
+    // not an alarm, so it mustn't become an INVALID sample. A null value, which
+    // the service reports as 0, adds no sample either.
+    const connected = data.connected && data.severity !== AlarmSeverity.DISCONNECTED;
+    state.connected = connected;
+    if (connected) {
+      // Only a level the SDK doesn't define is left without a wire name. It
+      // reads as INVALID, as the SDK reads an unknown wire severity.
+      const severity = toWireSeverity(data.severity) ?? 'INVALID';
+      state.severity = severity;
       if (typeof data.value === 'number' && Number.isFinite(data.value) && !isNullValue(data)) {
-        this.insertPoint(state, {
-          time: data.timestamp,
-          value: data.value,
-          severity: state.severity ?? 'INVALID',
-        });
+        this.insertPoint(state, { time: data.timestamp, value: data.value, severity });
       }
     }
     state.rev++;
