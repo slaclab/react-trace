@@ -2,12 +2,13 @@
 //
 // The crosshair tooltip is HTML. A workspace file can carry any text in a
 // trace's label, colour or samples; none of it may become markup. Mounts
-// SinglePlot with a mocked echarts-for-react and renders the tooltip it builds.
+// SinglePlot with CanopyChart stubbed out and renders the tooltip it builds.
 import { describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { SinglePlot } from './PlotArea';
 import type { Plot, PVTrace } from '../types';
 import { deserializeWorkspace, serializeWorkspace } from '../io/serialize';
+import { chartStub } from '../test/chartStub';
 
 interface Option {
   tooltip: { formatter: (p: { axisValue: number }[]) => string };
@@ -15,19 +16,12 @@ interface Option {
 
 const { lastOption } = vi.hoisted(() => ({ lastOption: { current: null as unknown } }));
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component<{ option: unknown }> {
-    getEchartsInstance() {
-      return undefined;
-    }
-    render() {
-      lastOption.current = this.props.option;
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.onRender = (props) => {
+  lastOption.current = props.option;
+};
 
 // A fixed custom window, so the x-axis end (and a trailing stretch) is exact.
 const FROM_MS = Date.UTC(2026, 9, 1, 12, 0, 0);
@@ -150,7 +144,8 @@ describe('loading a workspace file', () => {
     const saved = JSON.parse(
       serializeWorkspace({ theme: 'dark', plots: [makePlot([makeTrace()])] })
     );
-    saved.plots[0].traces[0].data = [sample({ severity: PAYLOAD, value: PAYLOAD })];
+    // The value is a number: a file with a non-numeric one is rejected outright.
+    saved.plots[0].traces[0].data = [sample({ severity: PAYLOAD })];
     const result = deserializeWorkspace(JSON.stringify(saved));
     expect(result.plots[0].traces[0].data).toEqual([]);
   });

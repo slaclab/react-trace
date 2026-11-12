@@ -372,7 +372,7 @@ describe('PlotArea: INVALID samples (#120)', () => {
     expect(opt.tooltip.formatter([{ axisValue: at(49) }])).not.toMatch(/NO_ALARM|INVALID|MINOR/);
   });
 
-  it('tooltip escapes untrusted labels and severity and rejects unsafe colors', () => {
+  it('tooltip escapes untrusted labels and drops unknown severities and unsafe colors', () => {
     const maliciousLabel = '<img src=x onerror=alert(1)>';
     const maliciousSeverity = '<svg onload=alert(1)>';
     const maliciousColor = '#ff0000" onmouseover="alert(1)';
@@ -383,8 +383,8 @@ describe('PlotArea: INVALID samples (#120)', () => {
 
     const html = opt.tooltip.formatter([{ axisValue: at(10) }]);
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
-    expect(html).toContain('&lt;svg onload=alert(1)&gt;');
-    expect(html).toContain('style="color:#000000"');
+    expect(html).not.toContain('svg onload');
+    expect(html).toContain('<span>&lt;img src=x onerror=alert(1)&gt;</span>');
     expect(html).not.toContain('<img');
     expect(html).not.toContain('<svg');
     expect(html).not.toContain('onmouseover');
