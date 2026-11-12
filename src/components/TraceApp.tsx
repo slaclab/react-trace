@@ -44,7 +44,7 @@ import { capturePlots, type PngSource, type CapturedPlot } from '../io/exportPlo
 import { PostToElogModal } from './PostToElogModal';
 import { ConfigStoreModal } from './ConfigStoreModal';
 import { getConfig } from '../api/magpie';
-import { CanopyError } from '../api/client';
+import { errorInfo } from '../api/errorInfo';
 import { useElogConfig } from '../hooks/useElogConfig';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
@@ -814,11 +814,11 @@ export function TraceApp() {
         });
       } catch (err) {
         if (cancelled) return;
-        const subtitle =
-          err instanceof CanopyError
-            ? err.detail
-            : ((err as Error | null)?.message ?? 'Unknown error');
-        showToast({ kind: 'error', title: 'Could not load shared workspace', subtitle });
+        showToast({
+          kind: 'error',
+          title: 'Could not load shared workspace',
+          subtitle: errorInfo(err).detail,
+        });
       } finally {
         // Don't rewrite the URL after unmount — it may belong to a later route.
         if (!cancelled) {

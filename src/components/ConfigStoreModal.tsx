@@ -20,7 +20,7 @@ import { Copy, TrashCan, Renew } from '@carbon/icons-react';
 import type { Plot } from '../types';
 import type { ColorMode } from '../state/themeStore';
 import type { ConfigDTO } from '../api/types';
-import { CanopyError } from '../api/client';
+import { errorInfo } from '../api/errorInfo';
 import {
   serializeConfigData,
   deserializeConfigData,
@@ -58,8 +58,7 @@ function shareUrl(slug: string): string {
 }
 
 function errText(err: unknown): string {
-  if (err instanceof CanopyError) return err.detail;
-  return (err as Error | null)?.message ?? 'Unknown error';
+  return errorInfo(err).detail;
 }
 
 /** Copy `text`, reporting whether it actually landed (see handleSave). */

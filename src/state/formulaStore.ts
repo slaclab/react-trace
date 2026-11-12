@@ -1,5 +1,10 @@
+import {
+  errorInfo as formulaErrorInfo,
+  type ErrorInfo as FormulaErrorInfo,
+} from '../api/errorInfo';
 import { nsToMs, type TimeWindowNs } from '../api/time';
 import type { FormulaResultDTO, FormulaSpec } from '@slaclab/canopy-client';
+import { RETRY_DELAYS_MS, retryDelayMs } from './retry';
 
 // Per-trace formula evaluation state behind useFormulaSeries: one store per
 // mounted hook (TraceApp), read through useSyncExternalStore.
@@ -35,9 +40,8 @@ import type { FormulaResultDTO, FormulaSpec } from '@slaclab/canopy-client';
 // drift interval.
 export const NEAR_NOW_SLACK_MS = 2_000;
 
-// Retry schedule for transient failures; the last step repeats. Mirrors
-// liveStore's reconnect backoff.
-export const RETRY_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 15_000];
+// Transient failures are retried on the shared backoff schedule.
+export { RETRY_DELAYS_MS, retryDelayMs };
 
 // Client-side limit on one evaluation. One hang may be a brief Fox overload, so
 // a timeout is retried, starting at the last backoff step. But Fox keeps
@@ -49,15 +53,9 @@ export const EVAL_TIMEOUT_MS = 30_000;
 export const CLIENT_TIMEOUT_CODE = 'client_timeout';
 export const MAX_CLIENT_TIMEOUTS = 3;
 
-export function retryDelayMs(attempts: number): number {
-  return RETRY_DELAYS_MS[Math.min(Math.max(attempts, 1), RETRY_DELAYS_MS.length) - 1];
-}
-
-export interface FormulaErrorInfo {
-  code: string;
-  detail: string;
-  status?: number;
-}
+// Failures are read with the shared errorInfo(), which keeps the HTTP status
+// isTerminalError() needs.
+export { formulaErrorInfo, type FormulaErrorInfo };
 
 // Failures the same spec over the same span would hit again: Fox's 400s
 // (parse, unsafe, circular reference) and its 422s (type, dimension mismatch,
@@ -105,19 +103,6 @@ export interface FormulaStoreDeps {
 
 export function specKey(spec: FormulaSpec): string {
   return JSON.stringify(spec);
-}
-
-export function formulaErrorInfo(err: unknown): FormulaErrorInfo {
-  const e = err as { code?: unknown; detail?: unknown; status?: unknown; message?: unknown } | null;
-  const message = typeof e?.message === 'string' ? e.message : String(err);
-  if (typeof e?.code === 'string') {
-    return {
-      code: e.code,
-      detail: typeof e.detail === 'string' ? e.detail : message,
-      status: typeof e.status === 'number' ? e.status : undefined,
-    };
-  }
-  return { code: 'unknown_error', detail: message };
 }
 
 function isAbort(err: unknown): boolean {

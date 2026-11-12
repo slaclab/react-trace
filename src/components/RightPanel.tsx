@@ -42,8 +42,8 @@ import {
 import { ArchiverPicker } from './ArchiverPicker';
 import { usePVSearch } from '../hooks/usePVSearch';
 import { PanelRail } from './PanelRail';
-import { CanopyError } from '@slaclab/canopy-client';
 import { useCanopyConnection } from '@slaclab/canopy-react';
+import { errorInfo } from '../api/errorInfo';
 import { validateFormula } from '../api/fox';
 import { extractFormulaVars, resolveBindings } from '../formula';
 
@@ -286,8 +286,7 @@ function FormulaGeneralTab({
         })
         .catch((err: unknown) => {
           if (ac.signal.aborted || (err as { name?: string }).name === 'AbortError') return;
-          const detail = err instanceof CanopyError ? err.detail : (err as Error).message;
-          setValidation({ valid: false, errors: [detail] });
+          setValidation({ valid: false, errors: [errorInfo(err).detail] });
         });
     }, 400);
     return () => {

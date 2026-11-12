@@ -2,6 +2,11 @@ import { fetchData as defaultFetchData } from '../api/mole';
 import type { AlarmSeverity, ArchiverDataDTO, BinnedPointDTO, SampleDTO } from '../api/types';
 import type { TimeWindowNs } from '../api/time';
 import { nsToMs } from '../api/time';
+import {
+  errorInfo as archiveErrorInfo,
+  type ErrorInfo as ArchiveErrorInfo,
+} from '../api/errorInfo';
+import { retryDelayMs } from './retry';
 
 // ── Mode policy ──────────────────────────────────────────────────────────────
 //
@@ -34,37 +39,18 @@ export function pickFetchMode(windowMs: number, traceBins?: number): FetchMode {
 
 // ── Errors ───────────────────────────────────────────────────────────────────
 
-export interface ArchiveErrorInfo {
-  code: string;
-  detail: string;
-}
+// Failures are read with the shared errorInfo(), under the names this store's
+// callers import.
+export { archiveErrorInfo, type ArchiveErrorInfo };
 
 // Mole's code for "the archiver doesn't have this PV". It's a property of the
 // (pv, archiver) pair, not of the time window, so it's remembered rather than
 // retried as the window moves.
 export const NOT_ARCHIVED_CODE = 'pv_not_found_in_archiver';
 
-// Retry schedule for every other failure (5xx, timeout, network, auth, ...).
-// Mirrors liveStore's reconnect backoff; the last step repeats.
-export const RETRY_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 15_000];
-
-export function retryDelayMs(attempts: number): number {
-  return RETRY_DELAYS_MS[Math.min(Math.max(attempts, 1), RETRY_DELAYS_MS.length) - 1];
-}
-
-/**
- * Pull `{ code, detail }` out of a failed fetch. Duck-typed on the
- * `CanopyError` shape rather than `instanceof`, so it keeps working whichever
- * module the error class comes from.
- */
-export function archiveErrorInfo(err: unknown): ArchiveErrorInfo {
-  const e = err as { code?: unknown; detail?: unknown; message?: unknown } | null | undefined;
-  if (typeof e?.code === 'string' && typeof e.detail === 'string') {
-    return { code: e.code, detail: e.detail };
-  }
-  const message = typeof e?.message === 'string' ? e.message : String(err);
-  return { code: 'unknown_error', detail: message };
-}
+// Every other failure (5xx, timeout, network, auth, ...) is retried on the
+// shared backoff schedule.
+export { RETRY_DELAYS_MS, retryDelayMs } from './retry';
 
 export function isNotArchivedError(info: { code: string }): boolean {
   return info.code === NOT_ARCHIVED_CODE;
