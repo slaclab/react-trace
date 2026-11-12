@@ -121,13 +121,14 @@ the Vite dev server.
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-No `config.json` or `dist/` is needed. Unit tests cover path routing, config
+No `config.json` or `dist/` is needed. Unit tests cover path routing and config
 precedence (against a fixed environment, so your own `CANOPY_BASE_URL` etc.
-don't affect them), the origin check, hop-by-hop stripping and `Location`
-rewriting. In-process end-to-end tests run the real proxy against mock
-upstreams and assert header injection, `/elog` prefix stripping, multipart
-pass-through, request bodies streamed upstream with their framing kept, the
-502-when-unconfigured contract, SPA fallback, WebSocket
-bridging including close-code passthrough, `403` for foreign origins and
-rebound host names (HTTP and WebSocket), that redirects aren't followed, and
-that every response carries the CSP. The `test` job in `.github/workflows/tauri.yml` runs these on pull requests.
+don't affect them). In-process end-to-end tests run the real proxy against
+mock upstreams and assert header injection, `/elog` prefix stripping,
+multipart pass-through, request bodies streamed upstream with their framing
+kept, the 502-when-unconfigured contract, SPA fallback, WebSocket bridging
+including close-code passthrough, `403` for foreign and near-miss origins and
+for rebound or wrong-port host names (HTTP and WebSocket), hop-by-hop
+stripping in both directions, that redirects aren't followed and how
+`Location` is rewritten, and that every response carries the CSP. The `test`
+job in `.github/workflows/tauri.yml` runs these on pull requests.

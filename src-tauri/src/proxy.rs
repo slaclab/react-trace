@@ -603,156 +603,6 @@ mod tests {
         assert!(!is_elog_path("/elogbook"));
         assert!(!is_api_path("/elog/v1/logbooks"));
     }
-
-    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
-        let mut map = HeaderMap::new();
-        for (name, value) in pairs {
-            map.append(
-                HeaderName::from_bytes(name.as_bytes()).unwrap(),
-                HeaderValue::from_str(value).unwrap(),
-            );
-        }
-        map
-    }
-
-    #[test]
-    fn own_origin_accepts_bound_authority() {
-        for host in ["127.0.0.1:5178", "localhost:5178"] {
-            // No Origin (same-origin GET, non-browser client).
-            assert!(is_own_origin(&headers(&[("host", host)]), 5178));
-            for origin in ["http://127.0.0.1:5178", "http://localhost:5178"] {
-                assert!(is_own_origin(
-                    &headers(&[("host", host), ("origin", origin)]),
-                    5178
-                ));
-            }
-        }
-    }
-
-    #[test]
-    fn own_origin_rejects_foreign_host_or_origin() {
-        // Missing Host, DNS-rebound name, wrong port.
-        assert!(!is_own_origin(&headers(&[]), 5178));
-        assert!(!is_own_origin(
-            &headers(&[("host", "attacker.example:5178")]),
-            5178
-        ));
-        assert!(!is_own_origin(
-            &headers(&[("host", "127.0.0.1:5179")]),
-            5178
-        ));
-        assert!(!is_own_origin(&headers(&[("host", "127.0.0.1")]), 5178));
-        // Right Host, foreign or opaque Origin.
-        for origin in [
-            "https://attacker.example",
-            "http://attacker.example:5178",
-            "https://127.0.0.1:5178",
-            "http://127.0.0.1:5179",
-            "http://127.0.0.1:5178.attacker.example",
-            "null",
-        ] {
-            assert!(
-                !is_own_origin(
-                    &headers(&[("host", "127.0.0.1:5178"), ("origin", origin)]),
-                    5178
-                ),
-                "origin {origin} accepted"
-            );
-        }
-    }
-
-    #[test]
-    fn strips_connection_nominated_headers() {
-        let mut map = headers(&[
-            ("connection", "keep-alive, X-Local-State"),
-            ("connection", " x-other ,,"),
-            ("x-local-state", "1"),
-            ("x-other", "1"),
-            ("keep-alive", "timeout=5"),
-            ("transfer-encoding", "chunked"),
-            ("proxy-connection", "keep-alive"),
-            ("x-end-to-end", "1"),
-            ("content-type", "text/plain"),
-        ]);
-        strip_hop_by_hop(&mut map);
-        let mut left: Vec<&str> = map.keys().map(|k| k.as_str()).collect();
-        left.sort_unstable();
-        assert_eq!(left, ["content-type", "x-end-to-end"]);
-    }
-
-    fn fwd<'a>(base: &'a str, strip_prefix: Option<&'a str>) -> Forward<'a> {
-        Forward {
-            base,
-            strip_prefix,
-            header_name: HeaderName::from_static("x-api-key"),
-            header_value: "",
-        }
-    }
-
-    #[test]
-    fn location_on_canopy_upstream_maps_to_proxy_path() {
-        let canopy = fwd("http://canopy.example:8000", None);
-        let target = "http://canopy.example:8000/mole/v1/data/?n=1";
-        for (location, expected) in [
-            (
-                "http://canopy.example:8000/mole/v1/data?n=1",
-                "/mole/v1/data?n=1",
-            ),
-            // Host case and explicit default-less forms compare as one origin.
-            ("http://CANOPY.example:8000/mole/x", "/mole/x"),
-            ("/mole/v1/data?n=1", "/mole/v1/data?n=1"),
-            ("../other", "/mole/v1/other"),
-            ("http://canopy.example:8000", "/"),
-            ("http://canopy.example:8000/x#frag", "/x#frag"),
-        ] {
-            assert_eq!(
-                rewrite_location(location, target, &canopy).as_deref(),
-                Some(expected),
-                "{location}"
-            );
-        }
-    }
-
-    #[test]
-    fn location_on_elog_upstream_gets_prefix_back() {
-        // Base with a path: only locations under it map back.
-        let elog = fwd("https://elog.example/api", Some("/elog"));
-        let target = "https://elog.example/api/v1/entries";
-        assert_eq!(
-            rewrite_location("/api/v1/entries/42", target, &elog).as_deref(),
-            Some("/elog/v1/entries/42")
-        );
-        assert_eq!(
-            rewrite_location("https://elog.example/api", target, &elog).as_deref(),
-            Some("/elog")
-        );
-        assert_eq!(rewrite_location("/apix/v1", target, &elog), None);
-        assert_eq!(rewrite_location("/login", target, &elog), None);
-        // Base without a path: an upstream-relative path gets /elog prepended.
-        let bare = fwd("http://elog.example:8080", Some("/elog"));
-        assert_eq!(
-            rewrite_location("/v1/new", "http://elog.example:8080/v1/old", &bare).as_deref(),
-            Some("/elog/v1/new")
-        );
-    }
-
-    #[test]
-    fn location_off_upstream_is_left_alone() {
-        let canopy = fwd("http://canopy.example:8000", None);
-        let target = "http://canopy.example:8000/mole/v1/data";
-        for location in [
-            "http://attacker.example/steal",
-            "//attacker.example/steal",
-            "https://canopy.example:8000/mole/x",
-            "http://canopy.example:8001/mole/x",
-        ] {
-            assert_eq!(
-                rewrite_location(location, target, &canopy),
-                None,
-                "{location}"
-            );
-        }
-    }
 }
 
 // In-process end-to-end tests: real proxy (bind on an ephemeral port) against a
@@ -1331,11 +1181,21 @@ mod e2e {
             .await
             .unwrap();
         assert_eq!(res.status().as_u16(), 403);
-        // Cross-origin read of Canopy data, and an opaque origin.
-        for origin in ["https://attacker.example", "null"] {
+        // Cross-origin reads of Canopy data: another site, an opaque origin,
+        // and near misses on the proxy's own origin (wrong host, scheme or
+        // port, or its authority as a prefix of another host).
+        let port = proxy.port();
+        for origin in [
+            "https://attacker.example".to_string(),
+            "null".to_string(),
+            format!("http://attacker.example:{port}"),
+            format!("https://127.0.0.1:{port}"),
+            format!("http://127.0.0.1:{}", port.wrapping_add(1)),
+            format!("http://127.0.0.1:{port}.attacker.example"),
+        ] {
             let res = reqwest::Client::new()
                 .get(format!("http://{proxy}/mole/v1/data"))
-                .header("origin", origin)
+                .header("origin", &origin)
                 .send()
                 .await
                 .unwrap();
@@ -1343,17 +1203,20 @@ mod e2e {
         }
         assert_eq!(hits.load(Ordering::SeqCst), 0);
 
-        // Same request from the app's own origin goes through.
-        let body = reqwest::Client::new()
-            .get(format!("http://{proxy}/mole/v1/data"))
-            .header("origin", format!("http://127.0.0.1:{}", proxy.port()))
-            .send()
-            .await
-            .unwrap()
-            .text()
-            .await
-            .unwrap();
-        assert_eq!(body, "secret123");
+        // Same request from the app's own origin (either host name) goes
+        // through.
+        for host in LOCAL_HOSTS {
+            let body = reqwest::Client::new()
+                .get(format!("http://{proxy}/mole/v1/data"))
+                .header("origin", format!("http://{host}:{port}"))
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap();
+            assert_eq!(body, "secret123", "{host}");
+        }
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1376,24 +1239,44 @@ mod e2e {
                 .unwrap();
             assert_eq!(res.status().as_u16(), 403, "{path}");
         }
-        // `localhost` is one of the proxy's own names.
-        let body = via("localhost")
-            .get(format!("http://localhost:{}/mole/v1/data", proxy.port()))
-            .send()
-            .await
-            .unwrap()
-            .text()
-            .await
-            .unwrap();
-        assert_eq!(body, "secret123|GET|/mole/v1/data");
+        // A local name on the wrong port, or with no port, isn't this proxy.
+        for host in [
+            format!("127.0.0.1:{}", proxy.port().wrapping_add(1)),
+            "127.0.0.1".to_string(),
+        ] {
+            let res = reqwest::Client::new()
+                .get(format!("http://{proxy}/mole/v1/data"))
+                .header("host", &host)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(res.status().as_u16(), 403, "{host}");
+        }
+        // `localhost` is one of the proxy's own names, with or without the
+        // matching Origin.
+        let own = format!("http://localhost:{}", proxy.port());
+        for origin in [None, Some(own.as_str())] {
+            let mut req = via("localhost").get(format!("{own}/mole/v1/data"));
+            if let Some(origin) = origin {
+                req = req.header("origin", origin);
+            }
+            let body = req.send().await.unwrap().text().await.unwrap();
+            assert_eq!(body, "secret123|GET|/mole/v1/data", "{origin:?}");
+        }
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn connection_nominated_headers_are_not_forwarded() {
         let handler = |headers: HeaderMap| async move {
-            let seen = ["x-local-state", "x-end-to-end"]
-                .map(|name| format!("{name}={}", headers.contains_key(name)))
-                .join(",");
+            let seen = [
+                "x-local-state",
+                "x-other",
+                "keep-alive",
+                "proxy-connection",
+                "x-end-to-end",
+            ]
+            .map(|name| format!("{name}={}", headers.contains_key(name)))
+            .join(",");
             (
                 [
                     ("connection", "x-up-state"),
@@ -1406,10 +1289,15 @@ mod e2e {
         let canopy = spawn_upstream(Router::new().fallback(any(handler))).await;
         let proxy = spawn_proxy(config(canopy, None), no_dist()).await;
 
+        // Two Connection values, with mixed case, padding and empty tokens.
         let res = reqwest::Client::new()
             .get(format!("http://{proxy}/mole/v1/data"))
-            .header("connection", "x-local-state")
+            .header("connection", "keep-alive, X-Local-State")
+            .header("connection", " x-other ,,")
             .header("x-local-state", "1")
+            .header("x-other", "1")
+            .header("keep-alive", "timeout=5")
+            .header("proxy-connection", "keep-alive")
             .header("x-end-to-end", "1")
             .send()
             .await
@@ -1417,10 +1305,98 @@ mod e2e {
         // Response side: the field upstream nominated is dropped, others kept.
         assert!(!res.headers().contains_key("x-up-state"));
         assert_eq!(res.headers()["x-kept"], "1");
-        // Request side: same for the field the client nominated.
+        // Request side: nominated fields and the fixed hop-by-hop list are
+        // dropped, end-to-end fields kept.
         assert_eq!(
             res.text().await.unwrap(),
-            "x-local-state=false,x-end-to-end=true"
+            "x-local-state=false,x-other=false,keep-alive=false,\
+             proxy-connection=false,x-end-to-end=true"
         );
+    }
+
+    /// Upstream that redirects to whatever `x-test-location` names.
+    fn redirect_router() -> Router {
+        Router::new().fallback(any(|headers: HeaderMap| async move {
+            let to = headers["x-test-location"].clone();
+            (StatusCode::FOUND, [(http::header::LOCATION, to)])
+        }))
+    }
+
+    /// The `Location` the proxy hands back when upstream redirects `path` to
+    /// `location`.
+    async fn location_via_proxy(proxy: SocketAddr, path: &str, location: &str) -> String {
+        let res = no_follow()
+            .get(format!("http://{proxy}{path}"))
+            .header("x-test-location", location)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status().as_u16(), 302, "{location}");
+        res.headers()[http::header::LOCATION]
+            .to_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn canopy_redirect_locations_map_onto_proxy() {
+        let upstream = spawn_upstream(redirect_router()).await;
+        // A host name rather than an IP, so host case can be checked.
+        let base = format!("http://localhost:{}", upstream.port());
+        let other_port = format!("http://localhost:{}", upstream.port().wrapping_add(1));
+        let cfg = CanopyConfig {
+            canopy_url: base.clone(),
+            ..config(upstream, None)
+        };
+        let proxy = spawn_proxy(cfg, no_dist()).await;
+        let path = "/mole/v1/data/?n=1";
+
+        // On the upstream: absolute (host case doesn't matter), path-absolute
+        // and relative forms all come back as proxy paths, keeping query and
+        // fragment.
+        let upper = base.replace("localhost", "LOCALHOST");
+        for (location, expected) in [
+            (format!("{base}/mole/v1/data?n=1"), "/mole/v1/data?n=1"),
+            (format!("{upper}/mole/x"), "/mole/x"),
+            ("/mole/v1/data?n=1".to_string(), "/mole/v1/data?n=1"),
+            ("../other".to_string(), "/mole/v1/other"),
+            (base.clone(), "/"),
+            (format!("{base}/x#frag"), "/x#frag"),
+        ] {
+            assert_eq!(location_via_proxy(proxy, path, &location).await, expected);
+        }
+        // Another host, scheme or port: passed through unchanged.
+        for location in [
+            "http://attacker.example/steal".to_string(),
+            "//attacker.example/steal".to_string(),
+            base.replace("http:", "https:") + "/mole/x",
+            format!("{other_port}/mole/x"),
+        ] {
+            assert_eq!(location_via_proxy(proxy, path, &location).await, location);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn elog_redirect_locations_under_base_path_get_prefix_back() {
+        let elog = spawn_upstream(redirect_router()).await;
+        let canopy = spawn_upstream(echo_router("x-api-key")).await;
+        // An e-log base with a path: only locations under it map back.
+        let cfg = CanopyConfig {
+            elog_url: Some(format!("http://{elog}/api")),
+            ..config(canopy, None)
+        };
+        let proxy = spawn_proxy(cfg, no_dist()).await;
+        let path = "/elog/v1/entries";
+
+        let base_root = format!("http://{elog}/api");
+        for (location, expected) in [
+            ("/api/v1/entries/42", "/elog/v1/entries/42"),
+            (base_root.as_str(), "/elog"),
+            // Outside the base path: passed through unchanged.
+            ("/apix/v1", "/apix/v1"),
+            ("/login", "/login"),
+        ] {
+            assert_eq!(location_via_proxy(proxy, path, location).await, expected);
+        }
     }
 }
