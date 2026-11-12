@@ -326,4 +326,11 @@ describe('describeElogError', () => {
     expect(describeElogError(new Error('nope'))).toBe('nope');
     expect(describeElogError('nope')).toBe('Unexpected error');
   });
+
+  it("leaves a proxy's HTML error page out of the message", async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(htmlResponse(502, 'Bad Gateway'));
+    const err = await listLogbooks().catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'unknown_error', status: 502 });
+    expect(describeElogError(err)).toBe('E-log request failed (HTTP 502)');
+  });
 });
