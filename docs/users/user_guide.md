@@ -6,7 +6,7 @@
 
 The Trace window has four areas:
 
-- **① Header** — the toolbar for saving, exporting, printing, and other actions. The counter next to **TRACE** shows how many traces on the current plot use live and archive data.
+- **① Header** — the toolbar for saving, exporting, printing, and other actions. The counter next to **SLAC Trace** shows how many traces on the current plot use live and archive data.
 - **② Layers** — the plot's axes and the traces on each axis. Click an item to edit it.
 - **③ Plot area** — the plot itself, with plot tabs and view controls above it.
 - **④ Properties** — settings for whatever is selected in **Layers**: the plot, an axis, or a trace.

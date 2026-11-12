@@ -2,7 +2,7 @@
 site_name = "Trace"
 site_description = "React implementation of Trace - an application for plotting live and archived EPICS data."
 site_author = "SLAC National Accelerator Laboratory - EED / Software Applications Group"
-site_url = "https://fuzzy-adventure-4qvly8m.pages.github.io/"
+site_url = "https://slaclab.github.io/react-trace/"
 docs_dir = "docs"
 
 

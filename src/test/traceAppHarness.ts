@@ -1,6 +1,6 @@
 // Scaffolding for tests that mount the real <TraceApp> with its panels mocked
 // out. Import it BEFORE TraceApp: the browser stubs below must exist when
-// themeStore/paletteStore read localStorage at module load.
+// paletteStore reads localStorage at module load.
 //
 // `vi.mock` is hoisted per test file, so each file declares its own mocks and
 // points the factories here, e.g.
