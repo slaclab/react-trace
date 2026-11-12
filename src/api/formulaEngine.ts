@@ -7,7 +7,7 @@ export async function validateFormula(
   spec: FormulaSpecDTO,
   signal?: AbortSignal
 ): Promise<FormulaValidationDTO> {
-  return canopyFetch<FormulaValidationDTO>('/fox/v1/validate', {
+  return canopyFetch<FormulaValidationDTO>('/formula-engine/v1/validate', {
     method: 'POST',
     body: spec,
     signal,
@@ -23,7 +23,7 @@ export async function evaluateFormula(
   t1Ns: number,
   signal?: AbortSignal
 ): Promise<FormulaResultDTO> {
-  return canopyFetch<FormulaResultDTO>('/fox/v1/evaluate', {
+  return canopyFetch<FormulaResultDTO>('/formula-engine/v1/evaluate', {
     method: 'POST',
     body: { spec, t0Ns, t1Ns },
     signal,
@@ -31,8 +31,8 @@ export async function evaluateFormula(
 }
 
 // Same-origin WS URL for live formula subscriptions. The Vite dev proxy (and any
-// prod reverse proxy) handle the /fox upgrade and inject X-API-Key, so the bundle
+// prod reverse proxy) handle the /formula-engine upgrade and inject X-API-Key, so the bundle
 // never holds the key. SSR-safe: returns an empty string when `window` is undefined.
 export function formulaWsUrl(): string {
-  return canopyWebSocketUrl('/fox/v1/ws/formulas');
+  return canopyWebSocketUrl('/formula-engine/v1/ws/formulas');
 }

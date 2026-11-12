@@ -18,7 +18,7 @@ import {
 import { Copy, TrashCan, Renew } from '@carbon/icons-react';
 
 import type { Plot } from '../types';
-import type { ColorMode } from '../state/themeStore';
+import type { ColorMode } from '@slaclab/canopy-shell';
 import type { ConfigDTO } from '../api/types';
 import { CanopyError } from '../api/client';
 import {
