@@ -2,8 +2,13 @@ import type { ReactNode } from 'react';
 import { AppHeader } from '@slaclab/canopy-shell';
 import { formatShortcut } from '../hooks/useKeyboardShortcuts';
 
-const BUG_REPORT_URL = 'https://forms.office.com/r/qV7BmK2xi9';
-const DOCS_URL = 'https://fuzzy-adventure-4qvly8m.pages.github.io/';
+// Where the header's bug and help buttons go. A deployment points them at its own
+// feedback form and docs site with these build-time variables.
+const BUG_REPORT_URL =
+  (import.meta.env.VITE_BUG_REPORT_URL as string | undefined) ||
+  'https://github.com/slaclab/react-trace/issues/new/choose';
+const DOCS_URL =
+  (import.meta.env.VITE_DOCS_URL as string | undefined) || 'https://slaclab.github.io/react-trace/';
 
 interface TraceHeaderProps {
   /** Live / archive trace counts of the active plot, shown in the middle slot. */

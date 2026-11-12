@@ -22,6 +22,11 @@ jobs:
       contents: read
       packages: write
     with:
+      # The deployment's own feedback form and docs site, from repository
+      # variables. Unset, the app links this repo's issues and public docs.
+      build-args: |
+        VITE_BUG_REPORT_URL=${{ vars.BUG_REPORT_URL }}
+        VITE_DOCS_URL=${{ vars.DOCS_URL }}
       dockerfile: docker/Dockerfile
       context: .
       # Tag main builds with the bare short SHA (plus latest), as canopy and

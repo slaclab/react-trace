@@ -86,6 +86,11 @@ warning, and the post dialog shows Canopy's missing-key error. The e-log locatio
 accepts request bodies up to 25 MiB so attachments (20 MiB by default in Canopy)
 reach Canopy.
 
+The header's bug and help buttons open this repo's GitHub issues and the public
+docs site. A deployment can point them elsewhere with `VITE_BUG_REPORT_URL` and
+`VITE_DOCS_URL` at build time; the image build reads them from the
+`BUG_REPORT_URL` and `DOCS_URL` repository variables.
+
 ### 3. Run the dev server
 
 ```bash

@@ -100,20 +100,21 @@ describe('TraceHeader', () => {
     ).toBeDefined();
   });
 
-  it('opens the bug form and the docs in a new tab', () => {
+  it('opens the bug report and the docs in a new tab', () => {
+    // The defaults; VITE_BUG_REPORT_URL and VITE_DOCS_URL are unset in tests.
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
     renderHeader();
     fireEvent.click(screen.getByRole('button', { name: 'Report a bug' }));
     fireEvent.click(screen.getByRole('button', { name: 'Docs' }));
     expect(open).toHaveBeenNthCalledWith(
       1,
-      'https://forms.office.com/r/qV7BmK2xi9',
+      'https://github.com/slaclab/react-trace/issues/new/choose',
       '_blank',
       'noopener,noreferrer'
     );
     expect(open).toHaveBeenNthCalledWith(
       2,
-      'https://fuzzy-adventure-4qvly8m.pages.github.io/',
+      'https://slaclab.github.io/react-trace/',
       '_blank',
       'noopener,noreferrer'
     );
