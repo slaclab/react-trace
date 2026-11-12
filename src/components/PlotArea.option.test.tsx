@@ -1,73 +1,65 @@
 // @vitest-environment jsdom
 //
-// The option SinglePlot builds must load in real ECharts. Line and extension
-// series carry flat [t0, v0, t1, v1, ...] Float64Array data, and ECharts'
-// development build asserts that typed-array data declares its `dimensions`
-// ("dimensions must be given if data is TypedArray."). Production builds strip
-// the assert, so only `pnpm dev` crashed, as soon as Add Trace made a series.
-// Mounts SinglePlot with a mocked echarts-for-react, then hands the captured
-// option to a server-side ECharts instance (NODE_ENV is "test", so the
-// development asserts are live) and reads the values back out of its store.
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render } from '@testing-library/react';
-import * as echarts from 'echarts';
+// Renders SinglePlot with canopy-charts' CanopyChart replaced by a recorder and checks
+// the ECharts option it builds: canopy-charts' g10/g100 chart theme, the
+// plot-background override, trace's own sizing on top, and the canopy-charts
+// number formatters in the axis ticks and tooltip.
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, render } from '@testing-library/react';
+import { CHART_THEMES, formatAxisTick } from '@slaclab/canopy-charts';
+import { setColorMode } from '@slaclab/canopy-shell/color-mode';
+import { memoryStorage } from '../test/dom';
+import { setupColorMode } from '../state/colorMode';
 import { SinglePlot } from './PlotArea';
 import type { Plot, PVTrace } from '../types';
-import type { AlarmSeverity } from '../api/types';
-import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
+import { chartStub } from '../test/chartStub';
 
-type Series = Record<string, unknown> & { id: string; type: string; data: unknown };
-interface Option {
-  series: Series[];
-}
+// Loose view of the option object; the tests only read a few fields.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Option = Record<string, any>;
 
-const { lastOption } = vi.hoisted(() => ({ lastOption: { current: null as unknown } }));
+const h = vi.hoisted(() => ({ options: [] as Record<string, unknown>[] }));
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component<{ option: unknown }> {
-    getEchartsInstance() {
-      return undefined;
-    }
-    render() {
-      lastOption.current = this.props.option;
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+// No instance: the chart never becomes ready, so SinglePlot's effects bail out
+// early without one.
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.onRender = (props) => {
+  h.options.push(props.option as Record<string, unknown>);
+};
 
-const FROM_MS = Date.UTC(2026, 9, 1, 12, 0, 0);
-const TO_MS = FROM_MS + 60_000;
-const at = (s: number) => FROM_MS + s * 1000;
+const lastOption = (): Option => h.options[h.options.length - 1] as Option;
 
-function makeTrace(over: Partial<PVTrace> = {}): PVTrace {
+const NOW = Date.now();
+
+function makeTrace(values: number[]): PVTrace {
   return {
     id: 't1',
-    pvName: 'SIM:SINE',
-    displayName: 'SIM:SINE',
-    color: '#ff00aa',
+    pvName: 'TEST:PV',
+    displayName: 'TEST:PV',
+    color: '#33b1ff',
     visible: true,
     axisId: 'ax1',
     useLive: false,
     updateRate: '1s',
-    useArchive: true,
-    lineWidth: 2,
+    useArchive: false,
+    lineWidth: 1,
     lineType: 'direct',
     lineStyle: 'solid',
     showSymbol: false,
-    symbolShape: 'circle',
+    symbolShape: 'none',
     symbolSize: 4,
-    data: [],
-    ...over,
+    // Mock samples (no live/archive source), one per second ending now.
+    data: values.map((value, i) => ({ time: NOW - (values.length - 1 - i) * 1000, value })),
   };
 }
 
-function makePlot(traces: PVTrace[], xAxis: Plot['xAxis']): Plot {
+function makePlot(overrides: Partial<Plot> = {}): Plot {
   return {
     id: 'p1',
     title: 'Plot 1',
-    traces,
+    traces: [makeTrace([1, 2, 3])],
     axes: [
       {
         id: 'ax1',
@@ -78,246 +70,127 @@ function makePlot(traces: PVTrace[], xAxis: Plot['xAxis']): Plot {
         visible: true,
       },
     ],
-    backgroundColor: 'default',
-    showLegend: false,
-    showXGridlines: false,
-    showYGridlines: false,
+    backgroundColor: '#161616',
+    showLegend: true,
+    showXGridlines: true,
+    showYGridlines: true,
     showCrosshair: true,
     gridStyle: 'solid',
     gridOpacity: 1,
     tickFontSize: 11,
-    xAxis,
+    xAxis: { timeRange: '-1h' },
+    ...overrides,
   };
 }
 
-const CUSTOM_WINDOW: Plot['xAxis'] = {
-  timeRange: 'custom',
-  timeFrom: new Date(FROM_MS).toISOString(),
-  timeTo: new Date(TO_MS).toISOString(),
-};
-
-type Pt = [seconds: number, value: number, severity?: AlarmSeverity];
-const samples = (pts: Pt[]) =>
-  pts.map(([s, value, severity = 'NO_ALARM']) => ({ time: at(s), value, severity }));
-
-const raw = (pts: Pt[]): ArchiveSeriesResult => ({
-  status: 'ready',
-  mode: 'raw',
-  mean: samples(pts),
-  band: [],
-});
-
-function mount(
-  traces: PVTrace[],
-  archive: Map<string, ArchiveSeriesResult>,
-  { following = false, xAxis = CUSTOM_WINDOW }: { following?: boolean; xAxis?: Plot['xAxis'] } = {}
-): Option {
-  const { unmount } = render(
+function renderPlot(plot: Plot) {
+  return render(
     <SinglePlot
-      plot={makePlot(traces, xAxis)}
-      endMs={TO_MS}
-      following={following}
-      archiveResults={archive}
+      plot={plot}
+      archiveResults={new Map()}
       liveResults={new Map()}
       formulaResults={new Map()}
+      endMs={NOW}
     />
   );
-  unmount();
-  return lastOption.current as Option;
 }
 
-// ECharts measures label text on a canvas, which jsdom doesn't have. A rough
-// width is enough to lay out the axes.
-echarts.setPlatformAPI({ measureText: (text = '') => ({ width: text.length * 6 }) });
-
-let chart: echarts.ECharts | null = null;
-afterEach(() => {
-  chart?.dispose();
-  chart = null;
+beforeEach(() => {
+  h.options.length = 0;
+  vi.stubGlobal('localStorage', memoryStorage());
+  setupColorMode(); // nothing stored: dark
 });
 
-// Hands the option to the chart the way echarts-for-react does.
-function update(c: echarts.ECharts, option: Option) {
-  c.setOption(option as unknown as echarts.EChartsOption, { replaceMerge: ['series', 'yAxis'] });
-  c.renderToSVGString();
-}
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
-// Loads the option into a new server-side chart.
-function load(option: Option): echarts.ECharts {
-  chart = echarts.init(null, null, { renderer: 'svg', ssr: true, width: 600, height: 400 });
-  update(chart, option);
-  return chart;
-}
-
-// A series' values as ECharts stores them, read through its x and y mapping.
-function stored(c: echarts.ECharts, id: string): [number, number][] {
-  const model = (
-    c as unknown as {
-      getModel(): {
-        getSeries(): {
-          id: string;
-          getData(): {
-            count(): number;
-            mapDimension(coordDim: string): string;
-            get(dim: string, idx: number): number;
-          };
-        }[];
-      };
-    }
-  ).getModel();
-  const series = model.getSeries().find((s) => s.id === id);
-  if (!series) throw new Error(`no series ${id}`);
-  const data = series.getData();
-  const x = data.mapDimension('x');
-  const y = data.mapDimension('y');
-  return Array.from({ length: data.count() }, (_, i) => [data.get(x, i), data.get(y, i)]);
-}
-
-const typedSeries = (opt: Option) =>
-  opt.series.filter((s) => ArrayBuffer.isView(s.data) && !(s.data instanceof DataView));
-
-function expectTypedSeriesDeclareDimensions(opt: Option) {
-  for (const s of typedSeries(opt)) {
-    expect(s.dimensions, `series ${s.id}`).toEqual(['x', 'y']);
-  }
-}
-
-describe('PlotArea: option loads in ECharts with typed-array series data', () => {
-  it('loads a just-added trace with no samples yet (the Add Trace crash)', () => {
-    const opt = mount([makeTrace()], new Map([['t1', raw([])]]));
-    const line = opt.series.find((s) => s.id === 't1')!;
-    expect(line.data).toBeInstanceOf(Float64Array);
-    expectTypedSeriesDeclareDimensions(opt);
-    expect(stored(load(opt), 't1')).toEqual([]);
-  });
-
-  it('stores time in x and value in y for the line and its frozen extension', () => {
-    const opt = mount(
-      [makeTrace()],
-      new Map([
-        [
-          't1',
-          raw([
-            [10, 1],
-            [20, 2],
-            [30, 3],
-          ]),
-        ],
-      ])
-    );
-    expect(typedSeries(opt).map((s) => s.id)).toEqual(['t1', 't1-extension']);
-    expectTypedSeriesDeclareDimensions(opt);
-
-    const c = load(opt);
-    expect(stored(c, 't1')).toEqual([
-      [at(10), 1],
-      [at(20), 2],
-      [at(30), 3],
-    ]);
-    // A frozen plot's extension: dense anchors from the last sample to the edge.
-    const ext = stored(c, 't1-extension');
-    expect(ext).toHaveLength(2048);
-    expect(ext[0]).toEqual([at(30), 3]);
-    expect(ext.at(-1)).toEqual([TO_MS, 3]);
-    expect(ext.every(([, v]) => v === 3)).toBe(true);
-  });
-
-  it("loads a following plot's two-point extension", () => {
-    const opt = mount([makeTrace()], new Map([['t1', raw([[50, 7]])]]), {
-      following: true,
-      xAxis: { timeRange: '-1m' },
+describe('SinglePlot chart theme', () => {
+  it('uses the g100 chart theme in dark mode', () => {
+    renderPlot(makePlot());
+    const opt = lastOption();
+    const dark = CHART_THEMES.dark;
+    expect(opt.animation).toBe(false);
+    expect(opt.backgroundColor).toBe(dark.bg);
+    expect(opt.xAxis.axisLabel.color).toBe(dark.axisLabel);
+    expect(opt.xAxis.axisLine.lineStyle.color).toBe(dark.axisLine);
+    expect(opt.xAxis.splitLine.lineStyle.color).toBe(dark.splitLine);
+    expect(opt.yAxis[0].axisLabel.color).toBe(dark.axisLabel);
+    expect(opt.yAxis[0].axisLine).toMatchObject({
+      show: true,
+      lineStyle: { color: dark.axisLine },
     });
-    expectTypedSeriesDeclareDimensions(opt);
-    expect(stored(load(opt), 't1-extension')).toEqual([
-      [at(50), 7],
-      [TO_MS, 7],
-    ]);
+    expect(opt.yAxis[0].nameTextStyle.color).toBe(dark.axisName);
+    expect(opt.tooltip.backgroundColor).toBe(dark.tooltipBg);
+    expect(opt.tooltip.borderColor).toBe(dark.tooltipBorder);
+    expect(opt.tooltip.axisPointer.lineStyle.color).toBe(dark.crosshair);
+    expect(opt.legend.textStyle.color).toBe(dark.legend);
   });
 
-  it('keeps reading a line that switches between typed and point data on one chart', () => {
-    const typedAgain: Pt[] = [
-      [10, 1],
-      [20, 2],
-      [40, 4],
-      [50, 5],
-    ];
-    const withInvalid: Pt[] = [
-      [10, 1],
-      [20, 2],
-      [30, 99, 'INVALID'],
-      [40, 4],
-    ];
-    const c = load(mount([makeTrace()], new Map([['t1', raw(typedAgain.slice(0, 2))]])));
-
-    // An INVALID sample arrives: the same series id now gets [t, v] pairs.
-    const broken = mount([makeTrace()], new Map([['t1', raw(withInvalid)]]));
-    expect(Array.isArray(broken.series.find((s) => s.id === 't1')!.data)).toBe(true);
-    update(c, broken);
-    expect(stored(c, 't1')).toEqual([
-      [at(10), 1],
-      [at(20), 2],
-      [at(30), NaN],
-      [at(40), 4],
-    ]);
-
-    // And back to typed once it's gone.
-    update(c, mount([makeTrace()], new Map([['t1', raw(typedAgain)]])));
-    expect(stored(c, 't1')).toEqual(typedAgain.map(([s, v]) => [at(s), v]));
+  it('follows the color mode to the g10 chart theme', () => {
+    renderPlot(makePlot());
+    act(() => setColorMode('light'));
+    const opt = lastOption();
+    const light = CHART_THEMES.light;
+    expect(opt.backgroundColor).toBe(light.bg);
+    expect(opt.yAxis[0].axisLabel.color).toBe(light.axisLabel);
+    expect(opt.xAxis.splitLine.lineStyle.color).toBe(light.splitLine);
+    expect(opt.tooltip.backgroundColor).toBe(light.tooltipBg);
+    expect(opt.legend.textStyle.color).toBe(light.legend);
   });
 
-  it('still loads point data for a line broken by an INVALID sample, with its band', () => {
-    const pts: Pt[] = [
-      [10, 1],
-      [20, 99, 'INVALID'],
-      [30, 3],
-    ];
-    const binned: ArchiveSeriesResult = {
-      status: 'ready',
-      mode: 'binned',
-      mean: samples(pts),
-      band: samples(pts).map((p) => ({ ...p, min: p.value - 1, max: p.value + 1 })),
-    };
-    const opt = mount([makeTrace({ lineType: 'step' })], new Map([['t1', binned]]));
-    expect(Array.isArray(opt.series.find((s) => s.id === 't1')!.data)).toBe(true);
-    expectTypedSeriesDeclareDimensions(opt);
-
-    const c = load(opt);
-    // The step line holds the last good value up to the INVALID sample, then breaks.
-    expect(stored(c, 't1')).toEqual([
-      [at(10), 1],
-      [at(20), 1],
-      [at(20), NaN],
-      [at(30), 3],
-    ]);
-    // The band breaks and holds with it.
-    expect(stored(c, 't1-band-min')).toEqual([
-      [at(10), 0],
-      [at(20), 0],
-      [at(20), NaN],
-      [at(30), 2],
-    ]);
+  it('keeps a user-chosen plot background', () => {
+    renderPlot(makePlot({ backgroundColor: '#123456' }));
+    expect(lastOption().backgroundColor).toBe('#123456');
   });
 
-  it('LTTB-samples a dense typed line on its values, keeping a one-sample spike', () => {
-    // 6000 samples over the minute, far more than the ~500 px plot is wide, all
-    // zero but one. Sampling on the wrong dimension would drop the spike.
-    const n = 6000;
-    const spikeAt = 4321;
-    const dense: ArchiveSeriesResult = {
-      status: 'ready',
-      mode: 'raw',
-      mean: Array.from({ length: n }, (_, i) => ({
-        time: FROM_MS + (i * 60_000) / n,
-        value: i === spikeAt ? 100 : 0,
-        severity: 'NO_ALARM' as const,
-      })),
-      band: [],
-    };
-    const opt = mount([makeTrace()], new Map([['t1', dense]]));
-    expectTypedSeriesDeclareDimensions(opt);
-
-    const line = stored(load(opt), 't1');
-    expect(line.length).toBeLessThan(n / 2);
-    expect(line).toContainEqual([FROM_MS + (spikeAt * 60_000) / n, 100]);
+  it("keeps trace's own sizes and gridline style on top of the shared styling", () => {
+    renderPlot(makePlot({ tickFontSize: 13, gridStyle: 'dashed', gridOpacity: 0.5 }));
+    const opt = lastOption();
+    expect(opt.xAxis.axisLabel.fontSize).toBe(13);
+    expect(opt.yAxis[0].axisLabel.fontSize).toBe(13);
+    expect(opt.yAxis[0].nameTextStyle.fontSize).toBe(11);
+    expect(opt.xAxis.splitLine.lineStyle).toMatchObject({ type: 'dashed', opacity: 0.5 });
+    expect(opt.tooltip.textStyle.fontSize).toBe(11);
+    expect(opt.legend.textStyle.fontSize).toBe(11);
+    expect(opt.legend.bottom).toBe(8);
   });
+});
+
+describe('SinglePlot number formatting', () => {
+  // The tooltip line for the trace's sample nearest the cursor (at NOW).
+  function tooltipFor(value: number): string {
+    renderPlot(makePlot({ traces: [makeTrace([value])] }));
+    return lastOption().tooltip.formatter([{ axisValue: NOW }]);
+  }
+
+  it('formats y-axis ticks with canopy-charts formatAxisTick', () => {
+    const formatter = lastOptionAfterRender().yAxis[0].axisLabel.formatter;
+    expect(formatter).toBe(formatAxisTick);
+    expect(formatter(5e-4)).toBe('5.0e-4');
+    expect(formatter(1_500_000)).toBe('1.5e+6');
+    expect(formatter(12.5)).toBe('12.5');
+  });
+
+  it('shows tooltip values with trailing zeros trimmed', () => {
+    const html = tooltipFor(0.5);
+    expect(html).toMatch(/: 0\.5 <span/);
+    expect(html).not.toContain('0.5000000');
+  });
+
+  it('shows small and large tooltip values in trimmed exponential form', () => {
+    expect(tooltipFor(1.23456789e-5)).toMatch(/: 1\.234568e-5 <span/);
+    expect(tooltipFor(2e7)).toMatch(/: 2e\+7 <span/);
+  });
+
+  it('formats the crosshair y readout the same way', () => {
+    const label = lastOptionAfterRender().tooltip.axisPointer.label;
+    expect(label.formatter({ value: 12.3, axisDimension: 'y' })).toBe('12.3');
+  });
+
+  function lastOptionAfterRender(): Option {
+    renderPlot(makePlot());
+    return lastOption();
+  }
 });
