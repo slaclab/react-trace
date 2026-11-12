@@ -190,7 +190,7 @@ export function TraceApp() {
   const windowByTrace = new Map<string, TimeWindowNs>();
   // Each trace inherits its plot's default archiver unless it sets its own.
   const plotArchiverByTrace = new Map<string, string | undefined>();
-  // Resolved Fox spec per formula trace (bindings mapped to PV names); null when
+  // Resolved Formula Engine spec per formula trace (bindings mapped to PV names); null when
   // the formula isn't ready to evaluate (empty expression or an unbound variable).
   const formulaSpecByTrace = new Map<string, FormulaSpecDTO | null>();
   for (const plot of plots) {
@@ -472,7 +472,7 @@ export function TraceApp() {
       color: colorForIndex(getPalette(paletteId), traceCount),
       visible: true,
       axisId,
-      // Formula curves have no PV data source; their values come from Fox.
+      // Formula curves have no PV data source; their values come from the Formula Engine.
       useLive: false,
       updateRate: 'monitor',
       useArchive: false,
@@ -1434,15 +1434,14 @@ export function TraceApp() {
         <PostToElogModal
           open={elogModal.open}
           captured={elogModal.captured}
-          logbooks={elogConfig.logbooks}
-          defaultLogbooks={elogConfig.defaultLogbooks}
+          defaultLogbookIds={elogConfig.defaultLogbookIds}
           buildConfigFile={buildElogConfigFile}
           onClose={() => setElogModal((p) => ({ ...p, open: false }))}
-          onPosted={(entryId) =>
+          onPosted={(entry) =>
             showToast({
               kind: 'success',
               title: 'Posted to E-Log',
-              subtitle: `Entry ${entryId} created`,
+              subtitle: `Entry ${entry.id} created`,
             })
           }
           onPostFailed={(message) =>
