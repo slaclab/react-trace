@@ -10,7 +10,18 @@ const THEME_DEFAULT_BACKGROUNDS = new Set<string>([
   '#ffffff',
 ]);
 
-/** The background a plot renders (and exports) with in the given chart theme. */
-export function effectiveBackground(plotBg: string, theme: Readonly<ChartTheme>): string {
-  return THEME_DEFAULT_BACKGROUNDS.has(plotBg) ? theme.bg : plotBg;
+/** True when `bg` is one of the stored values that mean "follow the theme". */
+export function isThemeDefaultBackground(bg: string): boolean {
+  return THEME_DEFAULT_BACKGROUNDS.has(bg);
+}
+
+/**
+ * The background a plot renders (and exports) with in the given chart theme.
+ * An undefined `plotBg` is automatic: the theme's.
+ */
+export function effectiveBackground(
+  plotBg: string | undefined,
+  theme: Readonly<ChartTheme>
+): string {
+  return plotBg === undefined || isThemeDefaultBackground(plotBg) ? theme.bg : plotBg;
 }

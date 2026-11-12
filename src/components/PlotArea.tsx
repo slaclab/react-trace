@@ -1,51 +1,116 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import ReactECharts from 'echarts-for-react';
-import type { LegendComponentOption, TooltipComponentOption } from 'echarts';
 import {
-  baseChartOption,
-  chartAxisStyle,
-  formatAxisTick,
-  formatValue,
-  useChartTheme,
-} from '@slaclab/canopy-charts';
-import { effectiveBackground } from '../plotBackground';
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import ReactECharts from 'echarts-for-react';
+import { useChartFont, useColorMode } from '@slaclab/canopy-shell';
+import { useChartTheme } from '@slaclab/canopy-charts';
+import { useDrawingTheme } from '../annotationTheme';
 import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
-import type { Axis, Plot, PVTrace } from '../types';
+import type { Axis, Plot } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 import type { FormulaSeriesResult } from '../hooks/useFormulaSeries';
-import type { TimeWindowNs } from '../api/time';
-import { msToNs, nsToMs, resolveTimeWindow } from '../api/time';
-import { echartsLineType, echartsSymbol } from '../curveStyle';
-import { isFollowing } from '../hooks/useAutoScrollTimers';
-import { useFollowNow } from '../hooks/useFollowNow';
-import { traceLabel } from '../traceLabel';
-import type { PngSource } from '../io/exportPlotImage';
 import {
-  gappedLineData,
-  invalidMarkerSeries,
-  invalidStretches,
-  isInvalid,
-  xAxisLabelMargin,
-  type PlotSample,
-} from './invalidGaps';
+  isAtNow,
+  nsToMs,
+  relativeSpanFor,
+  resolveTimeWindow,
+  windowMsToNs,
+  windowNsToMs,
+  type TimeWindowMs,
+  type TimeWindowNs,
+} from '../api/time';
+import {
+  buildProjection,
+  createProjectionStore,
+  isPlotChrome,
+  stretchFactorX,
+  type ProjectionInstance,
+} from '../plot/geometry';
+import { attachReadoutDrag, createReadoutDock, projectionArea } from '../plot/readoutDock';
+import type { OverlayHandle } from '../annotations/AnnotationLayer';
+import type { Annotation } from '../annotations/model';
+import { AxisBadges } from '../tools/trace/plot/AxisBadges';
+import { DrawingRail } from '../annotations/DrawingRail';
+import { AxisMenu, TimeBandMenu } from '../tools/trace/plot/menus';
+import { BUILTIN_CATALOG } from '../annotations/catalog';
+import { DrawingLayers, DrawingRailFor } from '../annotations/host/DrawingOverlay';
+import { DrawingStatusLine } from '../annotations/host/DrawingStatusLine';
+import {
+  useDrawingHost,
+  useDrawingPlotMenu,
+  type DrawingHost,
+} from '../annotations/host/useDrawingHost';
+import { useTraceHostConfig } from '../tools/trace/drawing/useTraceHostConfig';
+import { tracePlotView } from '../tools/trace/plotView';
+import type { PlotView } from '../plot/plotToggles';
+import { useTraceDrawingDocument } from '../tools/trace/drawing/document';
+import { RangeControls } from '../tools/trace/plot/RangeControls';
+import { DEFAULT_TOOL_PREFS, type AnnotationToolPrefs } from '../annotations/tools';
+import { isNavigationCommand, PAN_STEP, ZOOM_STEP } from '../annotations/keys';
+import { resolveKey } from '../tools/trace/drawing/builtin';
+import {
+  allLoadedXAxis,
+  panTime,
+  stretchTimeRightAnchored,
+  zoomTimeAt,
+  type LoadedResults,
+} from '../tools/trace/drawing/time';
+import { traceLabel } from '../traceLabel';
+import { useLatest } from '../workbench/useLatest';
+import { useContextMenu } from '../workbench/contextMenu/context';
+import { LegendMenu, quietLegendHover } from '../tools/contextMenu';
+import { TraceCursorContext, tracePointMenu } from '../tools/trace/menu';
+import { useElementWidth } from '../hooks/useElementWidth';
+import type { PngSource } from '../io/exportPlotImage';
+import { PLOT_CAPTURE_PIXEL_RATIO, composePlotCapture } from '../capturePlot';
+import { StatisticsPanel } from '../statistics/StatisticsPanel';
+import { useStatistics } from '../statistics/useStatistics';
+import {
+  frameClockMs,
+  plotMetrics,
+  TRACE_METRICS,
+  traceStatFrame,
+  traceUnitOf,
+} from '../tools/trace/metrics';
+import {
+  bandAt,
+  usePlotGestures,
+  type GestureAxis,
+  type GestureGrid,
+  type PlotGestureSurface,
+  type SideAxis,
+  type XBandDrag,
+} from '../plot/gestures';
 import {
   AXIS_OFFSET,
   hitTestAxis,
-  panExtent,
-  zoomExtent,
+  hitTestTimeBand,
   type AxisHitZone,
   type GridBand,
 } from './axisHitTest';
+import {
+  notArchivedPvs,
+  buildPlotOption,
+  GRID_BOTTOM,
+  GRID_TOP,
+  plotLayout,
+  useTraceData,
+  useTraceSamples,
+} from './plotOption';
+import { refreshIntervalMs } from '../hooks/useAutoScrollTimers';
+import { useFollowNow } from '../hooks/useFollowNow';
 
-// Signature of the user-chosen range. Bumps when picking a new time range so
-// dataZoom resets to full extent — otherwise the previous zoom stays clipped
-// over the new range.
-function rangeKeyFor(plot: Plot): string {
-  return plot.xAxis.timeRange;
-}
+/** The id of Trace's one X axis, the time window, as the gesture layer names it. */
+const TIME_AXIS_ID = 'time';
 
-interface PlotAreaProps {
+interface PlotAreaProps extends AnnotationChannel {
   plots: Plot[];
   activePlotId: string;
   viewMode: 'tabs' | 'grid';
@@ -61,18 +126,118 @@ interface PlotAreaProps {
   detachedPlotIds: string[];
   onDetachPlot: (id: string) => void;
   onReattachPlot: (id: string) => void;
-  onViewWindowChange?: (plotId: string, window: TimeWindowNs) => void;
-  /** A following plot was panned/zoomed; freeze it where its axis ends. */
-  onFollowStop?: (plotId: string) => void;
-  /** Saved per-plot view window; seeds dataZoom across remounts (e.g. popout). */
-  viewWindowByPlot: Map<string, TimeWindowNs>;
-  /** The instant each plot's time axis ends at; see axisEndMs. */
-  axisEndFor: (plotId: string) => number;
+  /**
+   * The one window-write path: gesture tasks call it with the new
+   * visible window; `follow` records the display window only.
+   */
+  onViewWindowChange?: (plotId: string, window: TimeWindowNs, opts?: { follow?: boolean }) => void;
+  /**
+   * Each plot's display window (TraceApp's `displayWindowByPlotId`): the
+   * controlled `viewWindowNs` of every mount, so the chart shows exactly it.
+   */
+  displayWindowByPlotId: ReadonlyMap<string, TimeWindowNs>;
+  /** The instant each plot's time axis ends at (TraceApp's `axisEndFor`, see axisEndMs). */
+  axisEndFor?: (plotId: string) => number;
+  /** Whether each plot tracks "now" (TraceApp's `followingFor`, see isFollowing). */
+  followingFor?: (plotId: string) => boolean;
   onAxisRangesChange?: (plotId: string, ranges: Map<string, [number, number]>) => void;
   /** Commits a per-axis min/max (or autoScale flip) from a direct axis pan/zoom. */
   onUpdateAxis?: (plotId: string, axisId: string, updates: Partial<Axis>) => void;
+  /**
+   * Writes a plot's x-axis (a range pick: All, a follow-live stretch, a chip).
+   * The new `xAxis` identity drops the plot's view window and re-enables
+   * autoscroll.
+   */
+  onApplyXAxis?: (plotId: string, xAxis: Plot['xAxis']) => void;
   /** Publishes each plot's ECharts instance for PNG capture (active=false on unmount). */
   onChartInstance?: (plotId: string, instance: PngSource, active: boolean) => void;
+  /**
+   * Each plot's statistics window (TraceApp's `statsWindowByPlotId`: the
+   * debounced fetch window, else its relative range against the frozen "now");
+   * a plot absent from it resolves its own, quantised to the second.
+   */
+  statsWindowByPlotId?: ReadonlyMap<string, TimeWindowNs>;
+  /** The last relative range each plot showed this session (TraceApp's `lastRelativeSpan`), Now's target. */
+  lastRelativeSpanFor?: (plotId: string) => string | undefined;
+  /**
+   * The host's tile bar draws the verbs, the layout toggle among them: no Tab
+   * view / Grid view pair in-frame; Add plot and the range controls stay.
+   */
+  hostBar?: boolean;
+}
+
+/**
+ * The drawing channel TraceApp holds for every plot; each
+ * mount gets its own plot's slice through `annotationMountProps`.
+ */
+export interface AnnotationChannel {
+  /** Plot ids whose drawings are hidden (TraceApp's `ui.annotationsHidden`). */
+  annotationsHiddenPlotIds?: ReadonlySet<string>;
+  /** Each plot's drawing-tool prefs (TraceApp's `annotationPrefs`); absent = defaults. */
+  annotationPrefsByPlot?: ReadonlyMap<string, AnnotationToolPrefs>;
+  /** Patches one plot's drawing-tool prefs (tool, stay, magnet). */
+  onAnnotationPrefs?: (plotId: string, patch: Partial<AnnotationToolPrefs>) => void;
+  /** The selected drawing's id (an `item`/`annotation` selection), else null. */
+  selectedAnnotationId?: string | null;
+  /** Selects a drawing of `plotId` (`null` = none) on TraceApp's selection store. */
+  onSelectAnnotation?: (plotId: string, id: string | null) => void;
+  /**
+   * Applies one drawing gesture to `plotId`'s list:
+   * TraceApp runs `update()` with `withAnnotations(plot, fn(plot.annotations))`.
+   */
+  onCommitAnnotations?: (
+    plotId: string,
+    fn: (list: Annotation[]) => Annotation[],
+    label: string
+  ) => void;
+  /** Writes one plot's hide-all (TraceApp's `ui.setAnnotationsHidden`). */
+  onAnnotationsHidden?: (plotId: string, on: boolean) => void;
+  /** Patches one plot's view settings (the strip's tooltip and drag mode). */
+  onPlotView?: (plotId: string, patch: Partial<PlotView>) => void;
+}
+
+/** The drawing props of one plot's mount, from the channel (tab, grid, fullscreen, detached). */
+// eslint-disable-next-line react-refresh/only-export-components -- shared by TraceApp's fullscreen and detached mounts
+export function annotationMountProps(
+  plotId: string,
+  channel: AnnotationChannel
+): Pick<
+  SinglePlotProps,
+  | 'annotationsHidden'
+  | 'annotationPrefs'
+  | 'onAnnotationPrefs'
+  | 'selectedAnnotationId'
+  | 'onSelectAnnotation'
+  | 'onCommitAnnotations'
+  | 'onAnnotationsHidden'
+  | 'onPlotView'
+> {
+  const {
+    onAnnotationPrefs,
+    onSelectAnnotation,
+    onCommitAnnotations,
+    onAnnotationsHidden,
+    onPlotView,
+  } = channel;
+  return {
+    annotationsHidden: channel.annotationsHiddenPlotIds?.has(plotId) === true,
+    annotationPrefs: channel.annotationPrefsByPlot?.get(plotId) ?? DEFAULT_TOOL_PREFS,
+    onAnnotationPrefs: onAnnotationPrefs
+      ? (patch: Partial<AnnotationToolPrefs>) => onAnnotationPrefs(plotId, patch)
+      : undefined,
+    selectedAnnotationId: channel.selectedAnnotationId ?? null,
+    onSelectAnnotation: onSelectAnnotation
+      ? (id: string | null) => onSelectAnnotation(plotId, id)
+      : undefined,
+    onCommitAnnotations: onCommitAnnotations
+      ? (fn: (list: Annotation[]) => Annotation[], label: string) =>
+          onCommitAnnotations(plotId, fn, label)
+      : undefined,
+    onAnnotationsHidden: onAnnotationsHidden
+      ? (on: boolean) => onAnnotationsHidden(plotId, on)
+      : undefined,
+    onPlotView: onPlotView ? (patch: Partial<PlotView>) => onPlotView(plotId, patch) : undefined,
+  };
 }
 
 // Shown in the main window where a detached plot's chart would otherwise be.
@@ -92,37 +257,47 @@ function DetachedPlaceholder({ title, onReattach }: { title: string; onReattach:
 
 interface SinglePlotProps {
   plot: Plot;
-  /**
-   * The instant the plot's time range ends at, from the app (see axisEndMs):
-   * the plot's autoscroll clock, or the newest live sample past it while
-   * following. The chart never reads the wall clock, so a re-render can't move
-   * the axis.
-   */
-  endMs: number;
-  /** True while the plot tracks "now" (see isFollowing). */
-  following?: boolean;
-  /**
-   * Called on the first genuine pan/zoom while following, so the app can
-   * freeze the plot at `endMs` right away instead of after the view-window
-   * debounce.
-   */
-  onFollowStop?: () => void;
   archiveResults: Map<string, ArchiveSeriesResult>;
   liveResults: Map<string, LiveSeriesResult>;
   formulaResults: Map<string, FormulaSeriesResult>;
-  onViewWindowChange?: (window: TimeWindowNs) => void;
   /**
-   * Last known visible window from a prior mount of this plot. Seeds the inside
-   * dataZoom on first render so popping a plot out (or reattaching) preserves
-   * whatever sub-range the user had wheel-zoomed into. Only consulted on mount.
+   * Writes a new visible window. Only gesture handlers call it; the
+   * chart itself never reports a window (the inside dataZoom is retired).
    */
-  initialViewWindowNs?: TimeWindowNs;
+  onViewWindowChange?: (window: TimeWindowNs, opts?: { follow?: boolean }) => void;
+  /**
+   * The controlled visible window: the x axis spans exactly it and every
+   * series is cut to it. TraceApp feeds it from `displayWindowByPlotId`; it is
+   * never re-resolved from the clock here. Absent (tests, a mount without a
+   * window yet) the chart shows the plot's configured range.
+   */
+  viewWindowNs?: TimeWindowNs;
+  /**
+   * The instant the plot's time range ends at, from the app (see axisEndMs):
+   * the plot's autoscroll clock, or the newest live sample past it while
+   * following. The chart never reads the wall clock for it, so a re-render
+   * can't move the axis.
+   */
+  endMs?: number;
+  /**
+   * True while the plot tracks "now" (see isFollowing). The axis then also
+   * scrolls on animation frames between clock ticks (useFollowNow), and
+   * `viewWindowNs` is the configured range ending at the scrolled instant.
+   */
+  following?: boolean;
+  /** The resolved window the statistics are computed over (PlotWithStatistics). */
+  statsWindowNs?: TimeWindowNs;
   onAxisRangesChange?: (ranges: Map<string, [number, number]>) => void;
   /**
    * Commits a per-axis min/max (or autoScale flip) when the user drags or wheels
    * directly on a Y-axis band. See the per-axis pointer listeners in SinglePlot.
    */
   onUpdateAxis?: (axisId: string, updates: Partial<Axis>) => void;
+  /**
+   * Writes this plot's x-axis; the new identity resets the view window and
+   * re-enables autoscroll.
+   */
+  onApplyXAxis?: (xAxis: Plot['xAxis']) => void;
   /**
    * True when this instance is the fullscreen (popped-out) copy of a plot. The
    * in-window copy stays mounted underneath with the same `data-plot-id`, so
@@ -136,277 +311,133 @@ interface SinglePlotProps {
    * match by identity (a plot can be mounted twice, e.g. grid + fullscreen).
    */
   onChartInstance?: (instance: PngSource, active: boolean) => void;
+  /**
+   * The drawing channel, read by the drawing overlay.
+   * `annotationsHidden`: this plot's drawings are hidden (hide-all, session
+   * only — no `Plot` field). `annotationPrefs`: this plot's tool prefs;
+   * `onAnnotationPrefs` patches them. `selectedAnnotationId`: the selected
+   * drawing, if any; `onSelectAnnotation` selects one (`null` = none).
+   */
+  annotationsHidden?: boolean;
+  annotationPrefs?: AnnotationToolPrefs;
+  onAnnotationPrefs?: (patch: Partial<AnnotationToolPrefs>) => void;
+  selectedAnnotationId?: string | null;
+  onSelectAnnotation?: (id: string | null) => void;
+  /** Applies one drawing gesture's edit to this plot's drawings. */
+  onCommitAnnotations?: (fn: (list: Annotation[]) => Annotation[], label: string) => void;
+  /** Writes this plot's hide-all from the drawing rail. */
+  onAnnotationsHidden?: (on: boolean) => void;
+  /** Patches this plot's view settings from the strip (tooltip, drag mode). */
+  onPlotView?: (patch: Partial<PlotView>) => void;
 }
 
-function formatCrosshairTime(ms: number): string {
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-// Human-readable signed offset between the cursor and the sample we're showing.
-// "0s" when within ±0.5s; otherwise "−12s", "+3m", "+1.4h" etc.
-function formatTimeOffset(deltaMs: number): string {
-  const abs = Math.abs(deltaMs);
-  if (abs < 500) return '0s';
-  const sign = deltaMs < 0 ? '−' : '+';
-  if (abs < 60_000) return `${sign}${Math.round(abs / 1000)}s`;
-  if (abs < 3_600_000) return `${sign}${Math.round(abs / 60_000)}m`;
-  if (abs < 86_400_000) return `${sign}${(abs / 3_600_000).toFixed(1)}h`;
-  return `${sign}${(abs / 86_400_000).toFixed(1)}d`;
-}
-
-// Anchor points of a frozen plot's extension line. A two-point line would vanish
-// under a zoom that sits inside it: weakFilter keeps a point only if it's in the
-// window, so the line needs anchors this dense to survive any zoom depth.
-const EXTENSION_ANCHORS = 2048;
-
-// Line series data as a flat [t0, v0, t1, v1, ...] typed array. ECharts treats
-// typed-array data as primitive, so setOption neither deep-clones it nor runs
-// each point through its option preprocessors. With plain [t, v] pairs that was
-// most of the cost of an update, and a following plot updates on every scroll
-// step as well as on every live batch.
-function xyData(points: readonly PlotSample[]): Float64Array {
-  const out = new Float64Array(points.length * 2);
-  for (let i = 0; i < points.length; i++) {
-    out[2 * i] = points[i].time;
-    out[2 * i + 1] = points[i].value;
-  }
-  return out;
-}
-
-function traceSamples(
-  trace: PVTrace,
-  archive: ArchiveSeriesResult | undefined,
-  live: LiveSeriesResult | undefined,
-  formula: FormulaSeriesResult | undefined
-): readonly PlotSample[] {
-  // Formula curves are evaluated server-side (the Formula Engine); their points are the only
-  // source — no archive/live merge, no mock seed.
-  if (trace.kind === 'formula') {
-    return formula ? formula.points.map(([time, value]) => ({ time, value })) : [];
-  }
-  // Mirror old Trace's independent toggles. Archive feeds the past, live
-  // feeds the present; with both on, archive runs up to the last archive
-  // sample and live takes over afterwards (de-duped at the seam). Both keep
-  // their per-sample severity.
-  const archivePts = trace.useArchive && archive && archive.mean.length > 0 ? archive.mean : null;
-  const livePts = trace.useLive && live && live.points.length > 0 ? live.points : null;
-
-  if (archivePts && livePts) {
-    const seamMs = archivePts[archivePts.length - 1].time;
-    let head = 0;
-    while (head < livePts.length && livePts[head].time <= seamMs) head++;
-    return head === 0 ? archivePts.concat(livePts) : archivePts.concat(livePts.slice(head));
-  }
-  if (archivePts) return archivePts;
-  if (livePts) return livePts;
-  // Live-capable trace that has no live yet (pre-connect or no samples) and
-  // no archive: render nothing rather than the mock seed. Mock data stays
-  // for traces with neither toggle on, since there's no other source to show.
-  if (trace.useLive || trace.useArchive) return [];
-  return trace.data;
-}
-
-// Binary search for the sample whose `time` is nearest to `tMs`. Series are
-// always sorted ascending by time (archive buffer + mock generator both honor
-// this), so we don't sort here.
-function nearestSample(data: readonly PlotSample[], tMs: number): PlotSample | undefined {
-  if (data.length === 0) return undefined;
-  let lo = 0;
-  let hi = data.length - 1;
-  if (tMs <= data[lo].time) return data[lo];
-  if (tMs >= data[hi].time) return data[hi];
-  while (hi - lo > 1) {
-    const mid = (lo + hi) >> 1;
-    if (data[mid].time <= tMs) lo = mid;
-    else hi = mid;
-  }
-  const pickHi = data[hi].time - tMs < tMs - data[lo].time;
-  return pickHi ? data[hi] : data[lo];
-}
+/**
+ * What the drawing overlay exposes to its plot: `AnnotationLayer` attaches it
+ * to the `overlayRef` SinglePlot owns, via useImperativeHandle. While no overlay is mounted the ref stays null and nothing
+ * is claimed.
+ */
+export type { OverlayHandle };
 
 export function SinglePlot({
   plot,
-  endMs,
-  following = false,
-  onFollowStop,
   archiveResults,
   liveResults,
   formulaResults,
+  viewWindowNs: viewWindowProp,
+  endMs,
+  following = false,
   onViewWindowChange,
-  initialViewWindowNs,
   onAxisRangesChange,
   onUpdateAxis,
+  onApplyXAxis,
   fullscreen,
   onChartInstance,
+  annotationsHidden,
+  annotationPrefs,
+  onAnnotationPrefs,
+  selectedAnnotationId,
+  onSelectAnnotation,
+  onCommitAnnotations,
+  onAnnotationsHidden,
+  onPlotView,
 }: SinglePlotProps) {
-  // Carbon g10/g100 chart colors for the current canopy-shell color mode.
-  const theme = useChartTheme();
-
-  // Everything derived from the samples and the plot's traces and axes. It's
-  // memoized apart from the display clock: while a plot scrolls (useFollowNow)
-  // it re-renders on animation frames with these inputs unchanged, so the
-  // remapped samples and the band and line series stay the same objects, and
-  // the option compare short-circuits on them. Only the x-axis extent, the
-  // extension lines and the INVALID markers depend on the clock.
-  const {
-    visibleAxes,
-    visibleTraces,
-    labels,
-    axisIndexMap,
-    orderedTraces,
-    traceData,
-    baseSeries,
-    tracesWithInvalid,
-  } = useMemo(() => {
-    const visibleAxes = plot.axes.filter((a) => a.visible);
-    const visibleTraces = plot.traces.filter((t) => t.visible);
-    const labels = new Map(plot.traces.map((t) => [t.id, traceLabel(t, plot.traces)]));
-
-    // ECharts links series to axes by index, so we track index per axis id.
-    const axisIndexMap = new Map<string, number>();
-    visibleAxes.forEach((axis, idx) => axisIndexMap.set(axis.id, idx));
-
-    // Per-trace samples; series rendering and the tooltip formatter both
-    // read from this map. Sorted ascending by time.
-    const traceData = new Map<string, readonly PlotSample[]>();
-    for (const trace of visibleTraces) {
-      traceData.set(
-        trace.id,
-        traceSamples(
-          trace,
-          archiveResults.get(trace.id),
-          liveResults.get(trace.id),
-          formulaResults.get(trace.id)
-        )
-      );
+  // The canopy-charts theme of the current canopy-shell colour mode, with
+  // the drawing colours layered on (annotationTheme.ts).
+  const { colorMode } = useColorMode();
+  const theme = useDrawingTheme();
+  const visibleAxes = plot.axes.filter((a) => a.visible);
+  // One line-data map per result change, shared by the option builder and the
+  // drawing overlay instead of recomputed on every render; the samples feed the
+  // tooltip and the INVALID markers.
+  const traceData = useTraceData(plot.traces, archiveResults, liveResults, formulaResults);
+  const samples = useTraceSamples(plot.traces, archiveResults, liveResults, formulaResults);
+  // The overlay's curves (magnet candidates, the measure's adopted curve, the
+  // style panel's curve colours) and the binned-archive facts its measure
+  // card reads.
+  const overlayTraces = useMemo(
+    () =>
+      plot.traces
+        .filter((t) => t.visible)
+        .map((t) => ({
+          id: t.id,
+          axisId: t.axisId,
+          color: t.color,
+          name: t.displayName || t.pvName,
+        })),
+    [plot.traces]
+  );
+  const { binnedTraceIds, archiveEndMs } = useMemo(() => {
+    const ids = new Set<string>();
+    const ends = new Map<string, number>();
+    for (const [id, result] of archiveResults) {
+      if (result.mode !== 'binned') continue;
+      ids.add(id);
+      const last = result.mean[result.mean.length - 1];
+      if (last) ends.set(id, last.time);
     }
-
-    // Order traces by axis (in panel order) then by their position within
-    // each axis. Earlier axis / earlier trace draws on top — assign higher
-    // `z` values to those, and pin the order with `emphasis.disabled` so
-    // hover doesn't shuffle the depth.
-    const orderedTraces: { trace: PVTrace; yAxisIndex: number; baseZ: number }[] = [];
-    for (const axis of visibleAxes) {
-      for (const trace of visibleTraces) {
-        if (trace.axisId === axis.id) {
-          orderedTraces.push({ trace, yAxisIndex: axisIndexMap.get(axis.id) ?? 0, baseZ: 0 });
-        }
-      }
-    }
-    orderedTraces.forEach((t, i) => (t.baseZ = (orderedTraces.length - i) * 10));
-
-    // Each trace's min/max band and main line.
-    const baseSeries = new Map<string, Record<string, unknown>[]>();
-    // Drawn traces with an INVALID sample, the only ones whose stretches the
-    // marker lanes below need to scan for on each frame.
-    const tracesWithInvalid = new Set<string>();
-    for (const { trace, yAxisIndex, baseZ } of orderedTraces) {
-      const archive = archiveResults.get(trace.id);
-      const points = traceData.get(trace.id) ?? [];
-      const step = trace.lineType === 'step';
-      const series: Record<string, unknown>[] = [];
-      if (points.some(isInvalid)) tracesWithInvalid.add(trace.id);
-
-      // Min/max band, drawn as two stacked area series so ECharts fills between them.
-      // Keep the previous band rendered while a fetch is in flight (status may
-      // be 'loading') so the band doesn't disappear during panning/zooming.
-      // Both break at the same INVALID points as the line (and hold like it).
-      if (
-        trace.useArchive &&
-        trace.showArchiveBand !== false &&
-        archive &&
-        archive.mode === 'binned' &&
-        archive.band.length > 0
-      ) {
-        const stackId = `band-${trace.id}`;
-        series.push({
-          id: `${trace.id}-band-min`,
-          name: `${labels.get(trace.id)} (min)`,
-          type: 'line',
-          yAxisIndex,
-          data: gappedLineData(archive.band, (p) => p.min, step),
-          stack: stackId,
-          lineStyle: { opacity: 0 },
-          areaStyle: { opacity: 0 },
-          symbol: 'none',
-          showInLegend: false,
-          tooltip: { show: false },
-          silent: true,
-          animation: false,
-          z: baseZ,
-          emphasis: { disabled: true },
-        });
-        series.push({
-          id: `${trace.id}-band-max`,
-          name: `${labels.get(trace.id)} (max)`,
-          type: 'line',
-          yAxisIndex,
-          data: gappedLineData(archive.band, (p) => p.max - p.min, step),
-          stack: stackId,
-          lineStyle: { opacity: 0 },
-          areaStyle: { color: trace.color, opacity: 0.18 },
-          symbol: 'none',
-          showInLegend: false,
-          tooltip: { show: false },
-          silent: true,
-          animation: false,
-          z: baseZ,
-          emphasis: { disabled: true },
-        });
-      }
-
-      series.push({
-        id: trace.id,
-        name: labels.get(trace.id),
-        type: 'line',
-        yAxisIndex,
-        // Typed unless it has to break at an INVALID sample: the nulls and
-        // step-line hold points need plain point data.
-        data: tracesWithInvalid.has(trace.id)
-          ? gappedLineData(points, (p) => p.value, step)
-          : xyData(points),
-        step: step ? 'end' : false,
-        lineStyle: {
-          color: trace.color,
-          width: trace.lineWidth,
-          type: echartsLineType(trace.lineStyle),
-          opacity: trace.lineStyle === 'none' ? 0 : 1,
-        },
-        itemStyle: { color: trace.color },
-        symbol: trace.showSymbol ? echartsSymbol(trace.symbolShape) : 'none',
-        symbolSize: trace.symbolSize,
-        showSymbol: trace.showSymbol,
-        sampling: 'lttb',
-        animation: false,
-        z: baseZ + 1,
-        emphasis: { disabled: true },
-      });
-      baseSeries.set(trace.id, series);
-    }
-
     return {
-      visibleAxes,
-      visibleTraces,
-      labels,
-      axisIndexMap,
-      orderedTraces,
-      traceData,
-      baseSeries,
-      tracesWithInvalid,
+      binnedTraceIds: ids as ReadonlySet<string>,
+      archiveEndMs: ends as ReadonlyMap<string, number>,
     };
-  }, [plot.traces, plot.axes, archiveResults, liveResults, formulaResults]);
+  }, [archiveResults]);
 
   const chartRef = useRef<ReactECharts>(null);
   // Our own wrapper around the chart; the per-axis pointer listeners attach
   // here because it survives echarts-for-react's dispose/recreate cycles.
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Set while we programmatically reset the zoom on a range re-select, so the
-  // resulting datazoom event isn't mistaken for a manual pan (which would
-  // disable autoscroll right after the range re-select re-enabled it).
-  const programmaticZoomRef = useRef(false);
+  // `wrapCallbackRef` attaches it and follows its width, which republishes the
+  // projection on a resize.
+  const [wrapCallbackRef, width, wrapRef] = useElementWidth();
+  // The drawing rail stops pointerdown, so the wrapper's focus-on-press never
+  // sees a rail press: arming focuses the root here.
+  const focusPlotRoot = useCallback(() => {
+    wrapRef.current?.focus({ preventScroll: true });
+  }, [wrapRef]);
+  // Canvas text does not inherit CSS: the chart draws in the family the
+  // wrapper computes, named only once it has loaded so the option changes
+  // then and ECharts redraws with the real face.
+  const chartFont = useChartFont(wrapRef);
+
+  // Projection + cursor stores, one each per mount; the overlay, axis badges
+  // and status line subscribe.
+  // The projection is rebuilt only from `finished` and the resize path, never
+  // during render, and each rebuild resolves the *live* instance because
+  // echarts-for-react disposes and recreates it. The layout it projects through
+  // (and its live-instance lookup) is installed as the store's source after
+  // each render. The cursor store is the drawing host's own (one per mount);
+  // the wrapper's mousemove writes it, so a pointer move
+  // re-renders only its readers.
+  const [projectionStore] = useState(createProjectionStore);
+  // The data read-out's dock (pinned: the top-right corner), and its grip.
+  const [readoutDock] = useState(() =>
+    createReadoutDock({ grid: projectionArea(projectionStore) })
+  );
+  useLayoutEffect(() => {
+    readoutDock.setPinned(plot.pinDataWindow === true);
+  }, [readoutDock, plot.pinDataWindow]);
+  useEffect(() => {
+    const dom = chartRef.current?.getEchartsInstance()?.getDom?.();
+    return dom ? attachReadoutDrag(dom, readoutDock) : undefined;
+  }, [readoutDock]);
 
   // Per-axis screen geometry + metadata, recomputed each render and read by the
   // (mount-once) pointer listeners so hit-testing always reflects the current
@@ -414,39 +445,136 @@ export function SinglePlot({
   // grid/offset math.
   const axisLayoutRef = useRef<AxisHitZone[]>([]);
   const gridBandRef = useRef<GridBand>({ top: 40, bottom: 60, left: 70, right: 20 });
-  // Latest onUpdateAxis, so the mount-once listeners always call the current one.
-  const onUpdateAxisRef = useRef(onUpdateAxis);
 
-  // Where the time axis is drawn to. `endMs` comes from the app (see
-  // axisEndMs): the plot's clock, or its newest live sample while following. A
-  // following plot also scrolls smoothly on animation frames between clock
-  // ticks (useFollowNow), so slow PVs don't wait for the next tick either.
-  const spanWindow = resolveTimeWindow(plot.xAxis, endMs).window;
-  const getWindow = useCallback(() => wrapRef.current?.ownerDocument.defaultView ?? null, []);
+  // What the chart shows. A following plot scrolls smoothly on animation
+  // frames between clock ticks (useFollowNow), so its window is the configured
+  // range ending at the scrolled instant; any other plot shows `viewWindowNs`.
+  const getWindow = useCallback(
+    () => wrapRef.current?.ownerDocument.defaultView ?? null,
+    [wrapRef]
+  );
   const getWidthPx = useCallback(
     () =>
       (wrapRef.current?.clientWidth ?? 0) - gridBandRef.current.left - gridBandRef.current.right,
-    []
+    [wrapRef]
   );
+  const follows = following && endMs !== undefined;
+  const spanWindow = resolveTimeWindow(plot.xAxis, endMs ?? 0).window;
   const shownEndMs = useFollowNow({
-    following,
-    anchorMs: endMs,
+    following: follows,
+    anchorMs: endMs ?? 0,
     spanMs: nsToMs(spanWindow.toNs - spanWindow.fromNs),
     getWindow,
     getWidthPx,
   });
-  // In-flight axis drag; null when not dragging. min/max/pxMin/pxMax are a frozen
-  // snapshot of the extent and its pixel mapping captured at mousedown.
-  const dragRef = useRef<{
-    axisId: string;
-    yAxisIndex: number;
-    logScale: boolean;
-    startY: number;
-    min: number;
-    max: number;
-    pxMin: number;
-    pxMax: number;
-  } | null>(null);
+  const viewWindowNs = follows ? resolveTimeWindow(plot.xAxis, shownEndMs).window : viewWindowProp;
+  // Latest onUpdateAxis, so the mount-once listeners always call the current one.
+  const onUpdateAxisRef = useRef(onUpdateAxis);
+  // Latest onApplyXAxis, for the mount-once listeners (range gestures).
+  const onApplyXAxisRef = useRef(onApplyXAxis);
+  // Time-window wheel state. The latest window
+  // prop, its writer and the configured range mirror into refs for the
+  // mount-once wheel router. Wheel results accumulate in `pendingWindowRef`
+  // (epoch ms), which stands in for the prop until the prop catches up, and
+  // flush once per animation frame through onViewWindowChange.
+  const viewWindowRef = useRef(viewWindowNs);
+  const onViewWindowChangeRef = useRef(onViewWindowChange);
+  const xAxisRef = useRef(plot.xAxis);
+  const pendingWindowRef = useRef<TimeWindowMs | null>(null);
+  const windowFrameRef = useRef<number | null>(null);
+  // Time-band gestures: the refresh interval decides whether a window "ends at
+  // now" (isAtNow), and the loaded buffers + visible curve ids feed the
+  // double-click All.
+  const refreshIntervalRef = useRef(refreshIntervalMs(plot));
+  // The open context menu, set by the wrapper's contextmenu listener. `target`
+  // is the wrapper's own document body and x/y that document's client
+  // coordinates, so a detached plot's menu opens in its own window. The
+  // interior plot menu is the drawing host's; one menu is open at a time, so
+  // opening either closes the other.
+  const [contextMenu, setContextMenu] = useState<
+    | null
+    | { kind: 'axis'; axisId: string; target: Element; x: number; y: number }
+    | { kind: 'time'; all: Plot['xAxis'] | null; target: Element; x: number; y: number }
+  >(null);
+  const loadedRef = useRef<{ results: LoadedResults; visibleTraceIds: string[] }>({
+    results: { archive: archiveResults, live: liveResults, formula: formulaResults },
+    visibleTraceIds: [],
+  });
+  // What a left-drag in the plot does (the strip's drag mode).
+  const dragModeRef = useRef(tracePlotView(plot).drag);
+  // The drawing host: Trace's config (built once per mount; live data read
+  // through a ref, frames bumped on traceData) over a document adapting the
+  // AnnotationChannel props. The host owns the overlay's handle: the interior
+  // pan never starts while it claims the press, and the overlay forwards the
+  // cursor to the *live* chart instance while it covers the canvas.
+  const drawingConfig = useTraceHostConfig({
+    traceData,
+    traces: overlayTraces,
+    binnedTraceIds,
+    archiveEndMs,
+    axes: visibleAxes,
+  });
+  const drawingDocument = useTraceDrawingDocument({
+    annotations: plot.annotations,
+    annotationsHidden,
+    annotationPrefs,
+    onAnnotationPrefs,
+    selectedAnnotationId,
+    onSelectAnnotation,
+    onCommitAnnotations,
+    onAnnotationsHidden,
+  });
+  const liveChart = useCallback(() => {
+    const inst = chartRef.current?.getEchartsInstance();
+    if (!inst || inst.isDisposed?.()) return null;
+    return inst;
+  }, []);
+  const host = useDrawingHost(drawingConfig, drawingDocument, projectionStore, {
+    axes: visibleAxes,
+    theme,
+    chart: liveChart,
+  });
+  const { cursorStore } = host;
+  // The cursor's time while it is inside the plot: "Copy value at cursor"
+  // from a row or the legend reads the last one.
+  const recordCursor = useContext(TraceCursorContext);
+  const plotId = plot.id;
+  useEffect(() => {
+    if (recordCursor === null) return;
+    return cursorStore.subscribe(() => {
+      const c = cursorStore.get();
+      const proj = projectionStore.get();
+      const grid = c && proj ? proj.gridAt(c.x, c.y) : undefined;
+      const t = grid && c ? grid.xToT(c.x) : Number.NaN;
+      if (Number.isFinite(t)) recordCursor(plotId, t);
+    });
+  }, [cursorStore, projectionStore, recordCursor, plotId]);
+  // The plot menu's drawing entries are disabled without a commit writer
+  // (today's rule): with no writer, they are read through a host whose owner
+  // rule places nothing.
+  const canCommit = onCommitAnnotations !== undefined;
+  const menuHost = useMemo<DrawingHost>(
+    () => (canCommit ? host : { ...host, config: { ...host.config, ownerAxisAt: () => null } }),
+    [host, canCommit]
+  );
+  // The status line keeps today's slots: no armed-tool hint (Trace never
+  // passed the tool), so it reads a document whose tool is the cursor.
+  const statusHost = useMemo<DrawingHost>(
+    () => ({
+      ...host,
+      document: { ...host.document, prefs: { ...host.document.prefs, tool: 'cursor' } },
+    }),
+    [host]
+  );
+  // The latest host for the mount-once listeners. Alt+tool arms only when
+  // there is a prefs writer (claimed only then); Esc and Delete go through
+  // the host and are claimed only when consumed, so an Esc with nothing to
+  // cancel falls through to the workbench's Escape reset. primary+Z stays the
+  // TraceApp document listener.
+  const drawingRef = useRef({ host, canArm: onAnnotationPrefs !== undefined });
+  useLayoutEffect(() => {
+    drawingRef.current = { host, canArm: onAnnotationPrefs !== undefined };
+  });
 
   // Publish a stable PngSource proxy up to the app for PNG capture; clear on
   // unmount so a captured-but-gone plot (closed tab, reattached window) isn't
@@ -456,10 +584,17 @@ export function SinglePlot({
   // stale and getDataURL() silently returns undefined on the dead instance.
   useEffect(() => {
     const source: PngSource = {
-      getDataURL(opts) {
+      async getDataURL(opts) {
         const inst = chartRef.current?.getEchartsInstance();
-        if (!inst || !inst.getDom()) return '';
-        return inst.getDataURL(opts) ?? '';
+        const root = wrapRef.current;
+        if (!inst || !inst.getDom() || !root) return '';
+        // The layer renders no svg while drawings are hidden, so none is composed.
+        return composePlotCapture(
+          root,
+          inst,
+          opts?.backgroundColor ?? theme.bg,
+          opts?.pixelRatio ?? PLOT_CAPTURE_PIXEL_RATIO
+        );
       },
     };
     onChartInstance?.(source, true);
@@ -467,54 +602,9 @@ export function SinglePlot({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- register once per mount; the callback is stable
   }, []);
 
-  // Reset the inside-zoom to full extent when the user picks a new range, or
-  // when the plot resumes following "now" (Autoscroll turned back on after a
-  // pan). This replaces the React-key remount we used to do — the chart
-  // instance survives, so dataZoom state on subsequent panning is the only
-  // thing affected. Nothing resets on the first mount (there's no zoom state
-  // yet, and the chart instance may not be fully attached to the DOM) or when
-  // the plot stops following, which would undo the user's pan.
-  const rangeKey = rangeKeyFor(plot);
-  const zoomTriggerRef = useRef({ rangeKey, following });
-  useEffect(() => {
-    const prev = zoomTriggerRef.current;
-    zoomTriggerRef.current = { rangeKey, following };
-    const resumed = following && !prev.following;
-    if (prev.rangeKey === rangeKey && !resumed) return;
-    const inst = chartRef.current?.getEchartsInstance();
-    if (!inst || !inst.getDom()) return;
-    programmaticZoomRef.current = true;
-    inst.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
-    // If the chart was already at 0-100 the action is a no-op and no `datazoom`
-    // event fires, so `handleDataZoom` never clears the flag. Without this the
-    // flag stays `true` and swallows the user's next genuine pan. Clear it on a
-    // later tick as a fallback; a real event beats the timeout and clears it
-    // first, making this a safety net rather than a race.
-    const clearTimer = window.setTimeout(() => {
-      programmaticZoomRef.current = false;
-    }, 0);
-    return () => window.clearTimeout(clearTimer);
-  }, [rangeKey, following]);
-
-  // Seed the saved sub-range directly into the inside-dataZoom on first render
-  // so popping a plot out (or reattaching) preserves the user's wheel-zoom.
-  // The flag flips after mount so subsequent setOption calls don't fight the
-  // live zoom — ECharts' partial merge keeps the chart's current start/end
-  // when these fields are omitted.
-  const [seedApplied, setSeedApplied] = useState(false);
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional first-render gate
-    setSeedApplied(true);
-  }, []);
-  const seedZoom =
-    !seedApplied && initialViewWindowNs
-      ? {
-          startValue: nsToMs(initialViewWindowNs.fromNs),
-          endValue: nsToMs(initialViewWindowNs.toNs),
-        }
-      : null;
-
   const handleFinished = useCallback(() => {
+    // Every finished layout republishes the projection, whoever else listens.
+    projectionStore.bump();
     if (!onAxisRangesChange) return;
     const inst = chartRef.current?.getEchartsInstance();
     // `finished` can fire mid-mount or after disposal when the DOM and model
@@ -533,43 +623,32 @@ export function SinglePlot({
       if (ext) next.set(axis.id, [ext[0], ext[1]]);
     });
     onAxisRangesChange(next);
-  }, [onAxisRangesChange, visibleAxes]);
+  }, [onAxisRangesChange, visibleAxes, projectionStore]);
 
-  const handleDataZoom = useCallback(() => {
-    // Ignore the zoom reset we dispatched on a range re-select; only genuine
-    // user pan/zoom should record a manual window and disable autoscroll.
-    if (programmaticZoomRef.current) {
-      programmaticZoomRef.current = false;
-      return;
-    }
-    // A genuine pan/zoom takes the window over. Stop following at once (the
-    // app freezes the plot at the `endMs` it gave us), so no tick or live batch
-    // can slide the axis under the user's drag while the view window below is
-    // debounced.
-    if (following) onFollowStop?.();
-    if (!onViewWindowChange) return;
-    const inst = chartRef.current?.getEchartsInstance();
-    if (!inst) return;
-    // Read the current x-axis extent (in ms) directly from the model — this
-    // reflects the visible time range after the user has zoomed/panned.
-    type AxisModel = { axis: { scale: { getExtent: () => [number, number] } } };
-    const xModel = (
-      inst as unknown as { getModel: () => { getComponent: (n: string, i: number) => AxisModel } }
-    )
-      .getModel()
-      .getComponent('xAxis', 0);
-    const ext = xModel?.axis?.scale?.getExtent();
-    if (!ext) return;
-    const [fromMs, toMs] = ext;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      onViewWindowChange({ fromNs: msToNs(fromMs), toNs: msToNs(toMs) });
-    }, 400);
-  }, [onViewWindowChange, following, onFollowStop]);
+  // Pointer position for the status line, in wrapper-local pixels. Its own
+  // listener, kept out of the gesture effect: it only writes the cursor store.
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const onMove = (e: MouseEvent) => {
+      if (isPlotChrome(e.target)) return;
+      const r = wrap.getBoundingClientRect();
+      cursorStore.set({ x: e.clientX - r.left, y: e.clientY - r.top });
+    };
+    const onLeave = () => cursorStore.set(null);
+    wrap.addEventListener('mousemove', onMove);
+    wrap.addEventListener('mouseleave', onLeave);
+    return () => {
+      wrap.removeEventListener('mousemove', onMove);
+      wrap.removeEventListener('mouseleave', onLeave);
+    };
+  }, [wrapRef, cursorStore]);
 
-  // Per-Y-axis mouse interactions (issue 45): scrolling over a single axis zooms
-  // only that axis; dragging an axis pans only that axis. The whole-plot X
-  // pan/zoom (the `inside` dataZoom) still owns the plot interior.
+  // The plot gestures (annotations/gestures.ts) — the same drags, wheel and
+  // double-clicks as every plot tool — over Trace's surface: one grid whose X
+  // axis is the time window and whose Y axes are the visible axes. The time
+  // band's drag stays Trace's own (anchored at its right edge, following now).
+  // Context menus and keys are Trace's and stay below.
   //
   // Listeners live on OUR wrapper div (and its window), never on the ECharts /
   // zrender instance: echarts-for-react 3.x initializes asynchronously. It
@@ -578,31 +657,223 @@ export function SinglePlot({
   // some prop changes. Anything subscribed to a zrender instance at mount time
   // dies within the first frame. The wrapper div is stable for the lifetime of
   // this component, so each handler resolves the *live* instance on demand.
+  type Ecm = {
+    convertFromPixel: (fh: { yAxisIndex: number }, px: number) => number;
+    convertToPixel: (fh: { yAxisIndex: number }, val: number) => number;
+    getModel: () => {
+      getComponent: (
+        n: string,
+        i: number
+      ) => { axis: { scale: { getExtent: () => [number, number] } } } | undefined;
+    };
+    getWidth: () => number;
+    getHeight: () => number;
+    getZr: () => { setCursorStyle: (cursor: string) => void };
+    isDisposed: () => boolean;
+  };
+  const liveEc = useCallback((): Ecm | null => {
+    const inst = chartRef.current?.getEchartsInstance() as unknown as Ecm | undefined;
+    return inst && !inst.isDisposed() ? inst : null;
+  }, []);
+
+  // Grid rectangle in canvas px (left/top/width/height).
+  const gridRectOf = (ec: Ecm) => {
+    const g = gridBandRef.current;
+    return {
+      left: g.left,
+      top: g.top,
+      width: ec.getWidth() - g.left - g.right,
+      height: ec.getHeight() - g.top - g.bottom,
+    };
+  };
+
+  // The window a gesture acts on: the pending one while a write is in flight,
+  // else the prop, else the configured range (no controlled window).
+  const currentWindowMs = useCallback((): TimeWindowMs => {
+    if (pendingWindowRef.current) return pendingWindowRef.current;
+    const w = viewWindowRef.current ?? resolveTimeWindow(xAxisRef.current, Date.now()).window;
+    return windowNsToMs(w);
+  }, []);
+
+  // Queue a window and flush it once per frame: any number of
+  // wheel events between two frames reach the app as ONE onViewWindowChange.
+  const queueWindow = useCallback(
+    (next: TimeWindowMs) => {
+      if (!Number.isFinite(next.from) || !Number.isFinite(next.to) || next.to <= next.from) return;
+      pendingWindowRef.current = next;
+      if (windowFrameRef.current !== null) return;
+      const win = wrapRef.current?.ownerDocument.defaultView ?? window;
+      windowFrameRef.current = win.requestAnimationFrame(() => {
+        windowFrameRef.current = null;
+        const w = pendingWindowRef.current;
+        if (!w) return;
+        onViewWindowChangeRef.current?.(windowMsToNs(w));
+      });
+    },
+    [wrapRef]
+  );
+
+  // A drag of the time band: the window captured at mousedown is scaled about
+  // its RIGHT edge by the total horizontal drag, one write per animation
+  // frame. `follow` is fixed at mousedown: a window that ends at now keeps
+  // following, so its frames write `{ follow: true }` and the gesture ends
+  // with ONE relative xAxis. The end (mouseup, a lost release, blur, cleanup)
+  // delivers a still-pending frame; a follow drag ALWAYS performs its final
+  // write from the newest window it knows of, so no plot is left holding a
+  // follow window with autoscroll on. That write is one relative xAxis, or a
+  // plain frozen window when the span is under the relative floor or no xAxis
+  // writer is wired.
+  const timeBandDrag = useCallback((): XBandDrag | null => {
+    if (!onViewWindowChangeRef.current) return null;
+    const win = wrapRef.current?.ownerDocument.defaultView ?? window;
+    const captured = currentWindowMs();
+    const follow = isAtNow(captured, Date.now(), refreshIntervalRef.current);
+    let active = false;
+    let latest: TimeWindowMs | null = null;
+    let frame: number | null = null;
+    let pendingDx: number | null = null;
+    const stretched = (dx: number) => {
+      const factor = stretchFactorX(dx);
+      if (factor === 1) return null;
+      const next = stretchTimeRightAnchored(captured, factor);
+      if (!Number.isFinite(next.from) || !(next.to > next.from)) return null;
+      return next;
+    };
+    const flush = () => {
+      const dx = pendingDx;
+      pendingDx = null;
+      if (dx === null) return;
+      const next = stretched(dx);
+      if (!next) return;
+      latest = next;
+      if (follow) onViewWindowChangeRef.current?.(windowMsToNs(next), { follow: true });
+      else onViewWindowChangeRef.current?.(windowMsToNs(next));
+    };
+    const cancelFrame = () => {
+      if (frame !== null) win.cancelAnimationFrame(frame);
+      frame = null;
+    };
+    return {
+      move(dx) {
+        active = true;
+        pendingDx = dx;
+        if (frame !== null) return;
+        frame = win.requestAnimationFrame(() => {
+          frame = null;
+          flush();
+        });
+      },
+      end(commit) {
+        cancelFrame();
+        if (commit && !follow) flush();
+        else if (follow && pendingDx !== null) latest = stretched(pendingDx) ?? latest;
+        pendingDx = null;
+        if (!follow || !active || !latest) return;
+        const span = relativeSpanFor(latest);
+        const apply = onApplyXAxisRef.current;
+        if (span && apply) apply({ ...xAxisRef.current, timeRange: span });
+        else onViewWindowChangeRef.current?.(windowMsToNs(latest));
+      },
+    };
+  }, [wrapRef, currentWindowMs]);
+
+  // The gesture axes, kept across events so a freeze marks them manual at
+  // once; rebuilt from the plot after each render.
+  const gestureAxesRef = useRef<{
+    x: GestureAxis;
+    sides: SideAxis[];
+    indexOf: Map<string, number>;
+  }>({
+    x: { id: TIME_AXIS_ID, dim: 'x', log: false, auto: false },
+    sides: [],
+    indexOf: new Map(),
+  });
+  const gestureSurface = useMemo<PlotGestureSurface>(() => {
+    const gridOf = (ec: Ecm): GestureGrid => {
+      const { x, sides } = gestureAxesRef.current;
+      return { rect: gridRectOf(ec), x, ys: sides.map((s) => s.axis) };
+    };
+    return {
+      chart() {
+        const ec = liveEc();
+        if (!ec) return null;
+        return {
+          getWidth: () => ec.getWidth(),
+          getHeight: () => ec.getHeight(),
+          setCursor: (cursor) => ec.getZr().setCursorStyle(cursor),
+        };
+      },
+      grids() {
+        const ec = liveEc();
+        return ec ? [gridOf(ec)] : [];
+      },
+      axisAt(x, y) {
+        const ec = liveEc();
+        if (!ec) return null;
+        return bandAt(x, y, gridOf(ec), gestureAxesRef.current.sides, AXIS_OFFSET);
+      },
+      extent(axis) {
+        if (axis.dim === 'x') {
+          const w = currentWindowMs();
+          return { min: w.from, max: w.to };
+        }
+        const ec = liveEc();
+        const idx = gestureAxesRef.current.indexOf.get(axis.id);
+        if (!ec || idx === undefined) return null;
+        const ext = ec.getModel().getComponent('yAxis', idx)?.axis?.scale?.getExtent();
+        return ext ? { min: ext[0], max: ext[1] } : null;
+      },
+      valueAt(axis, grid, px) {
+        if (axis.dim === 'x') {
+          // From the window being zoomed, never convertFromPixel, which lags
+          // until the next `finished`.
+          const w = currentWindowMs();
+          return w.from + ((px - grid.rect.left) / grid.rect.width) * (w.to - w.from);
+        }
+        const ec = liveEc();
+        const idx = gestureAxesRef.current.indexOf.get(axis.id);
+        if (!ec || idx === undefined) return NaN;
+        return ec.convertFromPixel({ yAxisIndex: idx }, px);
+      },
+      write(axis, { min, max }, { freeze, wheel }) {
+        if (axis.dim === 'x') {
+          const next = { from: min, to: max };
+          // A wheel burst flushes once per frame; a drag frame writes at once.
+          if (wheel) queueWindow(next);
+          else onViewWindowChangeRef.current?.(windowMsToNs(next));
+          return true;
+        }
+        onUpdateAxisRef.current?.(axis.id, freeze ? { autoScale: false, min, max } : { min, max });
+        // Context menus read the same zone: it is manual from now on.
+        const zone = axisLayoutRef.current.find((a) => a.axisId === axis.id);
+        if (zone && freeze) zone.autoScale = false;
+        return true;
+      },
+      reset(axis) {
+        if (axis.dim === 'y') {
+          onUpdateAxisRef.current?.(axis.id, { autoScale: true });
+          const zone = axisLayoutRef.current.find((a) => a.axisId === axis.id);
+          if (zone) zone.autoScale = true;
+          return;
+        }
+        // The time band's All: earliest loaded sample to now as a relative
+        // span, applied whenever it exists.
+        const { results, visibleTraceIds } = loadedRef.current;
+        const all = allLoadedXAxis(xAxisRef.current, results, visibleTraceIds, Date.now());
+        if (all) onApplyXAxisRef.current?.(all);
+      },
+      dragMode: () => dragModeRef.current,
+      claimsPointer: (e) => drawingRef.current.host.claimsPointer(e),
+      xBandDrag: () => timeBandDrag(),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refs only; built once per mount
+  }, []);
+  usePlotGestures(wrapRef, gestureSurface);
+
+  // Context menus and keys (Trace's own; the gestures are the layer's above).
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
-    // Detached plots render into a `window.open` document; drag tracking must
-    // listen on THAT window, not the opener's.
-    const win = wrap.ownerDocument.defaultView ?? window;
-
-    type Ecm = {
-      convertFromPixel: (fh: { yAxisIndex: number }, px: number) => number;
-      convertToPixel: (fh: { yAxisIndex: number }, val: number) => number;
-      getModel: () => {
-        getComponent: (
-          n: string,
-          i: number
-        ) => { axis: { scale: { getExtent: () => [number, number] } } } | undefined;
-      };
-      getWidth: () => number;
-      getHeight: () => number;
-      getZr: () => { setCursorStyle: (cursor: string) => void };
-      isDisposed: () => boolean;
-    };
-    const liveEc = (): Ecm | null => {
-      const inst = chartRef.current?.getEchartsInstance() as unknown as Ecm | undefined;
-      return inst && !inst.isDisposed() ? inst : null;
-    };
 
     // Wrapper-local coordinates. The wrapper exactly overlays the chart canvas
     // (both fill 100% × 100% with no padding), so these are canvas pixels.
@@ -614,244 +885,133 @@ export function SinglePlot({
     const hitTest = (ec: Ecm, x: number, y: number) =>
       hitTestAxis(x, y, ec.getWidth(), ec.getHeight(), gridBandRef.current, axisLayoutRef.current);
 
-    const extentOf = (ec: Ecm, yAxisIndex: number): [number, number] | null =>
-      ec.getModel().getComponent('yAxis', yAxisIndex)?.axis?.scale?.getExtent() ?? null;
-
-    // zrender re-stamps `cursor: default` onto its own root element on every
-    // mousemove, overriding anything set on an ancestor. Write through
-    // setCursorStyle instead; our handlers run after zrender's for the same
-    // event (they sit further out on the bubble path), so our write lands last.
-    const setCursor = (cursor: string) => liveEc()?.getZr().setCursorStyle(cursor);
-
-    // Freeze an auto-scaled axis to its current computed extent so the delta we
-    // apply isn't immediately overwritten by autoscale on the next render.
-    const commit = (
-      axisId: string,
-      logScale: boolean,
-      min: number,
-      max: number,
-      freeze: boolean
-    ) => {
-      if (!Number.isFinite(min) || !Number.isFinite(max)) return;
-      // A degenerate (flat-line) extent is valid for a freeze — the axis must
-      // still switch to manual — but a zoom/pan that collapses to zero range is
-      // pointless and would lock the axis.
-      if (min === max && !freeze) return;
-      if (logScale && (min <= 0 || max <= 0)) return;
-      const lo = Math.min(min, max);
-      const hi = Math.max(min, max);
-      onUpdateAxisRef.current?.(
-        axisId,
-        freeze ? { autoScale: false, min: lo, max: hi } : { min: lo, max: hi }
-      );
-    };
-
-    const onMouseDown = (e: MouseEvent) => {
-      if (e.button !== 0) return;
+    // Right-click: a Y axis opens the AxisMenu, the time
+    // strip the TimeBandMenu, with All resolved from the loaded buffers now.
+    // The grid interior opens the PlotMenu; chrome keeps the native menu.
+    const onContextMenu = (e: MouseEvent) => {
+      if (isPlotChrome(e.target)) return;
       const ec = liveEc();
       if (!ec) return;
       const { x, y } = toLocal(e);
+      const target = wrap.ownerDocument.body;
       const hit = hitTest(ec, x, y);
-      if (!hit) return;
-      e.preventDefault(); // no text selection / native drag while panning the axis
-      const ext = extentOf(ec, hit.yAxisIndex);
-      if (!ext) return;
-      // Freeze-to-manual up front so the drag delta isn't clobbered by autoscale.
-      if (hit.autoScale) {
-        commit(hit.axisId, hit.logScale, ext[0], ext[1], true);
-        const zone = axisLayoutRef.current.find((a) => a.axisId === hit.axisId);
-        if (zone) zone.autoScale = false;
-      }
-      // Snapshot the extent AND its pixel mapping once. The drag math below runs
-      // entirely off this frozen snapshot; it must not re-read the live scale,
-      // because committing a new min/max re-renders the axis and shifts the
-      // pixel<->data mapping out from under an in-progress drag.
-      const pxMin = ec.convertToPixel({ yAxisIndex: hit.yAxisIndex }, ext[0]);
-      const pxMax = ec.convertToPixel({ yAxisIndex: hit.yAxisIndex }, ext[1]);
-      dragRef.current = {
-        axisId: hit.axisId,
-        yAxisIndex: hit.yAxisIndex,
-        logScale: hit.logScale,
-        startY: y,
-        min: ext[0],
-        max: ext[1],
-        pxMin,
-        pxMax,
-      };
-    };
-
-    // Drag tracking lives on the window so the pan keeps following (and reliably
-    // ends) outside the canvas; the axis band touches the canvas edge, so a
-    // drag overshoots it constantly.
-    const onWindowMouseMove = (e: MouseEvent) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      // If the button was released where our mouseup couldn't see it (over
-      // browser chrome, another window, devtools), no mouseup reaches `win` and
-      // dragRef would stay set, panning the axis on every later move. buttons===0
-      // means nothing is held, so end the drag here.
-      if (e.buttons === 0) {
-        dragRef.current = null;
+      if (hit) {
+        e.preventDefault();
+        drawingRef.current.host.menu.set(null);
+        setContextMenu({ kind: 'axis', axisId: hit.axisId, target, x: e.clientX, y: e.clientY });
         return;
       }
-      // Pan the FROZEN mousedown mapping by the total drag delta; see panExtent
-      // for the direction/log-space semantics.
-      const next = panExtent(drag, toLocal(e).y - drag.startY);
-      if (!next) return;
-      commit(drag.axisId, drag.logScale, next[0], next[1], false);
-      // zrender stamps `default` on every in-canvas move; re-assert while dragging.
-      setCursor('ns-resize');
-    };
-
-    const onWindowMouseUp = () => {
-      dragRef.current = null;
-    };
-
-    // Hover affordance. Re-assert on every move while over a band (zrender
-    // resets the cursor each mousemove); restore once on leaving so we don't
-    // fight ECharts' own cursor over the plot interior.
-    let hovering = false;
-    const onHoverMove = (e: MouseEvent) => {
-      if (dragRef.current) return;
-      const ec = liveEc();
-      if (!ec) return;
-      const { x, y } = toLocal(e);
-      const over = hitTest(ec, x, y) !== null;
-      if (over) setCursor('ns-resize');
-      else if (hovering) setCursor('default');
-      hovering = over;
-    };
-
-    // Native listener so preventDefault can cancel page scroll over an axis
-    // band (the inside dataZoom already ignores wheel outside the grid).
-    const onWheel = (e: WheelEvent) => {
-      const ec = liveEc();
-      if (!ec) return;
-      const { x, y } = toLocal(e);
-      const hit = hitTest(ec, x, y);
-      if (!hit) return;
-      // A purely horizontal scroll (deltaY 0, e.g. shift+wheel or a sideways
-      // trackpad gesture) carries no zoom intent; ignore it so we neither zoom
-      // the axis nor swallow the horizontal scroll via preventDefault.
-      if (e.deltaY === 0) return;
-      e.preventDefault();
-      const ext = extentOf(ec, hit.yAxisIndex);
-      if (!ext) return;
-      if (hit.autoScale) {
-        commit(hit.axisId, hit.logScale, ext[0], ext[1], true);
-        // Mark the ref stale synchronously so subsequent wheel events in the same
-        // React batch don't re-freeze (the useEffect hasn't re-synced yet).
-        const zone = axisLayoutRef.current.find((a) => a.axisId === hit.axisId);
-        if (zone) zone.autoScale = false;
+      if (!hitTestTimeBand(x, y, ec.getWidth(), ec.getHeight(), gridBandRef.current)) {
+        const grid = gridRectOf(ec);
+        const inside =
+          x >= grid.left &&
+          x <= grid.left + grid.width &&
+          y >= grid.top &&
+          y <= grid.top + grid.height;
+        if (!inside) return;
+        e.preventDefault();
+        setContextMenu(null);
+        drawingRef.current.host.openPlotMenu({
+          localX: x,
+          localY: y,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          target,
+        });
+        return;
       }
-      const anchor = ec.convertFromPixel({ yAxisIndex: hit.yAxisIndex }, y);
-      if (!Number.isFinite(anchor) || (hit.logScale && anchor <= 0)) return;
-      const factor = e.deltaY > 0 ? 1.1 : 1 / 1.1; // scroll down = zoom out
-      const next = zoomExtent(ext[0], ext[1], anchor, factor, hit.logScale);
-      commit(hit.axisId, hit.logScale, next[0], next[1], false);
+      e.preventDefault();
+      drawingRef.current.host.menu.set(null);
+      const { results, visibleTraceIds } = loadedRef.current;
+      const all = allLoadedXAxis(xAxisRef.current, results, visibleTraceIds, Date.now());
+      setContextMenu({ kind: 'time', all, target, x: e.clientX, y: e.clientY });
     };
 
-    wrap.addEventListener('mousedown', onMouseDown);
-    wrap.addEventListener('mousemove', onHoverMove);
-    wrap.addEventListener('wheel', onWheel, { passive: false });
-    win.addEventListener('mousemove', onWindowMouseMove);
-    win.addEventListener('mouseup', onWindowMouseUp);
+    // Keys: a press focuses the root so its keymap is live —
+    // with preventScroll, and only when it is not already focused, so a partly
+    // visible grid cell or the embedding iframe never scrolls under the pointer.
+    const onPointerDownFocus = () => {
+      if (wrap.ownerDocument.activeElement === wrap) return;
+      wrap.focus({ preventScroll: true });
+    };
+    // Shift-measure: a shift+press inside the
+    // grid hands the pointer to the overlay. pointerdown precedes mousedown, so
+    // the gesture layer then sees the claim and never pans.
+    const onPointerDownMeasure = (e: PointerEvent) => {
+      if (!e.shiftKey || e.button !== 0 || isPlotChrome(e.target)) return;
+      const ec = liveEc();
+      if (!ec) return;
+      const grid = gridRectOf(ec);
+      if (grid.width <= 0 || grid.height <= 0) return;
+      const { x, y } = toLocal(e);
+      if (x < grid.left || x > grid.left + grid.width) return;
+      if (y < grid.top || y > grid.top + grid.height) return;
+      drawingRef.current.host.beginModifierGesture(e);
+    };
+    // ONE native keydown listener on the root: it runs before the workbench's
+    // React-delegated Escape handler. Navigation goes through the wheel
+    // window's rAF flush; drawing commands go to the host's
+    // handleDrawingKey and are claimed only when it reports them consumed.
+    const onKeyDown = (e: KeyboardEvent) => {
+      const cmd = resolveKey(e);
+      if (cmd === null) return;
+      if (!isNavigationCommand(cmd)) {
+        const { host: h, canArm } = drawingRef.current;
+        if (cmd.kind === 'arm' && !canArm) return;
+        if (h.handleDrawingKey(cmd)) e.preventDefault();
+        return;
+      }
+      e.preventDefault();
+      const w = currentWindowMs();
+      const span = w.to - w.from;
+      if (cmd.kind === 'pan') {
+        queueWindow(panTime(w, cmd.dir * PAN_STEP * span));
+      } else {
+        const factor = cmd.dir === 'in' ? 1 / ZOOM_STEP : ZOOM_STEP;
+        queueWindow(zoomTimeAt(w, w.from + span / 2, factor));
+      }
+    };
+
+    wrap.addEventListener('pointerdown', onPointerDownFocus);
+    wrap.addEventListener('pointerdown', onPointerDownMeasure);
+    wrap.addEventListener('keydown', onKeyDown);
+    wrap.addEventListener('contextmenu', onContextMenu);
 
     return () => {
-      wrap.removeEventListener('mousedown', onMouseDown);
-      wrap.removeEventListener('mousemove', onHoverMove);
-      wrap.removeEventListener('wheel', onWheel);
-      win.removeEventListener('mousemove', onWindowMouseMove);
-      win.removeEventListener('mouseup', onWindowMouseUp);
-    };
-  }, []);
-
-  // Axes sharing a side (left/right) would otherwise stack at the same spot and
-  // overlap, so we offset each one outward by its position within that side.
-  const sideIndexMap = new Map<string, number>();
-  let leftAxesCount = 0;
-  let rightAxesCount = 0;
-  for (const axis of visibleAxes) {
-    if (axis.orientation === 'right') sideIndexMap.set(axis.id, rightAxesCount++);
-    else sideIndexMap.set(axis.id, leftAxesCount++);
-  }
-
-  // Pin the x-axis extent to the requested time range so the axis spans the
-  // full window even when archive data is sparse and clusters in a sub-range.
-  // dataZoom inside the chart still sub-zooms within [min, max].
-  const requested = resolveTimeWindow(plot.xAxis, shownEndMs).window;
-  const xAxisMin = nsToMs(requested.fromNs);
-  const xAxisMax = nsToMs(requested.toNs);
-
-  // INVALID stretches per trace, and the marker lane each trace draws them in.
-  // Only drawn traces take a lane, in draw order, so a trace on a hidden axis
-  // doesn't push the drawn ones into the shared last lane. Stretches outside
-  // the window take none, and an open one runs to the right edge, so this
-  // follows the axis as it scrolls.
-  const invalidByTrace = useMemo(() => {
-    const out = new Map<string, { stretches: [number, number][]; lane: number }>();
-    for (const { trace } of orderedTraces) {
-      if (!tracesWithInvalid.has(trace.id)) continue;
-      const stretches = invalidStretches(traceData.get(trace.id) ?? [], xAxisMin, xAxisMax);
-      if (stretches.length > 0) out.set(trace.id, { stretches, lane: out.size });
-    }
-    return out;
-  }, [orderedTraces, traceData, tracesWithInvalid, xAxisMin, xAxisMax]);
-
-  // Extension lines: a dashed line from each trace's last sample to the right
-  // edge. A following plot is never zoomed (a pan or zoom stops it following),
-  // so two points do, and moving them as the axis scrolls costs nothing. A
-  // frozen plot can be zoomed, so it gets the dense anchors; its axis holds
-  // still, so they're only rebuilt when the samples change. None from an
-  // INVALID last sample: the marker covers that stretch.
-  const extensionSeries = useMemo(() => {
-    const out = new Map<string, Record<string, unknown>>();
-    const anchors = following ? 2 : EXTENSION_ANCHORS;
-    for (const { trace, yAxisIndex, baseZ } of orderedTraces) {
-      if (trace.showExtensionLine === false || trace.lineStyle === 'none') continue;
-      const last = traceData.get(trace.id)?.at(-1);
-      if (!last || isInvalid(last) || last.time >= xAxisMax) continue;
-      const startMs = Math.max(last.time, xAxisMin);
-      const data = new Float64Array(anchors * 2);
-      for (let k = 0; k < anchors; k++) {
-        // The last anchor sits exactly on the edge; a rounding step past it
-        // would be filtered out and take a two-point line with it.
-        data[2 * k] =
-          k === anchors - 1 ? xAxisMax : startMs + ((xAxisMax - startMs) * k) / (anchors - 1);
-        data[2 * k + 1] = last.value;
+      wrap.removeEventListener('contextmenu', onContextMenu);
+      wrap.removeEventListener('pointerdown', onPointerDownFocus);
+      wrap.removeEventListener('pointerdown', onPointerDownMeasure);
+      wrap.removeEventListener('keydown', onKeyDown);
+      const win = wrap.ownerDocument.defaultView ?? window;
+      if (windowFrameRef.current !== null) {
+        win.cancelAnimationFrame(windowFrameRef.current);
+        windowFrameRef.current = null;
       }
-      out.set(trace.id, {
-        id: `${trace.id}-extension`,
-        name: `${trace.displayName} (extension)`,
-        type: 'line',
-        yAxisIndex,
-        data,
-        lineStyle: {
-          color: trace.color,
-          width: trace.lineWidth,
-          type: 'dashed',
-          opacity: 0.7,
-        },
-        itemStyle: { color: trace.color },
-        symbol: 'none',
-        showSymbol: false,
-        showInLegend: false,
-        tooltip: { show: false },
-        silent: true,
-        animation: false,
-        z: baseZ + 1,
-        emphasis: { disabled: true },
-      });
-    }
-    return out;
-  }, [orderedTraces, traceData, xAxisMin, xAxisMax, following]);
+      pendingWindowRef.current = null;
+    };
+    // wrapRef is a stable ref object (useElementWidth's useRef): still mount-once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the helpers read refs only
+  }, [wrapRef]);
 
-  // Grid insets. Named so the per-axis hit-zones (below) derive from the exact
-  // same numbers ECharts lays the grid out with.
-  const GRID_TOP = 40;
-  const GRID_BOTTOM = 60;
-  const gridLeft = 70 + Math.max(0, leftAxesCount - 1) * AXIS_OFFSET;
-  const gridRight = (rightAxesCount > 0 ? 70 : 20) + Math.max(0, rightAxesCount - 1) * AXIS_OFFSET;
+  const layout = plotLayout(visibleAxes);
+  const { axisIndexMap, sideIndexMap, gridLeft, gridRight } = layout;
+
+  // Install what the projection projects through (read on finished/resize).
+  useEffect(() => {
+    projectionStore.setSource(() => {
+      const inst = chartRef.current?.getEchartsInstance() as unknown as
+        | ProjectionInstance
+        | undefined;
+      if (!inst || inst.isDisposed?.()) return null;
+      return buildProjection(inst, layout, visibleAxes);
+    });
+  });
+
+  // The resize path: a new wrapper width moves the grid, so republish. Declared
+  // after the source install above so the mount-time bump already sees the layout.
+  useEffect(() => {
+    projectionStore.bump();
+  }, [width, projectionStore]);
 
   // Publish per-axis metadata for the pointer listeners. The listener claims the
   // whole out-of-grid margin per side and slots it by sideIndex, so we only need
@@ -870,190 +1030,286 @@ export function SinglePlot({
   // don't fight React's render rules; listeners only read them on later events.
   useEffect(() => {
     axisLayoutRef.current = axisHitZones;
+    gestureAxesRef.current = {
+      x: {
+        id: TIME_AXIS_ID,
+        dim: 'x',
+        log: false,
+        auto: false,
+        fixed: onViewWindowChange === undefined,
+      },
+      sides: axisHitZones.map((z) => ({
+        axis: { id: z.axisId, dim: 'y', log: z.logScale, auto: z.autoScale },
+        side: z.side,
+        slot: z.sideIndex,
+      })),
+      indexOf: new Map(axisHitZones.map((z) => [z.axisId, z.yAxisIndex])),
+    };
+    dragModeRef.current = tracePlotView(plot).drag;
     gridBandRef.current = { top: GRID_TOP, bottom: GRID_BOTTOM, left: gridLeft, right: gridRight };
     onUpdateAxisRef.current = onUpdateAxis;
+    onApplyXAxisRef.current = onApplyXAxis;
+    onViewWindowChangeRef.current = onViewWindowChange;
+    xAxisRef.current = plot.xAxis;
+    refreshIntervalRef.current = refreshIntervalMs(plot);
+    loadedRef.current = {
+      results: { archive: archiveResults, live: liveResults, formula: formulaResults },
+      visibleTraceIds: plot.traces.filter((t) => t.visible).map((t) => t.id),
+    };
+    const prev = viewWindowRef.current;
+    viewWindowRef.current = viewWindowNs;
+    // The prop caught up (or someone else moved the window): drop the pending
+    // window unless a frame still has to deliver a newer one.
+    if (
+      pendingWindowRef.current &&
+      windowFrameRef.current === null &&
+      (prev?.fromNs !== viewWindowNs?.fromNs || prev?.toNs !== viewWindowNs?.toNs)
+    ) {
+      pendingWindowRef.current = null;
+    }
   });
 
-  // Shared Canopy chart styling from canopy-charts: animation off, the Plex
-  // font, and themed axes, tooltip and legend. Trace layers its own layout and
-  // content on top.
-  const base = baseChartOption(theme);
-  const baseTooltip = base.tooltip as TooltipComponentOption;
-  const baseLegend = base.legend as LegendComponentOption;
-  const axisStyle = chartAxisStyle(theme);
-
-  const option = {
-    ...base,
-    backgroundColor: effectiveBackground(plot.backgroundColor, theme),
-    grid: {
-      top: GRID_TOP,
-      bottom: GRID_BOTTOM,
-      left: gridLeft,
-      right: gridRight,
-    },
-    xAxis: {
-      type: 'time',
-      min: xAxisMin,
-      max: xAxisMax,
-      ...axisStyle,
-      // ECharts keeps its time-tick spacing however narrow the chart is (e.g.
-      // grid cells), so drop labels that would overlap rather than run together.
-      axisLabel: {
-        ...axisStyle.axisLabel,
-        fontSize: plot.tickFontSize,
-        hideOverlap: true,
-        // Clear the INVALID markers drawn under the axis.
-        margin: xAxisLabelMargin(invalidByTrace.size),
-      },
-      splitLine: {
-        show: plot.showXGridlines,
-        lineStyle: {
-          ...axisStyle.splitLine.lineStyle,
-          type: plot.gridStyle,
-          opacity: plot.gridOpacity,
-        },
-      },
-    },
-    yAxis: visibleAxes.map((axis, axisIdx) => ({
-      // Intentionally no `id`: with replaceMerge, ECharts matches by id and
-      // would pin a surviving axis back to its old slot index, leaving a
-      // hole at the deleted slot. Series then point to that hole and ECharts
-      // throws "yAxis 0 not found". Index-based mapping fills slots cleanly.
-      type: axis.logScale ? 'log' : 'value',
-      name: axis.name,
-      ...axisStyle,
-      nameTextStyle: { ...axisStyle.nameTextStyle, fontSize: 11 },
-      // Run the title vertically alongside its own axis line so titles never
-      // collide when multiple axes share a side. nameGap clears the labels.
-      nameLocation: 'middle',
-      nameRotate: 90,
-      nameGap: 65,
-      position: axis.orientation,
-      offset: (sideIndexMap.get(axis.id) ?? 0) * AXIS_OFFSET,
-      min: axis.autoScale ? undefined : axis.min,
-      max: axis.autoScale ? undefined : axis.max,
-      scale: axis.autoScale,
-      axisLabel: { ...axisStyle.axisLabel, fontSize: plot.tickFontSize, formatter: formatAxisTick },
-      // ECharts hides axisLine on secondary y-axes by default; force it on so
-      // every stacked axis shows its own vertical line next to its labels.
-      axisLine: { ...axisStyle.axisLine, show: true },
-      splitLine: {
-        // Horizontal gridlines are a property of the grid, not each axis: with
-        // multiple Y axes on differing scales their ticks fall at different
-        // heights, so drawing more than one set overlaps into a broken-looking
-        // grid. Draw only the primary (first visible) axis's lines.
-        show: plot.showYGridlines && axisIdx === 0,
-        lineStyle: {
-          ...axisStyle.splitLine.lineStyle,
-          type: plot.gridStyle,
-          opacity: plot.gridOpacity,
-        },
-      },
-    })),
-    series: orderedTraces.flatMap(({ trace, yAxisIndex, baseZ }) => {
-      const out = [...(baseSeries.get(trace.id) ?? [])];
-      const invalid = invalidByTrace.get(trace.id);
-      if (invalid) {
-        out.push(
-          invalidMarkerSeries({
-            id: `${trace.id}-invalid`,
-            name: `${labels.get(trace.id)} (invalid)`,
-            color: trace.color,
-            yAxisIndex,
-            lane: invalid.lane,
-            stretches: invalid.stretches,
-            z: baseZ + 1,
-          })
-        );
-      }
-      const ext = extensionSeries.get(trace.id);
-      if (ext) out.push(ext);
-      return out;
-    }),
-    dataZoom: [
-      {
-        type: 'inside',
-        zoomOnMouseWheel: true,
-        moveOnMouseMove: true,
-        moveOnMouseWheel: false,
-        // 'weakFilter' drops segments only when both endpoints are outside the
-        // window on the same side — extension lines survive any intersecting zoom.
-        filterMode: 'weakFilter',
-        ...(seedZoom ?? {}),
-      },
-    ],
-    tooltip: {
-      ...baseTooltip,
-      trigger: 'axis',
-      axisPointer: {
-        ...baseTooltip.axisPointer,
-        type: plot.showCrosshair ? 'cross' : 'none', // 'cross' adds Y-axis readout; 'none' hides crosshair but keeps tooltip
-        snap: false,
-        label: {
-          ...baseTooltip.axisPointer?.label,
-          formatter: (
-            p: { value: number; axisDimension?: string } // X --> timestamp, Y --> raw value
-          ) => (p.axisDimension === 'y' ? formatValue(p.value) : formatCrosshairTime(p.value)),
-        },
-      },
-      textStyle: { ...baseTooltip.textStyle, fontSize: 11 },
-      // Walk every visible trace ourselves rather than trusting `params`. With
-      // snap: false, ECharts only includes series that have a sample exactly
-      // under the cursor — sparse archive data leaves most traces out. The
-      // closure captures `traceData` and `visibleTraces` from the surrounding
-      // render so each line shows the trace's nearest sample plus the time
-      // offset between cursor and that sample.
-      formatter: (params: { axisValue: number }[] | { axisValue: number }) => {
-        const arr = Array.isArray(params) ? params : [params];
-        if (arr.length === 0) return '';
-        const cursorMs = arr[0]?.axisValue;
-        if (typeof cursorMs !== 'number' || !Number.isFinite(cursorMs)) return '';
-        const time = formatCrosshairTime(cursorMs);
-        const lines: string[] = [];
-        for (const trace of visibleTraces) {
-          const data = traceData.get(trace.id);
-          const sample = data ? nearestSample(data, cursorMs) : undefined;
-          const severity =
-            sample?.severity && sample.severity !== 'NO_ALARM' ? ` ${sample.severity}` : '';
-          const valueCell = sample
-            ? `${formatValue(sample.value)}${severity} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
-            : `<span style="color:${theme.tooltipMuted}">no data</span>`;
-          lines.push(
-            `<span style="color:${trace.color}">${labels.get(trace.id)}</span>: ${valueCell}`
-          );
-        }
-        return `<div style="font-size:11px"><div style="color:${theme.tooltipMuted};margin-bottom:4px">${time}</div>${lines.join('<br/>')}</div>`;
-      },
-    },
-    legend: {
-      ...baseLegend,
-      show: plot.showLegend,
-      bottom: 8,
-      textStyle: { ...baseLegend.textStyle, fontSize: 11 },
-      data: visibleTraces.map((t) => labels.get(t.id)),
-      selectedMode: false, // legend clicks aren't wired to trace.visible --> disable to + avoid drift
-    },
+  const built = buildPlotOption({
+    plot,
+    archiveResults,
+    liveResults,
+    formulaResults,
+    theme,
+    fontFamily: chartFont.ready ? chartFont.fontFamily : undefined,
+    viewWindow: viewWindowNs,
+    endMs,
+    traceData,
+    samples,
+    readoutDock,
+  });
+  // No curve highlights from its (selectable) legend entry (`LegendMenu`).
+  const option = { ...built, series: quietLegendHover(built.series as object[]) };
+  const missingPvs = notArchivedPvs(plot, archiveResults, liveResults);
+  const plotView = tracePlotView(plot);
+  // The axis an open AxisMenu edits, read fresh so its checkmarks track the
+  // plot; an axis hidden or removed meanwhile simply drops the menu.
+  const contextMenuAxis =
+    contextMenu?.kind === 'axis' ? visibleAxes.find((a) => a.id === contextMenu.axisId) : undefined;
+  const closeContextMenu = () => setContextMenu(null);
+  // The interior plot menu: the point menu with the host's add entries and
+  // Reset view. The xAxis contract carries nothing but the configured range,
+  // so re-applying it drops any wheel/pan window; each manual axis goes back
+  // to auto-scale.
+  const resetView = () => {
+    onApplyXAxis?.({ ...plot.xAxis });
+    for (const axis of plot.axes) {
+      if (!axis.autoScale) onUpdateAxis?.(axis.id, { autoScale: true });
+    }
   };
-
+  useDrawingPlotMenu(menuHost, {
+    point: (p) =>
+      tracePointMenu(p, {
+        plot,
+        window: viewWindowNs,
+        colorMode,
+        drawingsHidden: annotationsHidden === true,
+        resetView,
+      }),
+  });
+  // A right-click on a legend entry: that curve's menu.
+  const menus = useContextMenu();
+  const onLegend = (name: string, e: MouseEvent): boolean => {
+    const trace = plot.traces.find((t) => traceLabel(t, plot.traces) === name);
+    if (menus === null || trace === undefined) return false;
+    return menus.openSignals([trace.id], {
+      x: e.clientX,
+      y: e.clientY,
+      target: wrapRef.current?.ownerDocument.body,
+    });
+  };
+  const legendMenu = useLatest(onLegend);
+  // A left-click on a legend entry toggles nothing (`LegendMenu`).
+  const [legend] = useState(() => new LegendMenu((name, e) => legendMenu.current(name, e)));
+  const chartEvents = legend.events;
   return (
     // data-plot-id lets capturePlotPng find this chart's ECharts instance in
     // the document (print snapshots). Detached plots live in another window's
     // document, so they're naturally out of scope. data-fullscreen marks the
     // popped-out copy so capture targets it over the in-window one, which
     // shares the same data-plot-id.
-    <div
-      ref={wrapRef}
-      data-plot-id={plot.id}
-      data-fullscreen={fullscreen ? 'true' : undefined}
-      style={{ height: '100%', width: '100%' }}
-    >
-      <ReactECharts
-        ref={chartRef}
-        option={option}
-        replaceMerge={['series', 'yAxis']}
-        onEvents={{ datazoom: handleDataZoom, finished: handleFinished }}
-        style={{ height: '100%', width: '100%' }}
-        opts={{ renderer: 'canvas' }}
+    // The flex column puts the status line BELOW the wrapper: the wrapper
+    // keeps the remaining height and still exactly overlays the canvas.
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
+      <div
+        ref={wrapCallbackRef}
+        data-plot-id={plot.id}
+        data-fullscreen={fullscreen ? 'true' : undefined}
+        // Focusable so the plot keymap receives keys; no ring.
+        tabIndex={0}
+        style={{
+          position: 'relative',
+          flex: '1 1 0',
+          minHeight: 0,
+          width: '100%',
+          outline: 'none',
+        }}
+      >
+        {/* data-chart-host: capturePlotPng resolves the ECharts host as its
+            child, wherever chrome mounts in the wrapper. */}
+        <div data-chart-host="" style={{ height: '100%', width: '100%' }}>
+          <ReactECharts
+            ref={chartRef}
+            option={option}
+            replaceMerge={['series', 'yAxis']}
+            onEvents={{ ...chartEvents, finished: handleFinished }}
+            style={{ height: '100%', width: '100%' }}
+            opts={{ renderer: 'canvas' }}
+          />
+        </div>
+        {missingPvs.length > 0 && (
+          <div
+            data-testid="archive-empty-notice"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              pointerEvents: 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: theme.axisLabel,
+              fontSize: 13,
+            }}
+          >
+            {missingPvs.map(({ pv, notice }) => (
+              <div key={pv}>{`${notice}: ${pv}`}</div>
+            ))}
+          </div>
+        )}
+        {/* Plot chrome mounts after the chart; capture finds
+            the chart through [data-chart-host], not by position. */}
+        <DrawingLayers host={host} />
+        <AxisBadges
+          projectionStore={projectionStore}
+          axes={visibleAxes}
+          layout={{ sideIndexMap, gridRight, axisOffset: AXIS_OFFSET }}
+          theme={theme}
+          onUpdateAxis={onUpdateAxis}
+        />
+        {/* The rail mounts only with a writer; without a prefs writer its
+            tools stay disabled and only hide-all is live. */}
+        {onAnnotationPrefs ? (
+          <DrawingRailFor
+            host={host}
+            focusRoot={focusPlotRoot}
+            view={plotView}
+            onView={onPlotView}
+          />
+        ) : (
+          (onAnnotationsHidden || onPlotView) && (
+            <DrawingRail
+              catalog={BUILTIN_CATALOG}
+              prefs={annotationPrefs ?? DEFAULT_TOOL_PREFS}
+              hidden={annotationsHidden === true}
+              onHiddenChange={onAnnotationsHidden}
+              view={plotView}
+              onView={onPlotView}
+              focusRoot={focusPlotRoot}
+            />
+          )
+        )}
+        {contextMenuAxis && contextMenu?.kind === 'axis' && (
+          <AxisMenu
+            axis={contextMenuAxis}
+            target={contextMenu.target}
+            x={contextMenu.x}
+            y={contextMenu.y}
+            onUpdateAxis={onUpdateAxis}
+            onClose={closeContextMenu}
+          />
+        )}
+        {contextMenu?.kind === 'time' && (
+          <TimeBandMenu
+            xAxis={plot.xAxis}
+            all={contextMenu.all}
+            target={contextMenu.target}
+            x={contextMenu.x}
+            y={contextMenu.y}
+            onApplyXAxis={onApplyXAxis}
+            onClose={closeContextMenu}
+          />
+        )}
+      </div>
+      {plot.showStatusLine !== false && <DrawingStatusLine host={statusHost} />}
+    </div>
+  );
+}
+
+/**
+ * A plot with its statistics panel docked underneath: the
+ * chart fills the stage, the panel (when the plot's Show statistics is on)
+ * takes the bottom. The frame is the plot's curves inside its view window —
+ * the caller's resolved window, else the panned window, else the relative
+ * range against the second-quantised clock — and the strips tick on the
+ * newest sample. The window's bounds must be stable between frames: one
+ * resolved from the clock on every render would make a new frame each time
+ * and the statistics hook's render-phase update would chase it.
+ */
+export function PlotWithStatistics(props: SinglePlotProps) {
+  const {
+    plot,
+    archiveResults,
+    liveResults,
+    formulaResults,
+    viewWindowNs,
+    statsWindowNs,
+    ...rest
+  } = props;
+  const theme = useChartTheme();
+  const metrics = useMemo(() => plotMetrics(plot), [plot]);
+  const window =
+    statsWindowNs ??
+    viewWindowNs ??
+    // eslint-disable-next-line react-hooks/purity -- the second-quantised clock is the stable fallback described above
+    resolveTimeWindow(plot.xAxis, Math.floor(Date.now() / 1000) * 1000).window;
+  const frame = useMemo(
+    () =>
+      plot.showStats === true
+        ? traceStatFrame(
+            plot,
+            { archive: archiveResults, live: liveResults, formula: formulaResults },
+            window
+          )
+        : null,
+    // The window's identity may change per render; its bounds are what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [plot, archiveResults, liveResults, formulaResults, window.fromNs, window.toNs]
+  );
+  const stats = useStatistics(TRACE_METRICS, frame, metrics, frameClockMs(frame));
+  const unitOf = useCallback(
+    (rowId: string, unit: string) => traceUnitOf(plot, rowId, unit),
+    [plot]
+  );
+  return (
+    <div className="stats-canvas" data-testid="plot-with-statistics">
+      <div className="stats-canvas__stage">
+        <div className="stats-canvas__fill">
+          <SinglePlot
+            {...rest}
+            plot={plot}
+            archiveResults={archiveResults}
+            liveResults={liveResults}
+            formulaResults={formulaResults}
+            viewWindowNs={viewWindowNs}
+          />
+        </div>
+      </div>
+      <StatisticsPanel
+        show={plot.showStats === true}
+        catalog={TRACE_METRICS}
+        metrics={metrics}
+        table={stats.table}
+        strips={stats.strips}
+        unitOf={unitOf}
+        rowHeading="Curve"
+        chartTheme={theme}
+        distribution={plot.showDist === true}
+        frame={frame}
       />
     </div>
   );
@@ -1079,15 +1335,41 @@ export function PlotArea({
   onDetachPlot,
   onReattachPlot,
   onViewWindowChange,
-  onFollowStop,
-  viewWindowByPlot,
+  displayWindowByPlotId,
   axisEndFor,
+  followingFor,
   onAxisRangesChange,
   onUpdateAxis,
+  onApplyXAxis,
   onChartInstance,
+  statsWindowByPlotId,
+  lastRelativeSpanFor,
+  hostBar = false,
+  // Every AnnotationChannel field rides through untouched: slicing them out by
+  // name once dropped a newly added one (onCommitAnnotations) from the tab and
+  // grid mounts while the fullscreen/detached mounts still had it.
+  ...annotationChannel
 }: PlotAreaProps) {
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
   const isDetached = (id: string) => detachedPlotIds.includes(id);
+  const channel: AnnotationChannel = annotationChannel;
+
+  // The range chips for one plot: the tab bar's for the
+  // active plot, each grid cell's for its own.
+  const rangeControlsFor = (plot: Plot) => (
+    <RangeControls
+      xAxis={plot.xAxis}
+      viewWindowNs={displayWindowByPlotId.get(plot.id)}
+      results={{
+        archive: archiveResultsByPlot.get(plot.id),
+        live: liveResultsByPlot.get(plot.id),
+        formula: formulaResultsByPlot.get(plot.id),
+      }}
+      visibleTraceIds={plot.traces.filter((t) => t.visible).map((t) => t.id)}
+      getLastRelativeSpan={lastRelativeSpanFor ? () => lastRelativeSpanFor(plot.id) : undefined}
+      onApplyXAxis={onApplyXAxis ? (x) => onApplyXAxis(plot.id, x) : undefined}
+    />
+  );
 
   // Near-square tiling: columns = ceil(sqrt(n)), rows = ceil(n / columns). This
   // keeps every cell a real, evenly-sized tile so no plot collapses to a sliver
@@ -1151,22 +1433,31 @@ export function PlotArea({
         </div>
 
         <div className="plot-tab-bar__controls">
+          {viewMode === 'tabs' && (
+            <div data-range-site="tab" style={{ marginRight: 6 }}>
+              {rangeControlsFor(activePlot)}
+            </div>
+          )}
+          {hostBar ? null : (
+            <>
+              <button
+                className={`canopy-btn view-mode-btn${viewMode === 'tabs' ? ' view-mode-btn--active' : ''}`}
+                title="Tab view"
+                onClick={() => onSetViewMode('tabs')}
+              >
+                <ColumnDependency size={16} />
+              </button>
+              <button
+                className={`canopy-btn view-mode-btn${viewMode === 'grid' ? ' view-mode-btn--active' : ''}`}
+                title="Grid view"
+                onClick={() => onSetViewMode('grid')}
+              >
+                <Grid size={16} />
+              </button>
+            </>
+          )}
           <button
-            className={`view-mode-btn${viewMode === 'tabs' ? ' view-mode-btn--active' : ''}`}
-            title="Tab view"
-            onClick={() => onSetViewMode('tabs')}
-          >
-            <ColumnDependency size={16} />
-          </button>
-          <button
-            className={`view-mode-btn${viewMode === 'grid' ? ' view-mode-btn--active' : ''}`}
-            title="Grid view"
-            onClick={() => onSetViewMode('grid')}
-          >
-            <Grid size={16} />
-          </button>
-          <button
-            className="view-mode-btn"
+            className="canopy-btn view-mode-btn"
             title="Add plot"
             onClick={onAddPlot}
             style={{ marginLeft: 4 }}
@@ -1185,30 +1476,34 @@ export function PlotArea({
               onReattach={() => onReattachPlot(activePlot.id)}
             />
           ) : (
-            <SinglePlot
+            <PlotWithStatistics
               key={activePlot.id}
               plot={activePlot}
-              endMs={axisEndFor(activePlot.id)}
-              following={isFollowing(activePlot, viewWindowByPlot)}
-              onFollowStop={onFollowStop ? () => onFollowStop(activePlot.id) : undefined}
               archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
               liveResults={liveResultsByPlot.get(activePlot.id) ?? EMPTY_LIVE_RESULTS}
               formulaResults={formulaResultsByPlot.get(activePlot.id) ?? EMPTY_FORMULA_RESULTS}
               onViewWindowChange={
-                onViewWindowChange ? (w) => onViewWindowChange(activePlot.id, w) : undefined
+                onViewWindowChange
+                  ? (w, opts) => onViewWindowChange(activePlot.id, w, opts)
+                  : undefined
               }
-              initialViewWindowNs={viewWindowByPlot.get(activePlot.id)}
+              viewWindowNs={displayWindowByPlotId.get(activePlot.id)}
+              endMs={axisEndFor?.(activePlot.id)}
+              following={followingFor?.(activePlot.id)}
+              statsWindowNs={statsWindowByPlotId?.get(activePlot.id)}
               onAxisRangesChange={
                 onAxisRangesChange ? (r) => onAxisRangesChange(activePlot.id, r) : undefined
               }
               onUpdateAxis={
                 onUpdateAxis ? (id, u) => onUpdateAxis(activePlot.id, id, u) : undefined
               }
+              onApplyXAxis={onApplyXAxis ? (x) => onApplyXAxis(activePlot.id, x) : undefined}
               onChartInstance={
                 onChartInstance
                   ? (inst, active) => onChartInstance(activePlot.id, inst, active)
                   : undefined
               }
+              {...annotationMountProps(activePlot.id, channel)}
             />
           )
         ) : (
@@ -1220,7 +1515,16 @@ export function PlotArea({
             }}
           >
             {plots.map((plot) => (
-              <div key={plot.id} className="plot-grid__cell">
+              // A pointer-down anywhere in the cell activates its plot.
+              // The event is never stopped, so axis drag/zoom and the cell
+              // buttons below still receive it.
+              <div
+                key={plot.id}
+                className={`plot-grid__cell${plot.id === activePlot.id ? ' plot-grid__cell--active' : ''}`}
+                onPointerDownCapture={() => {
+                  if (plot.id !== activePlotId) onSetActivePlot(plot.id);
+                }}
+              >
                 <button
                   className="plot-grid__cell-btn plot-grid__cell-btn--maximize"
                   title="Fullscreen"
@@ -1246,35 +1550,51 @@ export function PlotArea({
                     <Close size={14} />
                   </button>
                 )}
+                {/* The cell's own range chips, acting on this plot. */}
+                <div
+                  data-range-site="grid"
+                  style={{
+                    position: 'absolute',
+                    top: 8,
+                    right: plots.length > 1 ? 40 : 8,
+                    zIndex: 10,
+                  }}
+                >
+                  {rangeControlsFor(plot)}
+                </div>
                 {isDetached(plot.id) ? (
                   <DetachedPlaceholder
                     title={plot.title}
                     onReattach={() => onReattachPlot(plot.id)}
                   />
                 ) : (
-                  <SinglePlot
+                  <PlotWithStatistics
                     plot={plot}
-                    endMs={axisEndFor(plot.id)}
-                    following={isFollowing(plot, viewWindowByPlot)}
-                    onFollowStop={onFollowStop ? () => onFollowStop(plot.id) : undefined}
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
                     liveResults={liveResultsByPlot.get(plot.id) ?? EMPTY_LIVE_RESULTS}
                     formulaResults={formulaResultsByPlot.get(plot.id) ?? EMPTY_FORMULA_RESULTS}
                     onViewWindowChange={
-                      onViewWindowChange ? (w) => onViewWindowChange(plot.id, w) : undefined
+                      onViewWindowChange
+                        ? (w, opts) => onViewWindowChange(plot.id, w, opts)
+                        : undefined
                     }
-                    initialViewWindowNs={viewWindowByPlot.get(plot.id)}
+                    viewWindowNs={displayWindowByPlotId.get(plot.id)}
+                    endMs={axisEndFor?.(plot.id)}
+                    following={followingFor?.(plot.id)}
+                    statsWindowNs={statsWindowByPlotId?.get(plot.id)}
                     onAxisRangesChange={
                       onAxisRangesChange ? (r) => onAxisRangesChange(plot.id, r) : undefined
                     }
                     onUpdateAxis={
                       onUpdateAxis ? (id, u) => onUpdateAxis(plot.id, id, u) : undefined
                     }
+                    onApplyXAxis={onApplyXAxis ? (x) => onApplyXAxis(plot.id, x) : undefined}
                     onChartInstance={
                       onChartInstance
                         ? (inst, active) => onChartInstance(plot.id, inst, active)
                         : undefined
                     }
+                    {...annotationMountProps(plot.id, channel)}
                   />
                 )}
               </div>

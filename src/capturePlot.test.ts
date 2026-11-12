@@ -33,13 +33,17 @@ function plot(backgroundColor = '#161616'): Plot {
   };
 }
 
-// Mount a SinglePlot-shaped wrapper: [data-plot-id] > (chart host div).
+// Mount a SinglePlot-shaped wrapper: [data-plot-id] > [data-chart-host] >
+// (chart host div).
 function mountChart(opts: { fullscreen?: boolean; dataUrl?: string } = {}) {
   const wrap = document.createElement('div');
   wrap.dataset.plotId = 'p1';
   if (opts.fullscreen) wrap.dataset.fullscreen = 'true';
+  const chartHost = document.createElement('div');
+  chartHost.dataset.chartHost = '';
   const host = document.createElement('div');
-  wrap.appendChild(host);
+  chartHost.appendChild(host);
+  wrap.appendChild(chartHost);
   document.body.appendChild(wrap);
   const getDataURL = vi.fn(() => opts.dataUrl ?? PNG);
   h.charts.set(host, { getDataURL });
@@ -55,43 +59,43 @@ afterEach(() => {
 });
 
 describe('capturePlotPng', () => {
-  it('returns null when the plot is not mounted in this document', () => {
-    expect(capturePlotPng(plot(), 'dark')).toBeNull();
+  it('returns null when the plot is not mounted in this document', async () => {
+    expect(await capturePlotPng(plot(), 'dark')).toBeNull();
   });
 
-  it('captures at pixel ratio 2 with the theme background for a default plot', () => {
+  it('captures at pixel ratio 2 with the theme background for a default plot', async () => {
     const getDataURL = mountChart();
-    expect(capturePlotPng(plot(), 'dark')).toBe(PNG);
+    expect(await capturePlotPng(plot(), 'dark')).toBe(PNG);
     expect(getDataURL).toHaveBeenLastCalledWith({
       type: 'png',
       pixelRatio: 2,
       backgroundColor: '#161616',
     });
-    capturePlotPng(plot(), 'light');
+    await capturePlotPng(plot(), 'light');
     expect(getDataURL).toHaveBeenLastCalledWith(
       expect.objectContaining({ backgroundColor: '#f4f4f4' })
     );
   });
 
-  it('keeps a user-chosen background', () => {
+  it('keeps a user-chosen background', async () => {
     const getDataURL = mountChart();
-    capturePlotPng(plot('#123456'), 'light');
+    await capturePlotPng(plot('#123456'), 'light');
     expect(getDataURL).toHaveBeenLastCalledWith(
       expect.objectContaining({ backgroundColor: '#123456' })
     );
   });
 
-  it('prefers the fullscreen copy when asked, the in-window one otherwise', () => {
+  it('prefers the fullscreen copy when asked, the in-window one otherwise', async () => {
     const inWindow = mountChart({ dataUrl: 'data:image/png;base64,aW4=' });
     const fullscreen = mountChart({ fullscreen: true, dataUrl: 'data:image/png;base64,ZnM=' });
-    expect(capturePlotPng(plot(), 'dark', true)).toBe('data:image/png;base64,ZnM=');
+    expect(await capturePlotPng(plot(), 'dark', true)).toBe('data:image/png;base64,ZnM=');
     expect(fullscreen).toHaveBeenCalledTimes(1);
-    expect(capturePlotPng(plot(), 'dark')).toBe('data:image/png;base64,aW4=');
+    expect(await capturePlotPng(plot(), 'dark')).toBe('data:image/png;base64,aW4=');
     expect(inWindow).toHaveBeenCalledTimes(1);
   });
 
-  it('returns null instead of throwing when the chart yields no image', () => {
+  it('returns null instead of throwing when the chart yields no image', async () => {
     mountChart({ dataUrl: '' });
-    expect(capturePlotPng(plot(), 'dark')).toBeNull();
+    expect(await capturePlotPng(plot(), 'dark')).toBeNull();
   });
 });

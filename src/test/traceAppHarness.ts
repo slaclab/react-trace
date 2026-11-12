@@ -1,23 +1,28 @@
-// Scaffolding for tests that mount the real <TraceApp> with its panels mocked
-// out. Import it BEFORE TraceApp: the browser stubs below must exist when
-// themeStore/paletteStore read localStorage at module load.
+// Scaffolding for tests that mount the real <TraceApp> and drive it the way a
+// user does: the workbench actions bar (Import, Save), the properties pane
+// (the curve card's PV name) and the props PlotArea receives. Import it
+// BEFORE TraceApp: the browser stubs below must exist when the colour-mode store and
+// paletteStore read localStorage at module load.
 //
 // `vi.mock` is hoisted per test file, so each file declares its own mocks and
 // points the factories here, e.g.
 //
-//   vi.mock('./Toolbar', async () => (await import('../test/traceAppHarness')).mocks.Toolbar);
+//   vi.mock('./PlotArea', async (importOriginal) =>
+//     (await import('../test/traceAppHarness')).mocks.PlotArea(await importOriginal()));
 //
-// The mocked panels render nothing and record their latest props in `captured`,
-// which is how tests read TraceApp state (`captured.plotArea.plots`) and drive
-// it (`captured.toolbar.onImport()`, `captured.rightPanel.onSelectPv(...)`).
-import { act } from '@testing-library/react';
-import type { ComponentProps } from 'react';
+// PlotArea is replaced by a stub that renders nothing (so no chart mounts)
+// and records its props in `captured.plotArea`, which is how tests read the
+// plots and result maps TraceApp renders. WorkbenchLayout renders for real;
+// its latest props are kept in `captured.layout`, which gives tests the
+// selection store and the tool's single writer.
+import { act, fireEvent, screen, within } from '@testing-library/react';
+import { createElement, type ComponentProps } from 'react';
 import { vi } from 'vitest';
-import type { LeftPanel } from '../components/LeftPanel';
 import type { PlotArea } from '../components/PlotArea';
-import type { RightPanel } from '../components/RightPanel';
-import type { Toolbar } from '../components/Toolbar';
+import { PV_CURVE_ITEM_KIND, patchCurve } from '../tools/trace/schema/curve';
+import type { TraceState } from '../tools/trace/tool';
 import type { Axis, Plot, PVTrace } from '../types';
+import type { SelectionStore } from '../workbench/selection';
 
 // ── Browser stubs (jsdom lacks these; Node 25+ also shadows jsdom's storage) ──
 
@@ -63,41 +68,33 @@ if (!('ResizeObserver' in globalThis)) {
   } as unknown as typeof ResizeObserver;
 }
 
+// No backend: the PV search and any other request fail at once.
+globalThis.fetch = (() => Promise.reject(new Error('offline'))) as typeof fetch;
+
 // TraceApp reports import failures and warnings through alert().
 export const alertMock = vi.fn();
 window.alert = alertMock;
 
-// ── Captured panel props ─────────────────────────────────────────────────────
+// ── Captured props ───────────────────────────────────────────────────────────
+
+type PlotAreaProps = ComponentProps<typeof PlotArea>;
+
+/** What the harness reads from WorkbenchLayout's props. */
+export interface LayoutProps {
+  state: TraceState;
+  selection: SelectionStore;
+  update(fn: (state: TraceState) => TraceState): void;
+}
 
 export interface Captured {
-  toolbar: ComponentProps<typeof Toolbar> | null;
-  leftPanel: ComponentProps<typeof LeftPanel> | null;
-  plotArea: ComponentProps<typeof PlotArea> | null;
-  rightPanel: ComponentProps<typeof RightPanel> | null;
+  plotArea: PlotAreaProps | null;
+  layout: LayoutProps | null;
 }
 
-export const captured: Captured = {
-  toolbar: null,
-  leftPanel: null,
-  plotArea: null,
-  rightPanel: null,
-};
+export const captured: Captured = { plotArea: null, layout: null };
 
-// Every render's props, oldest first, for assertions about intermediate frames.
-export const renders: { [K in keyof Captured]: NonNullable<Captured[K]>[] } = {
-  toolbar: [],
-  leftPanel: [],
-  plotArea: [],
-  rightPanel: [],
-};
-
-function capture<K extends keyof Captured>(key: K) {
-  return (props: NonNullable<Captured[K]>) => {
-    captured[key] = props;
-    renders[key].push(props);
-    return null;
-  };
-}
+// Every PlotArea render's props, oldest first, for assertions about intermediate frames.
+export const renders: { plotArea: PlotAreaProps[] } = { plotArea: [] };
 
 // ── File picker queue (stands in for ../io/download's pickFile) ──────────────
 
@@ -110,10 +107,24 @@ export function queueFile(name: string, text: string): void {
 
 // Module bodies for the `vi.mock` factories.
 export const mocks = {
-  Toolbar: { Toolbar: capture('toolbar') },
-  LeftPanel: { LeftPanel: capture('leftPanel') },
-  PlotArea: { PlotArea: capture('plotArea'), SinglePlot: () => null },
-  RightPanel: { RightPanel: capture('rightPanel') },
+  /** `./PlotArea` with PlotArea replaced by a recording stub; the rest is the real module. */
+  PlotArea<M extends object>(actual: M): M {
+    function RecordingPlotArea(props: PlotAreaProps) {
+      captured.plotArea = props;
+      renders.plotArea.push(props);
+      return null;
+    }
+    return { ...actual, PlotArea: RecordingPlotArea };
+  },
+  /** `../workbench/WorkbenchLayout` rendering for real, its latest props recorded. */
+  WorkbenchLayout<M extends object>(actual: M): M {
+    const Real = (actual as { WorkbenchLayout: (props: object) => null }).WorkbenchLayout;
+    function RecordingWorkbenchLayout(props: object) {
+      captured.layout = props as LayoutProps;
+      return createElement(Real, props);
+    }
+    return { ...actual, WorkbenchLayout: RecordingWorkbenchLayout };
+  },
   useElogConfig: { useElogConfig: () => null },
   download: {
     pickFile: async () => pickQueue.shift() ?? null,
@@ -123,11 +134,9 @@ export const mocks = {
 };
 
 export function resetHarness(): void {
-  captured.toolbar = null;
-  captured.leftPanel = null;
   captured.plotArea = null;
-  captured.rightPanel = null;
-  for (const list of Object.values(renders)) list.length = 0;
+  captured.layout = null;
+  renders.plotArea.length = 0;
   pickQueue.length = 0;
   alertMock.mockClear();
   mocks.download.downloadBlob.mockClear();
@@ -149,15 +158,52 @@ export function currentPlots(): Plot[] {
   return captured.plotArea.plots;
 }
 
-// Load a workspace through the toolbar's Open action, as a user would.
+function layout(): LayoutProps {
+  if (!captured.layout) throw new Error('WorkbenchLayout has not rendered');
+  return captured.layout;
+}
+
+// The actions bar button whose accessible name starts with `label`.
+export function actionButton(label: string): HTMLButtonElement {
+  const toolbar = screen.getByRole('toolbar', { name: 'Tool actions' });
+  return within(toolbar).getByRole('button', {
+    name: (name) => name.startsWith(label),
+  }) as HTMLButtonElement;
+}
+
+// Load a workspace through the actions bar's Import, as a user would.
 export async function loadWorkspace(text: string, name = 'workspace.trc.json'): Promise<void> {
-  if (!captured.toolbar) throw new Error('Toolbar has not rendered');
   queueFile(name, text);
-  const { onImport } = captured.toolbar;
+  const button = actionButton('Import');
   await act(async () => {
-    onImport();
+    fireEvent.click(button);
     await flushMicrotasks();
   });
+}
+
+// Open the curve's card in the properties pane, as a click on its Layers row does.
+export function selectCurve(traceId: string): void {
+  const { selection } = layout();
+  act(() => selection.select({ level: 'item', kind: PV_CURVE_ITEM_KIND, id: traceId }, 'user'));
+}
+
+// Commit a PV in the curve card's PV name field, as a user typing it and
+// pressing Enter: the field stores the PV and starts the unit lookup.
+export function commitPv(traceId: string, pvName: string): void {
+  selectCurve(traceId);
+  const input = document.getElementById('pv-name') as HTMLInputElement | null;
+  if (!input) throw new Error('the properties pane shows no PV name field');
+  act(() => {
+    fireEvent.change(input, { target: { value: pvName } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+  });
+}
+
+// Give a curve another PV through the tool's writer, without a unit lookup
+// (any edit that is not the PV name field).
+export function setCurvePv(traceId: string, pvName: string): void {
+  const { update } = layout();
+  act(() => update((state) => patchCurve(state, traceId, { pvName })));
 }
 
 // ── Workspace fixtures ───────────────────────────────────────────────────────
@@ -185,7 +231,6 @@ export function pvTrace(id: string, pvName: string, extra: Partial<PVTrace> = {}
     visible: true,
     axisId: 'axis-1',
     useLive: false,
-    updateRate: 'monitor',
     useArchive: false,
     lineWidth: 2,
     lineType: 'step',

@@ -26,6 +26,7 @@ export const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 /** The chrome files checked when no argument is given. */
 export const DEFAULT_FILES = [
+  'src/App.css',
   'src/index.css',
   'src/components/PvCombo.tsx',
 ].map((rel) => fileURLToPath(new URL(`../${rel}`, import.meta.url)));

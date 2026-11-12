@@ -70,6 +70,12 @@ describe('Blocked pop-up notice', () => {
 
   it('still tells the user when the plot has no title', () => {
     render(<TraceApp />, { wrapper: WithCanopy });
+    // Title is in the plot's Display section, which starts closed.
+    fireEvent.click(
+      document.querySelector<HTMLElement>(
+        '.wb-plot-section[data-section="display"] .wb-plot-section__head'
+      )!
+    );
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: '' } });
     fireEvent.click(screen.getByTitle('Detach to window'));
 

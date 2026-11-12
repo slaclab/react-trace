@@ -190,6 +190,7 @@ describe('defaults', () => {
   it('are the chrome files, resolved from the script and not the cwd', () => {
     expect(DEFAULT_FILES.every((file: string) => path.isAbsolute(file))).toBe(true);
     expect(DEFAULT_FILES.map(keyOf)).toEqual([
+      'src/App.css',
       'src/index.css',
       'src/components/PvCombo.tsx',
     ]);

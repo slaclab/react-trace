@@ -14,6 +14,11 @@ repo_url = "https://github.com/slaclab/react-trace"
 nav = [
   { "Home" = "index.md" },
   { "Users" = "users/user_guide.md" },
+  { "Tools" = [
+    { "The properties panel" = "workbench.md" },
+    { "Statistics" = "statistics.md" },
+    { "Drawing tools" = "drawing-tools.md" },
+  ] },
 ]
 
 # ----------------------------------------------------------------------------

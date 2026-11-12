@@ -4,7 +4,7 @@
 // plot overlay, but a dialog opened on top of it (Post to E-Log, a Carbon
 // ComposedModal) takes that Escape first and leaves the overlay open.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
 import { TraceApp } from './TraceApp';
 import { WithCanopy } from '../test/canopy';
@@ -72,11 +72,12 @@ describe('Fullscreen plot overlay', () => {
     expect(fullscreenPlot()).toBeNull();
   });
 
-  it('lets a dialog opened on top take the first Escape', () => {
+  it('lets a dialog opened on top take the first Escape', async () => {
     render(<TraceApp />, { wrapper: WithCanopy });
     fireEvent.click(screen.getByTitle('Fullscreen'));
     fireEvent.click(screen.getByRole('button', { name: /Post to E-Log/ }));
-    expect(visibleModal()).not.toBeNull();
+    // The dialog opens once the plot capture (asynchronous) settles.
+    await waitFor(() => expect(visibleModal()).not.toBeNull());
 
     pressEscape();
     expect(visibleModal()).toBeNull();

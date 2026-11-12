@@ -1,19 +1,53 @@
+import { storedMetrics } from '../tools/trace/metrics';
 import type { Plot, PVTrace, Axis } from '../types';
 import type { ColorMode } from '@slaclab/canopy-shell/color-mode';
 import { getPalette, colorForIndex, DEFAULT_PALETTE_ID } from '../palettes';
 import { parseSpanMs, toDatetimeLocal } from '../api/time';
+import { chartThemeFor } from '@slaclab/canopy-charts';
+import { effectiveBackground, isThemeDefaultBackground } from '../plotBackground';
+import { withFilePalette } from './paletteInference';
+import { BUILTIN_CATALOG } from '../annotations/catalog';
+import type { Catalog } from '../annotations/catalog/types';
+import { TIME_X_AXIS } from '../annotations/catalog/xAxis';
+import { validateAnnotationIn, type Annotation } from '../annotations/model';
+import { reassignUnknownAxes, withAnnotations } from '../tools/trace/drawing/plotDrawings';
+import { TRACE_DEFAULT_DRAG } from '../tools/trace/plotView';
 
 // Native save format — a superset of what's currently in app state plus a
 // schema version for forward compatibility. Bumping schemaVersion means the
 // loader rejects (or migrates) older files. Keep field names mirror app types
 // so a round-trip is just JSON.parse/stringify.
+//
+// The version stays 1 and the shape stays today's, so a pre-workbench
+// Trace still opens a new file. Two value rules carry the "automatic" settings
+// without a marker:
+//   - Background: the writer writes the resolved background (a theme default
+//     when automatic); the reader takes a theme-default value as automatic.
+//     Old and new readers therefore draw the same thing.
+//   - Live retention: a pinned retention is written under
+//     `LIVE_RETENTION_PIN_KEY`, a key the pre-workbench format never used; the
+//     legacy `liveRetentionMs` key is never written and is always read as
+//     automatic (old writers stamped it on every curve). An old reader ignores
+//     the new key and keeps it on re-save, because its rehydrate spreads.
 export const SCHEMA_VERSION = 1;
+
+/** The `.trc.json` curve key a pinned live retention (ms) is stored under. */
+export const LIVE_RETENTION_PIN_KEY = 'liveRetentionPinMs';
+
+/** A curve as written to `.trc.json`: no `liveRetentionMs`, maybe the pin key. */
+export type WireTrace = Omit<PVTrace, 'liveRetentionMs'> & { [LIVE_RETENTION_PIN_KEY]?: number };
+
+/** A plot as written to `.trc.json`: background resolved, wire curves. */
+export type WirePlot = Omit<Plot, 'traces' | 'backgroundColor'> & {
+  backgroundColor: string;
+  traces: WireTrace[];
+};
 
 export interface TraceWorkspace {
   schemaVersion: number;
   savedAt: string; // ISO 8601
   theme: ColorMode;
-  plots: Plot[];
+  plots: WirePlot[];
 }
 
 export function serializeWorkspace(args: { theme: ColorMode; plots: Plot[] }): string {
@@ -21,18 +55,29 @@ export function serializeWorkspace(args: { theme: ColorMode; plots: Plot[] }): s
     schemaVersion: SCHEMA_VERSION,
     savedAt: new Date().toISOString(),
     theme: args.theme,
-    plots: args.plots.map(stripTraceData),
+    plots: args.plots.map((p) => toWirePlot(p, args.theme)),
   };
   return JSON.stringify(ws, null, 2);
 }
 
 // `data` is the per-trace mock array for live previews; it's regenerated at
 // runtime, no point persisting it. Strip on save, fill back with [] on load.
-function stripTraceData(plot: Plot): Plot {
+// The background is written resolved so an old reader draws it as the
+// new one does. Drawings ride on the spread; `withAnnotations`
+// keeps an empty list off the wire, so add-then-delete saves byte-equal.
+function toWirePlot(plot: Plot, theme: ColorMode): WirePlot {
   return {
-    ...plot,
-    traces: plot.traces.map((t) => ({ ...t, data: [] })),
+    ...withAnnotations(plot, plot.annotations ?? []),
+    backgroundColor: effectiveBackground(plot.backgroundColor, chartThemeFor(theme)),
+    traces: plot.traces.map(toWireTrace),
   };
+}
+
+function toWireTrace(trace: PVTrace): WireTrace {
+  const { liveRetentionMs, ...rest } = trace;
+  const out: WireTrace = { ...rest, data: [] };
+  if (liveRetentionMs !== undefined) out[LIVE_RETENTION_PIN_KEY] = liveRetentionMs;
+  return out;
 }
 
 export interface DeserializeResult {
@@ -42,7 +87,17 @@ export interface DeserializeResult {
   warnings: string[];
 }
 
-export function deserializeWorkspace(text: string): DeserializeResult {
+/** What the reader validates a file's drawings against. */
+export interface DeserializeOptions {
+  /** The app's drawing tools; a drawing of another kind is dropped. Default: Trace's built-ins. */
+  catalog?: Catalog;
+}
+
+export function deserializeWorkspace(
+  text: string,
+  options: DeserializeOptions = {}
+): DeserializeResult {
+  const catalog = options.catalog ?? BUILTIN_CATALOG;
   const data: unknown = JSON.parse(text);
   if (!data || typeof data !== 'object') throw new Error('Invalid file: not an object');
   const obj = data as Record<string, unknown>;
@@ -54,7 +109,9 @@ export function deserializeWorkspace(text: string): DeserializeResult {
         `File schema version ${obj.schemaVersion} is newer than the app understands (${SCHEMA_VERSION}). Update the app.`
       );
     }
-    let plots = Array.isArray(obj.plots) ? (obj.plots as Plot[]).map(rehydratePlot) : [];
+    let plots = Array.isArray(obj.plots)
+      ? (obj.plots as Plot[]).map((p) => rehydratePlot(p, catalog))
+      : [];
     // Migrate the old workspace-level default archiver onto each plot that
     // doesn't already carry one (the default is now per-plot).
     if (typeof obj.globalArchiver === 'string') {
@@ -63,6 +120,9 @@ export function deserializeWorkspace(text: string): DeserializeResult {
     }
     // Saves from before the month preset rename used "-1m" for one month.
     if (isMonthEraSave(obj.savedAt)) plots = plots.map(migrateMonthPreset);
+    // A plot that states no palette opens in the one its curve colours imply
+    //, so an untouched old file shows no Palette dot.
+    plots = plots.map(withFilePalette);
     return {
       source: 'native',
       theme: typeof obj.theme === 'string' ? (obj.theme as ColorMode) : undefined,
@@ -81,22 +141,63 @@ export function deserializeWorkspace(text: string): DeserializeResult {
   throw new Error('Unrecognized file format');
 }
 
-function rehydratePlot(p: Plot): Plot {
+function rehydratePlot(p: Plot, catalog: Catalog): Plot {
   // Older saved workspaces used a single `showGridlines` flag and lacked grid
   // opacity / tick font size. Migrate the old flag to both X and Y toggles and
   // default the rest so loaded plots render the same as before.
   const legacy = p as Plot & { showGridlines?: boolean };
-  return {
+  const plot: Plot = {
     ...p,
     // Older saved workspaces predate showLegend; default to shown.
     showLegend: p.showLegend ?? true,
-    showCrosshair: p.showCrosshair ?? true,
+    // Older saved workspaces predate the crosshair flag; default to Trace's (off).
+    showCrosshair: p.showCrosshair ?? false,
     showXGridlines: p.showXGridlines ?? legacy.showGridlines ?? true,
     showYGridlines: p.showYGridlines ?? legacy.showGridlines ?? true,
     gridOpacity: p.gridOpacity ?? 1,
     tickFontSize: p.tickFontSize ?? 11,
-    traces: (p.traces ?? []).map((t) => ({ ...t, data: t.data ?? [] })),
+    backgroundColor: automaticBackground(p.backgroundColor),
+    showStats: p.showStats === true ? true : undefined,
+    showDist: p.showDist === true ? true : undefined,
+    // A saved list is kept only off the default (DESIGN S8).
+    metrics: Array.isArray(p.metrics) ? storedMetrics(p.metrics) : undefined,
+    traces: (p.traces ?? []).map(rehydrateTrace),
   };
+  // The drag mode is stored only off Trace's default.
+  if (plot.dragMode === TRACE_DEFAULT_DRAG) delete plot.dragMode;
+  return withAnnotations(plot, rehydrateAnnotations(p.annotations, plot.axes ?? [], catalog));
+}
+
+// Each saved drawing is validated (a bad one is dropped with its
+// own warning); drawings on an axis the plot no longer has move to its first
+// axis with one warning for the plot. A missing or empty list is none.
+function rehydrateAnnotations(raw: unknown, axes: readonly Axis[], catalog: Catalog): Annotation[] {
+  if (!Array.isArray(raw)) return [];
+  const valid = raw
+    .map((item) => validateAnnotationIn(catalog, item, TIME_X_AXIS, 'Trace'))
+    .filter((a): a is Annotation => a !== null);
+  const moved = reassignUnknownAxes(valid, axes);
+  if (moved !== valid) console.warn('Trace: moved drawings on an unknown axis to the first axis');
+  return moved;
+}
+
+// A theme-default (or absent / non-string) background is automatic.
+function automaticBackground(bg: unknown): string | undefined {
+  if (typeof bg !== 'string' || isThemeDefaultBackground(bg)) return undefined;
+  return bg;
+}
+
+// The legacy `liveRetentionMs` key is always automatic; only the pin key
+// pins, and only with a positive finite number.
+function rehydrateTrace(t: PVTrace): PVTrace {
+  const wire = t as PVTrace & { [LIVE_RETENTION_PIN_KEY]?: unknown };
+  const { [LIVE_RETENTION_PIN_KEY]: pin, ...rest } = wire;
+  // `data` is regenerated at runtime, never read from a file: a sample there
+  // would reach the chart and its read-out unchecked.
+  const out: PVTrace = { ...rest, data: [] };
+  delete out.liveRetentionMs;
+  if (typeof pin === 'number' && Number.isFinite(pin) && pin > 0) out.liveRetentionMs = pin;
+  return out;
 }
 
 // #66 (b92fbf1) renamed the month preset from "-1m" to "-1M" and made lowercase
@@ -235,7 +336,6 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
       visible: true,
       axisId,
       useLive: c.liveData ?? false,
-      updateRate: 'monitor',
       useArchive: c.useArchiveData ?? true,
       lineWidth: c.lineWidth ?? 2,
       lineType: 'step',
@@ -280,7 +380,6 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
       visible: true,
       axisId,
       useLive: false,
-      updateRate: 'monitor',
       useArchive: false,
       expression,
       bindings,
@@ -304,8 +403,8 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
   const plot: Plot = {
     id: 'plot-1',
     title: typeof legacyPlot.title === 'string' ? legacyPlot.title : 'Imported',
-    backgroundColor:
-      typeof legacyPlot.backgroundColor === 'string' ? legacyPlot.backgroundColor : '#161616',
+    // A theme-default or missing background is automatic.
+    backgroundColor: automaticBackground(legacyPlot.backgroundColor),
     showLegend: legacyPlot.legend !== false,
     showXGridlines: legacyPlot.xGrid === true,
     showYGridlines: legacyPlot.yGrid === true,

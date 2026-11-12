@@ -171,3 +171,65 @@ export function colorForIndex(palette: Palette, index: number): string {
   const i = ((index % palette.colors.length) + palette.colors.length) % palette.colors.length;
   return palette.colors[i];
 }
+
+// ── Per-plot palette ─────────────────────────────────────────────────────────
+
+/** True iff `id` names a known palette. */
+export function isPaletteId(id: unknown): id is string {
+  return typeof id === 'string' && PALETTES.some((p) => p.id === id);
+}
+
+/**
+ * The value a plot stores for palette `id`: undefined for the default palette
+ * (automatic) and for an unknown id, else the id.
+ */
+export function storedPaletteId(id: string | undefined): string | undefined {
+  return isPaletteId(id) && id !== DEFAULT_PALETTE_ID ? id : undefined;
+}
+
+/** The palette a plot's curves follow: its own, else the default. */
+export function paletteOf(plot: { palette?: string } | undefined): Palette {
+  return getPalette(plot?.palette ?? DEFAULT_PALETTE_ID);
+}
+
+/** The slot (first index) of `colour` in `palette`, case-insensitive; -1 when absent. */
+export function paletteSlot(colour: string, palette: Palette): number {
+  const c = colour.toLowerCase();
+  return palette.colors.findIndex((p) => p.toLowerCase() === c);
+}
+
+/**
+ * `colour` moved from palette `from` to palette `to` by slot: a colour at
+ * slot k of `from` becomes slot k (mod length) of `to`; any other colour is
+ * user-set and stays.
+ */
+export function recolourBySlot(colour: string, from: Palette, to: Palette): string {
+  const slot = paletteSlot(colour, from);
+  return slot < 0 ? colour : colorForIndex(to, slot);
+}
+
+interface PalettedPlot {
+  palette?: string;
+  traces: readonly { color?: string }[];
+}
+
+/**
+ * `plot` switched to palette `id` (undefined = default): the stored id is
+ * normalised and every curve still at a colour of the old palette is
+ * recoloured by slot. Unchanged (same object) when the palette does not change.
+ */
+export function withPalette<P extends PalettedPlot>(plot: P, id: string | undefined): P {
+  const next = storedPaletteId(id);
+  const from = paletteOf(plot);
+  const to = paletteOf({ palette: next });
+  if (from.id === to.id && plot.palette === next) return plot;
+  const out: P = {
+    ...plot,
+    traces: plot.traces.map((t) =>
+      t.color === undefined ? t : { ...t, color: recolourBySlot(t.color, from, to) }
+    ),
+  };
+  if (next === undefined) delete out.palette;
+  else out.palette = next;
+  return out;
+}

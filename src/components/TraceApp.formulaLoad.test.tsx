@@ -63,10 +63,9 @@ vi.mock('../api/formulaEngine', () => ({
     });
   },
 }));
-vi.mock('./Toolbar', async () => (await import('../test/traceAppHarness')).mocks.Toolbar);
-vi.mock('./LeftPanel', async () => (await import('../test/traceAppHarness')).mocks.LeftPanel);
-vi.mock('./PlotArea', async () => (await import('../test/traceAppHarness')).mocks.PlotArea);
-vi.mock('./RightPanel', async () => (await import('../test/traceAppHarness')).mocks.RightPanel);
+vi.mock('./PlotArea', async (importOriginal) =>
+  (await import('../test/traceAppHarness')).mocks.PlotArea(await importOriginal())
+);
 vi.mock(
   '../hooks/useElogConfig',
   async () => (await import('../test/traceAppHarness')).mocks.useElogConfig

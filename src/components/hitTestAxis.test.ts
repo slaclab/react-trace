@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hitTestAxis, panExtent, zoomExtent, type AxisHitZone, type GridBand } from './axisHitTest';
+import { hitTestAxis, zoomExtent, type AxisHitZone, type GridBand } from './axisHitTest';
 
 const WIDTH = 800;
 const HEIGHT = 400;
@@ -67,45 +67,6 @@ describe('hitTestAxis', () => {
     expect(hitTestAxis(120, 200, WIDTH, HEIGHT, stackedGrid, stackedLeft)?.axisId).toBe('inner');
     // 100px in from grid-left -> slot 1 -> outer.
     expect(hitTestAxis(50, 200, WIDTH, HEIGHT, stackedGrid, stackedLeft)?.axisId).toBe('outer');
-  });
-});
-
-describe('panExtent', () => {
-  // [0, 100] over a 300px-tall grid: min at pixel 340 (bottom), max at 40 (top).
-  const linear = { min: 0, max: 100, pxMin: 340, pxMax: 40, logScale: false };
-
-  it('dragging DOWN raises min/max so the curves follow the cursor down', () => {
-    // +30px of a 300px span shifts the window by +10 data units.
-    const [min, max] = panExtent(linear, 30)!;
-    expect(min).toBeCloseTo(10, 10);
-    expect(max).toBeCloseTo(110, 10);
-  });
-
-  it('dragging UP lowers min/max so the curves follow the cursor up', () => {
-    const [min, max] = panExtent(linear, -30)!;
-    expect(min).toBeCloseTo(-10, 10);
-    expect(max).toBeCloseTo(90, 10);
-  });
-
-  it('keeps the grabbed value glued to the cursor', () => {
-    // Value at pixel p under the frozen mapping: v(p) = min + (max-min)*(pxMin-p)/span.
-    // Grab pixel 190 (value 50), drag +45px; the NEW mapping (same pixel span,
-    // shifted window) must put value 50 at pixel 235.
-    const [min2, max2] = panExtent(linear, 45)!;
-    const vAt = (p: number) => min2 + (max2 - min2) * ((340 - p) / 300);
-    expect(vAt(190 + 45)).toBeCloseTo(50, 10);
-  });
-
-  it('pans log axes in log space, preserving the min:max ratio', () => {
-    const log = { min: 1, max: 100, pxMin: 340, pxMax: 40, logScale: true };
-    // Half the pixel span = half the log range = one decade up.
-    const [min2, max2] = panExtent(log, 150)!;
-    expect(min2).toBeCloseTo(10, 10);
-    expect(max2).toBeCloseTo(1000, 10);
-  });
-
-  it('returns null for a degenerate zero-height mapping', () => {
-    expect(panExtent({ ...linear, pxMax: 340 }, 30)).toBeNull();
   });
 });
 

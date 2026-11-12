@@ -4,10 +4,11 @@
 // events through the wrapper div. This pins the wiring that broke the first
 // version of issue 45: listeners must live on the wrapper (not a zrender
 // instance that echarts-for-react disposes right after mount) and resolve the
-// chart lazily, and a downward drag must RAISE min/max so curves follow the
-// cursor.
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render } from '@testing-library/react';
+// chart lazily. A Y-band drag stretches the axis about its centre, one write
+// per animation frame.
+import { wheelFactor } from '../plot/geometry';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, render } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
 import { SinglePlot } from './PlotArea';
 import type { Axis, Plot } from '../types';
@@ -90,29 +91,173 @@ function mountPlot(plot: Plot) {
   return { wrap, onUpdateAxis, unmount };
 }
 
+// --- animation frames, flushed by hand (as in Sidebar.resize.test.tsx) -------
+
+let frames = new Map<number, FrameRequestCallback>();
+let nextFrame = 1;
+
+function flushFrames() {
+  act(() => {
+    for (let round = 0; round < 5 && frames.size > 0; round++) {
+      const due = [...frames.values()];
+      frames = new Map();
+      due.forEach((cb) => cb(performance.now()));
+    }
+  });
+}
+
+beforeEach(() => {
+  frames = new Map();
+  nextFrame = 1;
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+    const id = nextFrame++;
+    frames.set(id, cb);
+    return id;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+    frames.delete(id);
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+// Stretch law: 200 px of drag is one factor of two about
+// the extent's centre, so +/-100 px scales the [0, 100] span by 2^+/-0.5.
+const UP_100 = { min: 50 - 50 / Math.SQRT2, max: 50 + 50 / Math.SQRT2 };
+const DOWN_100 = { min: 50 - 50 * Math.SQRT2, max: 50 + 50 * Math.SQRT2 };
+
 // jsdom reports a 0,0 bounding rect for the wrapper, so clientX/clientY ARE
 // canvas-pixel coordinates here.
-describe('per-axis drag pan', () => {
+describe('per-axis drag stretch', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('freezes an auto-scaled axis to its extent on mousedown over the axis band', () => {
+  it('a plain click (mousedown + mouseup, no movement) writes nothing', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
     fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
-    expect(onUpdateAxis).toHaveBeenCalledTimes(1);
-    expect(onUpdateAxis).toHaveBeenCalledWith('ax1', { autoScale: false, min: 0, max: 100 });
+    fireEvent.mouseUp(window);
+    flushFrames();
+    expect(onUpdateAxis).not.toHaveBeenCalled();
     unmount();
   });
 
-  it('dragging DOWN commits a RAISED window so curves follow the cursor', () => {
+  it('a double-click on the axis band writes nothing', () => {
+    const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
+    for (let i = 0; i < 2; i++) {
+      fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+      fireEvent.mouseUp(window);
+    }
+    flushFrames();
+    expect(onUpdateAxis).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('movement of 3 px or less does not start a stretch', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
     fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
-    // +30px of the 300px span = +10 data units on window listeners (the drag
-    // must keep tracking outside the wrapper). buttons:1 = button still held.
-    fireEvent.mouseMove(window, { clientX: 30, clientY: 230, buttons: 1 });
-    expect(onUpdateAxis).toHaveBeenLastCalledWith('ax1', {
-      min: expect.closeTo(10, 6),
-      max: expect.closeTo(110, 6),
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 203, buttons: 1 });
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 197, buttons: 1 });
+    flushFrames();
+    fireEvent.mouseUp(window);
+    flushFrames();
+    expect(onUpdateAxis).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('dragging UP 100 px narrows the span by 2^0.5 about the centre, freezing in the same write', () => {
+    const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    // Window listeners: the drag must keep tracking outside the wrapper.
+    // buttons:1 = button still held.
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 100, buttons: 1 });
+    // Coalesced: nothing is written until the frame runs.
+    expect(onUpdateAxis).not.toHaveBeenCalled();
+    flushFrames();
+    expect(onUpdateAxis).toHaveBeenCalledTimes(1);
+    expect(onUpdateAxis).toHaveBeenCalledWith('ax1', {
+      autoScale: false,
+      min: expect.closeTo(UP_100.min, 6),
+      max: expect.closeTo(UP_100.max, 6),
     });
+    const { min, max } = onUpdateAxis.mock.calls[0][1] as { min: number; max: number };
+    expect((min + max) / 2).toBeCloseTo(50, 9);
+    expect(max - min).toBeCloseTo(100 / Math.SQRT2, 9);
+    unmount();
+  });
+
+  it('dragging DOWN 100 px widens the span by 2^0.5 about the centre', () => {
+    const { wrap, onUpdateAxis, unmount } = mountPlot(
+      makePlot({ autoScale: false, min: 0, max: 100 })
+    );
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 300, buttons: 1 });
+    flushFrames();
+    // A manually-ranged axis is never re-frozen: plain min/max only.
+    expect(onUpdateAxis).toHaveBeenCalledTimes(1);
+    expect(onUpdateAxis).toHaveBeenCalledWith('ax1', {
+      min: expect.closeTo(DOWN_100.min, 6),
+      max: expect.closeTo(DOWN_100.max, 6),
+    });
+    unmount();
+  });
+
+  it('writes exactly once per flushed frame, from the captured extent (no compounding)', () => {
+    const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 150, buttons: 1 });
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 120, buttons: 1 });
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 100, buttons: 1 });
+    flushFrames();
+    expect(onUpdateAxis).toHaveBeenCalledTimes(1);
+    expect(onUpdateAxis).toHaveBeenLastCalledWith('ax1', {
+      autoScale: false,
+      min: expect.closeTo(UP_100.min, 6),
+      max: expect.closeTo(UP_100.max, 6),
+    });
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 250, buttons: 1 });
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 300, buttons: 1 });
+    flushFrames();
+    expect(onUpdateAxis).toHaveBeenCalledTimes(2);
+    // The freeze went out with the first frame only; later frames are plain.
+    expect(onUpdateAxis).toHaveBeenLastCalledWith('ax1', {
+      min: expect.closeTo(DOWN_100.min, 6),
+      max: expect.closeTo(DOWN_100.max, 6),
+    });
+    fireEvent.mouseUp(window);
+    flushFrames();
+    expect(onUpdateAxis).toHaveBeenCalledTimes(2);
+    unmount();
+  });
+
+  it('mouseup flushes the pending frame and cancels it', () => {
+    const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 100, buttons: 1 });
+    expect(onUpdateAxis).not.toHaveBeenCalled();
+    fireEvent.mouseUp(window);
+    expect(onUpdateAxis).toHaveBeenCalledTimes(1);
+    expect(onUpdateAxis).toHaveBeenCalledWith('ax1', {
+      autoScale: false,
+      min: expect.closeTo(UP_100.min, 6),
+      max: expect.closeTo(UP_100.max, 6),
+    });
+    expect(frames.size).toBe(0);
+    flushFrames();
+    expect(onUpdateAxis).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it('never writes a factor-1 frame', () => {
+    const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    // Past the threshold, then back to the start before the frame runs.
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 150, buttons: 1 });
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 200, buttons: 1 });
+    flushFrames();
+    fireEvent.mouseUp(window);
+    flushFrames();
+    expect(onUpdateAxis).not.toHaveBeenCalled();
     unmount();
   });
 
@@ -120,9 +265,12 @@ describe('per-axis drag pan', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
     fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 230, buttons: 1 });
+    flushFrames();
     const calls = onUpdateAxis.mock.calls.length;
+    expect(calls).toBe(1);
     fireEvent.mouseUp(window);
     fireEvent.mouseMove(window, { clientX: 30, clientY: 300, buttons: 1 });
+    flushFrames();
     expect(onUpdateAxis.mock.calls.length).toBe(calls);
     unmount();
   });
@@ -131,12 +279,14 @@ describe('per-axis drag pan', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
     fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 230, buttons: 1 });
+    flushFrames();
     const calls = onUpdateAxis.mock.calls.length;
     // No mouseup reaches us (released over browser chrome/devtools); the next
     // move reports no buttons held, which must end the drag rather than keep
-    // panning on every subsequent move.
+    // stretching on every subsequent move.
     fireEvent.mouseMove(window, { clientX: 30, clientY: 260, buttons: 0 });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 300, buttons: 0 });
+    flushFrames();
     expect(onUpdateAxis.mock.calls.length).toBe(calls);
     unmount();
   });
@@ -147,22 +297,19 @@ describe('per-axis drag pan', () => {
     fireEvent.mouseDown(wrap, { clientX: 400, clientY: 200, button: 0 });
     // Left margin but above the grid band.
     fireEvent.mouseDown(wrap, { clientX: 30, clientY: 20, button: 0 });
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 100, buttons: 1 });
+    flushFrames();
     expect(onUpdateAxis).not.toHaveBeenCalled();
     unmount();
   });
 
-  it('does not freeze a manually-ranged axis again on mousedown', () => {
-    const { wrap, onUpdateAxis, unmount } = mountPlot(
-      makePlot({ autoScale: false, min: 0, max: 100 })
-    );
+  it('cancels a pending stretch frame on unmount', () => {
+    const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
     fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
-    expect(onUpdateAxis).not.toHaveBeenCalled(); // snapshot only; commits start on move
-    fireEvent.mouseMove(window, { clientX: 30, clientY: 170, buttons: 1 });
-    expect(onUpdateAxis).toHaveBeenLastCalledWith('ax1', {
-      min: expect.closeTo(-10, 6),
-      max: expect.closeTo(90, 6),
-    });
+    fireEvent.mouseMove(window, { clientX: 30, clientY: 100, buttons: 1 });
     unmount();
+    flushFrames();
+    expect(onUpdateAxis).not.toHaveBeenCalled();
   });
 });
 
@@ -183,11 +330,19 @@ describe('per-axis wheel zoom', () => {
     unmount();
   });
 
-  it('leaves wheel events over the plot grid alone', () => {
+  it('a wheel over the plot area zooms the Y axis too, about the value under the cursor', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
     const notPrevented = fireEvent.wheel(wrap, { clientX: 400, clientY: 200, deltaY: -100 });
-    expect(notPrevented).toBe(true);
-    expect(onUpdateAxis).not.toHaveBeenCalled();
+    expect(notPrevented).toBe(false);
+    // y 200 is the value 140/300 of [0, 100]; the auto axis freezes with this one write.
+    const anchor = (140 / 300) * 100;
+    const f = wheelFactor(-100);
+    expect(onUpdateAxis).toHaveBeenCalledTimes(1);
+    expect(onUpdateAxis).toHaveBeenCalledWith('ax1', {
+      autoScale: false,
+      min: expect.closeTo(anchor - anchor * f, 6),
+      max: expect.closeTo(anchor + (100 - anchor) * f, 6),
+    });
     unmount();
   });
 

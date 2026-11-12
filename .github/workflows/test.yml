@@ -40,3 +40,35 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+  e2e:
+    name: Browser tests (Playwright)
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # The @perf specs time the main thread and need a quiet machine; they run
+      # locally with `pnpm test:e2e --grep @perf`.
+      - name: Run browser tests
+        run: pnpm test:e2e --grep-invert @perf
