@@ -48,6 +48,11 @@ receives the key. This covers the Mole, Hare, and Fox HTTP and WebSocket routes.
 The production reverse proxy must also own the `/elog` to elog-plus rewrite and
 header injection when E-Log posting is enabled.
 
+The header's bug and help buttons open this repo's GitHub issues and the public
+docs site. A deployment can point them elsewhere with `VITE_BUG_REPORT_URL` and
+`VITE_DOCS_URL` at build time; the image build reads them from the
+`BUG_REPORT_URL` and `DOCS_URL` repository variables.
+
 ### 3. Run the dev server
 
 ```bash
