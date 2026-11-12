@@ -470,6 +470,39 @@ describe('archiveStore: value at the window start', () => {
     ]);
   });
 
+  // A historical 10 s window whose end is moved out 3 s, start fixed: the tail
+  // starts exactly at the window start.
+  async function extendFixedStart(h: Harness) {
+    const fromNs = T0_NS - 30e9;
+    ask(h, { fromNs, toNs: fromNs + 10e9 });
+    await flush();
+    ask(h, { fromNs, toNs: fromNs + 13e9 });
+    await flush();
+    const calls = h.fetchData.mock.calls.map((c) => c[1]);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].fromNs).toBe(fromNs);
+    expect(calls[1].includeLastBefore).toBeUndefined();
+    return fromNs / 1e6;
+  }
+
+  it('keeps the held value when a window with a fixed start is extended', async () => {
+    // No change in either window, so the tail comes back empty.
+    const h = setup(onChangeFetch([[T0_NS - 60e9, 7]]));
+    const fromMs = await extendFixedStart(h);
+    expect(meanOf(h)).toEqual([[fromMs, 7]]);
+  });
+
+  it('does not double a real sample at the start of an extended window', async () => {
+    const h = setup(
+      onChangeFetch([
+        [T0_NS - 60e9, 7],
+        [T0_NS - 30e9, 8],
+      ])
+    );
+    const fromMs = await extendFixedStart(h);
+    expect(meanOf(h)).toEqual([[fromMs, 8]]);
+  });
+
   it('does not ask for it on binned requests', async () => {
     const h = setup(async (_pv, params) => ({
       mode: 'binned',
