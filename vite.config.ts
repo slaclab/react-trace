@@ -1,6 +1,25 @@
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
-import { loadEnv } from 'vite';
+import { loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import { assertSinglePackageDirs } from './vite.dupGuard.ts';
+
+// Fail the build when react, react-dom or @carbon/react is bundled from more
+// than one directory: the resolve block below is what keeps them single, and a
+// second copy breaks hooks and context only at runtime.
+function dupGuard(): Plugin {
+  return {
+    name: 'trace-dup-guard',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const ids = Object.values(bundle).flatMap((file) =>
+        file.type === 'chunk' ? file.moduleIds : []
+      );
+      assertSinglePackageDirs(ids, realpathSync);
+    },
+  };
+}
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -17,7 +36,16 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: env.VITE_BASE_PATH || '/',
-    plugins: [react()],
+    plugins: [react(), dupGuard()],
+    // Force react and @carbon/react to this app's single copy; a dependency
+    // that brings its own (the @slaclab SDK packages do) would otherwise bundle
+    // a second React/Carbon.
+    resolve: {
+      dedupe: ['react', 'react-dom'],
+      alias: {
+        '@carbon/react': fileURLToPath(new URL('./node_modules/@carbon/react', import.meta.url)),
+      },
+    },
     server: {
       proxy: {
         '/mole': {
