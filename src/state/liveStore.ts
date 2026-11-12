@@ -21,7 +21,6 @@ import { canopyConnection } from '../api/connection';
 import { toWireSeverity } from '../api/severity';
 import { msToNs, nsToMs } from '../api/time';
 import { fetchBackfill, subscribeVoleBuffer } from '../api/vole';
-import { CanopyError } from '../api/client';
 import type { SampleDTO } from '../api/types';
 
 export interface LivePoint {
@@ -460,7 +459,10 @@ export class LiveStore {
       .catch((err) => {
         if (controller.signal.aborted) return;
         if ((err as { name?: string }).name === 'AbortError') return;
-        if (err instanceof CanopyError && err.code === 'pv_not_buffered') {
+        // Duck-typed on `code` rather than `instanceof CanopyError`, like the
+        // archive and formula stores: a second copy of the SDK in the bundle
+        // would bring its own CanopyError class.
+        if ((err as { code?: string }).code === 'pv_not_buffered') {
           // Ask Vole to buffer it for the next backfill, once per watch.
           if (this.voleSubscribed.has(pv)) return;
           this.voleSubscribed.add(pv);

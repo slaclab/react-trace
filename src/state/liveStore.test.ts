@@ -706,6 +706,28 @@ describe('LiveStore vole subscribe', () => {
     expect(mockSubscribeVole.mock.calls[0][0]).toEqual(['PV:X']);
   });
 
+  it("recognises pv_not_buffered from another copy of the SDK's CanopyError", async () => {
+    // Same shape, different class: what a duplicate canopy-client would throw.
+    mockFetchBackfill.mockRejectedValue(
+      Object.assign(new Error('pv_not_buffered (404): not buffered'), {
+        name: 'CanopyError',
+        code: 'pv_not_buffered',
+        status: 404,
+        detail: 'not buffered',
+      })
+    );
+    mockSubscribeVole.mockClear();
+
+    const store = newStore();
+    store.watch('t1', 'PV:X', 60_000);
+    fake.instances[0].open();
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockSubscribeVole).toHaveBeenCalledTimes(1);
+    expect(mockSubscribeVole.mock.calls[0][0]).toEqual(['PV:X']);
+  });
+
   it('subscribes once per watch, not again on every reconnect', async () => {
     mockFetchBackfill.mockRejectedValue(new CanopyError('pv_not_buffered', 404, 'not buffered'));
     mockSubscribeVole.mockClear();
