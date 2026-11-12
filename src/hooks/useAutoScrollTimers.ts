@@ -82,6 +82,33 @@ export function axisEndMs(
   return following ? followingEndMs(plot, anchorMs, liveResults) : anchorMs;
 }
 
+export interface FollowingCadence {
+  // `[id, ms]` for each following plot, in plot order.
+  cadence: [string, number][];
+  // Equal for two values exactly when their cadences are equal.
+  key: string;
+}
+
+// The following plots and how often each advances, plus a string key for them,
+// built in one pass. Each id is length-prefixed: imports keep plot ids as saved,
+// so an id can hold `,`, `:` or `;`, and plain separators would let two
+// different sets collide (`['a,b', 'c']` and `['a', 'b,c']` joined on `,`). The
+// `;` after each interval can't occur in a number's string form.
+export function followingCadence(
+  plots: Plot[],
+  viewWindowByPlot: Map<string, TimeWindowNs>
+): FollowingCadence {
+  const cadence: [string, number][] = [];
+  let key = '';
+  for (const plot of plots) {
+    if (!isFollowing(plot, viewWindowByPlot)) continue;
+    const ms = refreshIntervalMs(plot);
+    cadence.push([plot.id, ms]);
+    key += `${plot.id.length}:${plot.id}${ms};`;
+  }
+  return { cadence, key };
+}
+
 interface ClockState {
   // Per-plot anchor ("now") in epoch ms.
   byPlot: ReadonlyMap<string, number>;
@@ -128,15 +155,15 @@ export function useAutoScrollTimers(
     });
   }, []);
 
-  // Following plots and their cadence in ms, as `[id, ms]` pairs in JSON. The
-  // effect parses it back so it re-subscribes only when the following set or an
-  // interval changes. JSON keeps any plot id intact (imports keep ids as saved).
-  const signature = JSON.stringify(
-    plots.filter((p) => isFollowing(p, viewWindowByPlot)).map((p) => [p.id, refreshIntervalMs(p)])
-  );
+  // Following plots and their cadence in ms. `following` keeps its identity
+  // until the key changes, so the effect re-subscribes only when the following
+  // set or an interval changes, not on every re-render (live batches, selection).
+  const latest = followingCadence(plots, viewWindowByPlot);
+  const [following, setFollowing] = useState(latest);
+  if (following.key !== latest.key) setFollowing(latest);
 
   useEffect(() => {
-    const cadence = JSON.parse(signature) as [string, number][];
+    const { cadence } = following;
     if (cadence.length === 0) return;
     const anchorOf = (state: ClockState, id: string) => state.byPlot.get(id) ?? state.lastWriteMs;
     let nextDue = Infinity;
@@ -158,7 +185,7 @@ export function useAutoScrollTimers(
       Math.max(0, nextDue - Date.now())
     );
     return () => window.clearTimeout(timer);
-  }, [signature, clock]);
+  }, [following, clock]);
 
   const nowFor = useCallback(
     (plotId: string) => clock.byPlot.get(plotId) ?? clock.lastWriteMs,
