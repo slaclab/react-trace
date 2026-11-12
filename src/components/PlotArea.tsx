@@ -51,6 +51,29 @@ function rangeKeyFor(plot: Plot): string {
   return plot.xAxis.timeRange;
 }
 
+// The slice of ECharts' chart model that axis reads use.
+type AxisModel = { axis?: { scale?: { getExtent: () => [number, number] } } };
+type ChartModel = { getComponent: (mainType: string, idx: number) => AxisModel | undefined };
+
+// The chart's model, or null while it has none: echarts-for-react's throwaway
+// measuring instance can fire events before its model exists, and dispose()
+// drops it. ECharts leaves getModel() out of its typings, so this is the one
+// place that reaches past them.
+function chartModel(chart: ECharts): ChartModel | null {
+  return (chart as unknown as { getModel: () => ChartModel | null | undefined }).getModel() ?? null;
+}
+
+// An axis's current computed [min, max], or null when the chart has no model
+// yet or no such axis.
+function getAxisExtent(
+  chart: ECharts,
+  axisType: 'xAxis' | 'yAxis',
+  idx: number
+): [number, number] | null {
+  const ext = chartModel(chart)?.getComponent(axisType, idx)?.axis?.scale?.getExtent();
+  return ext ? [ext[0], ext[1]] : null;
+}
+
 interface PlotAreaProps {
   plots: Plot[];
   activePlotId: string;
@@ -553,22 +576,18 @@ export function SinglePlot({
       : null;
 
   // Chart event handlers get the chart that fired the event. CanopyChart drops
-  // events from a disposed chart before they reach us.
+  // events from a disposed chart before they reach us; both handlers also
+  // ignore a chart without a model (not built yet, or disposed), so neither
+  // depends on that filter.
   const handleFinished = useCallback(
     (_params: unknown, chart: ECharts) => {
-      if (!onAxisRangesChange) return;
-      // `finished` can fire before the model is ready; bail instead of crashing.
-      type AxisModel = { axis: { scale: { getExtent: () => [number, number] } } };
-      const model = (
-        chart as unknown as {
-          getModel: () => { getComponent: (n: string, i: number) => AxisModel } | undefined;
-        }
-      ).getModel();
-      if (!model) return;
+      // Without a model there are no extents to report, and an empty map would
+      // wipe the ranges the app already has.
+      if (!onAxisRangesChange || !chartModel(chart)) return;
       const next = new Map<string, [number, number]>();
       visibleAxes.forEach((axis, idx) => {
-        const ext = model.getComponent('yAxis', idx)?.axis?.scale?.getExtent();
-        if (ext) next.set(axis.id, [ext[0], ext[1]]);
+        const ext = getAxisExtent(chart, 'yAxis', idx);
+        if (ext) next.set(axis.id, ext);
       });
       onAxisRangesChange(next);
     },
@@ -577,6 +596,9 @@ export function SinglePlot({
 
   const handleDataZoom = useCallback(
     (_params: unknown, chart: ECharts) => {
+      // An event from a chart without a model isn't the user's pan: don't let
+      // it consume the programmatic-zoom flag or stop following.
+      if (!chartModel(chart)) return;
       // Ignore the zoom reset we dispatched on a range re-select; only genuine
       // user pan/zoom should record a manual window and disable autoscroll.
       if (programmaticZoomRef.current) {
@@ -591,15 +613,7 @@ export function SinglePlot({
       if (!onViewWindowChange) return;
       // Read the current x-axis extent (in ms) directly from the model — this
       // reflects the visible time range after the user has zoomed/panned.
-      type AxisModel = { axis: { scale: { getExtent: () => [number, number] } } };
-      const xModel = (
-        chart as unknown as {
-          getModel: () => { getComponent: (n: string, i: number) => AxisModel };
-        }
-      )
-        .getModel()
-        .getComponent('xAxis', 0);
-      const ext = xModel?.axis?.scale?.getExtent();
+      const ext = getAxisExtent(chart, 'xAxis', 0);
       if (!ext) return;
       const [fromMs, toMs] = ext;
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -629,21 +643,6 @@ export function SinglePlot({
     // listen on THAT window, not the opener's.
     const win = wrap.ownerDocument.defaultView ?? window;
 
-    type Ecm = {
-      convertFromPixel: (fh: { yAxisIndex: number }, px: number) => number;
-      convertToPixel: (fh: { yAxisIndex: number }, val: number) => number;
-      getModel: () => {
-        getComponent: (
-          n: string,
-          i: number
-        ) => { axis: { scale: { getExtent: () => [number, number] } } } | undefined;
-      };
-      getWidth: () => number;
-      getHeight: () => number;
-      getZr: () => { setCursorStyle: (cursor: string) => void };
-    };
-    const liveEc = () => liveChart() as unknown as Ecm | null;
-
     // Wrapper-local coordinates. The wrapper exactly overlays the chart canvas
     // (both fill 100% × 100% with no padding), so these are canvas pixels.
     const toLocal = (e: MouseEvent) => {
@@ -651,17 +650,14 @@ export function SinglePlot({
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     };
 
-    const hitTest = (ec: Ecm, x: number, y: number) =>
+    const hitTest = (ec: ECharts, x: number, y: number) =>
       hitTestAxis(x, y, ec.getWidth(), ec.getHeight(), gridBandRef.current, axisLayoutRef.current);
-
-    const extentOf = (ec: Ecm, yAxisIndex: number): [number, number] | null =>
-      ec.getModel().getComponent('yAxis', yAxisIndex)?.axis?.scale?.getExtent() ?? null;
 
     // zrender re-stamps `cursor: default` onto its own root element on every
     // mousemove, overriding anything set on an ancestor. Write through
     // setCursorStyle instead; our handlers run after zrender's for the same
     // event (they sit further out on the bubble path), so our write lands last.
-    const setCursor = (cursor: string) => liveEc()?.getZr().setCursorStyle(cursor);
+    const setCursor = (cursor: string) => liveChart()?.getZr().setCursorStyle(cursor);
 
     // Freeze an auto-scaled axis to its current computed extent so the delta we
     // apply isn't immediately overwritten by autoscale on the next render.
@@ -688,13 +684,13 @@ export function SinglePlot({
 
     const onMouseDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
-      const ec = liveEc();
+      const ec = liveChart();
       if (!ec) return;
       const { x, y } = toLocal(e);
       const hit = hitTest(ec, x, y);
       if (!hit) return;
       e.preventDefault(); // no text selection / native drag while panning the axis
-      const ext = extentOf(ec, hit.yAxisIndex);
+      const ext = getAxisExtent(ec, 'yAxis', hit.yAxisIndex);
       if (!ext) return;
       // Freeze-to-manual up front so the drag delta isn't clobbered by autoscale.
       if (hit.autoScale) {
@@ -753,7 +749,7 @@ export function SinglePlot({
     let hovering = false;
     const onHoverMove = (e: MouseEvent) => {
       if (dragRef.current) return;
-      const ec = liveEc();
+      const ec = liveChart();
       if (!ec) return;
       const { x, y } = toLocal(e);
       const over = hitTest(ec, x, y) !== null;
@@ -765,7 +761,7 @@ export function SinglePlot({
     // Native listener so preventDefault can cancel page scroll over an axis
     // band (the inside dataZoom already ignores wheel outside the grid).
     const onWheel = (e: WheelEvent) => {
-      const ec = liveEc();
+      const ec = liveChart();
       if (!ec) return;
       const { x, y } = toLocal(e);
       const hit = hitTest(ec, x, y);
@@ -775,7 +771,7 @@ export function SinglePlot({
       // the axis nor swallow the horizontal scroll via preventDefault.
       if (e.deltaY === 0) return;
       e.preventDefault();
-      const ext = extentOf(ec, hit.yAxisIndex);
+      const ext = getAxisExtent(ec, 'yAxis', hit.yAxisIndex);
       if (!ext) return;
       if (hit.autoScale) {
         commit(hit.axisId, hit.logScale, ext[0], ext[1], true);

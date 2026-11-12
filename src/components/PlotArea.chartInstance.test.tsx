@@ -4,11 +4,12 @@
 // over the ECharts instance through onReady, again after any re-init, and never
 // reports a disposal. SinglePlot must use the newest instance, treat a disposed
 // one as no chart, and read event data from the chart that fired the event.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
 import type { ECharts } from 'echarts';
 import { SinglePlot } from './PlotArea';
+import { msToNs } from '../api/time';
 import type { PngSource } from '../io/exportPlotImage';
 import type { Plot } from '../types';
 import { chartStub } from '../test/chartStub';
@@ -68,14 +69,19 @@ function makePlot(): Plot {
   };
 }
 
-function mountPlot() {
+function mountPlot({ following = false }: { following?: boolean } = {}) {
   let source: PngSource | null = null;
   const onUpdateAxis = vi.fn();
   const onAxisRangesChange = vi.fn();
+  const onFollowStop = vi.fn();
+  const onViewWindowChange = vi.fn();
   const { container } = render(
     <SinglePlot
       plot={makePlot()}
       endMs={0}
+      following={following}
+      onFollowStop={onFollowStop}
+      onViewWindowChange={onViewWindowChange}
       archiveResults={new Map()}
       liveResults={new Map()}
       formulaResults={new Map()}
@@ -87,7 +93,14 @@ function mountPlot() {
     />
   );
   const wrap = container.querySelector('[data-plot-id="p1"]')!;
-  return { wrap, onUpdateAxis, onAxisRangesChange, png: () => source!.getDataURL() };
+  return {
+    wrap,
+    onUpdateAxis,
+    onAxisRangesChange,
+    onFollowStop,
+    onViewWindowChange,
+    png: () => source!.getDataURL(),
+  };
 }
 
 // jsdom reports a 0,0 bounding rect for the wrapper, so clientX/clientY are
@@ -95,9 +108,18 @@ function mountPlot() {
 const wheelOverAxis = (wrap: Element) =>
   fireEvent.wheel(wrap, { clientX: 30, clientY: 200, deltaY: 100 });
 
+// Call SinglePlot's handler for a chart event straight from the latest
+// render's props, with the chart that fired it.
+const emit = (name: 'datazoom' | 'finished', chart: object) =>
+  act(() => chartStub.props!.onEvents![name]!({}, chart as unknown as ECharts));
+
 beforeEach(() => {
   cleanup();
   chartStub.instance = undefined;
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('SinglePlot chart instance', () => {
@@ -145,8 +167,34 @@ describe('SinglePlot chart instance', () => {
   it('reads axis ranges from the chart that fired `finished`', () => {
     chartStub.instance = fakeChart('data:,').chart;
     const { onAxisRangesChange } = mountPlot();
-    const fired = fakeChart('data:,', [5, 7]).chart;
-    act(() => chartStub.props!.onEvents!.finished!({}, fired as unknown as ECharts));
+    emit('finished', fakeChart('data:,', [5, 7]).chart);
     expect(onAxisRangesChange).toHaveBeenLastCalledWith(new Map([['ax1', [5, 7]]]));
+  });
+
+  it('reads the view window from the chart that fired `datazoom`', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    chartStub.instance = fakeChart('data:,').chart;
+    const { onFollowStop, onViewWindowChange } = mountPlot({ following: true });
+    emit('datazoom', fakeChart('data:,', [1000, 2000]).chart);
+    expect(onFollowStop).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(400);
+    expect(onViewWindowChange).toHaveBeenCalledWith({ fromNs: msToNs(1000), toNs: msToNs(2000) });
+  });
+
+  it('ignores events from a chart that has no model yet', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    chartStub.instance = fakeChart('data:,').chart;
+    const { onAxisRangesChange, onFollowStop, onViewWindowChange } = mountPlot({
+      following: true,
+    });
+    // echarts-for-react's throwaway measuring instance can fire before its
+    // model exists.
+    const measuring = { ...fakeChart('data:,').chart, getModel: () => undefined };
+    emit('finished', measuring);
+    emit('datazoom', measuring);
+    vi.advanceTimersByTime(400);
+    expect(onAxisRangesChange).not.toHaveBeenCalled();
+    expect(onFollowStop).not.toHaveBeenCalled();
+    expect(onViewWindowChange).not.toHaveBeenCalled();
   });
 });
