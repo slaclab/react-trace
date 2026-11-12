@@ -12,33 +12,16 @@ import { SinglePlot } from './PlotArea';
 import { axisEndMs } from '../hooks/useAutoScrollTimers';
 import type { Plot } from '../types';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
+import { chartStub } from '../test/chartStub';
 
-const { captured, fakeInstance } = vi.hoisted(() => {
-  const captured: { series: { id: string; dimensions?: string[] }[] | null } = { series: null };
-  const fakeInstance = {
-    getDom: () => ({}),
-    isDisposed: () => false,
-    dispatchAction: vi.fn(),
-    getModel: () => ({
-      getComponent: () => ({ axis: { scale: { getExtent: (): [number, number] => [0, 1] } } }),
-    }),
-  };
-  return { captured, fakeInstance };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component<{ option: { series: typeof captured.series } }> {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      captured.series = this.props.option.series;
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+const captured: { series: { id: string; dimensions?: string[] }[] | null } = { series: null };
+chartStub.onRender = (props) => {
+  captured.series = (props.option as { series: typeof captured.series }).series;
+};
 
 const T0 = new Date('2026-10-15T12:00:00Z').getTime();
 
