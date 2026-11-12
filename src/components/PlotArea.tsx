@@ -1,6 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import ReactECharts from 'echarts-for-react';
-import { DARK_CHART_THEME, LIGHT_CHART_THEME, effectiveBackground } from '../chartTheme';
+import type {
+  ECharts,
+  EChartsOption,
+  LegendComponentOption,
+  TooltipComponentOption,
+} from 'echarts';
+import {
+  CanopyChart,
+  baseChartOption,
+  chartAxisStyle,
+  formatAxisTick,
+  formatValue,
+  useChartTheme,
+} from '@slaclab/canopy-charts';
+import { effectiveBackground } from '../plotBackground';
+import { registerPlotChart } from '../capturePlot';
 import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
 import type { Axis, Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
@@ -12,7 +26,7 @@ import { echartsLineType, echartsSymbol } from '../curveStyle';
 import { isFollowing } from '../hooks/useAutoScrollTimers';
 import { useFollowNow } from '../hooks/useFollowNow';
 import { traceLabel } from '../traceLabel';
-import { useColorMode } from '../state/themeStore';
+import { ErrorBoundary } from '@slaclab/canopy-shell';
 import type { PngSource } from '../io/exportPlotImage';
 import {
   gappedLineData,
@@ -31,21 +45,34 @@ import {
   type GridBand,
 } from './axisHitTest';
 
-// Numbers like 0.000000018 produce extremely wide tick labels that spill past
-// neighboring stacked axes. Switch to exponential at the same magnitudes the
-// browser's default Number.toString stops being compact.
-function formatAxisTick(value: number): string {
-  if (value === 0) return '0';
-  const abs = Math.abs(value);
-  if (abs < 1e-3 || abs >= 1e6) return value.toExponential(1);
-  return String(value);
-}
-
 // Signature of the user-chosen range. Bumps when picking a new time range so
 // dataZoom resets to full extent — otherwise the previous zoom stays clipped
 // over the new range.
 function rangeKeyFor(plot: Plot): string {
   return plot.xAxis.timeRange;
+}
+
+// The slice of ECharts' chart model that axis reads use.
+type AxisModel = { axis?: { scale?: { getExtent: () => [number, number] } } };
+type ChartModel = { getComponent: (mainType: string, idx: number) => AxisModel | undefined };
+
+// The chart's model, or null while it has none: echarts-for-react's throwaway
+// measuring instance can fire events before its model exists, and dispose()
+// drops it. ECharts leaves getModel() out of its typings, so this is the one
+// place that reaches past them.
+function chartModel(chart: ECharts): ChartModel | null {
+  return (chart as unknown as { getModel: () => ChartModel | null | undefined }).getModel() ?? null;
+}
+
+// An axis's current computed [min, max], or null when the chart has no model
+// yet or no such axis.
+function getAxisExtent(
+  chart: ECharts,
+  axisType: 'xAxis' | 'yAxis',
+  idx: number
+): [number, number] | null {
+  const ext = chartModel(chart)?.getComponent(axisType, idx)?.axis?.scale?.getExtent();
+  return ext ? [ext[0], ext[1]] : null;
 }
 
 interface PlotAreaProps {
@@ -154,20 +181,20 @@ const SHOWN_SEVERITIES: ReadonlySet<unknown> = new Set(['MINOR', 'MAJOR', 'INVAL
 const COLOR_LITERAL = /^(#[0-9A-Fa-f]{3,8}|rgba?\([\d\s.,%]+\))$/;
 
 function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function formatTooltipValue(v: unknown): string {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return String(v);
-  if (v === 0) return '0';
-  const abs = Math.abs(v);
-  if (abs < 1e-3 || abs >= 1e7) return v.toExponential(4);
-  return v.toPrecision(7);
+  return text.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      default:
+        return '&#39;';
+    }
+  });
 }
 
 // Human-readable signed offset between the cursor and the sample we're showing.
@@ -207,7 +234,7 @@ function traceSamples(
   live: LiveSeriesResult | undefined,
   formula: FormulaSeriesResult | undefined
 ): readonly PlotSample[] {
-  // Formula curves are evaluated server-side (Fox); their points are the only
+  // Formula curves are evaluated server-side (the Formula Engine); their points are the only
   // source — no archive/live merge, no mock seed.
   if (trace.kind === 'formula') {
     return formula ? formula.points.map(([time, value]) => ({ time, value })) : [];
@@ -267,8 +294,8 @@ export function SinglePlot({
   fullscreen,
   onChartInstance,
 }: SinglePlotProps) {
-  const { colorMode } = useColorMode();
-  const theme = colorMode === 'dark' ? DARK_CHART_THEME : LIGHT_CHART_THEME;
+  // Carbon g10/g100 chart colors for the current canopy-shell color mode.
+  const theme = useChartTheme();
 
   // Everything derived from the samples and the plot's traces and axes. It's
   // memoized apart from the display clock: while a plot scrolls (useFollowNow)
@@ -424,9 +451,21 @@ export function SinglePlot({
     };
   }, [plot.traces, plot.axes, archiveResults, liveResults, formulaResults]);
 
-  const chartRef = useRef<ReactECharts>(null);
-  // Our own wrapper around the chart; the per-axis pointer listeners attach
-  // here because it survives echarts-for-react's dispose/recreate cycles.
+  // The chart's ECharts instance. CanopyChart hands over each new instance
+  // through onReady (after the first render and after any re-init) but never
+  // reports a disposal, so reads go through liveChart(), which treats a
+  // disposed instance as no instance.
+  const chartRef = useRef<ECharts | null>(null);
+  const handleReady = useCallback((chart: ECharts) => {
+    chartRef.current = chart;
+  }, []);
+  const liveChart = useCallback((): ECharts | null => {
+    const chart = chartRef.current;
+    return chart && !chart.isDisposed() ? chart : null;
+  }, []);
+  // Our own wrapper around the chart. It carries data-plot-id for capture, and
+  // the per-axis pointer listeners attach here because it outlives any ECharts
+  // instance created under it.
   const wrapRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Set while we programmatically reset the zoom on a range re-select, so the
@@ -474,22 +513,28 @@ export function SinglePlot({
     pxMax: number;
   } | null>(null);
 
-  // Publish a stable PngSource proxy up to the app for PNG capture; clear on
-  // unmount so a captured-but-gone plot (closed tab, reattached window) isn't
-  // stale. The proxy resolves the *live* ECharts instance on each call instead
-  // of capturing one at mount: echarts-for-react disposes and recreates its
-  // internal instance across some re-renders, so a snapshotted reference goes
-  // stale and getDataURL() silently returns undefined on the dead instance.
+  // Publish a stable PngSource proxy for PNG capture: up to the app (e-log
+  // attachments), and against our wrapper for capturePlotPng (print and PNG
+  // export). Clear both on unmount so a captured-but-gone plot (closed tab,
+  // reattached window) isn't stale. The proxy reads the current ECharts
+  // instance on each call instead of capturing one at mount: the chart isn't
+  // ready at mount, and a re-created chart leaves a disposed instance behind
+  // that yields no image.
   useEffect(() => {
     const source: PngSource = {
       getDataURL(opts) {
-        const inst = chartRef.current?.getEchartsInstance();
-        if (!inst || !inst.getDom()) return '';
+        const inst = liveChart();
+        if (!inst) return '';
         return inst.getDataURL(opts) ?? '';
       },
     };
     onChartInstance?.(source, true);
-    return () => onChartInstance?.(source, false);
+    const wrap = wrapRef.current;
+    const unregister = wrap ? registerPlotChart(wrap, source) : undefined;
+    return () => {
+      onChartInstance?.(source, false);
+      unregister?.();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- register once per mount; the callback is stable
   }, []);
 
@@ -507,8 +552,8 @@ export function SinglePlot({
     zoomTriggerRef.current = { rangeKey, following };
     const resumed = following && !prev.following;
     if (prev.rangeKey === rangeKey && !resumed) return;
-    const inst = chartRef.current?.getEchartsInstance();
-    if (!inst || !inst.getDom()) return;
+    const inst = liveChart();
+    if (!inst) return;
     programmaticZoomRef.current = true;
     inst.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
     // If the chart was already at 0-100 the action is a no-op and no `datazoom`
@@ -520,7 +565,7 @@ export function SinglePlot({
       programmaticZoomRef.current = false;
     }, 0);
     return () => window.clearTimeout(clearTimer);
-  }, [rangeKey, following]);
+  }, [rangeKey, following, liveChart]);
 
   // Seed the saved sub-range directly into the inside-dataZoom on first render
   // so popping a plot out (or reattaching) preserves the user's wheel-zoom.
@@ -540,95 +585,73 @@ export function SinglePlot({
         }
       : null;
 
-  const handleFinished = useCallback(() => {
-    if (!onAxisRangesChange) return;
-    const inst = chartRef.current?.getEchartsInstance();
-    // `finished` can fire mid-mount or after disposal when the DOM and model
-    // aren't both ready; bail in those cases instead of crashing.
-    if (!inst || !inst.getDom()) return;
-    type AxisModel = { axis: { scale: { getExtent: () => [number, number] } } };
-    const model = (
-      inst as unknown as {
-        getModel: () => { getComponent: (n: string, i: number) => AxisModel } | undefined;
-      }
-    ).getModel();
-    if (!model) return;
-    const next = new Map<string, [number, number]>();
-    visibleAxes.forEach((axis, idx) => {
-      const ext = model.getComponent('yAxis', idx)?.axis?.scale?.getExtent();
-      if (ext) next.set(axis.id, [ext[0], ext[1]]);
-    });
-    onAxisRangesChange(next);
-  }, [onAxisRangesChange, visibleAxes]);
+  // Chart event handlers get the chart that fired the event. CanopyChart drops
+  // events from a disposed chart before they reach us; both handlers also
+  // ignore a chart without a model (not built yet, or disposed), so neither
+  // depends on that filter.
+  const handleFinished = useCallback(
+    (_params: unknown, chart: ECharts) => {
+      // Without a model there are no extents to report, and an empty map would
+      // wipe the ranges the app already has.
+      if (!onAxisRangesChange || !chartModel(chart)) return;
+      const next = new Map<string, [number, number]>();
+      visibleAxes.forEach((axis, idx) => {
+        const ext = getAxisExtent(chart, 'yAxis', idx);
+        if (ext) next.set(axis.id, ext);
+      });
+      onAxisRangesChange(next);
+    },
+    [onAxisRangesChange, visibleAxes]
+  );
 
-  const handleDataZoom = useCallback(() => {
-    // Ignore the zoom reset we dispatched on a range re-select; only genuine
-    // user pan/zoom should record a manual window and disable autoscroll.
-    if (programmaticZoomRef.current) {
-      programmaticZoomRef.current = false;
-      return;
-    }
-    // A genuine pan/zoom takes the window over. Stop following at once (the
-    // app freezes the plot at the `endMs` it gave us), so no tick or live batch
-    // can slide the axis under the user's drag while the view window below is
-    // debounced.
-    if (following) onFollowStop?.();
-    if (!onViewWindowChange) return;
-    const inst = chartRef.current?.getEchartsInstance();
-    if (!inst) return;
-    // Read the current x-axis extent (in ms) directly from the model — this
-    // reflects the visible time range after the user has zoomed/panned.
-    type AxisModel = { axis: { scale: { getExtent: () => [number, number] } } };
-    const xModel = (
-      inst as unknown as { getModel: () => { getComponent: (n: string, i: number) => AxisModel } }
-    )
-      .getModel()
-      .getComponent('xAxis', 0);
-    const ext = xModel?.axis?.scale?.getExtent();
-    if (!ext) return;
-    const [fromMs, toMs] = ext;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      onViewWindowChange({ fromNs: msToNs(fromMs), toNs: msToNs(toMs) });
-    }, 400);
-  }, [onViewWindowChange, following, onFollowStop]);
+  const handleDataZoom = useCallback(
+    (_params: unknown, chart: ECharts) => {
+      // An event from a chart without a model isn't the user's pan: don't let
+      // it consume the programmatic-zoom flag or stop following.
+      if (!chartModel(chart)) return;
+      // Ignore the zoom reset we dispatched on a range re-select; only genuine
+      // user pan/zoom should record a manual window and disable autoscroll.
+      if (programmaticZoomRef.current) {
+        programmaticZoomRef.current = false;
+        return;
+      }
+      // A genuine pan/zoom takes the window over. Stop following at once (the
+      // app freezes the plot at the `endMs` it gave us), so no tick or live batch
+      // can slide the axis under the user's drag while the view window below is
+      // debounced.
+      if (following) onFollowStop?.();
+      if (!onViewWindowChange) return;
+      // Read the current x-axis extent (in ms) directly from the model — this
+      // reflects the visible time range after the user has zoomed/panned.
+      const ext = getAxisExtent(chart, 'xAxis', 0);
+      if (!ext) return;
+      const [fromMs, toMs] = ext;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        onViewWindowChange({ fromNs: msToNs(fromMs), toNs: msToNs(toMs) });
+      }, 400);
+    },
+    [onViewWindowChange, following, onFollowStop]
+  );
 
   // Per-Y-axis mouse interactions (issue 45): scrolling over a single axis zooms
   // only that axis; dragging an axis pans only that axis. The whole-plot X
   // pan/zoom (the `inside` dataZoom) still owns the plot interior.
   //
   // Listeners live on OUR wrapper div (and its window), never on the ECharts /
-  // zrender instance: echarts-for-react 3.x initializes asynchronously. It
-  // measures with a throwaway instance that it disposes right after the first
-  // `finished` event, then builds the real chart, and also disposes/rebuilds on
-  // some prop changes. Anything subscribed to a zrender instance at mount time
-  // dies within the first frame. The wrapper div is stable for the lifetime of
-  // this component, so each handler resolves the *live* instance on demand.
+  // zrender instance: CanopyChart initializes asynchronously through
+  // echarts-for-react, which measures with a throwaway instance that it
+  // disposes right after the first `finished` event, then builds the real
+  // chart, and re-creates it if the init options change. Anything subscribed
+  // to a zrender instance at mount time dies within the first frame. The
+  // wrapper div is stable for the lifetime of this component, so each handler
+  // resolves the *live* instance on demand.
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
     // Detached plots render into a `window.open` document; drag tracking must
     // listen on THAT window, not the opener's.
     const win = wrap.ownerDocument.defaultView ?? window;
-
-    type Ecm = {
-      convertFromPixel: (fh: { yAxisIndex: number }, px: number) => number;
-      convertToPixel: (fh: { yAxisIndex: number }, val: number) => number;
-      getModel: () => {
-        getComponent: (
-          n: string,
-          i: number
-        ) => { axis: { scale: { getExtent: () => [number, number] } } } | undefined;
-      };
-      getWidth: () => number;
-      getHeight: () => number;
-      getZr: () => { setCursorStyle: (cursor: string) => void };
-      isDisposed: () => boolean;
-    };
-    const liveEc = (): Ecm | null => {
-      const inst = chartRef.current?.getEchartsInstance() as unknown as Ecm | undefined;
-      return inst && !inst.isDisposed() ? inst : null;
-    };
 
     // Wrapper-local coordinates. The wrapper exactly overlays the chart canvas
     // (both fill 100% × 100% with no padding), so these are canvas pixels.
@@ -637,17 +660,14 @@ export function SinglePlot({
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     };
 
-    const hitTest = (ec: Ecm, x: number, y: number) =>
+    const hitTest = (ec: ECharts, x: number, y: number) =>
       hitTestAxis(x, y, ec.getWidth(), ec.getHeight(), gridBandRef.current, axisLayoutRef.current);
-
-    const extentOf = (ec: Ecm, yAxisIndex: number): [number, number] | null =>
-      ec.getModel().getComponent('yAxis', yAxisIndex)?.axis?.scale?.getExtent() ?? null;
 
     // zrender re-stamps `cursor: default` onto its own root element on every
     // mousemove, overriding anything set on an ancestor. Write through
     // setCursorStyle instead; our handlers run after zrender's for the same
     // event (they sit further out on the bubble path), so our write lands last.
-    const setCursor = (cursor: string) => liveEc()?.getZr().setCursorStyle(cursor);
+    const setCursor = (cursor: string) => liveChart()?.getZr().setCursorStyle(cursor);
 
     // Freeze an auto-scaled axis to its current computed extent so the delta we
     // apply isn't immediately overwritten by autoscale on the next render.
@@ -674,13 +694,13 @@ export function SinglePlot({
 
     const onMouseDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
-      const ec = liveEc();
+      const ec = liveChart();
       if (!ec) return;
       const { x, y } = toLocal(e);
       const hit = hitTest(ec, x, y);
       if (!hit) return;
       e.preventDefault(); // no text selection / native drag while panning the axis
-      const ext = extentOf(ec, hit.yAxisIndex);
+      const ext = getAxisExtent(ec, 'yAxis', hit.yAxisIndex);
       if (!ext) return;
       // Freeze-to-manual up front so the drag delta isn't clobbered by autoscale.
       if (hit.autoScale) {
@@ -739,7 +759,7 @@ export function SinglePlot({
     let hovering = false;
     const onHoverMove = (e: MouseEvent) => {
       if (dragRef.current) return;
-      const ec = liveEc();
+      const ec = liveChart();
       if (!ec) return;
       const { x, y } = toLocal(e);
       const over = hitTest(ec, x, y) !== null;
@@ -751,7 +771,7 @@ export function SinglePlot({
     // Native listener so preventDefault can cancel page scroll over an axis
     // band (the inside dataZoom already ignores wheel outside the grid).
     const onWheel = (e: WheelEvent) => {
-      const ec = liveEc();
+      const ec = liveChart();
       if (!ec) return;
       const { x, y } = toLocal(e);
       const hit = hitTest(ec, x, y);
@@ -761,7 +781,7 @@ export function SinglePlot({
       // the axis nor swallow the horizontal scroll via preventDefault.
       if (e.deltaY === 0) return;
       e.preventDefault();
-      const ext = extentOf(ec, hit.yAxisIndex);
+      const ext = getAxisExtent(ec, 'yAxis', hit.yAxisIndex);
       if (!ext) return;
       if (hit.autoScale) {
         commit(hit.axisId, hit.logScale, ext[0], ext[1], true);
@@ -790,7 +810,7 @@ export function SinglePlot({
       win.removeEventListener('mousemove', onWindowMouseMove);
       win.removeEventListener('mouseup', onWindowMouseUp);
     };
-  }, []);
+  }, [liveChart]);
 
   // Axes sharing a side (left/right) would otherwise stack at the same spot and
   // overlap, so we offset each one outward by its position within that side.
@@ -900,9 +920,17 @@ export function SinglePlot({
     onUpdateAxisRef.current = onUpdateAxis;
   });
 
-  const option = {
+  // Shared Canopy chart styling from canopy-charts: animation off, the Plex
+  // font, and themed axes, tooltip and legend. Trace layers its own layout and
+  // content on top.
+  const base = baseChartOption(theme);
+  const baseTooltip = base.tooltip as TooltipComponentOption;
+  const baseLegend = base.legend as LegendComponentOption;
+  const axisStyle = chartAxisStyle(theme);
+
+  const option: EChartsOption = {
+    ...base,
     backgroundColor: effectiveBackground(plot.backgroundColor, theme),
-    animation: false,
     grid: {
       top: GRID_TOP,
       bottom: GRID_BOTTOM,
@@ -913,19 +941,23 @@ export function SinglePlot({
       type: 'time',
       min: xAxisMin,
       max: xAxisMax,
+      ...axisStyle,
       // ECharts keeps its time-tick spacing however narrow the chart is (e.g.
       // grid cells), so drop labels that would overlap rather than run together.
       axisLabel: {
-        color: theme.axisLabel,
+        ...axisStyle.axisLabel,
         fontSize: plot.tickFontSize,
         hideOverlap: true,
         // Clear the INVALID markers drawn under the axis.
         margin: xAxisLabelMargin(invalidByTrace.size),
       },
-      axisLine: { lineStyle: { color: theme.axisLine } },
       splitLine: {
         show: plot.showXGridlines,
-        lineStyle: { color: theme.splitLine, type: plot.gridStyle, opacity: plot.gridOpacity },
+        lineStyle: {
+          ...axisStyle.splitLine.lineStyle,
+          type: plot.gridStyle,
+          opacity: plot.gridOpacity,
+        },
       },
     },
     yAxis: visibleAxes.map((axis, axisIdx) => ({
@@ -935,7 +967,8 @@ export function SinglePlot({
       // throws "yAxis 0 not found". Index-based mapping fills slots cleanly.
       type: axis.logScale ? 'log' : 'value',
       name: axis.name,
-      nameTextStyle: { color: theme.axisName, fontSize: 11 },
+      ...axisStyle,
+      nameTextStyle: { ...axisStyle.nameTextStyle, fontSize: 11 },
       // Run the title vertically alongside its own axis line so titles never
       // collide when multiple axes share a side. nameGap clears the labels.
       nameLocation: 'middle',
@@ -946,17 +979,21 @@ export function SinglePlot({
       min: axis.autoScale ? undefined : axis.min,
       max: axis.autoScale ? undefined : axis.max,
       scale: axis.autoScale,
-      axisLabel: { color: theme.axisLabel, fontSize: plot.tickFontSize, formatter: formatAxisTick },
+      axisLabel: { ...axisStyle.axisLabel, fontSize: plot.tickFontSize, formatter: formatAxisTick },
       // ECharts hides axisLine on secondary y-axes by default; force it on so
       // every stacked axis shows its own vertical line next to its labels.
-      axisLine: { show: true, lineStyle: { color: theme.axisLine } },
+      axisLine: { ...axisStyle.axisLine, show: true },
       splitLine: {
         // Horizontal gridlines are a property of the grid, not each axis: with
         // multiple Y axes on differing scales their ticks fall at different
         // heights, so drawing more than one set overlaps into a broken-looking
         // grid. Draw only the primary (first visible) axis's lines.
         show: plot.showYGridlines && axisIdx === 0,
-        lineStyle: { color: theme.splitLine, type: plot.gridStyle, opacity: plot.gridOpacity },
+        lineStyle: {
+          ...axisStyle.splitLine.lineStyle,
+          type: plot.gridStyle,
+          opacity: plot.gridOpacity,
+        },
       },
     })),
     series: orderedTraces.flatMap(({ trace, yAxisIndex, baseZ }) => {
@@ -992,33 +1029,35 @@ export function SinglePlot({
       },
     ],
     tooltip: {
+      ...baseTooltip,
       trigger: 'axis',
       axisPointer: {
+        ...baseTooltip.axisPointer,
         type: plot.showCrosshair ? 'cross' : 'none', // 'cross' adds Y-axis readout; 'none' hides crosshair but keeps tooltip
         snap: false,
-        lineStyle: { color: theme.crosshair, width: 1, type: 'dashed' },
-        crossStyle: { color: theme.crosshair, width: 1, type: 'dashed' },
         label: {
-          backgroundColor: theme.tooltipBorder,
-          formatter: (
-            p: { value: number; axisDimension?: string } // X --> timestamp, Y --> raw value
-          ) =>
-            p.axisDimension === 'y' ? formatTooltipValue(p.value) : formatCrosshairTime(p.value),
+          ...baseTooltip.axisPointer?.label,
+          // X --> timestamp, Y --> raw value. Both axes are numeric (time in ms,
+          // value or log), so the label value is always a number here.
+          formatter: (p) =>
+            p.axisDimension === 'y'
+              ? formatValue(Number(p.value))
+              : formatCrosshairTime(Number(p.value)),
         },
       },
-      backgroundColor: theme.tooltipBg,
-      borderColor: theme.tooltipBorder,
-      textStyle: { color: theme.tooltipText, fontSize: 11 },
+      textStyle: { ...baseTooltip.textStyle, fontSize: 11 },
       // Walk every visible trace ourselves rather than trusting `params`. With
       // snap: false, ECharts only includes series that have a sample exactly
       // under the cursor — sparse archive data leaves most traces out. The
       // closure captures `traceData` and `visibleTraces` from the surrounding
       // render so each line shows the trace's nearest sample plus the time
       // offset between cursor and that sample.
-      formatter: (params: { axisValue: number }[] | { axisValue: number }) => {
+      formatter: (params) => {
         const arr = Array.isArray(params) ? params : [params];
         if (arr.length === 0) return '';
-        const cursorMs = arr[0]?.axisValue;
+        // Axis-triggered params carry the cursor's axis value, which ECharts'
+        // callback types leave out.
+        const cursorMs = (arr[0] as { axisValue?: unknown } | undefined)?.axisValue;
         if (typeof cursorMs !== 'number' || !Number.isFinite(cursorMs)) return '';
         const time = formatCrosshairTime(cursorMs);
         const lines: string[] = [];
@@ -1027,7 +1066,7 @@ export function SinglePlot({
           const sample = data ? nearestSample(data, cursorMs) : undefined;
           const severity = SHOWN_SEVERITIES.has(sample?.severity) ? ` ${sample?.severity}` : '';
           const valueCell = sample
-            ? `${escapeHtml(formatTooltipValue(sample.value))}${severity} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
+            ? `${escapeHtml(formatValue(sample.value))}${severity} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
             : `<span style="color:${theme.tooltipMuted}">no data</span>`;
           const swatch = COLOR_LITERAL.test(trace.color) ? ` style="color:${trace.color}"` : '';
           lines.push(
@@ -1038,34 +1077,32 @@ export function SinglePlot({
       },
     },
     legend: {
+      ...baseLegend,
       show: plot.showLegend,
       bottom: 8,
-      textStyle: { color: theme.legend, fontSize: 11 },
-      inactiveColor: theme.tooltipMuted,
-      data: visibleTraces.map((t) => labels.get(t.id)),
+      textStyle: { ...baseLegend.textStyle, fontSize: 11 },
+      data: visibleTraces.map((t) => labels.get(t.id) ?? ''),
       selectedMode: false, // legend clicks aren't wired to trace.visible --> disable to + avoid drift
     },
   };
 
   return (
-    // data-plot-id lets capturePlotPng find this chart's ECharts instance in
-    // the document (print snapshots). Detached plots live in another window's
-    // document, so they're naturally out of scope. data-fullscreen marks the
-    // popped-out copy so capture targets it over the in-window one, which
-    // shares the same data-plot-id.
+    // data-plot-id lets capturePlotPng find this plot's wrapper in the
+    // document (print snapshots, PNG export) and the chart registered for it.
+    // Detached plots live in another window's document, so they're naturally
+    // out of scope. data-fullscreen marks the popped-out copy so capture
+    // targets it over the in-window one, which shares the same data-plot-id.
     <div
       ref={wrapRef}
       data-plot-id={plot.id}
       data-fullscreen={fullscreen ? 'true' : undefined}
       style={{ height: '100%', width: '100%' }}
     >
-      <ReactECharts
-        ref={chartRef}
+      <CanopyChart
         option={option}
         replaceMerge={['series', 'yAxis']}
         onEvents={{ datazoom: handleDataZoom, finished: handleFinished }}
-        style={{ height: '100%', width: '100%' }}
-        opts={{ renderer: 'canvas' }}
+        onReady={handleReady}
       />
     </div>
   );
@@ -1197,31 +1234,34 @@ export function PlotArea({
               onReattach={() => onReattachPlot(activePlot.id)}
             />
           ) : (
-            <SinglePlot
-              key={activePlot.id}
-              plot={activePlot}
-              endMs={axisEndFor(activePlot.id)}
-              following={isFollowing(activePlot, viewWindowByPlot)}
-              onFollowStop={onFollowStop ? () => onFollowStop(activePlot.id) : undefined}
-              archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
-              liveResults={liveResultsByPlot.get(activePlot.id) ?? EMPTY_LIVE_RESULTS}
-              formulaResults={formulaResultsByPlot.get(activePlot.id) ?? EMPTY_FORMULA_RESULTS}
-              onViewWindowChange={
-                onViewWindowChange ? (w) => onViewWindowChange(activePlot.id, w) : undefined
-              }
-              initialViewWindowNs={viewWindowByPlot.get(activePlot.id)}
-              onAxisRangesChange={
-                onAxisRangesChange ? (r) => onAxisRangesChange(activePlot.id, r) : undefined
-              }
-              onUpdateAxis={
-                onUpdateAxis ? (id, u) => onUpdateAxis(activePlot.id, id, u) : undefined
-              }
-              onChartInstance={
-                onChartInstance
-                  ? (inst, active) => onChartInstance(activePlot.id, inst, active)
-                  : undefined
-              }
-            />
+            // Each chart has its own boundary, so a crash leaves the plot tabs and
+            // view controls usable (switch to another plot, remove or detach this one).
+            <ErrorBoundary key={activePlot.id}>
+              <SinglePlot
+                plot={activePlot}
+                endMs={axisEndFor(activePlot.id)}
+                following={isFollowing(activePlot, viewWindowByPlot)}
+                onFollowStop={onFollowStop ? () => onFollowStop(activePlot.id) : undefined}
+                archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
+                liveResults={liveResultsByPlot.get(activePlot.id) ?? EMPTY_LIVE_RESULTS}
+                formulaResults={formulaResultsByPlot.get(activePlot.id) ?? EMPTY_FORMULA_RESULTS}
+                onViewWindowChange={
+                  onViewWindowChange ? (w) => onViewWindowChange(activePlot.id, w) : undefined
+                }
+                initialViewWindowNs={viewWindowByPlot.get(activePlot.id)}
+                onAxisRangesChange={
+                  onAxisRangesChange ? (r) => onAxisRangesChange(activePlot.id, r) : undefined
+                }
+                onUpdateAxis={
+                  onUpdateAxis ? (id, u) => onUpdateAxis(activePlot.id, id, u) : undefined
+                }
+                onChartInstance={
+                  onChartInstance
+                    ? (inst, active) => onChartInstance(activePlot.id, inst, active)
+                    : undefined
+                }
+              />
+            </ErrorBoundary>
           )
         ) : (
           <div
@@ -1264,30 +1304,32 @@ export function PlotArea({
                     onReattach={() => onReattachPlot(plot.id)}
                   />
                 ) : (
-                  <SinglePlot
-                    plot={plot}
-                    endMs={axisEndFor(plot.id)}
-                    following={isFollowing(plot, viewWindowByPlot)}
-                    onFollowStop={onFollowStop ? () => onFollowStop(plot.id) : undefined}
-                    archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
-                    liveResults={liveResultsByPlot.get(plot.id) ?? EMPTY_LIVE_RESULTS}
-                    formulaResults={formulaResultsByPlot.get(plot.id) ?? EMPTY_FORMULA_RESULTS}
-                    onViewWindowChange={
-                      onViewWindowChange ? (w) => onViewWindowChange(plot.id, w) : undefined
-                    }
-                    initialViewWindowNs={viewWindowByPlot.get(plot.id)}
-                    onAxisRangesChange={
-                      onAxisRangesChange ? (r) => onAxisRangesChange(plot.id, r) : undefined
-                    }
-                    onUpdateAxis={
-                      onUpdateAxis ? (id, u) => onUpdateAxis(plot.id, id, u) : undefined
-                    }
-                    onChartInstance={
-                      onChartInstance
-                        ? (inst, active) => onChartInstance(plot.id, inst, active)
-                        : undefined
-                    }
-                  />
+                  <ErrorBoundary>
+                    <SinglePlot
+                      plot={plot}
+                      endMs={axisEndFor(plot.id)}
+                      following={isFollowing(plot, viewWindowByPlot)}
+                      onFollowStop={onFollowStop ? () => onFollowStop(plot.id) : undefined}
+                      archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
+                      liveResults={liveResultsByPlot.get(plot.id) ?? EMPTY_LIVE_RESULTS}
+                      formulaResults={formulaResultsByPlot.get(plot.id) ?? EMPTY_FORMULA_RESULTS}
+                      onViewWindowChange={
+                        onViewWindowChange ? (w) => onViewWindowChange(plot.id, w) : undefined
+                      }
+                      initialViewWindowNs={viewWindowByPlot.get(plot.id)}
+                      onAxisRangesChange={
+                        onAxisRangesChange ? (r) => onAxisRangesChange(plot.id, r) : undefined
+                      }
+                      onUpdateAxis={
+                        onUpdateAxis ? (id, u) => onUpdateAxis(plot.id, id, u) : undefined
+                      }
+                      onChartInstance={
+                        onChartInstance
+                          ? (inst, active) => onChartInstance(plot.id, inst, active)
+                          : undefined
+                      }
+                    />
+                  </ErrorBoundary>
                 )}
               </div>
             ))}
