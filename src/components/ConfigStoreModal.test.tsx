@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { ConfigStoreModal } from './ConfigStoreModal';
 import type { ConfigDTO } from '../api/types';
 import type { Plot } from '../types';
@@ -78,6 +78,13 @@ describe('ConfigStoreModal', () => {
         disconnect() {}
       }
     );
+    // jsdom has no scrollIntoView. Carbon's modal calls it when focus moves to
+    // an element inside a scrolling ModalBody.
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    });
     vi.mocked(listConfigs).mockResolvedValue({
       results: [],
       continuationToken: null,
@@ -89,6 +96,7 @@ describe('ConfigStoreModal', () => {
     cleanup();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
   });
 
   it('cannot be dismissed while a save is in progress', async () => {
@@ -167,6 +175,85 @@ describe('ConfigStoreModal', () => {
 
     await waitFor(() => expect(deleteConfig).toHaveBeenCalledWith('test-config'));
     await screen.findByText('No saved configs yet.');
+    // The row's button went with the row, so focus falls back to the store body.
+    expect(document.activeElement).toBe(
+      screen.getByRole('region', { name: 'Config store contents' })
+    );
+  });
+
+  it('falls back to the store body when the delete trigger is disabled on close', async () => {
+    vi.mocked(listConfigs).mockResolvedValue({
+      results: [listedConfig],
+      continuationToken: null,
+      totalCount: 1,
+    });
+    renderModal();
+    await screen.findByText('test-config');
+
+    const trigger = screen.getAllByRole('button', { name: 'Delete' })[0];
+    fireEvent.click(trigger);
+    // Stands in for a row still mid-delete (busySlug) when the dialog closes.
+    (trigger as HTMLButtonElement).disabled = true;
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() =>
+      expect(document.querySelectorAll('.cds--modal.is-visible')).toHaveLength(1)
+    );
+    expect(document.activeElement).toBe(
+      screen.getByRole('region', { name: 'Config store contents' })
+    );
+  });
+
+  it('moves focus into the delete confirmation and back to its trigger on Escape', async () => {
+    // Carbon's focus wrap only targets elements with an offsetParent, which
+    // jsdom never sets (no layout). Without one the store's wrap can't move
+    // focus at all and this test couldn't see it pull focus back.
+    const offsetParent = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent')!;
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.parentElement;
+      },
+    });
+    const focusedOutside: Element[] = [];
+    const recordFocus = (e: FocusEvent) => {
+      if (!(e.target as Element).closest('.cds--modal--danger')) {
+        focusedOutside.push(e.target as Element);
+      }
+    };
+    try {
+      vi.mocked(listConfigs).mockResolvedValue({
+        results: [listedConfig],
+        continuationToken: null,
+        totalCount: 1,
+      });
+      renderModal();
+      await screen.findByText('test-config');
+
+      // A keyboard user tabs to the row's Delete button and presses Enter.
+      const trigger = screen.getAllByRole('button', { name: 'Delete' })[0];
+      trigger.focus();
+      document.addEventListener('focusin', recordFocus);
+      fireEvent.click(trigger);
+
+      const confirmation = document.querySelector<HTMLElement>('.cds--modal--danger')!;
+      const cancel = within(confirmation).getByRole('button', { name: 'Cancel' });
+      await waitFor(() => expect(document.activeElement).toBe(cancel));
+      // jsdom lets the outer focus() win, so also check the store never took
+      // focus on the way (in a browser its pull-back wins and focus stays there).
+      expect(focusedOutside).toEqual([]);
+      document.removeEventListener('focusin', recordFocus);
+
+      // One Escape closes the confirmation and focus goes back to the trigger.
+      fireEvent.keyDown(cancel, { key: 'Escape' });
+      await waitFor(() =>
+        expect(document.querySelectorAll('.cds--modal.is-visible')).toHaveLength(1)
+      );
+      expect(document.activeElement).toBe(trigger);
+    } finally {
+      document.removeEventListener('focusin', recordFocus);
+      Object.defineProperty(HTMLElement.prototype, 'offsetParent', offsetParent);
+    }
   });
 
   it('aborts superseded loads and only applies the latest response', async () => {
