@@ -8,7 +8,8 @@
 // The stand-in renders a plain div, hands `chartStub.instance` to `onReady`
 // after mount (as CanopyChart does once ECharts is ready) and records the
 // props of its latest render. `fireChartEvent` calls a handler the way
-// CanopyChart does, with the event params and the chart.
+// CanopyChart does: with the event params and the chart, and not at all once
+// that chart is disposed.
 //
 // Only types are imported from canopy-charts here: a value import would load
 // the mocked module from inside its own mock.
@@ -25,9 +26,14 @@ export const chartStub: {
   onRender?: (props: CanopyChartProps) => ReactNode | void;
 } = { instance: undefined, props: null };
 
-/** Fire a chart event at the latest render's handler, as CanopyChart would. */
+/**
+ * Fire a chart event at the latest render's handler, as CanopyChart would: it
+ * drops events from a disposed chart before they reach the handler.
+ */
 export function fireChartEvent(name: string, params: unknown = {}): void {
-  chartStub.props?.onEvents?.[name]?.(params, chartStub.instance as ECharts);
+  const chart = chartStub.instance as Partial<Pick<ECharts, 'isDisposed'>> | undefined;
+  if (chart?.isDisposed?.()) return;
+  chartStub.props?.onEvents?.[name]?.(params, chart as ECharts);
 }
 
 // A class, like the echarts-for-react component CanopyChart wraps: it records

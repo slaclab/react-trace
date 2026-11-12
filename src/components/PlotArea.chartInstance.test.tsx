@@ -3,7 +3,8 @@
 // SinglePlot under canopy-charts' CanopyChart (issue 105). CanopyChart hands
 // over the ECharts instance through onReady, again after any re-init, and never
 // reports a disposal. SinglePlot must use the newest instance, treat a disposed
-// one as no chart, and read event data from the chart that fired the event.
+// one as no chart, read event data from the chart that fired the event, and
+// ignore events from a chart without a model (not built yet, or disposed).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
@@ -23,15 +24,17 @@ vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
 // (top 40, bottom 60, left 70) put x=30 inside the axis band.
 function fakeChart(dataUrl: string, [lo, hi]: [number, number] = [0, 100]) {
   let disposed = false;
+  const model = {
+    getComponent: () => ({ axis: { scale: { getExtent: (): [number, number] => [lo, hi] } } }),
+  };
   const chart = {
     isDisposed: () => disposed,
     getDataURL: vi.fn(() => dataUrl),
     getWidth: () => 800,
     getHeight: () => 400,
     getZr: () => ({ setCursorStyle: () => {} }),
-    getModel: () => ({
-      getComponent: () => ({ axis: { scale: { getExtent: (): [number, number] => [lo, hi] } } }),
-    }),
+    // Like ECharts, a disposed chart has dropped its model.
+    getModel: () => (disposed ? null : model),
     convertToPixel: (_f: unknown, v: number) => 340 - ((v - lo) / (hi - lo)) * 300,
     convertFromPixel: (_f: unknown, px: number) => lo + ((340 - px) / 300) * (hi - lo),
   };
@@ -111,7 +114,8 @@ const wheelOverAxis = (wrap: Element) =>
   fireEvent.wheel(wrap, { clientX: 30, clientY: 200, deltaY: 100 });
 
 // Call SinglePlot's handler for a chart event straight from the latest
-// render's props, with the chart that fired it.
+// render's props, with the chart that fired it. Unlike CanopyChart (and
+// fireChartEvent), this delivers events from a disposed chart too.
 const emit = (name: 'datazoom' | 'finished', chart: object) =>
   act(() => chartStub.props!.onEvents![name]!({}, chart as unknown as ECharts));
 
@@ -210,6 +214,24 @@ describe('SinglePlot chart instance', () => {
     const measuring = { ...fakeChart('data:,').chart, getModel: () => undefined };
     emit('finished', measuring);
     emit('datazoom', measuring);
+    vi.advanceTimersByTime(400);
+    expect(onAxisRangesChange).not.toHaveBeenCalled();
+    expect(onFollowStop).not.toHaveBeenCalled();
+    expect(onViewWindowChange).not.toHaveBeenCalled();
+  });
+
+  it('ignores events from a disposed chart even if they get through', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const a = fakeChart('data:,');
+    chartStub.instance = a.chart;
+    const { onAxisRangesChange, onFollowStop, onViewWindowChange } = mountPlot({
+      following: true,
+    });
+    a.dispose();
+    // CanopyChart drops these before they reach SinglePlot; deliver them
+    // anyway so SinglePlot doesn't depend on that filter.
+    emit('finished', a.chart);
+    emit('datazoom', a.chart);
     vi.advanceTimersByTime(400);
     expect(onAxisRangesChange).not.toHaveBeenCalled();
     expect(onFollowStop).not.toHaveBeenCalled();
