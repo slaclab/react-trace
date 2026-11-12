@@ -18,17 +18,20 @@ import {
 } from '../test/traceAppHarness';
 import { TraceApp } from './TraceApp';
 
-interface FoxCall {
+interface EngineCall {
   expression: string;
   settled: boolean;
   resolve: (value: number) => void;
 }
 
-const { foxCalls } = vi.hoisted(() => ({ foxCalls: [] as FoxCall[] }));
+const { engineCalls, plotAreaLifecycle } = vi.hoisted(() => ({
+  engineCalls: [] as EngineCall[],
+  plotAreaLifecycle: { mounts: 0, unmounts: 0 },
+}));
 
 // Signature-agnostic (spec, t0, t1, signal are the last four arguments), so it
 // survives a leading connection argument. Calls stay pending until resolved.
-vi.mock('../api/fox', () => ({
+vi.mock('../api/formulaEngine', () => ({
   evaluateFormula: (...args: unknown[]) => {
     const [spec, , t1Ns, signal] = args.slice(-4) as [
       { expression: string },
@@ -37,7 +40,7 @@ vi.mock('../api/fox', () => ({
       AbortSignal,
     ];
     return new Promise((resolve, reject) => {
-      const call: FoxCall = {
+      const call: EngineCall = {
         expression: spec.expression,
         settled: false,
         resolve: (value) => {
@@ -54,7 +57,7 @@ vi.mock('../api/fox', () => ({
           });
         },
       };
-      foxCalls.push(call);
+      engineCalls.push(call);
       signal.addEventListener('abort', () => {
         call.settled = true;
         reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
@@ -64,7 +67,20 @@ vi.mock('../api/fox', () => ({
 }));
 vi.mock('./Toolbar', async () => (await import('../test/traceAppHarness')).mocks.Toolbar);
 vi.mock('./LeftPanel', async () => (await import('../test/traceAppHarness')).mocks.LeftPanel);
-vi.mock('./PlotArea', async () => (await import('../test/traceAppHarness')).mocks.PlotArea);
+vi.mock('./PlotArea', async () => {
+  const React = await import('react');
+  const harness = await import('../test/traceAppHarness');
+  function MockPlotArea(props: React.ComponentProps<typeof import('./PlotArea').PlotArea>) {
+    React.useEffect(() => {
+      plotAreaLifecycle.mounts++;
+      return () => {
+        plotAreaLifecycle.unmounts++;
+      };
+    }, []);
+    return harness.mocks.PlotArea.PlotArea(props);
+  }
+  return { ...harness.mocks.PlotArea, PlotArea: MockPlotArea };
+});
 vi.mock('./RightPanel', async () => (await import('../test/traceAppHarness')).mocks.RightPanel);
 vi.mock(
   '../hooks/useElogConfig',
@@ -88,7 +104,7 @@ function legacyLike(
 }
 
 async function resolvePending(expression: string, value: number) {
-  const call = foxCalls.filter((c) => c.expression === expression && !c.settled).pop();
+  const call = engineCalls.filter((c) => c.expression === expression && !c.settled).pop();
   if (!call) throw new Error(`no pending evaluation of ${expression}`);
   await act(async () => {
     call.resolve(value);
@@ -105,7 +121,9 @@ function formulaFrames(from: number) {
 
 beforeEach(async () => {
   resetHarness();
-  foxCalls.length = 0;
+  engineCalls.length = 0;
+  plotAreaLifecycle.mounts = 0;
+  plotAreaLifecycle.unmounts = 0;
   render(<TraceApp />);
   await loadWorkspace(legacyLike('A:PV', '{x1}*2'));
   await resolvePending('{x1}*2', 7);
@@ -118,6 +136,14 @@ beforeEach(async () => {
 afterEach(() => cleanup());
 
 describe('TraceApp formula results across a workspace load', () => {
+  it('remounts the plot subtree when a workspace reuses its plot id', async () => {
+    const mountsBefore = plotAreaLifecycle.mounts;
+    await loadWorkspace(legacyLike('B:PV', '{x1}+100'));
+
+    expect(plotAreaLifecycle.mounts).toBe(mountsBefore + 1);
+    expect(plotAreaLifecycle.unmounts).toBeGreaterThan(0);
+  });
+
   it("never shows the outgoing workspace's points for a reused formula id", async () => {
     const from = renders.plotArea.length;
     await loadWorkspace(legacyLike('B:PV', '{x1}+100'));

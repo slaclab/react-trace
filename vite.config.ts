@@ -26,11 +26,13 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const target = env.CANOPY_BASE_URL ?? 'http://localhost:8000';
   const apiKey = env.CANOPY_API_KEY ?? '';
-  // E-log (elog-plus) is a separate microservice; the dev proxy injects its
-  // access token so the key never reaches the browser bundle. In prod a reverse
-  // proxy owns the same /elog -> elog-plus rewrite + header injection.
-  const elogTarget = env.ELOG_BASE_URL ?? '';
-  const elogKey = env.ELOG_API_KEY ?? '';
+  // E-log has its own key (read+write@elog), sent only on Trace's e-log app path,
+  // so CANOPY_API_KEY needs no e-log scope (see the proxy entry below). Local dev
+  // keys are usually @*, so fall back to CANOPY_API_KEY when CANOPY_ELOG_API_KEY
+  // is unset.
+  const elogApiKey = env.CANOPY_ELOG_API_KEY || apiKey;
+  // Trace's app in Canopy's e-log module, the only e-log path the proxy forwards.
+  const elogAppPath = '/elog/v1/apps/trace/';
 
   return {
     base: env.VITE_BASE_PATH || '/',
@@ -47,6 +49,17 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: {
         '/mole': {
+          target,
+          changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
+            });
+          },
+        },
+        // Magpie (config store): REST CRUD for saving/sharing workspaces. Same
+        // X-API-Key injection as /mole so the bundle never holds the key.
+        '/magpie': {
           target,
           changeOrigin: true,
           configure: (proxy) => {
@@ -72,10 +85,10 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
-        // Fox (formula evaluation): REST validate/evaluate plus the live-formula
-        // WebSocket. `ws: true` upgrades /fox/v1/ws/formulas; X-API-Key is injected
+        // Formula Engine (formula evaluation): REST validate/evaluate plus the live-formula
+        // WebSocket. `ws: true` upgrades /formula-engine/v1/ws/formulas; X-API-Key is injected
         // on both the HTTP and WS paths so the bundle never holds the key.
-        '/fox': {
+        '/formula-engine': {
           target,
           changeOrigin: true,
           ws: true,
@@ -88,24 +101,40 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
-        ...(elogTarget
-          ? {
-              '/elog': {
-                target: elogTarget,
-                changeOrigin: true,
-                rewrite: (path: string) => path.replace(/^\/elog/, ''),
-                configure: (proxy) => {
-                  proxy.on('proxyReq', (proxyReq) => {
-                    if (elogKey) proxyReq.setHeader('x-vouch-idp-accesstoken', elogKey);
-                  });
-                },
-              },
-            }
-          : {}),
+        '/vole': {
+          target,
+          changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              if (apiKey) proxyReq.setHeader('X-API-Key', apiKey);
+            });
+          },
+        },
+        // E-log: Canopy's shared e-log module, which holds Trace's elog-plus
+        // application token server-side. Injects the dedicated e-log key, scoped
+        // to Trace's own app: Canopy doesn't bind keys to apps ({app} only picks
+        // the server-side elog-plus token), so a wider prefix would let the key
+        // post as any configured app. Other /elog paths aren't proxied.
+        [elogAppPath]: {
+          target,
+          changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              // Vite matches the prefix against the raw URL, so
+              // /elog/v1/apps/trace/../other/ gets here too. Check the path with
+              // `..` (and %2e%2e) resolved, as it reaches Canopy.
+              const path = new URL(proxyReq.path, 'http://localhost').pathname;
+              if (elogApiKey && path.startsWith(elogAppPath)) {
+                proxyReq.setHeader('X-API-Key', elogApiKey);
+              }
+            });
+          },
+        },
       },
     },
     test: {
       passWithNoTests: true,
+      setupFiles: ['./src/test/setup.ts'],
     },
   };
 });
