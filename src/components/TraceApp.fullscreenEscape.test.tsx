@@ -24,7 +24,7 @@ vi.mock('echarts-for-react', async () => {
 
 // E-Log configured, so the Post to E-Log button is shown.
 vi.mock('../hooks/useElogConfig', () => ({
-  useElogConfig: () => ({ enabled: true, logbooks: [], defaultLogbooks: [] }),
+  useElogConfig: () => ({ enabled: true, defaultLogbookIds: [] }),
 }));
 
 const fullscreenPlot = () => document.querySelector('[data-fullscreen]');

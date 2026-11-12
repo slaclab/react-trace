@@ -223,3 +223,43 @@ export interface FormulaValidationDTO {
   tokens: string[];
   errors: string[];
 }
+
+// ── E-Log DTOs ───────────────────────────────────────────────────────────────
+// Source: canopy.elog (camelCase wire), mounted at /elog. Each client app has its
+// own elog-plus application token server-side; Trace's app path is
+// /elog/v1/apps/trace. Logbooks and tags are referenced by id.
+
+export interface ElogConfigDTO {
+  enabled: boolean;
+  provider: string | null;
+  defaultLogbookIds: string[];
+  // Why posting is disabled (no provider configured, or no token for this app).
+  reason: string | null;
+}
+
+export interface ElogLogbookDTO {
+  id: string;
+  name: string;
+}
+
+export interface ElogAttachmentDTO {
+  id: string;
+}
+
+export interface ElogNewEntryDTO {
+  logbookIds: string[];
+  title: string;
+  // Canopy renders Markdown to HTML before handing the entry to elog-plus.
+  bodyMarkdown: string;
+  tagIds?: string[];
+  attachmentIds?: string[];
+  additionalAuthors?: string[];
+  important?: boolean;
+  eventAt?: string | null;
+  followsUpEntryId?: string | null;
+}
+
+export interface ElogEntryCreatedDTO {
+  id: string;
+  url: string | null;
+}

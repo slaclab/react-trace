@@ -1429,15 +1429,14 @@ export function TraceApp() {
         <PostToElogModal
           open={elogModal.open}
           captured={elogModal.captured}
-          logbooks={elogConfig.logbooks}
-          defaultLogbooks={elogConfig.defaultLogbooks}
+          defaultLogbookIds={elogConfig.defaultLogbookIds}
           buildConfigFile={buildElogConfigFile}
           onClose={() => setElogModal((p) => ({ ...p, open: false }))}
-          onPosted={(entryId) =>
+          onPosted={(entry) =>
             showToast({
               kind: 'success',
               title: 'Posted to E-Log',
-              subtitle: `Entry ${entryId} created`,
+              subtitle: `Entry ${entry.id} created`,
             })
           }
           onPostFailed={(message) =>
