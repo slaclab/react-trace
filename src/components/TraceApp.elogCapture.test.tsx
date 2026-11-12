@@ -94,6 +94,14 @@ describe('Post to E-Log chart capture', () => {
     expect(postToElog()).toEqual([FULLSCREEN_URL]);
   });
 
+  it('keeps the fullscreen copy when the in-window copy registers after it', () => {
+    mountInWindowCopy();
+    popOut();
+    mountInWindowCopy();
+
+    expect(postToElog()).toEqual([FULLSCREEN_URL]);
+  });
+
   it('falls back to the in-window copy after the fullscreen overlay closes', () => {
     mountInWindowCopy();
     popOut();
