@@ -1,9 +1,9 @@
 import type { ErrorEnvelope } from './types';
 
-// Vite dev server proxies /mole/* (and /hare, /fox, /elog/v1/apps/trace) to the Canopy
-// backend (see vite.config.ts) and injects X-API-Key, so the browser bundle
-// never sees the key. In deployed builds, VITE_CANOPY_BASE_PATH is served by
-// Trace's reverse proxy, for example /trace/api/canopy.
+// Vite dev server proxies /mole/* (and /hare, /formula-engine, /elog/v1/apps/trace) to
+// the Canopy backend (see vite.config.ts) and injects X-API-Key, so the browser
+// bundle never sees the key. In deployed builds, VITE_CANOPY_BASE_PATH is served
+// by Trace's reverse proxy, for example /trace/api/canopy.
 const BASE = (import.meta.env.VITE_CANOPY_BASE_PATH ?? '').replace(/\/$/, '');
 
 export function canopyWebSocketUrl(path: string): string {
@@ -29,8 +29,8 @@ export class CanopyError extends Error {
 export interface FetchOptions {
   query?: Record<string, string | number | boolean | null | undefined>;
   signal?: AbortSignal;
-  // HTTP method; defaults to GET. POST is used for Fox's validate/evaluate and
-  // e-log posts; PUT/DELETE by Magpie's config-store CRUD.
+  // HTTP method; defaults to GET. POST is used for the Formula Engine's
+  // validate/evaluate and e-log posts; PUT/DELETE by Magpie's config-store CRUD.
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   // Request body (POST/PUT). FormData is sent as multipart as-is (the browser
   // sets the boundary); anything else is serialized with a JSON content-type.

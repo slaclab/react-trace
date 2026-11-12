@@ -9,7 +9,7 @@ import type {
 
 // E-log posting goes through Canopy's shared e-log module, which holds Trace's
 // elog-plus application token server-side. Requests use the same Canopy base path
-// as Mole/Hare/Fox; the proxy injects a dedicated e-log key (read+write@elog), so
+// as Mole/Hare/the Formula Engine; the proxy injects a dedicated e-log key (read+write@elog), so
 // neither that key nor the elog-plus token reaches the browser bundle.
 const APP_BASE = '/elog/v1/apps/trace';
 

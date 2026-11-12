@@ -57,10 +57,10 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
-        // Fox (formula evaluation): REST validate/evaluate plus the live-formula
-        // WebSocket. `ws: true` upgrades /fox/v1/ws/formulas; X-API-Key is injected
+        // Formula Engine (formula evaluation): REST validate/evaluate plus the live-formula
+        // WebSocket. `ws: true` upgrades /formula-engine/v1/ws/formulas; X-API-Key is injected
         // on both the HTTP and WS paths so the bundle never holds the key.
-        '/fox': {
+        '/formula-engine': {
           target,
           changeOrigin: true,
           ws: true,

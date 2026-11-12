@@ -167,8 +167,8 @@ export interface WsErrorFrame {
 
 export type WsFrame = WsInitialFrame | WsDiffFrame | WsHeartbeatFrame | WsPongFrame | WsErrorFrame;
 
-// ── Fox (formula) DTOs ───────────────────────────────────────────────────────
-// Source: canopy.contracts.formula + canopy.fox.schemas.formula (camelCase wire).
+// ── Formula Engine DTOs ──────────────────────────────────────────────────────
+// Source: canopy.contracts.formula + canopy.formula_engine.schemas.formula (camelCase wire).
 // A formula curve evaluates an `expression` over named `bindings` (variable ->
 // PV name) for a time window. Results are a discriminated union keyed on `kind`.
 

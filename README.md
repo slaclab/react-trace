@@ -77,8 +77,8 @@ copying them over silently preselects no logbook. `ELOG_BASE_URL`, `ELOG_API_KEY
 In production the Trace container reverse-proxies `/trace/api/canopy/*` to the
 in-cluster Canopy service and injects `X-API-Key`, so the browser bundle never
 receives a key. `/trace/api/canopy/elog/v1/apps/trace/*` gets `CANOPY_ELOG_API_KEY`;
-everything else (the Mole, Hare, Fox, Magpie and Vole HTTP and WebSocket routes, and any
-other e-log path) gets `CANOPY_API_KEY`. The e-log key stays on Trace's own app path
+everything else (the Mole, Hare, Formula Engine, Magpie and Vole HTTP and WebSocket
+routes, and any other e-log path) gets `CANOPY_API_KEY`. The e-log key stays on Trace's own app path
 because Canopy doesn't bind keys to apps: on a wider path it could post as any app
 configured in Canopy.
 `CANOPY_ELOG_API_KEY` is optional: without it the container still starts, logs a
