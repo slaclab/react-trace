@@ -323,7 +323,7 @@ describe('archiveStore: PV not in the archiver', () => {
 describe('archiveStore: value at the window start', () => {
   // A PV archived on change. Honours `includeLastBefore` like Mole: samples in
   // [from, to], plus the last one before `from` when asked.
-  function onChangeFetch(changes: Array<[tsNs: number, value: number]>): Impl {
+  function onChangeFetch(changes: Array<[tsNs: number, value: number | null]>): Impl {
     return async (_pv, params) => {
       const toNs = params.toNs ?? params.fromNs;
       const inWindow = changes.filter(([t]) => t >= params.fromNs && t <= toNs);
@@ -429,18 +429,19 @@ describe('archiveStore: value at the window start', () => {
     expect(entry.mean[0].time).toBe(entry.coverFromNs / 1e6);
   });
 
-  // A 10 s window sliding 3 s: the tail's overlap reaches back past the window
-  // start, so the tail starts exactly there.
-  async function slideShortWindow(h: Harness) {
-    ask(h, windowAt(T0_MS, 10));
+  // A window sliding 3 s. On a 10 s window the tail's overlap reaches back past
+  // the window start, so the tail starts exactly there; on a 30 s window it
+  // starts inside the buffer.
+  async function slideWindow(h: Harness, spanS: number) {
+    ask(h, windowAt(T0_MS, spanS));
     await flush();
     h.advance(3000);
-    const win = windowAt(h.now(), 10);
+    const win = windowAt(h.now(), spanS);
     ask(h, win);
     await flush();
     const calls = h.fetchData.mock.calls.map((c) => c[1]);
     expect(calls).toHaveLength(2);
-    expect(calls[1].fromNs).toBe(win.fromNs);
+    expect(calls[1].fromNs).toBe(Math.max(win.fromNs, T0_NS - 10e9));
     expect(calls[1].includeLastBefore).toBeUndefined();
     return win.fromNs / 1e6;
   }
@@ -452,7 +453,7 @@ describe('archiveStore: value at the window start', () => {
         [T0_NS - 7e9, 8],
       ])
     );
-    const fromMs = await slideShortWindow(h);
+    const fromMs = await slideWindow(h, 10);
     expect(meanOf(h)).toEqual([[fromMs, 8]]);
   });
 
@@ -463,7 +464,7 @@ describe('archiveStore: value at the window start', () => {
         [T0_NS - 5e9, 8],
       ])
     );
-    const fromMs = await slideShortWindow(h);
+    const fromMs = await slideWindow(h, 10);
     expect(meanOf(h)).toEqual([
       [fromMs, 7],
       [T0_MS - 5000, 8],
@@ -501,6 +502,98 @@ describe('archiveStore: value at the window start', () => {
     );
     const fromMs = await extendFixedStart(h);
     expect(meanOf(h)).toEqual([[fromMs, 8]]);
+  });
+
+  it('holds nothing when an extended window starts after a null sample', async () => {
+    const h = setup(
+      onChangeFetch([
+        [T0_NS - 90e9, 7],
+        [T0_NS - 60e9, null],
+      ])
+    );
+    await extendFixedStart(h);
+    expect(meanOf(h)).toEqual([]);
+  });
+
+  // A sample with no numeric value (a disconnect, say) isn't drawn. A window
+  // that slides to start after one holds nothing there, like a full fetch of
+  // the same window.
+  for (const spanS of [10, 30]) {
+    const startNs = T0_NS + 3e9 - spanS * 1e9; // after the slide
+
+    it(`${spanS}s window: holds nothing after sliding past a null sample`, async () => {
+      const h = setup(
+        onChangeFetch([
+          [T0_NS - 60e9, 7],
+          [startNs - 1e9, null],
+          [T0_NS - 2e9, 8],
+        ])
+      );
+      await slideWindow(h, spanS);
+      expect(meanOf(h)).toEqual([[T0_MS - 2000, 8]]);
+    });
+
+    it(`${spanS}s window: holds nothing when it slides onto a null sample`, async () => {
+      const h = setup(
+        onChangeFetch([
+          [T0_NS - 60e9, 7],
+          [startNs, null],
+          [T0_NS - 2e9, 8],
+        ])
+      );
+      await slideWindow(h, spanS);
+      expect(meanOf(h)).toEqual([[T0_MS - 2000, 8]]);
+    });
+
+    it(`${spanS}s window: holds a value that follows a null sample`, async () => {
+      const h = setup(
+        onChangeFetch([
+          [T0_NS - 60e9, 7],
+          [startNs - 2e9, null],
+          [startNs - 1e9, 9],
+          [T0_NS - 2e9, 8],
+        ])
+      );
+      const fromMs = await slideWindow(h, spanS);
+      expect(meanOf(h)).toEqual([
+        [fromMs, 9],
+        [T0_MS - 2000, 8],
+      ]);
+    });
+  }
+
+  it('holds nothing when a short window slides onto a null only the tail has', async () => {
+    // Written late: the first fetch doesn't have it, the tail does.
+    const early = onChangeFetch([
+      [T0_NS - 60e9, 7],
+      [T0_NS - 2e9, 8],
+    ]);
+    const late = onChangeFetch([
+      [T0_NS - 60e9, 7],
+      [T0_NS - 7e9, null],
+      [T0_NS - 2e9, 8],
+    ]);
+    let calls = 0;
+    const h = setup((...args) => (calls++ === 0 ? early : late)(...args));
+    const fromMs = await slideWindow(h, 10);
+    expect(fromMs).toBe(T0_MS - 7000);
+    expect(meanOf(h)).toEqual([[T0_MS - 2000, 8]]);
+  });
+
+  it('holds nothing once a now-tracking window slides past a null sample', async () => {
+    // In the first window. The start passes it a few tails later.
+    const h = setup(
+      onChangeFetch([
+        [T0_NS - 60e9, 7],
+        [T0_NS - 25e9, null],
+        [T0_NS + 3e9, 8],
+      ])
+    );
+    await drift(h, { spanS: 30, steps: 100 });
+    expect(h.fetchData.mock.calls.length).toBeGreaterThan(3);
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.coverFromNs).toBeGreaterThan(T0_NS - 25e9);
+    expect(meanOf(h)).toEqual([[T0_MS + 3000, 8]]);
   });
 
   it('does not ask for it on binned requests', async () => {

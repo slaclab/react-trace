@@ -91,6 +91,10 @@ export interface ArchiveEntry {
   // refetches, so the displayed series never blanks out mid-request.
   mean: ArchivePlotPoint[];
   band: ArchiveBandPoint[];
+  // Raw mode: times of the samples with no numeric value (a disconnect, say),
+  // which `mean` leaves out. A tail splice checks them, so a window start after
+  // one holds nothing, as with a full fetch.
+  blanks: number[];
   // Window the buffer covers, in ns. Pan/zoom inside this is a free render.
   coverFromNs: number;
   coverToNs: number;
@@ -287,6 +291,16 @@ function notArchivedFailure(info: ArchiveErrorInfo, spanNs: number): Failure {
   };
 }
 
+// Times of the raw samples with no numeric value, from `fromMs` on.
+function blankTimes(samples: SampleDTO[], fromMs = -Infinity): number[] {
+  const times: number[] = [];
+  for (const s of samples) {
+    const time = nsToMs(s.tsNs);
+    if (typeof s.value !== 'number' && time >= fromMs) times.push(time);
+  }
+  return times;
+}
+
 function dtoToData(
   dto: ArchiverDataDTO,
   mode: 'raw' | 'binned',
@@ -301,6 +315,7 @@ function dtoToData(
       status: 'ready',
       mean,
       band: [],
+      blanks: blankTimes(dto.samples as SampleDTO[]),
       coverFromNs: window.fromNs,
       coverToNs: window.toNs,
       mode: 'raw',
@@ -319,6 +334,7 @@ function dtoToData(
     status: 'ready',
     mean,
     band,
+    blanks: [],
     coverFromNs: window.fromNs,
     coverToNs: window.toNs,
     mode,
@@ -345,14 +361,14 @@ function holdLastBefore(dto: ArchiverDataDTO, window: TimeWindowNs): ArchiverDat
   return { ...dto, samples: [{ ...samples[i - 1], tsNs: window.fromNs }, ...inWindow] };
 }
 
-// Merge a tail fetch into the buffer: keep buffered points before the tail
-// (from the window start on), then the fetched samples. The last buffered
-// point at or before the window start is held at the start, as
-// `holdLastBefore` does for a full fetch, unless a real sample sits there. The
-// tail can start at the window start (a short window, or one whose end moved
-// out with its start fixed), so that point is taken before the tail cuts the
-// buffer off, and the check runs after the merge. Coverage becomes
-// [window start, window end].
+// Merge a tail fetch into the buffer: keep buffered points and blanks before
+// the tail (from the window start on), then the fetched samples. The last
+// buffered point at or before the window start is held at the start, as
+// `holdLastBefore` does for a full fetch, unless a real sample sits there or a
+// blank comes after it, up to the start. The tail can start at the window start
+// (a short window, or one whose end moved out with its start fixed), so that
+// point is taken before the tail cuts the buffer off, and the checks run after
+// the merge. Coverage becomes [window start, window end].
 function spliceTail(
   prev: ArchiveEntry,
   dto: ArchiverDataDTO,
@@ -374,11 +390,27 @@ function spliceTail(
     const time = nsToMs(s.tsNs);
     if (time >= tailFromMs) mean.push({ time, value: s.value });
   }
-  if (before && mean[0]?.time !== fromMs) mean.unshift({ ...before, time: fromMs });
+
+  // Blanks are kept the same way. Note the last one at or before the start,
+  // the tail's included (it can only sit at the start).
+  const blanks: number[] = [];
+  let blankBefore = -Infinity;
+  for (const t of prev.blanks) {
+    if (t <= fromMs) blankBefore = t;
+    if (t >= tailFromMs) break;
+    if (t >= fromMs) blanks.push(t);
+  }
+  blanks.push(...blankTimes(dto.samples as SampleDTO[], tailFromMs));
+  if (blanks[0] === fromMs) blankBefore = fromMs;
+
+  if (before && before.time > blankBefore && mean[0]?.time !== fromMs) {
+    mean.unshift({ ...before, time: fromMs });
+  }
   return {
     status: 'ready',
     mean,
     band: [],
+    blanks,
     coverFromNs: Math.max(prev.coverFromNs, window.fromNs),
     coverToNs: window.toNs,
     mode: 'raw',
@@ -582,6 +614,7 @@ export class ArchiveStore {
           status: 'error',
           mean: [],
           band: [],
+          blanks: [],
           coverFromNs: opts.window.fromNs,
           coverToNs: opts.window.toNs,
           mode: fetchSig.mode,
@@ -628,6 +661,7 @@ export class ArchiveStore {
             // identity. Identity changes (pv / archiver) wipe to empty.
             mean: prevData?.mean ?? [],
             band: prevData?.band ?? [],
+            blanks: prevData?.blanks ?? [],
             coverFromNs: prevData?.coverFromNs ?? opts.window.fromNs,
             coverToNs: prevData?.coverToNs ?? opts.window.toNs,
             mode: fetchSig.mode,
