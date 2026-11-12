@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ArchiveStore, type FetchDataFn } from './archiveStore';
+import { ArchiveStore, DEFAULT_OPTIMIZED_BINS, type FetchDataFn } from './archiveStore';
 import { CanopyError } from '../api/client';
 import type { ArchiverDataDTO } from '../api/types';
 import type { TimeWindowNs } from '../api/time';
@@ -415,6 +415,71 @@ describe('archiveStore: other failures back off', () => {
     expect(h.store.getSnapshot().get('t1')?.status).toBe('ready');
   });
 
+  it('fetches the window that failed when it is asked for again after that', async () => {
+    const pastToMs = T0_MS - 3_600_000;
+    const covered = windowAt(pastToMs, 30);
+    const failing = windowAt(pastToMs + 600_000, 30);
+    const h: Harness = setup(async (_pv, params) => {
+      if (h.fetchData.mock.calls.length === 2) throw unavailable();
+      return rawDto(params);
+    });
+    h.store.request('t1', { pv: PV, archiver: undefined, window: covered });
+    await flush();
+    h.store.request('t1', { pv: PV, archiver: undefined, window: failing });
+    await flush();
+    h.store.request('t1', { pv: PV, archiver: undefined, window: covered });
+    await flush();
+    // Back to the window that failed, with its backoff dropped: fetched now,
+    // not skipped as already asked for.
+    h.store.request('t1', { pv: PV, archiver: undefined, window: failing });
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+    expect(h.fetchData.mock.calls[2][1]).toMatchObject({
+      fromNs: failing.fromNs,
+      toNs: failing.toNs,
+    });
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.status).toBe('ready');
+    expect(entry.coverFromNs).toBe(failing.fromNs);
+  });
+
+  it('keeps a retry in flight whose answer covers the window it is back on', async () => {
+    const pastToMs = T0_MS - 3_600_000;
+    const here = windowAt(pastToMs, 600);
+    // Zoomed out around `here`: the same raw mode, twice the span.
+    const wide = { fromNs: here.fromNs - 300e9, toNs: here.toNs + 300e9 };
+    let release!: () => void;
+    const h: Harness = setup((_pv, params) => {
+      const call = h.fetchData.mock.calls.length;
+      if (call === 2) return Promise.reject(unavailable());
+      if (call === 3) {
+        return new Promise((r) => {
+          release = () => r(rawDto(params));
+        });
+      }
+      return Promise.resolve(rawDto(params));
+    });
+    h.store.request('t1', { pv: PV, archiver: undefined, window: here });
+    await flush();
+    h.store.request('t1', { pv: PV, archiver: undefined, window: wide });
+    await flush();
+    // The backoff expires and the timer retries `wide`, still in flight.
+    await idle(h, 1_000);
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+    // Zoom back in, then out again before the retry answers.
+    h.store.request('t1', { pv: PV, archiver: undefined, window: here });
+    await flush();
+    h.store.request('t1', { pv: PV, archiver: undefined, window: wide });
+    await flush();
+    expect(h.fetchData.mock.calls[2][2]?.aborted).toBe(false);
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+    release();
+    await flush();
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.status).toBe('ready');
+    expect(entry.coverFromNs).toBe(wide.fromNs);
+  });
+
   it('drops a scheduled retry on release() and refetchAll()', async () => {
     const times: number[] = [];
     const h: Harness = setup(async () => {
@@ -826,5 +891,328 @@ describe('archiveStore: archived PV while the window tracks now', () => {
     const spans = h.fetchData.mock.calls.map((c) => spanOf(c[1]));
     expect(spans.length).toBeGreaterThan(1);
     expect(spans.every((s) => s === 30)).toBe(true);
+  });
+});
+
+// #121: a zoom into a binned buffer used to keep drawing the bins fetched for
+// the whole range, since the fetch signature holds the bin count, not the bin
+// width. Windows here stay over 30 min, so the raw/binned flip isn't what
+// triggers the refetch.
+describe('archiveStore: zooming into a binned buffer', () => {
+  // Ten evenly spaced bins over the requested range, mean = bin index.
+  function binnedDto(params: FetchDataParams): ArchiverDataDTO {
+    const toNs = params.toNs ?? params.fromNs;
+    const binNs = (toNs - params.fromNs) / 10;
+    return {
+      mode: 'binned',
+      pv: PV,
+      archiver: 'test',
+      from: params.fromNs,
+      to: toNs,
+      binning: 'auto',
+      binSizeNs: null,
+      targetBuckets: params.maxPoints ?? null,
+      points: Array.from({ length: 10 }, (_, i) => ({
+        tsNs: params.fromNs + i * binNs,
+        binNs,
+        mean: i,
+        stdDev: 0,
+        min: i,
+        max: i,
+        count: 1,
+        severity: 'NO_ALARM' as const,
+      })),
+    };
+  }
+
+  const DAY_S = 86_400;
+  // The last `spanS` of `win`, as a wheel zoom anchored at the right edge.
+  const zoomTo = (win: TimeWindowNs, spanS: number): TimeWindowNs => ({
+    fromNs: win.toNs - spanS * 1e9,
+    toNs: win.toNs,
+  });
+  const ask = (h: Harness, window: TimeWindowNs) =>
+    h.store.request('t1', { pv: PV, archiver: undefined, window });
+
+  it('fetches finer bins for a 40 min zoom, keeping the coarse line until they land', async () => {
+    let resolveZoom!: () => void;
+    const h: Harness = setup((_pv, params) => {
+      if (h.fetchData.mock.calls.length === 1) return Promise.resolve(binnedDto(params));
+      return new Promise((r) => {
+        resolveZoom = () => r(binnedDto(params));
+      });
+    });
+    const day = windowAt(h.now(), DAY_S);
+    ask(h, day);
+    await flush();
+    const coarse = h.store.getSnapshot().get('t1')!.mean;
+
+    const zoom = zoomTo(day, 40 * 60);
+    ask(h, zoom);
+    ask(h, zoom); // re-render while the zoom fetch is in flight
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    expect(h.fetchData.mock.calls[1][1]).toMatchObject({
+      fromNs: zoom.fromNs,
+      toNs: zoom.toNs,
+      binning: 'auto',
+      maxPoints: DEFAULT_OPTIMIZED_BINS,
+    });
+    // Coarse buffer still on screen, and no 'loading' blink.
+    expect(h.store.getSnapshot().get('t1')!.mean).toBe(coarse);
+    expect(h.store.getSnapshot().get('t1')!.status).toBe('ready');
+
+    resolveZoom();
+    await flush();
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.mean[0].time).toBe(zoom.fromNs / 1e6);
+    expect(entry.coverFromNs).toBe(zoom.fromNs);
+    expect(h.published.t1.filter((st) => st === 'loading')).toHaveLength(1);
+
+    // Settled: re-renders of the zoomed window are free.
+    ask(h, zoom);
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+  });
+
+  it('a zoom to more than half the fetched span stays on the buffer', async () => {
+    const h = setup(async (_pv, params) => binnedDto(params));
+    const day = windowAt(h.now(), DAY_S);
+    ask(h, day);
+    await flush();
+    ask(h, zoomTo(day, 20 * 3600));
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(1);
+    ask(h, zoomTo(day, 11 * 3600));
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+  });
+
+  it('a gradual zoom refetches once per halving of the span, not per step', async () => {
+    const h = setup(async (_pv, params) => binnedDto(params));
+    const day = windowAt(h.now(), DAY_S);
+    let spanS = DAY_S;
+    // 30 settled zoom steps of 10% each: 1 day down to about 1 h.
+    for (let i = 0; i <= 30; i++) {
+      ask(h, zoomTo(day, spanS));
+      await flush();
+      spanS *= 0.9;
+    }
+    // The first fetch, then one at every 7th step (0.9^7 < 0.5 < 0.9^6).
+    expect(h.fetchData).toHaveBeenCalledTimes(5);
+  });
+
+  it('after a zoom refetch, a pan or a zoom back out fetches its own window', async () => {
+    const h = setup(async (_pv, params) => binnedDto(params));
+    const day = windowAt(h.now(), DAY_S);
+    ask(h, day);
+    await flush();
+    const zoom = zoomTo(day, 40 * 60);
+    ask(h, zoom);
+    await flush();
+    // The buffer now holds only the zoomed window, at its own resolution.
+    const panned = { fromNs: zoom.fromNs - 600e9, toNs: zoom.toNs - 600e9 };
+    ask(h, panned);
+    await flush();
+    ask(h, day);
+    await flush();
+    expect(h.fetchData.mock.calls.map((c) => [c[1].fromNs, c[1].toNs])).toEqual([
+      [day.fromNs, day.toNs],
+      [zoom.fromNs, zoom.toNs],
+      [panned.fromNs, panned.toNs],
+      [day.fromNs, day.toNs],
+    ]);
+  });
+
+  it('a zoom back out before the finer bins land cancels their fetch', async () => {
+    let resolveZoom!: () => void;
+    const h: Harness = setup((_pv, params) => {
+      if (h.fetchData.mock.calls.length !== 2) return Promise.resolve(binnedDto(params));
+      return new Promise((r) => {
+        resolveZoom = () => r(binnedDto(params));
+      });
+    });
+    const day = windowAt(h.now(), DAY_S);
+    ask(h, day);
+    await flush();
+    const coarse = h.store.getSnapshot().get('t1')!.mean;
+
+    const zoom = zoomTo(day, 40 * 60);
+    ask(h, zoom);
+    await flush();
+    ask(h, day); // restored while the zoom fetch is in flight
+    resolveZoom();
+    await flush();
+    // Still the whole day, not 40 min of it.
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.mean).toBe(coarse);
+    expect(entry.coverFromNs).toBe(day.fromNs);
+    expect(h.fetchData.mock.calls[1][2]?.aborted).toBe(true);
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    expect(h.published.t1).toEqual(['loading', 'ready']);
+
+    // The cancelled request doesn't count as fetched: the same zoom asks again.
+    ask(h, zoom);
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+    expect(h.fetchData.mock.calls[2][1]).toMatchObject({ fromNs: zoom.fromNs, toNs: zoom.toNs });
+  });
+
+  // Day bins on screen, the first raw fetch (call 2) held until release().
+  function rawZoomHeld() {
+    let release!: () => void;
+    const h: Harness = setup((_pv, params) => {
+      const dto = params.binning ? binnedDto(params) : rawDto(params);
+      if (h.fetchData.mock.calls.length !== 2) return Promise.resolve(dto);
+      return new Promise((r) => {
+        release = () => r(dto);
+      });
+    });
+    return { h, release: () => release() };
+  }
+
+  it('a zoom back out before raw data lands fetches the new window, not day bins', async () => {
+    const { h, release } = rawZoomHeld();
+    const day = windowAt(h.now(), DAY_S);
+    ask(h, day);
+    await flush();
+    ask(h, zoomTo(day, 10 * 60)); // raw: the day bins stay on screen meanwhile
+    await flush();
+    const out = zoomTo(day, 20 * 60);
+    ask(h, out); // inside the day, but the day bins are too coarse for it
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+    expect(h.fetchData.mock.calls[1][2]?.aborted).toBe(true);
+    expect(h.fetchData.mock.calls[2][1]).toMatchObject({ fromNs: out.fromNs, toNs: out.toNs });
+    expect(h.fetchData.mock.calls[2][1].binning).toBeUndefined();
+    // Not shown as ready on the day bins: 'ready' again only once the 20 min
+    // answer is in.
+    expect(h.published.t1).toEqual(['loading', 'ready', 'loading', 'loading', 'ready']);
+
+    release(); // the cancelled 10 min answer doesn't land
+    await flush();
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.mode).toBe('raw');
+    expect(entry.status).toBe('ready');
+    expect(entry.coverFromNs).toBe(out.fromNs);
+    ask(h, out);
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+  });
+
+  it('a zoom further in before raw data lands waits for it', async () => {
+    const { h, release } = rawZoomHeld();
+    const day = windowAt(h.now(), DAY_S);
+    ask(h, day);
+    await flush();
+    const zoom = zoomTo(day, 10 * 60);
+    ask(h, zoom);
+    await flush();
+    const closer = zoomTo(day, 5 * 60);
+    ask(h, closer); // the pending 10 min answer draws this too
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+    expect(h.fetchData.mock.calls[1][2]?.aborted).toBe(false);
+    expect(h.store.getSnapshot().get('t1')!.status).toBe('loading');
+
+    release();
+    await flush();
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.mode).toBe('raw');
+    expect(entry.status).toBe('ready');
+    expect(entry.coverFromNs).toBe(zoom.fromNs);
+    ask(h, closer);
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+  });
+
+  it('a zoom whose finer bins failed fetches them when it comes back', async () => {
+    const h: Harness = setup(async (_pv, params) => {
+      if (h.fetchData.mock.calls.length === 2) throw unavailable();
+      return binnedDto(params);
+    });
+    const day = windowAt(h.now(), DAY_S);
+    ask(h, day);
+    await flush();
+    const zoom = zoomTo(day, 40 * 60);
+    ask(h, zoom);
+    await flush();
+    expect(h.store.getSnapshot().get('t1')!.status).toBe('error');
+    ask(h, day); // back out: the coarse buffer covers it, the backoff is dropped
+    await flush();
+    expect(h.store.getSnapshot().get('t1')!.status).toBe('ready');
+
+    ask(h, zoom);
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+    expect(h.fetchData.mock.calls[2][1]).toMatchObject({ fromNs: zoom.fromNs, toNs: zoom.toNs });
+    expect(h.store.getSnapshot().get('t1')!.coverFromNs).toBe(zoom.fromNs);
+  });
+});
+
+// A request back inside the buffer is a free render, but a fetch issued for
+// the window in between may still be in flight. Its answer replaces the whole
+// buffer, so it must not land unless it covers the window now on screen.
+describe('archiveStore: back inside the buffer while a fetch is in flight', () => {
+  const ask = (h: Harness, window: TimeWindowNs) =>
+    h.store.request('t1', { pv: PV, archiver: undefined, window });
+
+  // Answers every fetch at once except the second, which waits for release().
+  function holdSecond() {
+    let release!: () => void;
+    const h: Harness = setup((_pv, params) => {
+      if (h.fetchData.mock.calls.length !== 2) return Promise.resolve(rawDto(params));
+      return new Promise((r) => {
+        release = () => r(rawDto(params));
+      });
+    });
+    return { h, release: () => release() };
+  }
+
+  // `win` moved by `byS` seconds (negative: into the past).
+  const shift = (win: TimeWindowNs, byS: number): TimeWindowNs => ({
+    fromNs: win.fromNs + byS * 1e9,
+    toNs: win.toNs + byS * 1e9,
+  });
+
+  it('a pan back cancels the fetch for the window panned to', async () => {
+    const { h, release } = holdSecond();
+    const here = windowAt(h.now() - 3_600_000, 600);
+    ask(h, here);
+    await flush();
+    const before = h.store.getSnapshot().get('t1')!.mean;
+
+    ask(h, shift(here, -600));
+    await flush();
+    ask(h, here);
+    release();
+    await flush();
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.mean).toBe(before);
+    expect(entry.coverFromNs).toBe(here.fromNs);
+    expect(h.fetchData.mock.calls[1][2]?.aborted).toBe(true);
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps an in-flight fetch whose answer covers the window too', async () => {
+    const { h, release } = holdSecond();
+    const here = windowAt(h.now() - 3_600_000, 600);
+    ask(h, here);
+    await flush();
+
+    const there = shift(here, -300);
+    ask(h, there);
+    await flush();
+    // Zoom into the overlap: drawn from the buffer, and the pending answer
+    // covers it as well.
+    const overlap = { fromNs: here.fromNs + 60e9, toNs: there.toNs - 60e9 };
+    ask(h, overlap);
+    release();
+    await flush();
+    expect(h.fetchData.mock.calls[1][2]?.aborted).toBe(false);
+    expect(h.store.getSnapshot().get('t1')!.coverFromNs).toBe(there.fromNs);
+    ask(h, overlap);
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(2);
   });
 });

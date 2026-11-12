@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { evaluateFormula } from '../api/fox';
+import { evaluateFormula } from '../api/formulaEngine';
 import type { TimeWindowNs } from '../api/time';
 import type { FormulaSpecDTO } from '../api/types';
 import { FormulaStore, specKey } from '../state/formulaStore';
@@ -18,14 +18,14 @@ const IDLE_RESULT: FormulaSeriesResult = { status: 'idle', points: [] };
 const LOADING_RESULT: FormulaSeriesResult = { status: 'loading', points: [] };
 const EMPTY_SERIES = new Map<string, FormulaSeriesResult>();
 
-// Evaluates each formula trace over its plot window through Fox's one-shot REST
+// Evaluates each formula trace over its plot window through the Formula Engine's one-shot REST
 // endpoint. The per-mount FormulaStore owns the requests and decides per trace
 // when one is needed; this hook feeds it the current specs and windows and
 // projects its snapshot onto the current formula traces. Live push updates are
 // a follow-up (#104).
 export function useFormulaSeries(
   traces: PVTrace[],
-  // Per-trace resolved Fox spec (bindings already mapped to PV names). `null`
+  // Per-trace resolved Formula Engine spec (bindings already mapped to PV names). `null`
   // means the formula isn't ready (empty / unbound) and shows nothing.
   specByTrace: Map<string, FormulaSpecDTO | null>,
   windowByTrace: Map<string, TimeWindowNs>

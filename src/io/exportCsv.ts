@@ -39,7 +39,7 @@ function buildPlotRows(
   const rows: string[] = [];
   for (const trace of plot.traces) {
     // Formula curves have no archive data (useArchive is false); their evaluated
-    // points come from Fox, so pull them from the formula results instead. The
+    // points come from the Formula Engine, so pull them from the formula results instead. The
     // label column carries the formula's display name since it has no pvName.
     if (trace.kind === 'formula') {
       const fr = formulaResults.get(trace.id);
