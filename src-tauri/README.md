@@ -112,7 +112,8 @@ precedence (against a fixed environment, so your own `CANOPY_BASE_URL` etc.
 don't affect them), the origin check, hop-by-hop stripping and `Location`
 rewriting. In-process end-to-end tests run the real proxy against mock
 upstreams and assert header injection, `/elog` prefix stripping, multipart
-pass-through, the 502-when-unconfigured contract, SPA fallback, WebSocket
+pass-through, request bodies streamed upstream with their framing kept, the
+502-when-unconfigured contract, SPA fallback, WebSocket
 bridging including close-code passthrough, `403` for foreign origins and
 rebound host names (HTTP and WebSocket), and that redirects aren't followed.
 The `test` job in `.github/workflows/tauri.yml` runs these on pull requests.

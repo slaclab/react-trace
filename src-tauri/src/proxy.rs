@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{
-    body::Body,
+    body::{Body, HttpBody},
     extract::{
         ws::CloseFrame as AxCloseFrame, ws::Message as AxumMsg, ws::WebSocket, State,
         WebSocketUpgrade,
@@ -256,13 +256,9 @@ async fn serve_static(service: SharedStatic, req: axum::http::Request<Body>) -> 
     }
 }
 
-/// Cap on buffered request bodies. E-log posts multipart PNG attachments that
-/// can total a few MB; 64 MiB is far above anything legitimate while still
-/// bounding memory.
-const MAX_REQUEST_BODY: usize = 64 * 1024 * 1024;
-
 /// Forward an HTTP request upstream per `forward` (target base, optional
-/// prefix strip, auth header), streaming the response body back.
+/// prefix strip, auth header), streaming the request body up and the response
+/// body back.
 async fn proxy_http(
     state: &ProxyState,
     method: Method,
@@ -286,8 +282,11 @@ async fn proxy_http(
     let target = format!("{}{}", forward.base, forwarded_path);
 
     // Strip origin + hop-by-hop request headers; inject the auth header.
+    // Content-Length stays: the body is streamed, and hyper frames a streamed
+    // body by a Content-Length it is given, so a fixed-length upload goes
+    // upstream with the same length. Without one (a chunked upload) it goes
+    // up chunked.
     headers.remove(http::header::HOST);
-    headers.remove(http::header::CONTENT_LENGTH);
     strip_hop_by_hop(&mut headers);
     if !forward.header_value.is_empty() {
         if let Ok(val) = HeaderValue::from_str(forward.header_value) {
@@ -295,23 +294,18 @@ async fn proxy_http(
         }
     }
 
-    let body_bytes = match axum::body::to_bytes(body, MAX_REQUEST_BODY).await {
-        Ok(b) => b,
-        Err(err) => {
-            tracing::warn!(%err, "failed reading request body");
-            return (StatusCode::BAD_REQUEST, "bad request body").into_response();
-        }
-    };
-
     let reqwest_method = match reqwest::Method::from_bytes(method.as_str().as_bytes()) {
         Ok(m) => m,
         Err(_) => return (StatusCode::BAD_REQUEST, "bad method").into_response(),
     };
 
-    let mut builder = state
-        .http
-        .request(reqwest_method, target.as_str())
-        .body(body_bytes);
+    let mut builder = state.http.request(reqwest_method, target.as_str());
+    // Stream the body through rather than reading it into memory first, so a
+    // large e-log upload isn't held whole. A request with no body gets none
+    // upstream either, instead of an empty chunked one.
+    if !body.is_end_stream() {
+        builder = builder.body(reqwest::Body::wrap_stream(body.into_data_stream()));
+    }
     for (name, value) in headers.iter() {
         builder = builder.header(name.as_str(), value.as_bytes());
     }
@@ -724,6 +718,7 @@ mod e2e {
     use axum::routing::{get, post};
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
 
     /// Serve `router` on an ephemeral loopback port; returns the bound addr.
     async fn spawn_upstream(router: Router) -> SocketAddr {
@@ -872,6 +867,91 @@ mod e2e {
         assert_eq!(
             body,
             format!("multipart/form-data; boundary={boundary}|{expected_len}")
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn request_body_streams_to_upstream() {
+        // The client only sends its second chunk once upstream has the first.
+        // A proxy that read the whole body before forwarding would never pass
+        // the first one on, and the request would time out.
+        let first_seen = Arc::new(tokio::sync::Notify::new());
+        let handler = {
+            let first_seen = first_seen.clone();
+            move |body: Body| {
+                let first_seen = first_seen.clone();
+                async move {
+                    let mut chunks = body.into_data_stream();
+                    let mut got = Vec::new();
+                    while let Some(chunk) = chunks.next().await {
+                        got.extend_from_slice(&chunk.unwrap());
+                        first_seen.notify_one();
+                    }
+                    String::from_utf8(got).unwrap()
+                }
+            }
+        };
+        let elog = spawn_upstream(Router::new().route("/v2/entries", post(handler))).await;
+        let canopy = spawn_upstream(echo_router("x-api-key")).await;
+        let proxy = spawn_proxy(config(canopy, Some(elog)), no_dist()).await;
+
+        let chunks = futures_util::stream::once(async { Ok::<_, std::io::Error>("first,") }).chain(
+            futures_util::stream::once(async move {
+                first_seen.notified().await;
+                Ok("second")
+            }),
+        );
+        let send = reqwest::Client::new()
+            .post(format!("http://{proxy}/elog/v2/entries"))
+            .body(reqwest::Body::wrap_stream(chunks))
+            .send();
+        let res = tokio::time::timeout(Duration::from_secs(10), send)
+            .await
+            .expect("upstream never got the first chunk: the proxy buffered the body")
+            .unwrap();
+        assert_eq!(res.text().await.unwrap(), "first,second");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn request_body_keeps_its_framing() {
+        // Upstream reports "<content-length>|<transfer-encoding>|<body length>".
+        let handler = |headers: HeaderMap, body: axum::body::Bytes| async move {
+            let get = |name: HeaderName| {
+                headers
+                    .get(name)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("-")
+                    .to_string()
+            };
+            format!(
+                "{}|{}|{}",
+                get(http::header::CONTENT_LENGTH),
+                get(http::header::TRANSFER_ENCODING),
+                body.len()
+            )
+        };
+        let canopy = spawn_upstream(Router::new().fallback(any(handler))).await;
+        let proxy = spawn_proxy(config(canopy, None), no_dist()).await;
+        let client = reqwest::Client::new();
+        let url = format!("http://{proxy}/mole/v1/data");
+        let send = |req: reqwest::RequestBuilder| async move {
+            req.send().await.unwrap().text().await.unwrap()
+        };
+
+        // No body: none upstream either, not an empty chunked one.
+        assert_eq!(send(client.get(&url)).await, "-|-|0");
+        assert_eq!(
+            send(client.post(&url).header("content-length", "0")).await,
+            "0|-|0"
+        );
+        // A fixed-length body keeps its Content-Length instead of going up
+        // chunked.
+        assert_eq!(send(client.post(&url).body("hello")).await, "5|-|5");
+        // A chunked upload has no length to keep, so it goes up chunked.
+        let chunks = futures_util::stream::iter(["hel", "lo"].map(Ok::<_, std::io::Error>));
+        assert_eq!(
+            send(client.post(&url).body(reqwest::Body::wrap_stream(chunks))).await,
+            "-|chunked|5"
         );
     }
 

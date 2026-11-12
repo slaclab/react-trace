@@ -34,6 +34,11 @@ http = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+[dev-dependencies]
+# The request-body streaming test: Notify orders the chunks, and a timeout
+# makes a regression fail instead of hang.
+tokio = { version = "1", features = ["sync", "time"] }
+
 [features]
 # This feature is used for production builds or when a dev server is not specified,
 # DO NOT REMOVE!!
