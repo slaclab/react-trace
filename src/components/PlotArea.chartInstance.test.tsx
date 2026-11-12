@@ -9,6 +9,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
 import type { ECharts } from 'echarts';
 import { SinglePlot } from './PlotArea';
+import { capturePlotPng } from '../capturePlot';
 import { msToNs } from '../api/time';
 import type { PngSource } from '../io/exportPlotImage';
 import type { Plot } from '../types';
@@ -75,7 +76,7 @@ function mountPlot({ following = false }: { following?: boolean } = {}) {
   const onAxisRangesChange = vi.fn();
   const onFollowStop = vi.fn();
   const onViewWindowChange = vi.fn();
-  const { container } = render(
+  const { container, unmount } = render(
     <SinglePlot
       plot={makePlot()}
       endMs={0}
@@ -99,6 +100,7 @@ function mountPlot({ following = false }: { following?: boolean } = {}) {
     onAxisRangesChange,
     onFollowStop,
     onViewWindowChange,
+    unmount,
     png: () => source!.getDataURL(),
   };
 }
@@ -146,6 +148,22 @@ describe('SinglePlot chart instance', () => {
     });
     expect(png()).toBe('data:image/png;base64,Qg==');
     expect(a.chart.getDataURL).not.toHaveBeenCalled();
+  });
+
+  it('prints from the instance CanopyChart reported ready', () => {
+    const a = fakeChart('data:image/png;base64,QQ==');
+    const b = fakeChart('data:image/png;base64,Qg==');
+    chartStub.instance = a.chart;
+    const { unmount } = mountPlot();
+    expect(capturePlotPng(makePlot(), 'dark')).toBe('data:image/png;base64,QQ==');
+    act(() => {
+      a.dispose();
+      chartStub.props!.onReady!(b.chart as unknown as ECharts);
+    });
+    expect(capturePlotPng(makePlot(), 'dark')).toBe('data:image/png;base64,Qg==');
+    expect(a.chart.getDataURL).toHaveBeenCalledTimes(1);
+    unmount();
+    expect(capturePlotPng(makePlot(), 'dark')).toBeNull();
   });
 
   it('treats a disposed instance as no chart', () => {

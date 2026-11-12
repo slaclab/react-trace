@@ -14,6 +14,7 @@ import {
   useChartTheme,
 } from '@slaclab/canopy-charts';
 import { effectiveBackground } from '../plotBackground';
+import { registerPlotChart } from '../capturePlot';
 import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
 import type { Axis, Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
@@ -510,11 +511,13 @@ export function SinglePlot({
     pxMax: number;
   } | null>(null);
 
-  // Publish a stable PngSource proxy up to the app for PNG capture; clear on
-  // unmount so a captured-but-gone plot (closed tab, reattached window) isn't
-  // stale. The proxy reads the current ECharts instance on each call instead of
-  // capturing one at mount: the chart isn't ready at mount, and a re-created
-  // chart leaves a disposed instance behind that yields no image.
+  // Publish a stable PngSource proxy for PNG capture: up to the app (e-log
+  // attachments), and against our wrapper for capturePlotPng (print and PNG
+  // export). Clear both on unmount so a captured-but-gone plot (closed tab,
+  // reattached window) isn't stale. The proxy reads the current ECharts
+  // instance on each call instead of capturing one at mount: the chart isn't
+  // ready at mount, and a re-created chart leaves a disposed instance behind
+  // that yields no image.
   useEffect(() => {
     const source: PngSource = {
       getDataURL(opts) {
@@ -524,7 +527,12 @@ export function SinglePlot({
       },
     };
     onChartInstance?.(source, true);
-    return () => onChartInstance?.(source, false);
+    const wrap = wrapRef.current;
+    const unregister = wrap ? registerPlotChart(wrap, source) : undefined;
+    return () => {
+      onChartInstance?.(source, false);
+      unregister?.();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- register once per mount; the callback is stable
   }, []);
 
@@ -1079,11 +1087,11 @@ export function SinglePlot({
   };
 
   return (
-    // data-plot-id lets capturePlotPng find this chart's ECharts instance in
-    // the document (print snapshots). Detached plots live in another window's
-    // document, so they're naturally out of scope. data-fullscreen marks the
-    // popped-out copy so capture targets it over the in-window one, which
-    // shares the same data-plot-id.
+    // data-plot-id lets capturePlotPng find this plot's wrapper in the
+    // document (print snapshots, PNG export) and the chart registered for it.
+    // Detached plots live in another window's document, so they're naturally
+    // out of scope. data-fullscreen marks the popped-out copy so capture
+    // targets it over the in-window one, which shares the same data-plot-id.
     <div
       ref={wrapRef}
       data-plot-id={plot.id}

@@ -1,17 +1,7 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { capturePlotPng } from './capturePlot';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { capturePlotPng, registerPlotChart } from './capturePlot';
 import type { Plot } from './types';
-
-// getInstanceByDom is replaced by a lookup into charts registered per host
-// element; jsdom has no canvas for real ECharts instances.
-const h = vi.hoisted(() => ({
-  charts: new Map<Element, { getDataURL: (opts: unknown) => string }>(),
-}));
-
-vi.mock('echarts', () => ({
-  getInstanceByDom: (el: Element) => h.charts.get(el),
-}));
 
 const PNG = 'data:image/png;base64,iVBORw0KGgo=';
 
@@ -33,31 +23,19 @@ function plot(backgroundColor = '#161616'): Plot {
   };
 }
 
-// Mount a SinglePlot-shaped wrapper: [data-plot-id] > (chart component's
-// wrapper div) > (chart host div) > (zrender's own div). `flat` drops the
-// component wrapper, the layout echarts-for-react used on its own.
-function mountChart(opts: { fullscreen?: boolean; dataUrl?: string; flat?: boolean } = {}) {
+// Mount a plot's data-plot-id wrapper and register a chart for it, as
+// SinglePlot does. jsdom has no canvas for real ECharts instances, so the
+// chart is a fake getDataURL; '' is what SinglePlot's source returns while its
+// chart isn't ready.
+function mountChart(opts: { fullscreen?: boolean; dataUrl?: string } = {}) {
   const wrap = document.createElement('div');
   wrap.dataset.plotId = 'p1';
   if (opts.fullscreen) wrap.dataset.fullscreen = 'true';
-  const host = document.createElement('div');
-  host.appendChild(document.createElement('div'));
-  if (opts.flat) {
-    wrap.appendChild(host);
-  } else {
-    const component = document.createElement('div');
-    component.appendChild(host);
-    wrap.appendChild(component);
-  }
   document.body.appendChild(wrap);
   const getDataURL = vi.fn(() => opts.dataUrl ?? PNG);
-  h.charts.set(host, { getDataURL });
-  return getDataURL;
+  const unregister = registerPlotChart(wrap, { getDataURL });
+  return { getDataURL, unregister };
 }
-
-beforeEach(() => {
-  h.charts.clear();
-});
 
 afterEach(() => {
   document.body.innerHTML = '';
@@ -69,7 +47,7 @@ describe('capturePlotPng', () => {
   });
 
   it('captures at pixel ratio 2 with the theme background for a default plot', () => {
-    const getDataURL = mountChart();
+    const { getDataURL } = mountChart();
     expect(capturePlotPng(plot(), 'dark')).toBe(PNG);
     expect(getDataURL).toHaveBeenLastCalledWith({
       type: 'png',
@@ -83,7 +61,7 @@ describe('capturePlotPng', () => {
   });
 
   it('keeps a user-chosen background', () => {
-    const getDataURL = mountChart();
+    const { getDataURL } = mountChart();
     capturePlotPng(plot('#123456'), 'light');
     expect(getDataURL).toHaveBeenLastCalledWith(
       expect.objectContaining({ backgroundColor: '#123456' })
@@ -94,38 +72,42 @@ describe('capturePlotPng', () => {
     const inWindow = mountChart({ dataUrl: 'data:image/png;base64,aW4=' });
     const fullscreen = mountChart({ fullscreen: true, dataUrl: 'data:image/png;base64,ZnM=' });
     expect(capturePlotPng(plot(), 'dark', true)).toBe('data:image/png;base64,ZnM=');
-    expect(fullscreen).toHaveBeenCalledTimes(1);
+    expect(fullscreen.getDataURL).toHaveBeenCalledTimes(1);
     expect(capturePlotPng(plot(), 'dark')).toBe('data:image/png;base64,aW4=');
-    expect(inWindow).toHaveBeenCalledTimes(1);
-  });
-
-  it('finds a chart host directly under the plot wrapper too', () => {
-    const getDataURL = mountChart({ flat: true });
-    expect(capturePlotPng(plot(), 'dark')).toBe(PNG);
-    expect(getDataURL).toHaveBeenCalledTimes(1);
+    expect(inWindow.getDataURL).toHaveBeenCalledTimes(1);
   });
 
   it('returns null while the plot is mounted but its chart is not ready', () => {
+    mountChart({ dataUrl: '' });
+    expect(capturePlotPng(plot(), 'dark')).toBeNull();
+  });
+
+  it('returns null for a plot wrapper with no chart registered', () => {
     const wrap = document.createElement('div');
     wrap.dataset.plotId = 'p1';
-    wrap.appendChild(document.createElement('div'));
     document.body.appendChild(wrap);
     expect(capturePlotPng(plot(), 'dark')).toBeNull();
   });
 
-  it('does not fall back to the in-window copy while the fullscreen chart is not ready', () => {
-    const inWindow = mountChart();
-    const fullscreen = document.createElement('div');
-    fullscreen.dataset.plotId = 'p1';
-    fullscreen.dataset.fullscreen = 'true';
-    fullscreen.appendChild(document.createElement('div'));
-    document.body.appendChild(fullscreen);
-    expect(capturePlotPng(plot(), 'dark', true)).toBeNull();
-    expect(inWindow).not.toHaveBeenCalled();
+  it('returns null once the plot unregisters its chart', () => {
+    const { getDataURL, unregister } = mountChart();
+    unregister();
+    expect(capturePlotPng(plot(), 'dark')).toBeNull();
+    expect(getDataURL).not.toHaveBeenCalled();
   });
 
-  it('returns null instead of throwing when the chart yields no image', () => {
-    mountChart({ dataUrl: '' });
+  it('does not fall back to the in-window copy while the fullscreen chart is not ready', () => {
+    const inWindow = mountChart();
+    mountChart({ fullscreen: true, dataUrl: '' });
+    expect(capturePlotPng(plot(), 'dark', true)).toBeNull();
+    expect(inWindow.getDataURL).not.toHaveBeenCalled();
+  });
+
+  it('returns null instead of throwing when the chart fails to render an image', () => {
+    const { getDataURL } = mountChart();
+    getDataURL.mockImplementation(() => {
+      throw new Error('ECharts failed');
+    });
     expect(capturePlotPng(plot(), 'dark')).toBeNull();
   });
 });

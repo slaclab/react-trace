@@ -896,12 +896,13 @@ export function TraceApp() {
     { plotId: string; title: string; dataUrl: string }[] | null
   >(null);
 
-  // Export plots as PNG (one file each, mirroring the CSV export). Reuses the
-  // same DOM-based capturePlotPng as print, so it captures exactly what's on
-  // screen: the fullscreen copy if a plot is popped out, the active plot in tab
-  // view, or every plot in grid view. Detached plots live in another window, so
-  // capture returns null and they're skipped. Filenames share one timestamp so
-  // a grid export reads as a single batch.
+  // Export plots as PNG (one file each, mirroring the CSV export). Reuses
+  // print's capturePlotPng, which picks each plot's mounted copy from the DOM,
+  // so it captures exactly what's on screen: the fullscreen copy if a plot is
+  // popped out, the active plot in tab view, or every plot in grid view.
+  // Detached plots live in another window, so capture returns null and they're
+  // skipped. Filenames share one timestamp so a grid export reads as a single
+  // batch.
   const handleExportImage = () => {
     const targets = poppedOutPlot
       ? plots.filter((p) => p.id === poppedOutPlot)
