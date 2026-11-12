@@ -18,34 +18,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - name: Set up Tauri build
+        uses: ./.github/actions/setup-tauri
         with:
-          run_install: false
-
-      - name: Setup Node with pnpm cache
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 23.11.0
-          cache: pnpm
-      - run: pnpm install
-
-      - name: Install Rust toolchain
-        # dtolnay/rust-toolchain publishes a `stable` branch (not a tag); pinned
-        # by SHA per this repo's convention. Toolchain pinned for reproducibility.
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-        with:
-          toolchain: 1.93.1
-
-      - name: Install Linux WebView system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev
-
-      - name: Stage runtime Canopy config
-        # config.json is gitignored (it can hold an API key); the bundled default
-        # is the committed example. Operators repoint via env/CLI at runtime.
-        run: cp src-tauri/config.json.example src-tauri/config.json
+          # Pinned for reproducible release artifacts.
+          rust-toolchain: 1.93.1
+          # Release RPMs are built from a clean target directory rather than
+          # one restored from a cache written by an earlier run.
+          rust-cache: false
+          stage-config: true
 
       - name: Compute version from tag
         id: ver
