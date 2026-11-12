@@ -68,7 +68,7 @@ describe('capturePlotPng', () => {
     );
   });
 
-  it('prefers the fullscreen copy when asked, the in-window one otherwise', () => {
+  it('captures the fullscreen copy when asked, the in-window one otherwise', () => {
     const inWindow = mountChart({ dataUrl: 'data:image/png;base64,aW4=' });
     const fullscreen = mountChart({ fullscreen: true, dataUrl: 'data:image/png;base64,ZnM=' });
     expect(capturePlotPng(plot(), 'dark', true)).toBe('data:image/png;base64,ZnM=');
@@ -99,6 +99,12 @@ describe('capturePlotPng', () => {
   it('does not fall back to the in-window copy while the fullscreen chart is not ready', () => {
     const inWindow = mountChart();
     mountChart({ fullscreen: true, dataUrl: '' });
+    expect(capturePlotPng(plot(), 'dark', true)).toBeNull();
+    expect(inWindow.getDataURL).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to the in-window copy while the fullscreen copy is not mounted', () => {
+    const inWindow = mountChart();
     expect(capturePlotPng(plot(), 'dark', true)).toBeNull();
     expect(inWindow.getDataURL).not.toHaveBeenCalled();
   });

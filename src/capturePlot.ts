@@ -28,19 +28,22 @@ export function registerPlotChart(wrapper: Element, source: PngSource): () => vo
  * when canopy-charts' captureChartPng can't get an image (chart not ready yet,
  * disposed, ECharts error).
  *
- * When `preferFullscreen` is set, the popped-out copy is captured instead of
- * the in-window one. Both are mounted with the same `data-plot-id`, and the
- * in-window copy comes first in the DOM, so a plain query would grab the chart
- * the user isn't looking at (and in grid view it's a distorted tile).
+ * When `fullscreen` is set, only the popped-out copy is captured. Both copies
+ * are mounted with the same `data-plot-id`, and the in-window copy comes first
+ * in the DOM, so a plain query would grab the chart the user isn't looking at
+ * (and in grid view it's a distorted tile). While the fullscreen copy isn't
+ * mounted (e.g. its chart crashed and the error boundary replaced it), the
+ * result is null rather than the in-window copy hidden behind the overlay.
  */
 export function capturePlotPng(
   plot: Plot,
   colorMode: 'dark' | 'light',
-  preferFullscreen = false
+  fullscreen = false
 ): string | null {
-  const wrapper =
-    (preferFullscreen && document.querySelector(`[data-plot-id="${plot.id}"][data-fullscreen]`)) ||
-    document.querySelector(`[data-plot-id="${plot.id}"]`);
+  const selector = fullscreen
+    ? `[data-plot-id="${plot.id}"][data-fullscreen]`
+    : `[data-plot-id="${plot.id}"]`;
+  const wrapper = document.querySelector(selector);
   if (!wrapper) return null;
   return captureChartPng(chartSources.get(wrapper), {
     background: effectiveBackground(plot.backgroundColor, chartThemeFor(colorMode)),
