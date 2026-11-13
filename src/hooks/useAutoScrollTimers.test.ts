@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import {
   axisEndMs,
+  followingCadence,
   followingEndMs,
   isFollowing,
   liveEdgeMs,
@@ -153,6 +154,49 @@ describe('liveEdgeMs / followingEndMs', () => {
   });
 });
 
+describe('followingCadence', () => {
+  it('lists each following plot with its interval, in plot order', () => {
+    const view = new Map([['c', { fromNs: 0, toNs: 1 }]]);
+    const { cadence } = followingCadence(
+      [
+        makePlot('a', { refreshIntervalS: 2 }),
+        makePlot('b', { autoScroll: false }),
+        makePlot('c'),
+        makePlot('d', { xAxis: { timeRange: '-1m' }, refreshIntervalS: 60 }),
+      ],
+      view
+    );
+    expect(cadence).toEqual([
+      ['a', 2000],
+      ['d', 10_000],
+    ]);
+  });
+
+  it('keys equal cadences the same, whatever objects they come from', () => {
+    const key = () => followingCadence([makePlot('a,b'), makePlot('c')], new Map()).key;
+    expect(key()).toBe(key());
+  });
+
+  it('keys different cadences differently, even when ids hold separators', () => {
+    // Joined on `,`, the first two both read `a,b,c`. Imports keep plot ids as
+    // saved, so an id can also hold another entry's encoding.
+    const sets: Plot[][] = [
+      [makePlot('a,b'), makePlot('c')],
+      [makePlot('a'), makePlot('b,c')],
+      [makePlot('a:1'), makePlot('b')],
+      [makePlot('a'), makePlot('1:b')],
+      [makePlot('a'), makePlot('b')],
+      [makePlot('a:5000;b')],
+      [makePlot('a5000;1:b')],
+      [makePlot('a'), makePlot('b', { refreshIntervalS: 1 })],
+      [makePlot('a'), makePlot('b', { xAxis: { timeRange: '-7s' } })],
+      [],
+    ];
+    const keys = sets.map((plots) => followingCadence(plots, NO_VIEW).key);
+    expect(new Set(keys).size).toBe(sets.length);
+  });
+});
+
 describe('useAutoScrollTimers', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
@@ -234,6 +278,46 @@ describe('useAutoScrollTimers', () => {
     advance(5000);
     expect(result.current.nowFor('a|b')).toBe(T0 + 5000);
     expect(result.current.nowFor('p:1')).toBe(T0 + 5000);
+  });
+
+  it('moves to the new following set when ids with commas trade places', () => {
+    // Joined on `,`, both following sets read `a,b,c` with the same intervals.
+    const plots = (second: boolean) => [
+      makePlot('a,b', { autoScroll: !second }),
+      makePlot('c', { autoScroll: !second }),
+      makePlot('a', { autoScroll: second }),
+      makePlot('b,c', { autoScroll: second }),
+    ];
+    const { result, rerender } = mount(plots(false));
+    rerender({ p: plots(true), v: NO_VIEW });
+    advance(5000);
+    expect(result.current.nowFor('a')).toBe(T0 + 5000);
+    expect(result.current.nowFor('b,c')).toBe(T0 + 5000);
+    expect(result.current.nowFor('a,b')).toBe(T0);
+    expect(result.current.nowFor('c')).toBe(T0);
+  });
+
+  it('re-subscribes only when the following set or an interval changes', () => {
+    const [a, b] = [makePlot('a', { refreshIntervalS: 5 }), makePlot('b', { autoScroll: false })];
+    const { rerender } = mount([a, b]);
+    const clear = vi.spyOn(window, 'clearTimeout');
+    // Fresh arrays, plots and view maps, as a live batch or settings edit gives.
+    rerender({ p: [{ ...a }, { ...b }], v: new Map() });
+    rerender({ p: [{ ...a, title: 'renamed' }, b], v: new Map() });
+    // A plot that isn't following can change its interval freely.
+    rerender({ p: [a, { ...b, refreshIntervalS: 60 }], v: new Map() });
+    expect(clear).not.toHaveBeenCalled();
+    rerender({ p: [{ ...a, refreshIntervalS: 2 }, b], v: new Map() });
+    expect(clear).toHaveBeenCalledTimes(1);
+    rerender({
+      p: [
+        { ...a, refreshIntervalS: 2 },
+        { ...b, autoScroll: true },
+      ],
+      v: new Map(),
+    });
+    expect(clear).toHaveBeenCalledTimes(2);
+    clear.mockRestore();
   });
 
   it('clamps the interval to the 1-60 s range', () => {

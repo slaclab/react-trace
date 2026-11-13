@@ -24,7 +24,8 @@ import { axisEndMs, isFollowing, useAutoScrollTimers } from '../hooks/useAutoScr
 import { useFormulaSeries, type FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
 import { resolveTimeWindow } from '../api/time';
-import { fetchMetadata } from '../api/mole';
+import { fetchMetadata } from '@slaclab/canopy-client';
+import { useCanopyConnection } from '@slaclab/canopy-react';
 import {
   ColorModeTheme,
   ErrorBoundary,
@@ -46,12 +47,13 @@ import { buildCsvFiles } from '../io/exportCsv';
 import { safeFilename, timestamp } from '../io/filename';
 import { makeId } from '../id';
 import { resolveFormulaSpec } from '../formula';
-import type { FormulaSpecDTO } from '../api/types';
+import type { FormulaSpec } from '@slaclab/canopy-client';
 import { capturePlots, type PngSource, type CapturedPlot } from '../io/exportPlotImage';
+import { createChartRegistry } from '../io/chartRegistry';
 import { PostToElogModal } from './PostToElogModal';
 import { ConfigStoreModal } from './ConfigStoreModal';
 import { getConfig } from '../api/magpie';
-import { CanopyError } from '../api/client';
+import { errorInfo } from '../api/errorInfo';
 import { useElogConfig } from '../hooks/useElogConfig';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
@@ -126,6 +128,7 @@ function DataInsightFallback({
 }
 
 export function TraceApp() {
+  const canopy = useCanopyConnection();
   const [plots, setPlots] = useState<Plot[]>(INITIAL_PLOTS);
   const [activePlotId, setActivePlotId] = useState<string>('plot-1');
   const [selectedItem, setSelectedItem] = useState<SelectedItem>({
@@ -214,7 +217,7 @@ export function TraceApp() {
   const plotArchiverByTrace = new Map<string, string | undefined>();
   // Resolved Formula Engine spec per formula trace (bindings mapped to PV names); null when
   // the formula isn't ready to evaluate (empty expression or an unbound variable).
-  const formulaSpecByTrace = new Map<string, FormulaSpecDTO | null>();
+  const formulaSpecByTrace = new Map<string, FormulaSpec | null>();
   for (const plot of plots) {
     const win =
       viewWindowByPlot.get(plot.id) ?? resolveTimeWindow(plot.xAxis, clock.nowFor(plot.id)).window;
@@ -325,18 +328,16 @@ export function TraceApp() {
   );
 
   // Live ECharts instances per plot, for capturing PNGs to post to the e-log.
-  // A plot can be mounted twice (e.g. grid cell + fullscreen overlay); we keep
-  // whichever instance most recently registered and only clear on a matching
-  // unregister so a stale unmount can't wipe a live instance.
-  const chartInstancesRef = useRef(new Map<string, PngSource>());
+  // A plot can be mounted twice (its tab or grid cell plus the fullscreen
+  // overlay), so the registry keeps every mounted copy: closing the overlay
+  // falls back to the in-window copy, and while popped out the fullscreen copy
+  // is captured, as print and PNG export do.
+  const chartInstancesRef = useRef(createChartRegistry());
   const handleChartInstance = useCallback(
-    (plotId: string, instance: PngSource, active: boolean) => {
-      const map = chartInstancesRef.current;
-      if (active) {
-        map.set(plotId, instance);
-      } else if (map.get(plotId) === instance) {
-        map.delete(plotId);
-      }
+    (plotId: string, instance: PngSource, active: boolean, fullscreen = false) => {
+      const registry = chartInstancesRef.current;
+      if (active) registry.register(plotId, instance, fullscreen);
+      else registry.unregister(plotId, instance);
     },
     []
   );
@@ -619,7 +620,12 @@ export function TraceApp() {
 
     let unit: string | undefined;
     try {
-      const meta = await fetchMetadata(pvName, trace.archiver ?? plot.archiver, controller.signal);
+      const meta = await fetchMetadata(
+        canopy,
+        pvName,
+        trace.archiver ?? plot.archiver,
+        controller.signal
+      );
       unit = meta.units?.trim() || undefined;
     } catch {
       return; // metadata unavailable / aborted — keep the trace on its current axis
@@ -834,11 +840,11 @@ export function TraceApp() {
         });
       } catch (err) {
         if (cancelled) return;
-        const subtitle =
-          err instanceof CanopyError
-            ? err.detail
-            : ((err as Error | null)?.message ?? 'Unknown error');
-        showToast({ kind: 'error', title: 'Could not load shared workspace', subtitle });
+        showToast({
+          kind: 'error',
+          title: 'Could not load shared workspace',
+          subtitle: errorInfo(err).detail,
+        });
       } finally {
         // Don't rewrite the URL after unmount — it may belong to a later route.
         if (!cancelled) {
@@ -1290,8 +1296,10 @@ export function TraceApp() {
                       // eslint-disable-next-line react-hooks/refs -- ref is written from ECharts' finished event, not during render
                       onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
                       onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
-                      // eslint-disable-next-line react-hooks/refs -- ref is written on mount/unmount, not during render
-                      onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
+                      onChartInstance={(inst, active) =>
+                        // eslint-disable-next-line react-hooks/refs -- ref is written on mount/unmount, not during render
+                        handleChartInstance(plot.id, inst, active, true)
+                      }
                     />
                   </ErrorBoundary>
                 </div>

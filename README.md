@@ -1,10 +1,8 @@
 # React Trace
 
-[![dev deploy](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/slaclab/swapps-deployment-status/main/status/trace-dev.json)](https://github.com/slaclab/swapps-deployment)
-
 React + Vite frontend for the Canopy / Trace plotting tool. Reads archive data from
-Canopy's Mole module (`/mole/v1/...`), live PVs from Hare, formulas from Fox, and posts
-e-log entries through Canopy's e-log module (`/elog/v1/apps/trace/...`).
+Canopy's Mole module (`/mole/v1/...`), live PVs from Hare and formulas from the Formula
+Engine, and posts e-log entries through Canopy's e-log module (`/elog/v1/apps/trace/...`).
 
 ## Local dev
 
@@ -31,21 +29,29 @@ cp .env.example .env
 ```
 
 `CANOPY_API_KEY` is a server-side env var (no `VITE_` prefix). The Vite dev server proxies
-`/mole`, `/hare`, `/fox`, `/magpie`, `/vole` and Trace's e-log app path
-(`/elog/v1/apps/trace/`) to `CANOPY_BASE_URL` and injects the `X-API-Key` header, so the key
-never reaches the browser bundle.
+`/mole`, `/hare`, `/formula-engine`, `/magpie` and `/vole` (HTTP and WebSocket), and Trace's
+e-log app path (`/elog/v1/apps/trace/`), to `CANOPY_BASE_URL` and injects the `X-API-Key`
+header, so the key never reaches the browser bundle. If `VITE_CANOPY_BASE_PATH` is set (for
+example `/trace/api/canopy`), the dev server proxies that one prefix instead and strips it
+before forwarding, like the container's nginx.
 
 Trace uses two Canopy keys:
 
-- `CANOPY_API_KEY` for Mole, Hare, Fox, Magpie and Vole:
-  `read+write@mole+hare+fox+magpie+vole`. Saving workspaces to the config store (Magpie)
-  needs `write`. Canopy's `write` scope belongs to the key, not to a module, so this key can
-  also write PVs through Hare.
+- `CANOPY_API_KEY` for Mole, Hare, the Formula Engine, Magpie and Vole:
+  `read+write@mole+hare+formula-engine+magpie+vole`. Saving workspaces to the config store
+  (Magpie) needs `write`. Canopy's `write` scope belongs to the key, not to a module, so this
+  key can also write PVs through Hare.
 - `CANOPY_ELOG_API_KEY` for the e-log module: `read+write@elog`.
 
 The e-log key is separate so e-log access stays on Trace's own app path (see the production
 notes below). In local dev, leave `CANOPY_ELOG_API_KEY` unset and the e-log proxy reuses
 `CANOPY_API_KEY`, which covers both with a wildcard key like `dev:read+write@*`.
+
+The proxy is [`canopyDevProxy`](https://github.com/slaclab/canopy-sdk-js/tree/main/packages/vite)
+from `@slaclab/canopy-vite`. It refuses cross-origin browser requests, including pages on
+another `localhost` port, so other sites open in your browser can't use the injected key.
+To let a trusted page on another origin use it, add `allowedOrigins` to the options
+`canopyProxyOptions()` returns in `vite.config.ts`.
 
 #### E-Log posting (optional)
 
@@ -69,6 +75,10 @@ reason. Logbooks preselected in the post dialog come from `DEFAULT_LOGBOOK_IDS`.
 lists only the logbooks Trace's token can post to, so a default Trace can't post to isn't
 preselected.
 
+The dev server proxies only Trace's e-log app path. Other `/elog` paths aren't proxied. Under
+`VITE_CANOPY_BASE_PATH` they go through that prefix with `CANOPY_API_KEY`, like every other
+Canopy path in the container's nginx.
+
 Migrating from the direct elog-plus setup: `DEFAULT_LOGBOOK_IDS` takes logbook **ids**,
 not the logbook **names** `VITE_ELOG_DEFAULT_LOGBOOKS` took. Names match nothing, so
 copying them over silently preselects no logbook. `ELOG_BASE_URL`, `ELOG_API_KEY` and
@@ -86,6 +96,11 @@ warning, and the post dialog shows Canopy's missing-key error. The e-log locatio
 accepts request bodies up to 25 MiB so attachments (20 MiB by default in Canopy)
 reach Canopy.
 
+The header's bug and help buttons open this repo's GitHub issues and the public
+docs site. A deployment can point them elsewhere with `VITE_BUG_REPORT_URL` and
+`VITE_DOCS_URL` at build time; the image build reads them from the
+`BUG_REPORT_URL` and `DOCS_URL` repository variables.
+
 ### 3. Run the dev server
 
 ```bash
@@ -98,6 +113,7 @@ pnpm dev
 ```bash
 pnpm dev           # vite dev server
 pnpm build         # tsc -b && vite build
+pnpm typecheck     # tsc -b
 pnpm test          # vitest
 pnpm lint          # eslint
 pnpm format        # prettier --write
