@@ -13,8 +13,27 @@ permissions:
 
 jobs:
   build:
+    # build-dev.yml's dev-<sha> and dev-latest prereleases are published
+    # releases too. They're created with GITHUB_TOKEN, which doesn't start
+    # workflows, but a token change or one published by hand would otherwise
+    # build here and attach a second RPM to dev-latest.
+    if: ${{ !startsWith(github.event.release.tag_name, 'dev-') }}
     runs-on: ubuntu-22.04
     steps:
+      - name: Compute version from tag
+        id: ver
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        # The RPM version comes from the tag (v1.2.3 or 1.2.3), so anything
+        # that isn't semver stops here instead of reaching the Tauri build.
+        run: |
+          version=${TAG#v}
+          if ! [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Release tag $TAG isn't a version like v1.2.3; not building an RPM."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -27,10 +46,6 @@ jobs:
           # one restored from a cache written by an earlier run.
           rust-cache: false
           stage-config: true
-
-      - name: Compute version from tag
-        id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Build Tauri RPM
         uses: tauri-apps/tauri-action@42e9df6c59070d114bf90dcd3943a1b8f138b113 # v0
