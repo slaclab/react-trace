@@ -13,6 +13,10 @@ builds the native process runs an in-process reverse proxy on
   forwarded, as in the Vite dev proxy (see the repo README's "E-Log posting"
   section).
 
+What gets forwarded is decided on the path as the backend will see it, with `..`
+and `%2e%2e` resolved: a request whose path resolves outside the Canopy modules,
+or outside Trace's e-log app path, gets a `404` and is not forwarded.
+
 The webview is created pointing at the proxy origin, so the frontend's relative
 fetches and `window.location.host`-derived WebSocket URLs work unchanged, and
 **no backend key ever reaches the JS bundle**. In `tauri dev` the Vite dev
@@ -125,11 +129,11 @@ cargo test --manifest-path src-tauri/Cargo.toml
 No `config.json` or `dist/` is needed. Unit tests cover path routing and config
 precedence (against a fixed environment, so your own `CANOPY_BASE_URL` etc.
 don't affect them). In-process end-to-end tests run the real proxy against
-mock upstreams and assert header injection, that only Trace's e-log app path
-is forwarded (with `..` resolved first), multipart pass-through, request bodies
-streamed upstream with their framing kept, SPA fallback with conditional and
-range requests, WebSocket bridging
-including close-code passthrough, `403` for foreign and near-miss origins and
+mock upstreams and assert header injection, that paths resolving outside the
+Canopy modules or Trace's e-log app path aren't forwarded, multipart
+pass-through, request bodies streamed upstream with their framing kept, SPA
+fallback with conditional and range requests, WebSocket bridging including
+close-code passthrough, `403` for foreign and near-miss origins and
 for rebound or wrong-port host names (HTTP and WebSocket), hop-by-hop
 stripping in both directions, that redirects aren't followed and how
 `Location` is rewritten, and that every response carries the CSP. The `test`

@@ -65,19 +65,23 @@ fn is_elog_path(path: &str) -> bool {
     has_prefix(path, ELOG_PREFIX)
 }
 
-/// Whether `target` is on `base`'s origin and its path, below `base`'s own
-/// path, starts with `prefix`. Only the path counts, never the query, and
-/// `target` comes from URL parsing, so `..` can't climb out of the prefix or
-/// above a base path.
-fn is_under(target: &reqwest::Url, base: &str, prefix: &str) -> bool {
-    let Ok(base) = reqwest::Url::parse(base) else {
-        return false;
-    };
-    target.origin() == base.origin()
-        && target
-            .path()
-            .strip_prefix(base.path().trim_end_matches('/'))
-            .is_some_and(|rest| rest.starts_with(prefix))
+fn is_elog_app_path(path: &str) -> bool {
+    path.starts_with(ELOG_APP_PREFIX)
+}
+
+/// `target`'s path below `base`'s own path, when `target` is on `base`'s origin
+/// and under its path. Only the path counts, never the query, and `target`
+/// comes from URL parsing, so `..` is already resolved and can't climb above a
+/// base path.
+fn path_below_base<'t>(target: &'t reqwest::Url, base: &str) -> Option<&'t str> {
+    let base = reqwest::Url::parse(base).ok()?;
+    if target.origin() != base.origin() {
+        return None;
+    }
+    let rest = target
+        .path()
+        .strip_prefix(base.path().trim_end_matches('/'))?;
+    (rest.is_empty() || rest.starts_with('/')).then_some(rest)
 }
 
 /// Where and how to forward one HTTP request.
@@ -85,10 +89,11 @@ struct Forward<'a> {
     /// Upstream base URL, no trailing slash. The request path is forwarded
     /// unchanged below it.
     base: &'a str,
-    /// When set, the request is forwarded only if its path, as it reaches
-    /// upstream (dot segments resolved) and below `base`'s own path, starts
-    /// with this. Anything else gets a 404 and is not forwarded.
-    only_under: Option<&'a str>,
+    /// Which paths may be forwarded, checked on the path as it reaches
+    /// upstream: below `base`'s own path, with dot segments resolved. A raw
+    /// `/mole/../elog/...` resolves to `/elog/...`, so routing on the raw path
+    /// alone isn't enough. Anything else gets a 404 and is not forwarded.
+    allowed: fn(&str) -> bool,
     /// Auth header to inject; skipped when the value is empty.
     header_name: HeaderName,
     header_value: &'a str,
@@ -277,7 +282,7 @@ async fn route(
     if is_elog_path(&path) {
         let forward = Forward {
             base: &state.config.canopy_url,
-            only_under: Some(ELOG_APP_PREFIX),
+            allowed: is_elog_app_path,
             header_name: HeaderName::from_static("x-api-key"),
             header_value: &state.config.elog_key,
         };
@@ -291,7 +296,7 @@ async fn route(
         }
         let forward = Forward {
             base: &state.config.canopy_url,
-            only_under: None,
+            allowed: is_api_path,
             header_name: HeaderName::from_static("x-api-key"),
             header_value: &state.config.api_key,
         };
@@ -321,9 +326,8 @@ async fn serve_static(service: SharedStatic, req: axum::http::Request<Body>) -> 
     }
 }
 
-/// Forward an HTTP request upstream per `forward` (target base, optional path
-/// restriction, auth header), streaming the request body up and the response
-/// body back.
+/// Forward an HTTP request upstream per `forward` (target base, allowed paths,
+/// auth header), streaming the request body up and the response body back.
 async fn proxy_http(
     state: &ProxyState,
     method: Method,
@@ -342,14 +346,12 @@ async fn proxy_http(
     let Ok(target) = reqwest::Url::parse(&format!("{}{}", forward.base, path_and_query)) else {
         return (StatusCode::BAD_REQUEST, "bad request path").into_response();
     };
-    if let Some(prefix) = forward.only_under {
-        if !is_under(&target, forward.base, prefix) {
-            tracing::warn!(
-                path = target.path(),
-                "request outside the allowed path not forwarded"
-            );
-            return (StatusCode::NOT_FOUND, "not forwarded").into_response();
-        }
+    if !path_below_base(&target, forward.base).is_some_and(forward.allowed) {
+        tracing::warn!(
+            path = target.path(),
+            "request outside the allowed paths not forwarded"
+        );
+        return (StatusCode::NOT_FOUND, "not forwarded").into_response();
     }
 
     // Strip origin + hop-by-hop request headers; inject the auth header.
@@ -618,7 +620,7 @@ mod tests {
     fn elog_app_path_check_resolves_dot_segments() {
         let under = |base: &str, path: &str| {
             let target = reqwest::Url::parse(&format!("{base}{path}")).unwrap();
-            is_under(&target, base, ELOG_APP_PREFIX)
+            path_below_base(&target, base).is_some_and(is_elog_app_path)
         };
         let base = "http://canopy:8000";
         assert!(under(base, "/elog/v1/apps/trace/entries?x=1"));
@@ -639,6 +641,9 @@ mod tests {
         let based = "http://canopy:8000/api";
         assert!(under(based, "/elog/v1/apps/trace/entries"));
         assert!(!under(based, "/../elog/v1/apps/trace/entries"));
+        // A sibling of the base path isn't below it.
+        let target = reqwest::Url::parse("http://canopy:8000/apix/elog/v1/apps/trace/x").unwrap();
+        assert_eq!(path_below_base(&target, based), None);
     }
 
     #[test]
@@ -937,6 +942,37 @@ mod e2e {
             hits.load(Ordering::SeqCst),
             1,
             "only the control was forwarded"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn canopy_paths_resolving_outside_the_modules_are_not_forwarded() {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let canopy = spawn_upstream(counting_router(hits.clone())).await;
+        let proxy = spawn_proxy(config(canopy), no_dist()).await;
+        let status = |target: &'static str| async move {
+            tokio::task::spawn_blocking(move || raw_get_status(proxy, target))
+                .await
+                .unwrap()
+        };
+
+        // Controls: a module path, and one whose `..` stays inside the module.
+        assert_eq!(status("/mole/v1/data").await, 200);
+        assert_eq!(status("/mole/v1/x/../data").await, 200);
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        // Resolved, these leave the Canopy modules: another app's e-log path
+        // (with the Canopy key), Trace's own (with the wrong key), the root.
+        for target in [
+            "/mole/../elog/v1/apps/other/entries",
+            "/hare/%2e%2e/elog/v1/apps/trace/entries",
+            "/vole/../",
+        ] {
+            assert_eq!(status(target).await, 404, "{target}");
+        }
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            2,
+            "only the controls were forwarded"
         );
     }
 
