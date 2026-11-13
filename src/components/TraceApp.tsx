@@ -24,7 +24,8 @@ import { axisEndMs, isFollowing, useAutoScrollTimers } from '../hooks/useAutoScr
 import { useFormulaSeries, type FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
 import { resolveTimeWindow } from '../api/time';
-import { fetchMetadata } from '../api/mole';
+import { fetchMetadata } from '@slaclab/canopy-client';
+import { useCanopyConnection } from '@slaclab/canopy-react';
 import {
   ColorModeTheme,
   ErrorBoundary,
@@ -46,7 +47,7 @@ import { buildCsvFiles } from '../io/exportCsv';
 import { safeFilename, timestamp } from '../io/filename';
 import { makeId } from '../id';
 import { resolveFormulaSpec } from '../formula';
-import type { FormulaSpecDTO } from '../api/types';
+import type { FormulaSpec } from '@slaclab/canopy-client';
 import { capturePlots, type PngSource, type CapturedPlot } from '../io/exportPlotImage';
 import { createChartRegistry } from '../io/chartRegistry';
 import { PostToElogModal } from './PostToElogModal';
@@ -127,6 +128,7 @@ function DataInsightFallback({
 }
 
 export function TraceApp() {
+  const canopy = useCanopyConnection();
   const [plots, setPlots] = useState<Plot[]>(INITIAL_PLOTS);
   const [activePlotId, setActivePlotId] = useState<string>('plot-1');
   const [selectedItem, setSelectedItem] = useState<SelectedItem>({
@@ -215,7 +217,7 @@ export function TraceApp() {
   const plotArchiverByTrace = new Map<string, string | undefined>();
   // Resolved Formula Engine spec per formula trace (bindings mapped to PV names); null when
   // the formula isn't ready to evaluate (empty expression or an unbound variable).
-  const formulaSpecByTrace = new Map<string, FormulaSpecDTO | null>();
+  const formulaSpecByTrace = new Map<string, FormulaSpec | null>();
   for (const plot of plots) {
     const win =
       viewWindowByPlot.get(plot.id) ?? resolveTimeWindow(plot.xAxis, clock.nowFor(plot.id)).window;
@@ -618,7 +620,12 @@ export function TraceApp() {
 
     let unit: string | undefined;
     try {
-      const meta = await fetchMetadata(pvName, trace.archiver ?? plot.archiver, controller.signal);
+      const meta = await fetchMetadata(
+        canopy,
+        pvName,
+        trace.archiver ?? plot.archiver,
+        controller.signal
+      );
       unit = meta.units?.trim() || undefined;
     } catch {
       return; // metadata unavailable / aborted — keep the trace on its current axis
