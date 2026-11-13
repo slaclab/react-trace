@@ -7,19 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
 import { TraceApp } from './TraceApp';
+import { WithCanopy } from '../test/canopy';
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return { isDisposed: () => true, getDom: () => null };
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+// No chart instance: PNG capture for the E-Log dialog skips this plot.
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
 
 describe('Blocked pop-up notice', () => {
   beforeEach(() => {
@@ -57,7 +50,7 @@ describe('Blocked pop-up notice', () => {
   });
 
   it('tells the user when detaching a plot is blocked', () => {
-    render(<TraceApp />);
+    render(<TraceApp />, { wrapper: WithCanopy });
     fireEvent.click(screen.getByTitle('Detach to window'));
 
     expect(screen.getByText('Pop-up blocked')).toBeTruthy();
@@ -68,7 +61,7 @@ describe('Blocked pop-up notice', () => {
   });
 
   it('still tells the user when the plot has no title', () => {
-    render(<TraceApp />);
+    render(<TraceApp />, { wrapper: WithCanopy });
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: '' } });
     fireEvent.click(screen.getByTitle('Detach to window'));
 
@@ -76,7 +69,7 @@ describe('Blocked pop-up notice', () => {
   });
 
   it('tells the user when popping out Data Insight is blocked', () => {
-    render(<TraceApp />);
+    render(<TraceApp />, { wrapper: WithCanopy });
     fireEvent.click(screen.getByRole('button', { name: /^Data Insight/ }));
     fireEvent.click(screen.getByTitle('Pop out to window'));
 

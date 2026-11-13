@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { evaluateFormula } from '../api/fox';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import type { FormulaSpec } from '@slaclab/canopy-client';
+import { useCanopyConnection } from '@slaclab/canopy-react';
+import { evaluateFormula } from '../api/formulaEngine';
 import type { TimeWindowNs } from '../api/time';
-import type { FormulaSpecDTO } from '../api/types';
 import { FormulaStore, specKey } from '../state/formulaStore';
 import type { PVTrace } from '../types';
 
@@ -18,23 +19,26 @@ const IDLE_RESULT: FormulaSeriesResult = { status: 'idle', points: [] };
 const LOADING_RESULT: FormulaSeriesResult = { status: 'loading', points: [] };
 const EMPTY_SERIES = new Map<string, FormulaSeriesResult>();
 
-// Evaluates each formula trace over its plot window through Fox's one-shot REST
+// Evaluates each formula trace over its plot window through the Formula Engine's one-shot REST
 // endpoint. The per-mount FormulaStore owns the requests and decides per trace
 // when one is needed; this hook feeds it the current specs and windows and
 // projects its snapshot onto the current formula traces. Live push updates are
 // a follow-up (#104).
 export function useFormulaSeries(
   traces: PVTrace[],
-  // Per-trace resolved Fox spec (bindings already mapped to PV names). `null`
+  // Per-trace resolved Formula Engine spec (bindings already mapped to PV names). `null`
   // means the formula isn't ready (empty / unbound) and shows nothing.
-  specByTrace: Map<string, FormulaSpecDTO | null>,
+  specByTrace: Map<string, FormulaSpec | null>,
   windowByTrace: Map<string, TimeWindowNs>
 ): Map<string, FormulaSeriesResult> {
-  const [store] = useState(
+  // One store per Canopy connection (in practice one per mount).
+  const conn = useCanopyConnection();
+  const store = useMemo(
     () =>
       new FormulaStore({
-        evaluate: (spec, t0Ns, t1Ns, signal) => evaluateFormula(spec, t0Ns, t1Ns, signal),
-      })
+        evaluate: (spec, t0Ns, t1Ns, signal) => evaluateFormula(conn, spec, t0Ns, t1Ns, signal),
+      }),
+    [conn]
   );
 
   const formula = traces.filter((t) => t.kind === 'formula');

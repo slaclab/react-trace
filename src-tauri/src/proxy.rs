@@ -1,7 +1,7 @@
 //! In-process reverse proxy for the desktop app.
 //!
 //! Serves the bundled SPA (`dist/`) at `/` and forwards the Canopy path
-//! prefixes the frontend uses (`/mole`, `/hare`, `/fox`, `/magpie`, `/vole`)
+//! prefixes the frontend uses (`/mole`, `/hare`, `/formula-engine`, `/magpie`, `/vole`)
 //! to the configured backend, injecting the `X-API-Key` header. Because the webview is pointed at this proxy's localhost
 //! origin (see `main.rs`), the frontend's relative fetches and
 //! `window.location.host`-derived WebSocket URLs resolve here unchanged, so no
@@ -42,14 +42,17 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use crate::config::CanopyConfig;
 
 /// Path prefixes that get forwarded to Canopy (everything else is static SPA).
-/// Keep in sync with the Canopy entries in vite.config.ts `server.proxy`: a
-/// prefix missing here falls through to the SPA and gets index.html back.
-const API_PREFIXES: [&str; 5] = ["/mole", "/hare", "/fox", "/magpie", "/vole"];
+/// Keep in sync with `CANOPY_MODULES` in vite.config.ts: a prefix missing here
+/// falls through to the SPA and gets index.html back.
+const API_PREFIXES: [&str; 5] = ["/mole", "/hare", "/formula-engine", "/magpie", "/vole"];
 
-/// Prefix forwarded to elog-plus. Unlike the Canopy prefixes the `/elog` prefix
-/// is STRIPPED before forwarding and a different auth header is injected,
-/// mirroring the web deployments' reverse-proxy contract (see vite.config.ts).
+/// E-log requests. Only those under [`ELOG_APP_PREFIX`] are forwarded.
 const ELOG_PREFIX: &str = "/elog";
+
+/// Trace's app in Canopy's e-log module, the only e-log path forwarded (see
+/// [`route`]). Keep in sync with `ELOG_APP_PATH` in vite.config.ts, which has
+/// no trailing slash.
+const ELOG_APP_PREFIX: &str = "/elog/v1/apps/trace/";
 
 fn has_prefix(path: &str, prefix: &str) -> bool {
     path == prefix || (path.starts_with(prefix) && path.as_bytes()[prefix.len()] == b'/')
@@ -63,13 +66,35 @@ fn is_elog_path(path: &str) -> bool {
     has_prefix(path, ELOG_PREFIX)
 }
 
+fn is_elog_app_path(path: &str) -> bool {
+    path.starts_with(ELOG_APP_PREFIX)
+}
+
+/// `target`'s path below `base`'s own path, when `target` is on `base`'s origin
+/// and under its path. Only the path counts, never the query, and `target`
+/// comes from URL parsing, so `..` is already resolved and can't climb above a
+/// base path.
+fn path_below_base<'t>(target: &'t reqwest::Url, base: &str) -> Option<&'t str> {
+    let base = reqwest::Url::parse(base).ok()?;
+    if target.origin() != base.origin() {
+        return None;
+    }
+    let rest = target
+        .path()
+        .strip_prefix(base.path().trim_end_matches('/'))?;
+    (rest.is_empty() || rest.starts_with('/')).then_some(rest)
+}
+
 /// Where and how to forward one HTTP request.
 struct Forward<'a> {
-    /// Upstream base URL, no trailing slash.
+    /// Upstream base URL, no trailing slash. The request path is forwarded
+    /// unchanged below it.
     base: &'a str,
-    /// Prefix to strip from the request path before joining onto `base`
-    /// (`/elog` semantics); `None` forwards the path unchanged (Canopy).
-    strip_prefix: Option<&'a str>,
+    /// Which paths may be forwarded, checked on the path as it reaches
+    /// upstream: below `base`'s own path, with dot segments resolved. A raw
+    /// `/mole/../elog/...` resolves to `/elog/...`, so routing on the raw path
+    /// alone isn't enough. Anything else gets a 404 and is not forwarded.
+    allowed: fn(&str) -> bool,
     /// Auth header to inject; skipped when the value is empty.
     header_name: HeaderName,
     header_value: &'a str,
@@ -180,9 +205,9 @@ pub async fn bind(
     let static_service = ServeDir::new(&dist_dir).fallback(ServeFile::new(index));
 
     // Never follow redirects upstream: reqwest keeps custom headers such as
-    // X-API-Key and x-vouch-idp-accesstoken when a redirect changes host. The
-    // 3xx goes back to the webview instead, with same-upstream locations
-    // mapped back onto the proxy (see `rewrite_location`).
+    // X-API-Key when a redirect changes host. The 3xx goes back to the webview
+    // instead, with same-upstream locations mapped back onto the proxy (see
+    // `rewrite_location`).
     let http = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -249,19 +274,17 @@ async fn route(
             .into_response();
     }
 
-    // E-log (HTTP only, prefix stripped, different token header). When no elog
-    // backend is configured, answer 502: the frontend's availability probe
-    // treats any non-2xx as "e-log unavailable" and hides the post button —
-    // same result as the web app without ELOG_BASE_URL. (A 2xx here would
-    // wrongly enable the feature.)
+    // E-log: Canopy's e-log module, which holds Trace's elog-plus token
+    // server-side and says through /config whether posting is on. Forwarded to
+    // Canopy unchanged, with the e-log key. As in the Vite dev proxy, only
+    // Trace's own app path goes through: Canopy doesn't bind keys to apps
+    // ({app} only picks the server-side token), so a wider prefix would let the
+    // key post as any configured app.
     if is_elog_path(&path) {
-        let Some(elog_url) = state.config.elog_url.as_deref() else {
-            return (StatusCode::BAD_GATEWAY, "e-log backend not configured").into_response();
-        };
         let forward = Forward {
-            base: elog_url,
-            strip_prefix: Some(ELOG_PREFIX),
-            header_name: HeaderName::from_static("x-vouch-idp-accesstoken"),
+            base: &state.config.canopy_url,
+            allowed: is_elog_app_path,
+            header_name: HeaderName::from_static("x-api-key"),
             header_value: &state.config.elog_key,
         };
         return proxy_http(&state, method, uri, headers, body, forward).await;
@@ -274,19 +297,21 @@ async fn route(
         }
         let forward = Forward {
             base: &state.config.canopy_url,
-            strip_prefix: None,
+            allowed: is_api_path,
             header_name: HeaderName::from_static("x-api-key"),
             header_value: &state.config.api_key,
         };
         return proxy_http(&state, method, uri, headers, body, forward).await;
     }
 
-    // Static SPA asset. tower-http's ServeDir wants a Request; rebuild one.
-    let req = axum::http::Request::builder()
+    // Static SPA asset. tower-http's ServeDir wants a Request; rebuild one with
+    // the original headers, so If-Modified-Since gets a 304 and Range a 206.
+    let mut req = axum::http::Request::builder()
         .method(method)
         .uri(uri)
         .body(Body::empty())
         .expect("static request");
+    *req.headers_mut() = headers;
     serve_static(static_service, req).await
 }
 
@@ -302,9 +327,8 @@ async fn serve_static(service: SharedStatic, req: axum::http::Request<Body>) -> 
     }
 }
 
-/// Forward an HTTP request upstream per `forward` (target base, optional
-/// prefix strip, auth header), streaming the request body up and the response
-/// body back.
+/// Forward an HTTP request upstream per `forward` (target base, allowed paths,
+/// auth header), streaming the request body up and the response body back.
 async fn proxy_http(
     state: &ProxyState,
     method: Method,
@@ -317,15 +341,19 @@ async fn proxy_http(
         .path_and_query()
         .map(|pq| pq.as_str())
         .unwrap_or(uri.path());
-    // `/elog/v1/x?q=1` -> `/v1/x?q=1`: the prefix sits at the front of the
-    // combined path+query string, so a plain strip_prefix is exact.
-    let forwarded_path = match forward.strip_prefix {
-        Some(prefix) => path_and_query
-            .strip_prefix(prefix)
-            .unwrap_or(path_and_query),
-        None => path_and_query,
+    // Parsed once, and this URL is what gets sent: parsing resolves dot
+    // segments (`..`, `%2e%2e`), so the path checked below is the one upstream
+    // sees.
+    let Ok(target) = reqwest::Url::parse(&format!("{}{}", forward.base, path_and_query)) else {
+        return (StatusCode::BAD_REQUEST, "bad request path").into_response();
     };
-    let target = format!("{}{}", forward.base, forwarded_path);
+    if !path_below_base(&target, forward.base).is_some_and(forward.allowed) {
+        tracing::warn!(
+            path = target.path(),
+            "request outside the allowed paths not forwarded"
+        );
+        return (StatusCode::NOT_FOUND, "not forwarded").into_response();
+    }
 
     // Strip origin + hop-by-hop request headers; inject the auth header.
     // Content-Length stays: the body is streamed, and hyper frames a streamed
@@ -345,7 +373,7 @@ async fn proxy_http(
         Err(_) => return (StatusCode::BAD_REQUEST, "bad method").into_response(),
     };
 
-    let mut builder = state.http.request(reqwest_method, target.as_str());
+    let mut builder = state.http.request(reqwest_method, target.clone());
     // Stream the body through rather than reading it into memory first, so a
     // large e-log upload isn't held whole. A request with no body gets none
     // upstream either, instead of an empty chunked one.
@@ -369,7 +397,7 @@ async fn proxy_http(
                     let rewritten = value
                         .to_str()
                         .ok()
-                        .and_then(|loc| rewrite_location(loc, &target, &forward));
+                        .and_then(|loc| rewrite_location(loc, &target, forward.base));
                     if let Some(loc) = rewritten {
                         resp = resp.header(name, loc);
                         continue;
@@ -382,7 +410,7 @@ async fn proxy_http(
                 .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response())
         }
         Err(err) => {
-            tracing::warn!(%err, target, "upstream request failed");
+            tracing::warn!(%err, %target, "upstream request failed");
             (StatusCode::BAD_GATEWAY, format!("upstream error: {err}")).into_response()
         }
     }
@@ -427,14 +455,13 @@ fn strip_hop_by_hop(headers: &mut HeaderMap) {
 /// `proxy_redirect default`. The value is resolved against the upstream
 /// request URL (`target`), so absolute, path-absolute and relative forms all
 /// work. When the result is on the configured upstream base, the proxy path
-/// is returned (`base` replaced by the stripped prefix, so e-log paths get
-/// `/elog` back): the browser's follow-up then comes through the proxy, which
-/// re-injects the key. Anything else (another host, port or scheme, or a path
+/// is returned (the part below `base`): the browser's follow-up then comes
+/// through the proxy, which re-injects the key. Anything else (another host, port or scheme, or a path
 /// outside the base) returns `None` and is passed through unchanged; the
 /// browser follows it without any of the proxy's credentials.
-fn rewrite_location(location: &str, target: &str, forward: &Forward<'_>) -> Option<String> {
-    let base = reqwest::Url::parse(forward.base).ok()?;
-    let resolved = reqwest::Url::parse(target).ok()?.join(location).ok()?;
+fn rewrite_location(location: &str, target: &reqwest::Url, base: &str) -> Option<String> {
+    let base = reqwest::Url::parse(base).ok()?;
+    let resolved = target.join(location).ok()?;
     if resolved.origin() != base.origin() {
         return None;
     }
@@ -444,7 +471,7 @@ fn rewrite_location(location: &str, target: &str, forward: &Forward<'_>) -> Opti
     if !(rest.is_empty() || rest.starts_with('/')) {
         return None;
     }
-    let mut out = format!("{}{rest}", forward.strip_prefix.unwrap_or(""));
+    let mut out = rest.to_string();
     if out.is_empty() {
         out.push('/');
     }
@@ -558,31 +585,75 @@ mod tests {
     fn api_paths_matched() {
         assert!(is_api_path("/mole/v1/data"));
         assert!(is_api_path("/hare/v1/ws/pvs"));
-        assert!(is_api_path("/fox/v1/validate"));
+        assert!(is_api_path("/formula-engine/v1/validate"));
         assert!(is_api_path("/magpie/v1/configs"));
         assert!(is_api_path("/vole/v1/health"));
         assert!(is_api_path("/mole"));
     }
 
-    /// The desktop proxy must forward the same Canopy prefixes as the Vite dev
-    /// proxy; a prefix missing here would get the SPA's index.html instead.
+    /// The desktop proxy must forward what the Vite dev proxy forwards: the
+    /// modules in `CANOPY_MODULES` (a prefix missing here would get the SPA's
+    /// index.html instead) and Trace's e-log app path, `ELOG_APP_PATH`.
     #[test]
     fn api_prefixes_match_vite_dev_proxy() {
         let vite = include_str!("../../vite.config.ts");
-        let mut vite_prefixes: Vec<&str> = vite
-            .lines()
-            .filter_map(|line| line.trim().strip_prefix('\''))
-            .filter_map(|rest| rest.split_once("': {").map(|(key, _)| key))
-            .filter(|key| key.starts_with('/') && *key != ELOG_PREFIX)
+        // vite.config.ts writes each as `export const NAME = <value>;` on one line.
+        let constant = |name: &str| {
+            let start = format!("export const {name} = ");
+            vite.lines()
+                .find_map(|line| line.strip_prefix(start.as_str()))
+                .and_then(|rest| rest.strip_suffix(';'))
+                .unwrap_or_else(|| panic!("no one-line `{start}...;` in vite.config.ts"))
+        };
+        let unquote = |s: &str| s.trim().trim_matches('\'').to_string();
+
+        let mut modules: Vec<String> = constant("CANOPY_MODULES")
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .split(',')
+            .map(unquote)
             .collect();
-        vite_prefixes.sort_unstable();
-        let mut ours = API_PREFIXES.to_vec();
+        modules.sort_unstable();
+        let mut ours: Vec<String> = API_PREFIXES.iter().map(|p| p.to_string()).collect();
         ours.sort_unstable();
-        assert!(
-            !vite_prefixes.is_empty(),
-            "no proxy keys found in vite.config.ts"
+        assert_eq!(ours, modules, "API_PREFIXES differs from CANOPY_MODULES");
+
+        let elog_app_path = unquote(constant("ELOG_APP_PATH"));
+        assert_eq!(
+            ELOG_APP_PREFIX,
+            format!("{elog_app_path}/"),
+            "ELOG_APP_PREFIX differs from ELOG_APP_PATH"
         );
-        assert_eq!(ours, vite_prefixes);
+    }
+
+    #[test]
+    fn elog_app_path_check_resolves_dot_segments() {
+        let under = |base: &str, path: &str| {
+            let target = reqwest::Url::parse(&format!("{base}{path}")).unwrap();
+            path_below_base(&target, base).is_some_and(is_elog_app_path)
+        };
+        let base = "http://canopy:8000";
+        assert!(under(base, "/elog/v1/apps/trace/entries?x=1"));
+        assert!(under(base, "/elog/v1/apps/trace/a/../entries"));
+        for path in [
+            "/elog/v1/apps/trace/../other/entries",
+            "/elog/v1/apps/trace/%2e%2e/other/entries",
+            "/elog/v1/apps/trace/.%2E/other/entries",
+            "/elog/v1/apps/trace/..\\other/entries",
+            "/elog/v1/apps/trace2/entries",
+            "/elog/v1/apps/trace",
+            "/elog/v1/logbooks",
+            "/other?/elog/v1/apps/trace/",
+        ] {
+            assert!(!under(base, path), "{path}");
+        }
+        // Below a base path, and `..` can't climb above it.
+        let based = "http://canopy:8000/api";
+        assert!(under(based, "/elog/v1/apps/trace/entries"));
+        assert!(!under(based, "/../elog/v1/apps/trace/entries"));
+        // A sibling of the base path isn't below it.
+        let target = reqwest::Url::parse("http://canopy:8000/apix/elog/v1/apps/trace/x").unwrap();
+        assert_eq!(path_below_base(&target, based), None);
     }
 
     #[test]
@@ -628,12 +699,11 @@ mod e2e {
         addr
     }
 
-    fn config(canopy: SocketAddr, elog: Option<SocketAddr>) -> CanopyConfig {
+    fn config(canopy: SocketAddr) -> CanopyConfig {
         CanopyConfig {
             canopy_url: format!("http://{canopy}"),
             api_key: "secret123".into(),
-            elog_url: elog.map(|a| format!("http://{a}")),
-            elog_key: "elogtoken".into(),
+            elog_key: "elogkey".into(),
         }
     }
 
@@ -665,7 +735,7 @@ mod e2e {
     #[tokio::test(flavor = "multi_thread")]
     async fn forwards_canopy_with_api_key_path_unchanged() {
         let upstream = spawn_upstream(echo_router("x-api-key")).await;
-        let proxy = spawn_proxy(config(upstream, None), no_dist()).await;
+        let proxy = spawn_proxy(config(upstream), no_dist()).await;
 
         let body = reqwest::get(format!("http://{proxy}/mole/v1/data?binning=auto&n=1"))
             .await
@@ -680,7 +750,7 @@ mod e2e {
     #[tokio::test(flavor = "multi_thread")]
     async fn forwards_magpie_and_vole_with_api_key() {
         let upstream = spawn_upstream(echo_router("x-api-key")).await;
-        let proxy = spawn_proxy(config(upstream, None), no_dist()).await;
+        let proxy = spawn_proxy(config(upstream), no_dist()).await;
 
         for path in ["/magpie/v1/configs?app=trace", "/vole/v1/health"] {
             let body = reqwest::get(format!("http://{proxy}{path}"))
@@ -694,19 +764,20 @@ mod e2e {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn forwards_elog_with_token_and_stripped_prefix() {
-        let elog = spawn_upstream(echo_router("x-vouch-idp-accesstoken")).await;
+    async fn forwards_elog_app_path_to_canopy_with_elog_key() {
         let canopy = spawn_upstream(echo_router("x-api-key")).await;
-        let proxy = spawn_proxy(config(canopy, Some(elog)), no_dist()).await;
+        let proxy = spawn_proxy(config(canopy), no_dist()).await;
 
-        let body = reqwest::get(format!("http://{proxy}/elog/v1/logbooks?limit=5"))
-            .await
-            .unwrap()
-            .text()
-            .await
-            .unwrap();
-        // Token injected (not X-API-Key); /elog prefix stripped, query kept.
-        assert_eq!(body, "elogtoken|GET|/v1/logbooks?limit=5");
+        let body = reqwest::get(format!(
+            "http://{proxy}/elog/v1/apps/trace/logbooks?ids=a,b"
+        ))
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+        // The e-log key, not the Canopy key; path and query unchanged.
+        assert_eq!(body, "elogkey|GET|/elog/v1/apps/trace/logbooks?ids=a,b");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -720,12 +791,13 @@ mod e2e {
                 .to_string();
             format!("{}|{}", ct, body.len())
         };
-        let elog = spawn_upstream(Router::new().route("/v2/entries", post(handler))).await;
-        let canopy = spawn_upstream(echo_router("x-api-key")).await;
-        let proxy = spawn_proxy(config(canopy, Some(elog)), no_dist()).await;
+        let canopy =
+            spawn_upstream(Router::new().route("/elog/v1/apps/trace/attachments", post(handler)))
+                .await;
+        let proxy = spawn_proxy(config(canopy), no_dist()).await;
 
-        // Hand-rolled multipart (entry.json + one fake PNG part), matching the
-        // shape PostToElogModal sends.
+        // Hand-rolled multipart (a metadata part + one fake PNG part), the
+        // shape of an attachment upload.
         let boundary = "trace-test-boundary";
         let png = vec![0x89u8, b'P', b'N', b'G', 0, 1, 2, 3];
         let mut payload = Vec::new();
@@ -747,7 +819,7 @@ mod e2e {
 
         let client = reqwest::Client::new();
         let body = client
-            .post(format!("http://{proxy}/elog/v2/entries"))
+            .post(format!("http://{proxy}/elog/v1/apps/trace/attachments"))
             .header(
                 "content-type",
                 format!("multipart/form-data; boundary={boundary}"),
@@ -787,9 +859,10 @@ mod e2e {
                 }
             }
         };
-        let elog = spawn_upstream(Router::new().route("/v2/entries", post(handler))).await;
-        let canopy = spawn_upstream(echo_router("x-api-key")).await;
-        let proxy = spawn_proxy(config(canopy, Some(elog)), no_dist()).await;
+        let canopy =
+            spawn_upstream(Router::new().route("/elog/v1/apps/trace/attachments", post(handler)))
+                .await;
+        let proxy = spawn_proxy(config(canopy), no_dist()).await;
 
         let chunks = futures_util::stream::once(async { Ok::<_, std::io::Error>("first,") }).chain(
             futures_util::stream::once(async move {
@@ -798,7 +871,7 @@ mod e2e {
             }),
         );
         let send = reqwest::Client::new()
-            .post(format!("http://{proxy}/elog/v2/entries"))
+            .post(format!("http://{proxy}/elog/v1/apps/trace/attachments"))
             .body(reqwest::Body::wrap_stream(chunks))
             .send();
         let res = tokio::time::timeout(Duration::from_secs(10), send)
@@ -827,7 +900,7 @@ mod e2e {
             )
         };
         let canopy = spawn_upstream(Router::new().fallback(any(handler))).await;
-        let proxy = spawn_proxy(config(canopy, None), no_dist()).await;
+        let proxy = spawn_proxy(config(canopy), no_dist()).await;
         let client = reqwest::Client::new();
         let url = format!("http://{proxy}/mole/v1/data");
         let send = |req: reqwest::RequestBuilder| async move {
@@ -852,15 +925,86 @@ mod e2e {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn elog_unconfigured_is_502() {
-        let canopy = spawn_upstream(echo_router("x-api-key")).await;
-        let proxy = spawn_proxy(config(canopy, None), no_dist()).await;
+    async fn elog_paths_outside_trace_app_are_not_forwarded() {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let canopy = spawn_upstream(counting_router(hits.clone())).await;
+        let proxy = spawn_proxy(config(canopy), no_dist()).await;
+        let status = |target: &'static str| async move {
+            tokio::task::spawn_blocking(move || raw_get_status(proxy, target))
+                .await
+                .unwrap()
+        };
 
-        let res = reqwest::get(format!("http://{proxy}/elog/v1/logbooks"))
-            .await
-            .unwrap();
-        // Must be non-2xx so useElogConfig hides the feature; 502 = "no upstream".
-        assert_eq!(res.status().as_u16(), 502);
+        // Control: Trace's app path, sent the same way, is forwarded.
+        assert_eq!(status("/elog/v1/apps/trace/config").await, 200);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        for target in [
+            "/elog/v1/apps/trace/../other/entries",
+            "/elog/v1/apps/trace/%2e%2e/other/entries",
+            "/elog/v1/apps/trace/.%2E/other/entries",
+            "/elog/v1/apps/trace2/entries",
+            "/elog/v1/logbooks",
+            "/elog/../mole/v1/data",
+        ] {
+            assert_eq!(status(target).await, 404, "{target}");
+        }
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            1,
+            "only the control was forwarded"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn canopy_paths_resolving_outside_the_modules_are_not_forwarded() {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let canopy = spawn_upstream(counting_router(hits.clone())).await;
+        let proxy = spawn_proxy(config(canopy), no_dist()).await;
+        let status = |target: &'static str| async move {
+            tokio::task::spawn_blocking(move || raw_get_status(proxy, target))
+                .await
+                .unwrap()
+        };
+
+        // Controls: a module path, and one whose `..` stays inside the module.
+        assert_eq!(status("/mole/v1/data").await, 200);
+        assert_eq!(status("/mole/v1/x/../data").await, 200);
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        // Resolved, these leave the Canopy modules: another app's e-log path
+        // (with the Canopy key), Trace's own (with the wrong key), the root.
+        for target in [
+            "/mole/../elog/v1/apps/other/entries",
+            "/hare/%2e%2e/elog/v1/apps/trace/entries",
+            "/vole/../",
+        ] {
+            assert_eq!(status(target).await, 404, "{target}");
+        }
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            2,
+            "only the controls were forwarded"
+        );
+    }
+
+    /// `GET target` sent byte for byte, so `..` and `%2e` reach the proxy
+    /// unresolved (an HTTP client would resolve them first). Returns the status.
+    fn raw_get_status(proxy: SocketAddr, target: &str) -> u16 {
+        use std::io::{Read, Write};
+        let mut stream = std::net::TcpStream::connect(proxy).unwrap();
+        write!(
+            stream,
+            "GET {target} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
+            proxy.port()
+        )
+        .unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).unwrap();
+        let response = String::from_utf8_lossy(&response);
+        response
+            .split(' ')
+            .nth(1)
+            .and_then(|code| code.parse().ok())
+            .unwrap_or_else(|| panic!("no status line in {response:?}"))
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -870,7 +1014,7 @@ mod e2e {
         std::fs::create_dir_all(&dist).unwrap();
         std::fs::write(dist.join("index.html"), "<html>trace-spa</html>").unwrap();
         let canopy = spawn_upstream(echo_router("x-api-key")).await;
-        let proxy = spawn_proxy(config(canopy, None), dist).await;
+        let proxy = spawn_proxy(config(canopy), dist).await;
 
         let root = reqwest::get(format!("http://{proxy}/")).await.unwrap();
         assert_eq!(root.status().as_u16(), 200);
@@ -882,6 +1026,46 @@ mod e2e {
         assert!(deep.text().await.unwrap().contains("trace-spa"));
     }
 
+    /// The static path keeps the request's headers: ServeDir answers a
+    /// conditional reload with 304 and a Range request with 206.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn static_assets_honour_conditional_and_range_requests() {
+        let dist =
+            std::env::temp_dir().join(format!("trace-proxy-test-cond-{}", std::process::id()));
+        std::fs::create_dir_all(dist.join("assets")).unwrap();
+        std::fs::write(dist.join("index.html"), "<html>trace-spa</html>").unwrap();
+        std::fs::write(dist.join("assets/app.js"), "0123456789").unwrap();
+        let canopy = spawn_upstream(echo_router("x-api-key")).await;
+        let proxy = spawn_proxy(config(canopy), dist).await;
+        let url = format!("http://{proxy}/assets/app.js");
+        let client = reqwest::Client::new();
+
+        let first = client.get(&url).send().await.unwrap();
+        assert_eq!(first.status().as_u16(), 200);
+        let last_modified = first
+            .headers()
+            .get(http::header::LAST_MODIFIED)
+            .expect("Last-Modified on a static asset")
+            .clone();
+
+        let reload = client
+            .get(&url)
+            .header(http::header::IF_MODIFIED_SINCE, last_modified)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(reload.status().as_u16(), 304);
+
+        let range = client
+            .get(&url)
+            .header(http::header::RANGE, "bytes=2-5")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(range.status().as_u16(), 206);
+        assert_eq!(range.text().await.unwrap(), "2345");
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn every_response_carries_the_csp() {
         let dist =
@@ -891,7 +1075,7 @@ mod e2e {
         // An upstream policy is replaced, not merged.
         let upstream_csp = || async { ([("content-security-policy", "upstream")], "data") };
         let canopy = spawn_upstream(Router::new().fallback(any(upstream_csp))).await;
-        let proxy = spawn_proxy(config(canopy, None), dist).await;
+        let proxy = spawn_proxy(config(canopy), dist).await;
         let port = proxy.port();
         let client = reqwest::Client::new();
 
@@ -903,7 +1087,7 @@ mod e2e {
             ),
             ("Canopy", client.get(format!("http://{proxy}/mole/v1/data"))),
             (
-                "e-log 502",
+                "e-log 404",
                 client.get(format!("http://{proxy}/elog/v1/logbooks")),
             ),
             (
@@ -970,7 +1154,7 @@ mod e2e {
             })
         };
         let canopy = spawn_upstream(Router::new().route("/hare/v1/ws/pvs", get(ws_handler))).await;
-        let proxy = spawn_proxy(config(canopy, None), no_dist()).await;
+        let proxy = spawn_proxy(config(canopy), no_dist()).await;
 
         let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{proxy}/hare/v1/ws/pvs"))
             .await
@@ -1030,7 +1214,7 @@ mod e2e {
             move || async move { (StatusCode::FOUND, [(http::header::LOCATION, to)]) }
         };
         let canopy = spawn_upstream(Router::new().route("/mole/v1/go", get(redirect))).await;
-        let proxy = spawn_proxy(config(canopy, None), no_dist()).await;
+        let proxy = spawn_proxy(config(canopy), no_dist()).await;
 
         // The proxy hands the 302 back untouched instead of following it.
         let res = no_follow()
@@ -1073,7 +1257,7 @@ mod e2e {
         };
         let canopy =
             spawn_upstream(echo_router("x-api-key").route("/mole/v1/old", get(redirect))).await;
-        let proxy = spawn_proxy(config(canopy, None), no_dist()).await;
+        let proxy = spawn_proxy(config(canopy), no_dist()).await;
 
         let res = no_follow()
             .get(format!("http://{proxy}/mole/v1/old"))
@@ -1094,27 +1278,31 @@ mod e2e {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn elog_relative_redirect_gets_prefix_back() {
-        let redirect = || async { (StatusCode::FOUND, [(http::header::LOCATION, "/v1/new")]) };
-        let elog =
-            spawn_upstream(echo_router("x-vouch-idp-accesstoken").route("/v1/old", get(redirect)))
-                .await;
-        let canopy = spawn_upstream(echo_router("x-api-key")).await;
-        let proxy = spawn_proxy(config(canopy, Some(elog)), no_dist()).await;
+    async fn elog_redirect_comes_back_through_the_proxy() {
+        let redirect = || async { (StatusCode::FOUND, [(http::header::LOCATION, "new")]) };
+        let canopy = spawn_upstream(
+            echo_router("x-api-key").route("/elog/v1/apps/trace/old", get(redirect)),
+        )
+        .await;
+        let proxy = spawn_proxy(config(canopy), no_dist()).await;
 
         let res = no_follow()
-            .get(format!("http://{proxy}/elog/v1/old"))
+            .get(format!("http://{proxy}/elog/v1/apps/trace/old"))
             .send()
             .await
             .unwrap();
-        assert_eq!(res.headers()[http::header::LOCATION], "/elog/v1/new");
-        let body = reqwest::get(format!("http://{proxy}/elog/v1/old"))
+        assert_eq!(
+            res.headers()[http::header::LOCATION],
+            "/elog/v1/apps/trace/new"
+        );
+        // Followed, the second hop gets the e-log key again.
+        let body = reqwest::get(format!("http://{proxy}/elog/v1/apps/trace/old"))
             .await
             .unwrap()
             .text()
             .await
             .unwrap();
-        assert_eq!(body, "elogtoken|GET|/v1/new");
+        assert_eq!(body, "elogkey|GET|/elog/v1/apps/trace/new");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1133,7 +1321,7 @@ mod e2e {
             }
         };
         let canopy = spawn_upstream(Router::new().route("/hare/v1/ws/pvs", get(ws_handler))).await;
-        let proxy = spawn_proxy(config(canopy, None), no_dist()).await;
+        let proxy = spawn_proxy(config(canopy), no_dist()).await;
         let request = |origin: &str| {
             let mut req = format!("ws://{proxy}/hare/v1/ws/pvs")
                 .into_client_request()
@@ -1167,13 +1355,12 @@ mod e2e {
     #[tokio::test(flavor = "multi_thread")]
     async fn http_from_foreign_origin_is_rejected() {
         let hits = Arc::new(AtomicUsize::new(0));
-        let elog = spawn_upstream(counting_router(hits.clone())).await;
         let canopy = spawn_upstream(counting_router(hits.clone())).await;
-        let proxy = spawn_proxy(config(canopy, Some(elog)), no_dist()).await;
+        let proxy = spawn_proxy(config(canopy), no_dist()).await;
 
-        // Cross-site form POST to the e-log (would carry the injected token).
+        // Cross-site form POST to the e-log (would carry the injected key).
         let res = reqwest::Client::new()
-            .post(format!("http://{proxy}/elog/v2/entries"))
+            .post(format!("http://{proxy}/elog/v1/apps/trace/entries"))
             .header("origin", "https://attacker.example")
             .header("content-type", "multipart/form-data; boundary=x")
             .body("--x--\r\n")
@@ -1222,7 +1409,7 @@ mod e2e {
     #[tokio::test(flavor = "multi_thread")]
     async fn dns_rebound_host_is_rejected() {
         let canopy = spawn_upstream(echo_router("x-api-key")).await;
-        let proxy = spawn_proxy(config(canopy, None), no_dist()).await;
+        let proxy = spawn_proxy(config(canopy), no_dist()).await;
         let via = |name: &'static str| {
             reqwest::Client::builder()
                 .resolve(name, proxy)
@@ -1287,7 +1474,7 @@ mod e2e {
             )
         };
         let canopy = spawn_upstream(Router::new().fallback(any(handler))).await;
-        let proxy = spawn_proxy(config(canopy, None), no_dist()).await;
+        let proxy = spawn_proxy(config(canopy), no_dist()).await;
 
         // Two Connection values, with mixed case, padding and empty tokens.
         let res = reqwest::Client::new()
@@ -1346,7 +1533,7 @@ mod e2e {
         let other_port = format!("http://localhost:{}", upstream.port().wrapping_add(1));
         let cfg = CanopyConfig {
             canopy_url: base.clone(),
-            ..config(upstream, None)
+            ..config(upstream)
         };
         let proxy = spawn_proxy(cfg, no_dist()).await;
         let path = "/mole/v1/data/?n=1";
@@ -1377,21 +1564,23 @@ mod e2e {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn elog_redirect_locations_under_base_path_get_prefix_back() {
-        let elog = spawn_upstream(redirect_router()).await;
-        let canopy = spawn_upstream(echo_router("x-api-key")).await;
-        // An e-log base with a path: only locations under it map back.
+    async fn redirect_locations_under_a_base_path_map_back() {
+        let upstream = spawn_upstream(redirect_router()).await;
+        // A Canopy base with a path: only locations under it map back.
         let cfg = CanopyConfig {
-            elog_url: Some(format!("http://{elog}/api")),
-            ..config(canopy, None)
+            canopy_url: format!("http://{upstream}/api"),
+            ..config(upstream)
         };
         let proxy = spawn_proxy(cfg, no_dist()).await;
-        let path = "/elog/v1/entries";
+        let path = "/elog/v1/apps/trace/entries";
 
-        let base_root = format!("http://{elog}/api");
+        let base_root = format!("http://{upstream}/api");
         for (location, expected) in [
-            ("/api/v1/entries/42", "/elog/v1/entries/42"),
-            (base_root.as_str(), "/elog"),
+            (
+                "/api/elog/v1/apps/trace/entries/42",
+                "/elog/v1/apps/trace/entries/42",
+            ),
+            (base_root.as_str(), "/"),
             // Outside the base path: passed through unchanged.
             ("/apix/v1", "/apix/v1"),
             ("/login", "/login"),

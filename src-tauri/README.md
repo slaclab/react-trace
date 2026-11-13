@@ -5,13 +5,17 @@ builds the native process runs an in-process reverse proxy on
 `127.0.0.1:5178` that:
 
 - serves the bundled frontend (`dist/`) with SPA deep-link fallback,
-- forwards `/mole`, `/hare`, `/fox`, `/magpie`, `/vole` (HTTP + WebSocket) to
+- forwards `/mole`, `/hare`, `/formula-engine`, `/magpie`, `/vole` (HTTP + WebSocket) to
   the configured Canopy backend, injecting `X-API-Key` (the same prefixes as
   the Vite dev proxy in `vite.config.ts`),
-- forwards `/elog` to the configured elog-plus backend with the `/elog` prefix
-  stripped, injecting `x-vouch-idp-accesstoken` — the same contract the web
-  deployment's reverse proxy owns (see the repo README's "E-Log posting"
+- forwards Trace's e-log app path (`/elog/v1/apps/trace/`) to the same Canopy
+  backend, injecting the e-log key as `X-API-Key`. No other `/elog` path is
+  forwarded, as in the Vite dev proxy (see the repo README's "E-Log posting"
   section).
+
+What gets forwarded is decided on the path as the backend will see it, with `..`
+and `%2e%2e` resolved: a request whose path resolves outside the Canopy modules,
+or outside Trace's e-log app path, gets a `404` and is not forwarded.
 
 The webview is created pointing at the proxy origin, so the frontend's relative
 fetches and `window.location.host`-derived WebSocket URLs work unchanged, and
@@ -38,20 +42,21 @@ because only the release proxy reads them.
 Each value resolves independently with this precedence (highest wins). Empty
 strings count as unset at every level.
 
-| Value           | CLI            | Env               | `config.json` | Default                 |
-| --------------- | -------------- | ----------------- | ------------- | ----------------------- |
-| Canopy base URL | `--canopy-url` | `CANOPY_BASE_URL` | `canopyUrl`   | `http://localhost:8000` |
-| Canopy API key  | `--api-key`    | `CANOPY_API_KEY`  | `apiKey`      | empty (header omitted)  |
-| E-log base URL  | `--elog-url`   | `ELOG_BASE_URL`   | `elogUrl`     | unset (e-log disabled)  |
-| E-log token     | `--elog-key`   | `ELOG_API_KEY`    | `elogApiKey`  | empty (header omitted)  |
+| Value           | CLI            | Env                   | `config.json` | Default                 |
+| --------------- | -------------- | --------------------- | ------------- | ----------------------- |
+| Canopy base URL | `--canopy-url` | `CANOPY_BASE_URL`     | `canopyUrl`   | `http://localhost:8000` |
+| Canopy API key  | `--api-key`    | `CANOPY_API_KEY`      | `apiKey`      | empty (header omitted)  |
+| E-log key       | `--elog-key`   | `CANOPY_ELOG_API_KEY` | `elogApiKey`  | the Canopy API key      |
 
 The env names match `.env.example`, so one `.env` serves both the web dev proxy
 and the desktop app. Operators can repoint a packaged app at any backend with
 env vars or CLI flags — no rebuild.
 
-Leaving the e-log URL unset simply hides the "Post to E-Log" toolbar button
-(the proxy answers 502 on `/elog`, which the frontend's availability probe
-treats as "unavailable") — identical to the web app without `ELOG_BASE_URL`.
+Canopy's e-log module decides whether posting is on: when its `/config` for
+Trace says no, or can't be reached, the "Post to E-Log" button stays hidden.
+
+A flag the app doesn't know, such as the removed `--elog-url`, makes it ignore
+all its command-line flags, including `--canopy-url`, and log a warning.
 
 ## Startup behavior
 
@@ -78,7 +83,7 @@ proxy only answers requests addressed to its own origin:
 - `Origin`, when the request has one, must be `http://127.0.0.1:5178` or
   `http://localhost:5178`. This blocks other sites from opening the live
   WebSocket streams (WebSockets aren't covered by CORS) and from cross-site
-  form posts to `/elog`, which would otherwise carry the injected token.
+  form posts to the e-log path, which would otherwise carry the injected key.
   `Origin: null` is rejected too.
 
 Anything else gets `403` before it reaches a backend. Requests without an
@@ -86,10 +91,10 @@ Anything else gets `403` before it reaches a backend. Requests without an
 the local-process trust model above.
 
 The proxy never follows backend redirects itself, because the HTTP client
-would keep `X-API-Key` / `x-vouch-idp-accesstoken` on a redirect to another
-host. A 3xx goes back to the webview. A `Location` on the configured backend
-is rewritten to the matching proxy path (e-log paths get `/elog` back), so the
-browser's follow-up comes through the proxy and gets the key again. A
+would keep `X-API-Key` on a redirect to another host. A 3xx goes back to the
+webview. A `Location` on the configured backend is rewritten to the matching
+proxy path, so the browser's follow-up comes through the proxy and gets the key
+again. A
 `Location` on any other host is passed through unchanged, and the browser
 follows it without the keys. Hop-by-hop headers, including any named in
 `Connection`, are dropped in both directions.
@@ -124,10 +129,11 @@ cargo test --manifest-path src-tauri/Cargo.toml
 No `config.json` or `dist/` is needed. Unit tests cover path routing and config
 precedence (against a fixed environment, so your own `CANOPY_BASE_URL` etc.
 don't affect them). In-process end-to-end tests run the real proxy against
-mock upstreams and assert header injection, `/elog` prefix stripping,
-multipart pass-through, request bodies streamed upstream with their framing
-kept, the 502-when-unconfigured contract, SPA fallback, WebSocket bridging
-including close-code passthrough, `403` for foreign and near-miss origins and
+mock upstreams and assert header injection, that paths resolving outside the
+Canopy modules or Trace's e-log app path aren't forwarded, multipart
+pass-through, request bodies streamed upstream with their framing kept, SPA
+fallback with conditional and range requests, WebSocket bridging including
+close-code passthrough, `403` for foreign and near-miss origins and
 for rebound or wrong-port host names (HTTP and WebSocket), hop-by-hop
 stripping in both directions, that redirects aren't followed and how
 `Location` is rewritten, and that every response carries the CSP. The `test`

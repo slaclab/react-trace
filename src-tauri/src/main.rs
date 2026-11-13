@@ -45,8 +45,8 @@ fn main() {
 
     tauri::Builder::default()
         .setup(|app| {
-            // CLI overrides (--canopy-url / --api-key / --elog-url / --elog-key),
-            // best-effort.
+            // CLI overrides (--canopy-url / --api-key / --elog-key), best-effort:
+            // flags that don't parse (an unknown one, say) are all ignored.
             let cli = match app.get_cli_matches() {
                 Ok(matches) => {
                     let get = |name: &str| {
@@ -58,11 +58,13 @@ fn main() {
                     CliOverrides {
                         canopy_url: get("canopy-url"),
                         api_key: get("api-key"),
-                        elog_url: get("elog-url"),
                         elog_key: get("elog-key"),
                     }
                 }
-                Err(_) => CliOverrides::default(),
+                Err(err) => {
+                    tracing::warn!(%err, "ignoring all command-line flags");
+                    CliOverrides::default()
+                }
             };
 
             // Bundled config.json resource (absent in `tauri dev`).
@@ -71,7 +73,7 @@ fn main() {
             tracing::info!(
                 canopy_url = %cfg.canopy_url,
                 has_key = !cfg.api_key.is_empty(),
-                elog_configured = cfg.elog_url.is_some(),
+                has_elog_key = !cfg.elog_key.is_empty(),
                 "resolved backend config"
             );
 

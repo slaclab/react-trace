@@ -6,10 +6,8 @@ const mockFetch = vi.fn();
 beforeEach(() => {
   mockFetch.mockReset();
   vi.stubGlobal('fetch', mockFetch);
-  mockFetch.mockResolvedValue({
-    ok: true,
-    json: () => Promise.resolve({ pv: 'TEST:PV', count: 0, samples: [] }),
-  });
+  // A real Response per call: the SDK's canopyFetch reads the body as text.
+  mockFetch.mockImplementation(async () => Response.json({ pv: 'TEST:PV', count: 0, samples: [] }));
 });
 
 afterEach(() => {
@@ -52,10 +50,7 @@ describe('fetchBackfill', () => {
 
 describe('subscribeVoleBuffer', () => {
   beforeEach(() => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ subscribed: ['PV:A', 'PV:B'] }),
-    });
+    mockFetch.mockImplementation(async () => Response.json({ subscribed: ['PV:A', 'PV:B'] }));
   });
 
   it('sends a POST to /vole/v1/pvs/subscribe with PV list in body', async () => {

@@ -7,19 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
 import { TraceApp } from './TraceApp';
+import { WithCanopy } from '../test/canopy';
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return { isDisposed: () => true };
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
 
 const EMPTY_PROPERTIES = 'Select a trace, axis, or plot to view properties.';
 
@@ -55,7 +47,7 @@ describe('Add plot', () => {
   });
 
   it("selects the new plot's settings in grid view", () => {
-    const { container } = render(<TraceApp />);
+    const { container } = render(<TraceApp />, { wrapper: WithCanopy });
     fireEvent.click(screen.getByTitle('Grid view'));
     // Select Plot 1's axis. (The initial selection is already a plot, which
     // Properties renders for whichever plot is active.)

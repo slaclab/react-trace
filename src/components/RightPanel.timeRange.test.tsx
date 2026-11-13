@@ -8,11 +8,12 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { RightPanel } from './RightPanel';
 import type { Plot } from '../types';
+import { WithCanopy } from '../test/canopy';
 
 // ArchiverPicker fetches the archiver list on mount; keep it pending so the
 // test needs no backend.
-vi.mock('../api/mole', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../api/mole')>()),
+vi.mock('@slaclab/canopy-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@slaclab/canopy-client')>()),
   listArchivers: () => new Promise(() => {}),
 }));
 
@@ -71,14 +72,16 @@ afterAll(() => vi.unstubAllGlobals());
 
 describe('Refresh interval helper text', () => {
   it('says what the interval controls when the span allows it', () => {
-    render(plotSettingsPanel(makePlot({ refreshIntervalS: 60 })));
+    render(plotSettingsPanel(makePlot({ refreshIntervalS: 60 })), { wrapper: WithCanopy });
     expect(
       screen.getByText('How often archive and formula data refresh. The axis scrolls continuously.')
     ).toBeTruthy();
   });
 
   it('gives the capped interval on a short span', () => {
-    render(plotSettingsPanel(makePlot({ xAxis: { timeRange: '-30s' }, refreshIntervalS: 60 })));
+    render(plotSettingsPanel(makePlot({ xAxis: { timeRange: '-30s' }, refreshIntervalS: 60 })), {
+      wrapper: WithCanopy,
+    });
     expect(screen.getByText(/refresh every 5 s at this span/)).toBeTruthy();
     // The field keeps the interval the user set.
     expect((screen.getByLabelText('Refresh interval (s)') as HTMLInputElement).value).toBe('60');
@@ -89,7 +92,7 @@ describe('Time Range presets', () => {
   // A typed "1m" span commits "-1m", the same value as the preset, so the
   // dropdown shows Last 1 Minute instead of a separate "Last 1m" option.
   it('selects Last 1 Minute for a -1m range, with no extra option', () => {
-    render(plotSettingsPanel(makePlot({ xAxis: { timeRange: '-1m' } })));
+    render(plotSettingsPanel(makePlot({ xAxis: { timeRange: '-1m' } })), { wrapper: WithCanopy });
     const select = screen.getByLabelText('Time Range') as HTMLSelectElement;
     expect(select.value).toBe('-1m');
     expect(select.selectedOptions[0].textContent).toBe('Last 1 Minute');

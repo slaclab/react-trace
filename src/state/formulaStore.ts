@@ -1,5 +1,10 @@
+import {
+  errorInfo as formulaErrorInfo,
+  type ErrorInfo as FormulaErrorInfo,
+} from '../api/errorInfo';
 import { nsToMs, type TimeWindowNs } from '../api/time';
-import type { FormulaResultDTO, FormulaSpecDTO } from '../api/types';
+import type { FormulaResultDTO, FormulaSpec } from '@slaclab/canopy-client';
+import { RETRY_DELAYS_MS, retryDelayMs } from './retry';
 
 // Per-trace formula evaluation state behind useFormulaSeries: one store per
 // mounted hook (TraceApp), read through useSyncExternalStore.
@@ -9,15 +14,15 @@ import type { FormulaResultDTO, FormulaSpecDTO } from '../api/types';
 // only ever shown under the spec that produced it: a new spec starts from no
 // points, and an unbound spec has no entry at all.
 //
-// Each Fox evaluation reads every raw sample in the window, so the store asks
+// Each Formula Engine evaluation reads every raw sample in the window, so the store asks
 // for one only when the window needs it, decided per trace:
 // - a window inside the range already evaluated is drawn from what's there
 //   (pan, zoom in, and a window following "now" until it drifts past
 //   NEAR_NOW_SLACK_MS or 1% of its span), except a zoom into under half of a
-//   decimated result, which needs Fox's detail for the narrower window;
+//   decimated result, which needs the Formula Engine's detail for the narrower window;
 // - an in-flight request isn't repeated, nor aborted when the window only slid
 //   forward from it (still overlapping it, or following "now") unless the
-//   evaluated range already serves the window. Aborting wouldn't save Fox any
+//   evaluated range already serves the window. Aborting wouldn't save the Formula Engine any
 //   work: it never cancels an evaluation the client has gone away from;
 // - a failure that will recur for the same input waits for a new spec or span;
 //   any other failure is retried on a backoff timer, not on every window move.
@@ -35,12 +40,11 @@ import type { FormulaResultDTO, FormulaSpecDTO } from '../api/types';
 // drift interval.
 export const NEAR_NOW_SLACK_MS = 2_000;
 
-// Retry schedule for transient failures; the last step repeats. Mirrors
-// liveStore's reconnect backoff.
-export const RETRY_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 15_000];
+// Transient failures are retried on the shared backoff schedule.
+export { RETRY_DELAYS_MS, retryDelayMs };
 
-// Client-side limit on one evaluation. One hang may be a brief Fox overload, so
-// a timeout is retried, starting at the last backoff step. But Fox keeps
+// Client-side limit on one evaluation. One hang may be a brief Formula Engine overload, so
+// a timeout is retried, starting at the last backoff step. But the Formula Engine keeps
 // evaluating after the client gives up, so each timeout leaves a full
 // evaluation running server-side. After MAX_CLIENT_TIMEOUTS at one span (at
 // most that many abandoned evaluations per spec and span, about 45 s apart) it's
@@ -49,20 +53,14 @@ export const EVAL_TIMEOUT_MS = 30_000;
 export const CLIENT_TIMEOUT_CODE = 'client_timeout';
 export const MAX_CLIENT_TIMEOUTS = 3;
 
-export function retryDelayMs(attempts: number): number {
-  return RETRY_DELAYS_MS[Math.min(Math.max(attempts, 1), RETRY_DELAYS_MS.length) - 1];
-}
+// Failures are read with the shared errorInfo(), which keeps the HTTP status
+// isTerminalError() needs.
+export { formulaErrorInfo, type FormulaErrorInfo };
 
-export interface FormulaErrorInfo {
-  code: string;
-  detail: string;
-  status?: number;
-}
-
-// Failures the same spec over the same span would hit again: Fox's 400s
+// Failures the same spec over the same span would hit again: the Formula Engine's 400s
 // (parse, unsafe, circular reference) and its 422s (type, dimension mismatch,
 // window too large, request validation). 422 formula_input_missing is the
-// exception, as in Fox's own live loop. On this REST path it only comes from
+// exception, as in the Formula Engine's own live loop. On this REST path it only comes from
 // binned mode, which the client never requests; the transient error an
 // unbuffered PV actually produces is 404 pv_not_buffered. Everything else (5xx,
 // 404, network, a client timeout) is transient; see MAX_CLIENT_TIMEOUTS for
@@ -86,12 +84,12 @@ export interface FormulaEntry {
 
 export interface FormulaRequest {
   // Null when the formula isn't evaluable (empty or unbound) or has no window.
-  spec: FormulaSpecDTO | null;
+  spec: FormulaSpec | null;
   window: TimeWindowNs | null;
 }
 
 export type EvaluateFn = (
-  spec: FormulaSpecDTO,
+  spec: FormulaSpec,
   t0Ns: number,
   t1Ns: number,
   signal: AbortSignal
@@ -103,21 +101,8 @@ export interface FormulaStoreDeps {
   now?: () => number;
 }
 
-export function specKey(spec: FormulaSpecDTO): string {
+export function specKey(spec: FormulaSpec): string {
   return JSON.stringify(spec);
-}
-
-export function formulaErrorInfo(err: unknown): FormulaErrorInfo {
-  const e = err as { code?: unknown; detail?: unknown; status?: unknown; message?: unknown } | null;
-  const message = typeof e?.message === 'string' ? e.message : String(err);
-  if (typeof e?.code === 'string') {
-    return {
-      code: e.code,
-      detail: typeof e.detail === 'string' ? e.detail : message,
-      status: typeof e.status === 'number' ? e.status : undefined,
-    };
-  }
-  return { code: 'unknown_error', detail: message };
 }
 
 function isAbort(err: unknown): boolean {
@@ -168,7 +153,7 @@ function followsNow(win: TimeWindowNs, askedAtNs: number): boolean {
 }
 
 // The evaluated range `cover` already holds what `win` needs. `decimated` is
-// whether Fox thinned that result to its output cap.
+// whether the Formula Engine thinned that result to its output cap.
 function covers(
   cover: TimeWindowNs,
   decimated: boolean,
@@ -178,7 +163,7 @@ function covers(
   const tol = tolerance(win);
   if (cover.fromNs > win.fromNs + tol) return false;
   // Zoomed into under half of a decimated result: the points on hand are too
-  // sparse for the narrower window, so ask Fox for its detail.
+  // sparse for the narrower window, so ask the Formula Engine for its detail.
   if (decimated && spanOf(win) < spanOf(cover) / 2) return false;
   if (cover.toNs >= win.toNs - tol) return true;
   // A window reaching "now" may run ahead by the slack; a historical window
@@ -192,7 +177,7 @@ function sameWindow(a: TimeWindowNs, b: TimeWindowNs): boolean {
 }
 
 // `win` is `prev` moved forward at the same span, and either still overlaps it
-// or both follow "now" (the same live window, further along because Fox is
+// or both follow "now" (the same live window, further along because the Formula Engine is
 // slower than its span). Waiting for that answer keeps one evaluation in
 // flight at a time. Any other jump forward is a new request.
 function forwardSlide(
@@ -227,7 +212,7 @@ interface Failure {
 }
 
 interface Internal {
-  spec: FormulaSpecDTO;
+  spec: FormulaSpec;
   identity: string;
   data: FormulaEntry;
   // Window `data.points` were evaluated over; null until an evaluation under
@@ -404,7 +389,7 @@ export class FormulaStore {
         entry,
         {
           code: CLIENT_TIMEOUT_CODE,
-          detail: `No answer from Fox within ${EVAL_TIMEOUT_MS / 1000} s`,
+          detail: `No answer from the Formula Engine within ${EVAL_TIMEOUT_MS / 1000} s`,
         },
         win
       );
@@ -451,7 +436,7 @@ export class FormulaStore {
     const timeouts = priorTimeouts + (timedOut ? 1 : 0);
     const terminal = isTerminalError(info) || timeouts >= MAX_CLIENT_TIMEOUTS;
     let attempts = !terminal && prev && !prev.terminal ? prev.attempts + 1 : 1;
-    // A timeout already waited EVAL_TIMEOUT_MS on an overloaded Fox: retry it,
+    // A timeout already waited EVAL_TIMEOUT_MS on an overloaded Formula Engine: retry it,
     // and anything after it until a success, at the last backoff step.
     if (timedOut) attempts = Math.max(attempts, RETRY_DELAYS_MS.length);
     entry.failure = { terminal, attempts, timeouts, spanNs: spanOf(win), info };
