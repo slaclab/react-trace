@@ -9,6 +9,7 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { TraceApp } from './TraceApp';
 import { DEFAULT_REFRESH_INTERVAL_S } from '../hooks/useAutoScrollTimers';
 import { chartStub, fireChartEvent } from '../test/chartStub';
+import { WithCanopy } from '../test/canopy';
 
 const fakeInstance = {
   isDisposed: () => false,
@@ -95,7 +96,7 @@ function expectResumedAt(atMs: number) {
 
 describe('resuming after a pan or zoom', () => {
   it('Autoscroll back on resets the zoom and follows now', () => {
-    render(<TraceApp />);
+    render(<TraceApp />, { wrapper: WithCanopy });
     expect(axisEnd()).toBe(T0);
     pan();
     advance(400); // the view window is recorded
@@ -109,7 +110,7 @@ describe('resuming after a pan or zoom', () => {
   });
 
   it('re-committing the current span resets the zoom and follows now', () => {
-    render(<TraceApp />);
+    render(<TraceApp />, { wrapper: WithCanopy });
     pan();
     advance(10_400);
     expect(autoscrollOn()).toBe(false);
@@ -123,7 +124,7 @@ describe('resuming after a pan or zoom', () => {
   });
 
   it('stays resumed when Autoscroll goes back on before the pan is recorded', () => {
-    render(<TraceApp />);
+    render(<TraceApp />, { wrapper: WithCanopy });
     pan();
     expect(autoscrollOn()).toBe(false);
     expectZoomKept();
