@@ -16,6 +16,7 @@ import {
   resetHarness,
   workspace,
 } from '../test/traceAppHarness';
+import { WithCanopy } from '../test/canopy';
 import { TraceApp } from './TraceApp';
 
 interface EngineCall {
@@ -124,7 +125,7 @@ beforeEach(async () => {
   engineCalls.length = 0;
   plotAreaLifecycle.mounts = 0;
   plotAreaLifecycle.unmounts = 0;
-  render(<TraceApp />);
+  render(<TraceApp />, { wrapper: WithCanopy });
   await loadWorkspace(legacyLike('A:PV', '{x1}*2'));
   await resolvePending('{x1}*2', 7);
   expect(formulaFrames(renders.plotArea.length - 1)[0]).toMatchObject({

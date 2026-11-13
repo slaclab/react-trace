@@ -10,43 +10,29 @@ import { SinglePlot } from './PlotArea';
 import { axisEndMs } from '../hooks/useAutoScrollTimers';
 import type { Plot } from '../types';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
+import { chartStub, fireChartEvent } from '../test/chartStub';
 
-const { captured, fakeInstance } = vi.hoisted(() => {
-  const captured: {
-    option: {
-      xAxis: { min: number; max: number };
-      series: { id: string; data: Float64Array }[];
-    } | null;
-    onEvents: Record<string, () => void>;
-  } = { option: null, onEvents: {} };
-  const fakeInstance = {
-    getDom: () => ({}),
-    isDisposed: () => false,
-    dispatchAction: vi.fn(),
-    getModel: () => ({
-      getComponent: () => ({ axis: { scale: { getExtent: (): [number, number] => [0, 1] } } }),
-    }),
-  };
-  return { captured, fakeInstance };
-});
+const captured: {
+  option: {
+    xAxis: { min: number; max: number };
+    series: { id: string; data: Float64Array }[];
+  } | null;
+} = { option: null };
+const fakeInstance = {
+  isDisposed: () => false,
+  dispatchAction: vi.fn(),
+  getModel: () => ({
+    getComponent: () => ({ axis: { scale: { getExtent: (): [number, number] => [0, 1] } } }),
+  }),
+};
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component<{
-    option: unknown;
-    onEvents: Record<string, () => void>;
-  }> {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      captured.option = this.props.option as typeof captured.option;
-      captured.onEvents = this.props.onEvents;
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
+chartStub.onRender = (props) => {
+  captured.option = props.option as typeof captured.option;
+};
 
 const T0 = new Date('2026-10-15T12:00:00Z').getTime();
 const HOUR = 60 * 60 * 1000;
@@ -270,7 +256,7 @@ describe('SinglePlot pan while following', () => {
     const onFollowStop = vi.fn();
     const plot = makePlot({ refreshIntervalS: 5 });
     const { unmount } = render(plotEl(plot, T0, liveBatch(T0 + 2000), true, onFollowStop));
-    captured.onEvents.datazoom();
+    fireChartEvent('datazoom');
     // The app freezes the plot at the end it passed in.
     expect(onFollowStop).toHaveBeenCalledTimes(1);
     unmount();
@@ -284,7 +270,7 @@ describe('SinglePlot pan while following', () => {
     // not count as a user pan.
     rerender(plotEl({ ...plot, autoScroll: true }, T0, new Map(), true, onFollowStop));
     expect(fakeInstance.dispatchAction).toHaveBeenCalledTimes(1);
-    captured.onEvents.datazoom();
+    fireChartEvent('datazoom');
     expect(onFollowStop).not.toHaveBeenCalled();
     unmount();
   });
@@ -293,7 +279,7 @@ describe('SinglePlot pan while following', () => {
     const onFollowStop = vi.fn();
     const plot = makePlot({ autoScroll: false });
     const { unmount } = render(plotEl(plot, T0, new Map(), false, onFollowStop));
-    captured.onEvents.datazoom();
+    fireChartEvent('datazoom');
     expect(onFollowStop).not.toHaveBeenCalled();
     unmount();
   });
@@ -412,7 +398,7 @@ describe('SinglePlot smooth scrolling', () => {
     expect(xAxis().max).toBe(T0 + 1200);
     // TraceApp freezes the plot at the current time or later (see
     // freezeAtDisplayedEnd), so the axis doesn't jump back to the tick.
-    captured.onEvents.datazoom();
+    fireChartEvent('datazoom');
     expect(onFollowStop).toHaveBeenCalledTimes(1);
     unmount();
   });
