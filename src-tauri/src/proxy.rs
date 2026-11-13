@@ -42,15 +42,16 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use crate::config::CanopyConfig;
 
 /// Path prefixes that get forwarded to Canopy (everything else is static SPA).
-/// Keep in sync with the Canopy entries in vite.config.ts `server.proxy`: a
-/// prefix missing here falls through to the SPA and gets index.html back.
+/// Keep in sync with `CANOPY_MODULES` in vite.config.ts: a prefix missing here
+/// falls through to the SPA and gets index.html back.
 const API_PREFIXES: [&str; 5] = ["/mole", "/hare", "/formula-engine", "/magpie", "/vole"];
 
 /// E-log requests. Only those under [`ELOG_APP_PREFIX`] are forwarded.
 const ELOG_PREFIX: &str = "/elog";
 
 /// Trace's app in Canopy's e-log module, the only e-log path forwarded (see
-/// [`route`]). Keep in sync with `elogAppPath` in vite.config.ts.
+/// [`route`]). Keep in sync with `ELOG_APP_PATH` in vite.config.ts, which has
+/// no trailing slash.
 const ELOG_APP_PREFIX: &str = "/elog/v1/apps/trace/";
 
 fn has_prefix(path: &str, prefix: &str) -> bool {
@@ -590,29 +591,38 @@ mod tests {
         assert!(is_api_path("/mole"));
     }
 
-    /// The desktop proxy must forward the same Canopy prefixes as the Vite dev
-    /// proxy; a prefix missing here would get the SPA's index.html instead.
+    /// The desktop proxy must forward what the Vite dev proxy forwards: the
+    /// modules in `CANOPY_MODULES` (a prefix missing here would get the SPA's
+    /// index.html instead) and Trace's e-log app path, `ELOG_APP_PATH`.
     #[test]
     fn api_prefixes_match_vite_dev_proxy() {
         let vite = include_str!("../../vite.config.ts");
-        let mut vite_prefixes: Vec<&str> = vite
-            .lines()
-            .filter_map(|line| line.trim().strip_prefix('\''))
-            .filter_map(|rest| rest.split_once("': {").map(|(key, _)| key))
-            .filter(|key| key.starts_with('/'))
+        // vite.config.ts writes each as `export const NAME = <value>;` on one line.
+        let constant = |name: &str| {
+            let start = format!("export const {name} = ");
+            vite.lines()
+                .find_map(|line| line.strip_prefix(start.as_str()))
+                .and_then(|rest| rest.strip_suffix(';'))
+                .unwrap_or_else(|| panic!("no one-line `{start}...;` in vite.config.ts"))
+        };
+        let unquote = |s: &str| s.trim().trim_matches('\'').to_string();
+
+        let mut modules: Vec<String> = constant("CANOPY_MODULES")
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .split(',')
+            .map(unquote)
             .collect();
-        vite_prefixes.sort_unstable();
-        let mut ours = API_PREFIXES.to_vec();
+        modules.sort_unstable();
+        let mut ours: Vec<String> = API_PREFIXES.iter().map(|p| p.to_string()).collect();
         ours.sort_unstable();
-        assert!(
-            !vite_prefixes.is_empty(),
-            "no proxy keys found in vite.config.ts"
-        );
-        assert_eq!(ours, vite_prefixes);
-        // The e-log entry is keyed by this constant rather than a literal.
-        assert!(
-            vite.contains(&format!("const elogAppPath = '{ELOG_APP_PREFIX}';")),
-            "elogAppPath in vite.config.ts differs from ELOG_APP_PREFIX"
+        assert_eq!(ours, modules, "API_PREFIXES differs from CANOPY_MODULES");
+
+        let elog_app_path = unquote(constant("ELOG_APP_PATH"));
+        assert_eq!(
+            ELOG_APP_PREFIX,
+            format!("{elog_app_path}/"),
+            "ELOG_APP_PREFIX differs from ELOG_APP_PATH"
         );
     }
 
