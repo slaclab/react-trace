@@ -43,6 +43,8 @@ import {
   deserializeConfigData,
   type DeserializeResult,
 } from '../io/serialize';
+import { convertStripTool } from '../io/striptool';
+import { convertArchiveViewer, decodeArchiveViewerXml } from '../io/archiveviewer';
 import { buildCsvFiles } from '../io/exportCsv';
 import { safeFilename, timestamp } from '../io/filename';
 import { makeId } from '../id';
@@ -866,14 +868,15 @@ export function TraceApp() {
     const file = await pickFile('.trc,.trc.json,.json,.xml,.stp');
     if (!file) return;
     const lower = file.name.toLowerCase();
-    if (lower.endsWith('.xml') || lower.endsWith('.stp')) {
-      alert(`Import: ${lower.split('.').pop()?.toUpperCase()} files are not supported yet.`);
-      return;
-    }
-    const text = await file.text();
-    let result;
+    let result: DeserializeResult;
     try {
-      result = deserializeWorkspace(text);
+      if (lower.endsWith('.stp')) {
+        result = convertStripTool(await file.text());
+      } else if (lower.endsWith('.xml')) {
+        result = convertArchiveViewer(decodeArchiveViewerXml(await file.arrayBuffer()));
+      } else {
+        result = deserializeWorkspace(await file.text());
+      }
       applyWorkspace(result);
     } catch (err) {
       alert(`Failed to import: ${(err as Error).message}`);

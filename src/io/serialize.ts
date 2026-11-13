@@ -41,7 +41,7 @@ function stripTraceData(plot: Plot): Plot {
 }
 
 export interface DeserializeResult {
-  source: 'native' | 'legacy-trc';
+  source: 'native' | 'legacy-trc' | 'striptool' | 'archiveviewer';
   theme?: ColorMode;
   plots: Plot[];
   warnings: string[];
@@ -241,7 +241,7 @@ type LegacyTime = { start?: string; end?: string };
 // Map a legacy `time_axis` to our xAxis. A relative `start` ("-1d") with an
 // open end becomes a relative range; absolute bounds become a custom From/To
 // range (open end resolves to "now" at fetch time). Otherwise fall back to -1h.
-function mapLegacyTimeRange(time: LegacyTime, warnings: string[]): Plot['xAxis'] {
+export function mapLegacyTimeRange(time: LegacyTime, warnings: string[]): Plot['xAxis'] {
   const { start, end } = time;
   const endIsNow = !end || end === 'now';
 

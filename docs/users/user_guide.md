@@ -288,7 +288,7 @@ A workspace stores your plots, axes, traces, styles, time ranges, and theme. It 
 - **Save** (++cmd+s++ / ++ctrl+s++) — click the save icon in the header to download the workspace as a `.trc.json` file.
 - **Import** (++cmd+o++ / ++ctrl+o++) — click the import icon and choose a workspace file. It replaces whatever is open.
 
-Trace can also open `.trc` files from the older PyDM-based Trace. Settings that have no equivalent are skipped, and Trace lists them in a message after importing.
+Trace can also open `.trc` files from the older PyDM-based Trace, `.stp` files from StripTool, and `.xml` files from Java Archive Viewer. Settings that have no equivalent are skipped, and Trace lists them in a message after importing.
 
 _Note: Importing replaces the current workspace without asking. Save first if you want to keep it._
 
