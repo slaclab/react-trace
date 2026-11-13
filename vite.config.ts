@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 import { loadEnv, type ProxyOptions } from 'vite';
 import react from '@vitejs/plugin-react';
 import { canopyDevProxy, type CanopyDevProxyOptions } from '@slaclab/canopy-vite';
+import { normalizeBasePath } from './src/api/basePath';
 
 // The Canopy modules Trace calls, as same-origin per-module paths.
 export const CANOPY_MODULES = ['/mole', '/hare', '/formula-engine', '/magpie', '/vole'];
@@ -11,14 +12,6 @@ export const CANOPY_MODULES = ['/mole', '/hare', '/formula-engine', '/magpie', '
 // elog-plus token), so a key with e-log write sent on a wider prefix could post
 // as any app configured in Canopy.
 export const ELOG_APP_PATH = '/elog/v1/apps/trace';
-
-// VITE_CANOPY_BASE_PATH as the bundle reads it (src/api/connection.ts): trimmed,
-// without trailing slashes. '' (unset, empty or '/') means the per-module paths.
-// Kept here rather than imported: connection.ts reads import.meta.env, which
-// vite.config.ts can't.
-export function normalizeBasePath(raw: string | undefined): string {
-  return (raw ?? '').trim().replace(/\/+$/, '');
-}
 
 // Dev-server proxy options for the Canopy modules. The key stays server-side
 // (no VITE_ prefix): the proxy injects X-API-Key on requests and WebSocket
