@@ -1,7 +1,7 @@
 //! In-process reverse proxy for the desktop app.
 //!
 //! Serves the bundled SPA (`dist/`) at `/` and forwards the Canopy path
-//! prefixes the frontend uses (`/mole`, `/hare`, `/fox`, `/magpie`, `/vole`)
+//! prefixes the frontend uses (`/mole`, `/hare`, `/formula-engine`, `/magpie`, `/vole`)
 //! to the configured backend, injecting the `X-API-Key` header. Because the webview is pointed at this proxy's localhost
 //! origin (see `main.rs`), the frontend's relative fetches and
 //! `window.location.host`-derived WebSocket URLs resolve here unchanged, so no
@@ -44,7 +44,7 @@ use crate::config::CanopyConfig;
 /// Path prefixes that get forwarded to Canopy (everything else is static SPA).
 /// Keep in sync with the Canopy entries in vite.config.ts `server.proxy`: a
 /// prefix missing here falls through to the SPA and gets index.html back.
-const API_PREFIXES: [&str; 5] = ["/mole", "/hare", "/fox", "/magpie", "/vole"];
+const API_PREFIXES: [&str; 5] = ["/mole", "/hare", "/formula-engine", "/magpie", "/vole"];
 
 /// Prefix forwarded to elog-plus. Unlike the Canopy prefixes the `/elog` prefix
 /// is STRIPPED before forwarding and a different auth header is injected,
@@ -560,7 +560,7 @@ mod tests {
     fn api_paths_matched() {
         assert!(is_api_path("/mole/v1/data"));
         assert!(is_api_path("/hare/v1/ws/pvs"));
-        assert!(is_api_path("/fox/v1/validate"));
+        assert!(is_api_path("/formula-engine/v1/validate"));
         assert!(is_api_path("/magpie/v1/configs"));
         assert!(is_api_path("/vole/v1/health"));
         assert!(is_api_path("/mole"));
