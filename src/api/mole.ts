@@ -1,61 +1,42 @@
-import { canopyFetch } from './client';
+// Transitional shim over @slaclab/canopy-client's Mole client, bound to the
+// shared connection so trace's original signatures keep working while call
+// sites move to the SDK. Removed once nothing imports it.
+import * as sdk from '@slaclab/canopy-client';
 import type {
   ArchiverDataDTO,
   ArchiverListDTO,
-  BinningMode,
+  FetchDataParams,
   PVMetadataDTO,
   SearchResultsDTO,
-} from './types';
+} from '@slaclab/canopy-client';
+import { canopyConnection } from './connection';
 
-export interface FetchDataParams {
-  fromNs: number;
-  toNs?: number;
-  archiver?: string;
-  binning?: BinningMode;
-  maxPoints?: number;
-  binSizeNs?: number;
-}
+export type { FetchDataParams } from '@slaclab/canopy-client';
 
-export async function fetchData(
+export function fetchData(
   pv: string,
   params: FetchDataParams,
   signal?: AbortSignal
 ): Promise<ArchiverDataDTO> {
-  return canopyFetch<ArchiverDataDTO>(`/mole/v1/data/${encodeURIComponent(pv)}`, {
-    query: {
-      from: params.fromNs,
-      to: params.toNs,
-      archiver: params.archiver,
-      binning: params.binning,
-      maxPoints: params.maxPoints,
-      binSize: params.binSizeNs,
-    },
-    signal,
-  });
+  return sdk.fetchData(canopyConnection, pv, params, signal);
 }
 
-export async function fetchMetadata(
+export function fetchMetadata(
   pv: string,
   archiver?: string,
   signal?: AbortSignal
 ): Promise<PVMetadataDTO> {
-  return canopyFetch<PVMetadataDTO>(`/mole/v1/metadata/${encodeURIComponent(pv)}`, {
-    query: { archiver },
-    signal,
-  });
+  return sdk.fetchMetadata(canopyConnection, pv, archiver, signal);
 }
 
-export async function searchPVs(
+export function searchPVs(
   pattern: string,
   options: { archiver?: string; limit?: number } = {},
   signal?: AbortSignal
 ): Promise<SearchResultsDTO> {
-  return canopyFetch<SearchResultsDTO>('/mole/v1/search', {
-    query: { pattern, archiver: options.archiver, limit: options.limit },
-    signal,
-  });
+  return sdk.searchPVs(canopyConnection, pattern, options, signal);
 }
 
-export async function listArchivers(signal?: AbortSignal): Promise<ArchiverListDTO> {
-  return canopyFetch<ArchiverListDTO>('/mole/v1/archivers', { signal });
+export function listArchivers(signal?: AbortSignal): Promise<ArchiverListDTO> {
+  return sdk.listArchivers(canopyConnection, signal);
 }

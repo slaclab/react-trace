@@ -16,6 +16,7 @@ import {
   workspace,
 } from '../test/traceAppHarness';
 import { TraceApp } from './TraceApp';
+import { WithCanopy } from '../test/canopy';
 
 const boom = vi.hoisted(() => ({ left: false, insight: false, chart: false }));
 const insightProps = vi.hoisted(() => ({ current: null as null | { onDetach: () => void } }));
@@ -81,7 +82,7 @@ afterEach(() => {
 describe('panel error boundaries', () => {
   it('shows the fallback in the crashed panel and keeps the rest of the app', () => {
     boom.left = true;
-    render(<TraceApp />);
+    render(<TraceApp />, { wrapper: WithCanopy });
 
     expect(screen.getByText('Something went wrong')).toBeTruthy();
     expect(screen.getByText('layers panel exploded')).toBeTruthy();
@@ -95,7 +96,7 @@ describe('panel error boundaries', () => {
 
   it('renders the panel again on "Try again" once the cause is gone', () => {
     boom.left = true;
-    render(<TraceApp />);
+    render(<TraceApp />, { wrapper: WithCanopy });
 
     boom.left = false;
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
@@ -106,7 +107,7 @@ describe('panel error boundaries', () => {
 
   it('recovers by itself when a workspace is loaded', async () => {
     boom.left = true;
-    render(<TraceApp />);
+    render(<TraceApp />, { wrapper: WithCanopy });
     expect(screen.getByText('Something went wrong')).toBeTruthy();
 
     boom.left = false;
@@ -119,7 +120,7 @@ describe('panel error boundaries', () => {
 
   it('recovers the layers panel when the view mode changes', async () => {
     boom.left = true;
-    render(<TraceApp />);
+    render(<TraceApp />, { wrapper: WithCanopy });
     expect(screen.getByText('Something went wrong')).toBeTruthy();
 
     boom.left = false;
@@ -136,7 +137,7 @@ describe('panel error boundaries', () => {
 
     it('can be closed from its fallback', () => {
       boom.insight = true;
-      render(<TraceApp />);
+      render(<TraceApp />, { wrapper: WithCanopy });
       openInsight();
       expect(screen.getByText('data insight exploded')).toBeTruthy();
 
@@ -148,7 +149,7 @@ describe('panel error boundaries', () => {
 
     it('recovers by itself when a workspace reusing the inspected trace id is loaded', async () => {
       boom.insight = true;
-      render(<TraceApp />);
+      render(<TraceApp />, { wrapper: WithCanopy });
       openInsight();
       // Workspace A: Data Insight inspects trace t1 and keeps failing.
       await loadWorkspace(workspace([plot('plot-1', [axis('axis-1')], [pvTrace('t1', 'TEST:A')])]));
@@ -169,7 +170,7 @@ describe('panel error boundaries', () => {
   describe('charts outside the plot area', () => {
     it('contains a chart error in the fullscreen view', () => {
       boom.chart = true;
-      const { container } = render(<TraceApp />);
+      const { container } = render(<TraceApp />, { wrapper: WithCanopy });
       act(() => captured.plotArea!.onPopOutPlot('plot-1'));
 
       expect(screen.getByText('chart exploded')).toBeTruthy();
@@ -182,7 +183,7 @@ describe('panel error boundaries', () => {
       const popup = fakePopup();
       vi.spyOn(window, 'open').mockReturnValue(popup);
       boom.chart = true;
-      const { container } = render(<TraceApp />);
+      const { container } = render(<TraceApp />, { wrapper: WithCanopy });
       act(() => captured.plotArea!.onDetachPlot('plot-1'));
 
       await waitFor(() => expect(popup.document.body.textContent).toContain('chart exploded'));
@@ -193,7 +194,7 @@ describe('panel error boundaries', () => {
     it('contains a detached Data Insight error and can close it', async () => {
       const popup = fakePopup();
       vi.spyOn(window, 'open').mockReturnValue(popup);
-      render(<TraceApp />);
+      render(<TraceApp />, { wrapper: WithCanopy });
       act(() => captured.toolbar!.onOpenDataInsight());
       boom.insight = true;
       act(() => insightProps.current!.onDetach());

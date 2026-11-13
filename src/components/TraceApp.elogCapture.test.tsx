@@ -10,6 +10,7 @@ import { fireEvent } from '@testing-library/dom';
 import type { ComponentProps } from 'react';
 import type { CapturedPlot, PngSource } from '../io/exportPlotImage';
 import { captured, currentPlots, resetHarness } from '../test/traceAppHarness';
+import { WithCanopy } from '../test/canopy';
 import { TraceApp } from './TraceApp';
 
 const { FULLSCREEN_URL, IN_WINDOW_URL, elogModal } = vi.hoisted(() => ({
@@ -81,7 +82,7 @@ function postToElog(): string[] {
 beforeEach(() => {
   resetHarness();
   elogModal.captured = null;
-  render(<TraceApp />);
+  render(<TraceApp />, { wrapper: WithCanopy });
 });
 
 afterEach(() => cleanup());

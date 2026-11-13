@@ -217,6 +217,14 @@ const EXTENSION_ANCHORS = 2048;
 // each point through its option preprocessors. With plain [t, v] pairs that was
 // most of the cost of an update, and a following plot updates on every scroll
 // step as well as on every live batch.
+//
+// Typed data is flat, so it can't say how many values make a point: every
+// series given xyData (or other flat data) must declare XY_DIMENSIONS. Without
+// it ECharts' development build asserts ("dimensions must be given if data is
+// TypedArray."), which the production build strips. The x and y dimensions map
+// to the axes in order, time then value; [t, v] pairs read the same way.
+const XY_DIMENSIONS = ['x', 'y'];
+
 function xyData(points: readonly PlotSample[]): Float64Array {
   const out = new Float64Array(points.length * 2);
   for (let i = 0; i < points.length; i++) {
@@ -414,10 +422,12 @@ export function SinglePlot({
         type: 'line',
         yAxisIndex,
         // Typed unless it has to break at an INVALID sample: the nulls and
-        // step-line hold points need plain point data.
+        // step-line hold points need plain point data. Dimensions either way,
+        // since the series merges by id when it switches between the two.
         data: tracesWithInvalid.has(trace.id)
           ? gappedLineData(points, (p) => p.value, step)
           : xyData(points),
+        dimensions: XY_DIMENSIONS,
         step: step ? 'end' : false,
         lineStyle: {
           color: trace.color,
@@ -550,6 +560,10 @@ export function SinglePlot({
     zoomTriggerRef.current = { rangeKey, following };
     const resumed = following && !prev.following;
     if (prev.rangeKey === rangeKey && !resumed) return;
+    // The reset discards the user's pan, so drop its view window if it's still
+    // debounced. Landing after the reset, it would save the old window and
+    // switch Autoscroll back off.
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     const inst = liveChart();
     if (!inst) return;
     programmaticZoomRef.current = true;
@@ -870,6 +884,7 @@ export function SinglePlot({
         type: 'line',
         yAxisIndex,
         data,
+        dimensions: XY_DIMENSIONS,
         lineStyle: {
           color: trace.color,
           width: trace.lineWidth,

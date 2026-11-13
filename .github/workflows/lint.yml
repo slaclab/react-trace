@@ -14,4 +14,4 @@ jobs:
     uses: slaclab/swapps-ci-helpers/.github/workflows/js-check.yml@afaac9fd67e0b31c887a48c19d9a6b219ea72a8f
     with:
       node-version: "23.11.0"
-      check-command: "pnpm run lint && pnpm run format:check && pnpm exec tsc --noEmit"
+      check-command: "pnpm run lint && pnpm run format:check && pnpm run typecheck"

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
 import { TraceApp } from './TraceApp';
+import { WithCanopy } from '../test/canopy';
 
 // No chart instance: PNG capture for the E-Log dialog skips this plot.
 vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
@@ -54,7 +55,7 @@ describe('Fullscreen plot overlay', () => {
   });
 
   it('closes on Escape', () => {
-    render(<TraceApp />);
+    render(<TraceApp />, { wrapper: WithCanopy });
     fireEvent.click(screen.getByTitle('Fullscreen'));
     expect(fullscreenPlot()).not.toBeNull();
 
@@ -63,7 +64,7 @@ describe('Fullscreen plot overlay', () => {
   });
 
   it('lets a dialog opened on top take the first Escape', () => {
-    render(<TraceApp />);
+    render(<TraceApp />, { wrapper: WithCanopy });
     fireEvent.click(screen.getByTitle('Fullscreen'));
     fireEvent.click(screen.getByRole('button', { name: /Post to E-Log/ }));
     expect(visibleModal()).not.toBeNull();
