@@ -281,12 +281,14 @@ async fn route(
         return proxy_http(&state, method, uri, headers, body, forward).await;
     }
 
-    // Static SPA asset. tower-http's ServeDir wants a Request; rebuild one.
-    let req = axum::http::Request::builder()
+    // Static SPA asset. tower-http's ServeDir wants a Request; rebuild one with
+    // the original headers, so If-Modified-Since gets a 304 and Range a 206.
+    let mut req = axum::http::Request::builder()
         .method(method)
         .uri(uri)
         .body(Body::empty())
         .expect("static request");
+    *req.headers_mut() = headers;
     serve_static(static_service, req).await
 }
 
@@ -880,6 +882,46 @@ mod e2e {
             .await
             .unwrap();
         assert!(deep.text().await.unwrap().contains("trace-spa"));
+    }
+
+    /// The static path keeps the request's headers: ServeDir answers a
+    /// conditional reload with 304 and a Range request with 206.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn static_assets_honour_conditional_and_range_requests() {
+        let dist =
+            std::env::temp_dir().join(format!("trace-proxy-test-cond-{}", std::process::id()));
+        std::fs::create_dir_all(dist.join("assets")).unwrap();
+        std::fs::write(dist.join("index.html"), "<html>trace-spa</html>").unwrap();
+        std::fs::write(dist.join("assets/app.js"), "0123456789").unwrap();
+        let canopy = spawn_upstream(echo_router("x-api-key")).await;
+        let proxy = spawn_proxy(config(canopy, None), dist).await;
+        let url = format!("http://{proxy}/assets/app.js");
+        let client = reqwest::Client::new();
+
+        let first = client.get(&url).send().await.unwrap();
+        assert_eq!(first.status().as_u16(), 200);
+        let last_modified = first
+            .headers()
+            .get(http::header::LAST_MODIFIED)
+            .expect("Last-Modified on a static asset")
+            .clone();
+
+        let reload = client
+            .get(&url)
+            .header(http::header::IF_MODIFIED_SINCE, last_modified)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(reload.status().as_u16(), 304);
+
+        let range = client
+            .get(&url)
+            .header(http::header::RANGE, "bytes=2-5")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(range.status().as_u16(), 206);
+        assert_eq!(range.text().await.unwrap(), "2345");
     }
 
     #[tokio::test(flavor = "multi_thread")]
