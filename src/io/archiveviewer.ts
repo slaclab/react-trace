@@ -100,11 +100,19 @@ function resolveTimeAxis(start: string, end: string, warnings: string[]): Plot['
   if (startSpanMs !== null && !endIsNow) {
     const endMs = new Date(end).getTime();
     if (Number.isFinite(endMs)) {
-      return {
-        timeRange: 'custom',
-        timeFrom: toDatetimeLocal(Date.now() - startSpanMs),
-        timeTo: toDatetimeLocal(endMs),
-      };
+      const timeFrom = toDatetimeLocal(Date.now() - startSpanMs);
+      const timeTo = toDatetimeLocal(endMs);
+      // timeFrom is relative to *now*, not to the fixed end, so a saved end
+      // that's far enough in the past (or future) produces a reversed
+      // range — these minute-precision strings sort lexicographically the
+      // same as chronologically, so compare them directly.
+      if (timeFrom < timeTo) {
+        return { timeRange: 'custom', timeFrom, timeTo };
+      }
+      warnings.push(
+        `Time axis: relative start '${start}' (from now) is not before fixed end '${end}'; falling back to the last hour.`
+      );
+      return { timeRange: '-1h' };
     }
   }
   return mapLegacyTimeRange({ start, end }, warnings);
@@ -121,8 +129,11 @@ export function convertArchiveViewer(xmlText: string): DeserializeResult {
     throw new Error('Unrecognized .xml file: missing root <AVConfiguration> element.');
   }
 
-  // Range axes: name -> Axis, plus a synthesized "normalized" axis for traces
-  // with an empty range_axis_name.
+  // Range axes: name -> Axis, plus a synthesized shared axis for traces with
+  // an empty/unknown range_axis_name. ArchiveViewer plots those traces
+  // "normalized" (each value divided by the pv's own range) — Trace has no
+  // such mode, so they're plotted on a shared raw-value axis instead; warn
+  // so this isn't mistaken for the source file's normalized view.
   const axes: Axis[] = [];
   const axisIdByName = new Map<string, string>();
   const rangeAxisEls = Array.from(root.querySelectorAll(':scope > range_axis'));
@@ -135,6 +146,15 @@ export function convertArchiveViewer(xmlText: string): DeserializeResult {
     const location = text(el, 'location');
     const id = `axis-${i + 1}`;
     axisIdByName.set(name, id);
+    // An empty location hides only the axis's line/ticks in ArchiveViewer, but
+    // Trace's `visible` also drops every attached trace (see PlotArea's
+    // visible-axes filter) — keep the axis visible so its traces still plot,
+    // and warn instead of silently discarding the decoration-hiding intent.
+    if (location === '') {
+      warnings.push(
+        `Range axis '${name}' has no location (hidden in ArchiveViewer); showing it so its traces still plot.`
+      );
+    }
     axes.push({
       id,
       name,
@@ -143,22 +163,27 @@ export function convertArchiveViewer(xmlText: string): DeserializeResult {
       max,
       autoScale: min === undefined || max === undefined,
       logScale: text(el, 'type') === 'log',
-      visible: location !== '',
+      visible: true,
     });
   });
-  const normalizedAxisId = 'axis-normalized';
-  let normalizedAxisUsed = false;
+  const sharedAxisId = 'axis-shared';
+  let sharedAxisUsed = false;
 
   function resolveRangeAxis(name: string): string {
     if (name === '') {
-      normalizedAxisUsed = true;
-      return normalizedAxisId;
+      warnings.push(
+        `Trace has no range_axis_name (normalized in ArchiveViewer); plotted with raw values on a shared axis instead.`
+      );
+      sharedAxisUsed = true;
+      return sharedAxisId;
     }
     const id = axisIdByName.get(name);
     if (id) return id;
-    warnings.push(`Trace references unknown range_axis '${name}'; plotted normalized instead.`);
-    normalizedAxisUsed = true;
-    return normalizedAxisId;
+    warnings.push(
+      `Trace references unknown range_axis '${name}'; plotted with raw values on a shared axis instead.`
+    );
+    sharedAxisUsed = true;
+    return sharedAxisId;
   }
 
   // Time axes: use the first as the plot's xAxis; warn about the rest.
@@ -185,6 +210,7 @@ export function convertArchiveViewer(xmlText: string): DeserializeResult {
   const palette = getPalette(DEFAULT_PALETTE_ID);
   const traces: PVTrace[] = [];
   const idByAveName = new Map<string, string>();
+  const formulaIds = new Set<string>();
   const directoryNames = new Set<string>();
 
   function addDirectory(el: Element) {
@@ -232,6 +258,7 @@ export function convertArchiveViewer(xmlText: string): DeserializeResult {
     const name = el.getAttribute('name') ?? '';
     const id = `trace-${index + 1}`;
     idByAveName.set(name, id);
+    formulaIds.add(id);
   });
   childEls.forEach((el, index) => {
     if (el.tagName !== 'formula') return;
@@ -244,7 +271,12 @@ export function convertArchiveViewer(xmlText: string): DeserializeResult {
       const argName = arg.getAttribute('name') ?? '';
       const variable = arg.getAttribute('variable') ?? '';
       const targetId = idByAveName.get(argName);
-      if (targetId && variable) {
+      // Formula-to-formula bindings aren't evaluated (resolveBindings in
+      // src/formula.ts skips non-PV targets — see #33); treat them the same
+      // as an unresolved reference instead of silently going idle.
+      if (targetId && formulaIds.has(targetId)) {
+        unresolved.push(`${variable} → ${argName} (formula-to-formula bindings aren't supported)`);
+      } else if (targetId && variable) {
         bindings[variable] = targetId;
         variables.push(variable);
       } else unresolved.push(`${variable} → ${argName}`);
@@ -272,10 +304,10 @@ export function convertArchiveViewer(xmlText: string): DeserializeResult {
     });
   });
 
-  if (normalizedAxisUsed) {
+  if (sharedAxisUsed) {
     axes.push({
-      id: normalizedAxisId,
-      name: 'Normalized',
+      id: sharedAxisId,
+      name: 'Shared (raw values)',
       orientation: 'left',
       autoScale: true,
       logScale: false,

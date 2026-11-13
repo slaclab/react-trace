@@ -73,16 +73,41 @@ describe('convertStripTool', () => {
     expect(result.plots[0].traces[0].visible).toBe(false);
   });
 
-  it('treats a suspicious 0/1 Max as unset (known writer bug) and warns', () => {
+  it('treats a bare-integer Max matching Scale as unset (known writer bug) and warns', () => {
+    // The real bug (STP_FORMAT.md §"Bug found in the writer"): Max was never
+    // set, so the writer prints Scale's raw value under the Max key as a
+    // bare int — no decimal point, unlike a genuine dbl2str()-formatted Max.
     const stp = SAMPLE_STP.replace(
       'Strip.Curve.0.Max            100.00',
-      'Strip.Curve.0.Max            1'
+      'Strip.Curve.0.Max            0'
     );
     const result = convertStripTool(stp);
     const axis0 = result.plots[0].axes[0];
     expect(axis0.max).toBeUndefined();
     expect(axis0.autoScale).toBe(true);
     expect(result.warnings.some((w) => w.includes('leaked Scale value'))).toBe(true);
+  });
+
+  it('preserves a legitimate decimal-formatted Max even when it equals Scale', () => {
+    const stp = SAMPLE_STP.replace(
+      'Strip.Curve.0.Max            100.00',
+      'Strip.Curve.0.Max            0.00'
+    );
+    const result = convertStripTool(stp);
+    const axis0 = result.plots[0].axes[0];
+    expect(axis0.max).toBe(0);
+    expect(result.warnings.some((w) => w.includes('leaked Scale value'))).toBe(false);
+  });
+
+  it('preserves a legitimate bare-integer Max that does not match Scale', () => {
+    const stp = SAMPLE_STP.replace(
+      'Strip.Curve.0.Max            100.00',
+      'Strip.Curve.0.Max            1'
+    );
+    const result = convertStripTool(stp);
+    const axis0 = result.plots[0].axes[0];
+    expect(axis0.max).toBe(1);
+    expect(result.warnings.some((w) => w.includes('leaked Scale value'))).toBe(false);
   });
 
   it('rejects a file without the StripConfig header', () => {

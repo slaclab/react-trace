@@ -72,10 +72,10 @@ describe('convertArchiveViewer', () => {
     // -65536 & 0xffffff == 0xff0000
     expect(formula.color).toBe('#ff0000');
 
-    // formula's range_axis_name is empty → plotted normalized, not the named axis.
+    // formula's range_axis_name is empty → plotted on the shared raw-value axis, not the named axis.
     expect(formula.axisId).not.toBe(pv.axisId);
-    const normalizedAxis = plot.axes.find((a) => a.id === formula.axisId)!;
-    expect(normalizedAxis.name).toBe('Normalized');
+    const sharedAxis = plot.axes.find((a) => a.id === formula.axisId)!;
+    expect(sharedAxis.name).toBe('Shared (raw values)');
 
     const namedAxis = plot.axes.find((a) => a.id === pv.axisId)!;
     expect(namedAxis.name).toBe('Main Range Axis');
@@ -85,15 +85,34 @@ describe('convertArchiveViewer', () => {
   });
 
   it('resolves a relative start paired with a fixed absolute end (not "now")', () => {
-    // A real-world combination: relative start, explicit MM/dd/yyyy end.
-    const xml = SAMPLE_XML.replace('<end>now</end>', '<end>07/11/2024 08:15:45</end>');
+    // A real-world combination: relative start (short enough that "now minus
+    // start" still lands after the fixed end), explicit MM/dd/yyyy end.
+    const nearFutureEnd = new Date(Date.now() + 60 * 60 * 1000);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const avDate =
+      `${pad(nearFutureEnd.getMonth() + 1)}/${pad(nearFutureEnd.getDate())}/${nearFutureEnd.getFullYear()}` +
+      ` ${pad(nearFutureEnd.getHours())}:${pad(nearFutureEnd.getMinutes())}:${pad(nearFutureEnd.getSeconds())}`;
+    const xml = SAMPLE_XML.replace('<start>-1d</start>', '<start>-1s</start>').replace(
+      '<end>now</end>',
+      `<end>${avDate}</end>`
+    );
     const result = convertArchiveViewer(xml);
     const xAxis = result.plots[0].xAxis;
     expect(xAxis.timeRange).toBe('custom');
-    expect(xAxis.timeTo).toBe('2024-07-11T08:15');
     expect(xAxis.timeFrom).toBeDefined();
+    expect(xAxis.timeTo).toBeDefined();
     // No "not understood" fallback warning for this combination.
     expect(result.warnings.some((w) => w.includes('not understood'))).toBe(false);
+  });
+
+  it('falls back to the last hour, with a warning, when the relative start (from now) is not before the fixed end', () => {
+    // A relative start is resolved against *now*, not the fixed end, so a
+    // saved end far enough in the past produces a reversed range.
+    const xml = SAMPLE_XML.replace('<end>now</end>', '<end>07/11/2024 08:15:45</end>');
+    const result = convertArchiveViewer(xml);
+    const xAxis = result.plots[0].xAxis;
+    expect(xAxis).toEqual({ timeRange: '-1h' });
+    expect(result.warnings.some((w) => w.includes('is not before fixed end'))).toBe(true);
   });
 
   it('warns and drops extra time axes, keeping only the first', () => {

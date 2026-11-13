@@ -79,9 +79,20 @@ export function convertStripTool(text: string): DeserializeResult {
 
     const min = parseNumber(minRaw);
     let max = parseNumber(maxRaw);
-    // Known StripConfig.c writer bug: an unset Max can leak the curve's Scale
-    // value (0 or 1) under the Max key. Treat a suspicious 0/1 Max as unset.
-    if (max !== undefined && (max === 0 || max === 1) && (scaleRaw === '0' || scaleRaw === '1')) {
+    // Known StripConfig.c writer bug: when a curve's Max was never explicitly
+    // set, the writer's switch-case falls through and prints the curve's
+    // Scale enum (0 or 1) under the Max key instead — as a bare `%d`, unlike
+    // a real Max, which is always formatted by dbl2str() with the curve's
+    // Precision digits (so a genuine 0 or 1 reads "0.00"/"1.00", not "0"/"1").
+    // Require both signals — numeric match to Scale *and* no decimal point —
+    // so a legitimately saved integer-valued Max (e.g. Min=0/Max=1) survives.
+    if (
+      max !== undefined &&
+      scaleRaw !== undefined &&
+      max === Number(scaleRaw) &&
+      maxRaw !== undefined &&
+      !maxRaw.includes('.')
+    ) {
       warnings.push(
         `Curve '${name}': Max value '${maxRaw}' looks like a leaked Scale value (a known StripTool writer bug) — treated as unset.`
       );
