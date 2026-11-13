@@ -39,3 +39,8 @@ lerna-debug.log*
 
 # MkDocs
 site/
+
+# Tauri
+src-tauri/target/
+# Runtime Canopy config staged before a desktop build (see config.json.example)
+src-tauri/config.json

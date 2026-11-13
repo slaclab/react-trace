@@ -1,0 +1,96 @@
+name: Build Desktop App
+
+# Builds the Tauri desktop bundles for macOS, Linux, and Windows. Runs on pushes
+# to main and — path-filtered to desktop-relevant files — on pull requests, so
+# bundle breakage is caught before merge; artifacts are uploaded per-platform
+# (this does not publish a release). The web deploy path is handled by the other
+# workflows.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - "src-tauri/**"
+      - ".github/workflows/tauri.yml"
+      - ".github/actions/setup-tauri/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "vite.config.ts"
+  workflow_dispatch:
+
+jobs:
+  # Fast feedback: the Rust unit + in-process proxy e2e tests, no bundling.
+  test:
+    name: Rust tests
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Tauri build
+        uses: ./.github/actions/setup-tauri
+        with:
+          node: false
+
+      - name: Run Rust tests
+        # Deliberately no config.json / dist staging: build.rs drops those
+        # release-only bundle resources in non-release builds, and this job
+        # checks that a fresh checkout builds and tests without them.
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: ""
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: windows-latest
+            args: ""
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Tauri build
+        uses: ./.github/actions/setup-tauri
+        with:
+          stage-config: true
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@42e9df6c59070d114bf90dcd3943a1b8f138b113 # v0
+        with:
+          args: ${{ matrix.args }}
+
+      - name: Upload macOS artifacts
+        if: matrix.platform == 'macos-latest'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: trace-macos
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/macos/*.app
+
+      - name: Upload Linux artifacts
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: trace-linux
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/appimage/*.AppImage
+
+      - name: Upload Windows artifacts
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: trace-windows
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe

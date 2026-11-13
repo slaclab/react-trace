@@ -1,6 +1,5 @@
 # React Trace
 
-
 React + Vite frontend for the Canopy / Trace plotting tool. Reads archive data from
 Canopy's Mole module (`/mole/v1/...`), live PVs from Hare and formulas from the Formula
 Engine, and posts e-log entries through Canopy's e-log module (`/elog/v1/apps/trace/...`).
