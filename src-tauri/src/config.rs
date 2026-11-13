@@ -1,19 +1,20 @@
 //! Runtime resolution of backend URLs and keys for the desktop app.
 //!
-//! Two upstreams are configured here:
-//! - Canopy (`/mole`, `/hare`, `/formula-engine`, `/magpie`, `/vole`): base URL + `X-API-Key`.
-//! - E-Log / elog-plus (`/elog`): base URL + `x-vouch-idp-accesstoken`. Optional;
-//!   when no URL is configured the proxy answers 502 and the frontend hides the
-//!   Post to E-Log button (same behavior as the web app without `ELOG_BASE_URL`).
+//! Everything goes to one Canopy backend (base URL), with two keys sent as
+//! `X-API-Key`:
+//! - the Canopy key, on `/mole`, `/hare`, `/formula-engine`, `/magpie`, `/vole`;
+//! - the e-log key, on `/elog/v1/apps/trace/` (Trace's app in Canopy's e-log
+//!   module). It falls back to the Canopy key, as in the Vite dev proxy.
 //!
 //! Precedence per value (highest first):
-//!   1. CLI args: `--canopy-url` / `--api-key` / `--elog-url` / `--elog-key`
-//!   2. Env vars: `CANOPY_BASE_URL` / `CANOPY_API_KEY` / `ELOG_BASE_URL` /
-//!      `ELOG_API_KEY` (same names as the web dev proxy reads from `.env`, so a
-//!      single .env works for both targets).
+//!   1. CLI args: `--canopy-url` / `--api-key` / `--elog-key`
+//!   2. Env vars: `CANOPY_BASE_URL` / `CANOPY_API_KEY` / `CANOPY_ELOG_API_KEY`
+//!      (same names as the web dev proxy reads from `.env`, so a single .env
+//!      works for both targets).
 //!   3. Bundled `config.json` resource:
-//!      `{ "canopyUrl": "...", "apiKey": "...", "elogUrl": "...", "elogApiKey": "..." }`.
-//!   4. Built-in default (`http://localhost:8000`, empty keys, e-log disabled).
+//!      `{ "canopyUrl": "...", "apiKey": "...", "elogApiKey": "..." }`.
+//!   4. Built-in default (`http://localhost:8000`, empty key; the e-log key is
+//!      the Canopy key).
 //!
 //! This lets an operator repoint the packaged app at any backend without a
 //! rebuild, while keeping the keys out of the JS bundle: they live only here and
@@ -31,11 +32,8 @@ pub struct CanopyConfig {
     pub canopy_url: String,
     /// API key injected as `X-API-Key` on every forwarded Canopy request. May be empty.
     pub api_key: String,
-    /// Base URL of the elog-plus backend, no trailing slash. `None` disables
-    /// e-log forwarding (the proxy answers 502 on `/elog`).
-    pub elog_url: Option<String>,
-    /// Token injected as `x-vouch-idp-accesstoken` on forwarded e-log requests.
-    /// May be empty (header omitted), matching the Vite dev proxy.
+    /// API key injected as `X-API-Key` on Trace's e-log app path: the e-log key
+    /// when one is set, else `api_key`. May be empty (header omitted).
     pub elog_key: String,
 }
 
@@ -44,7 +42,6 @@ pub struct CanopyConfig {
 pub struct CliOverrides {
     pub canopy_url: Option<String>,
     pub api_key: Option<String>,
-    pub elog_url: Option<String>,
     pub elog_key: Option<String>,
 }
 
@@ -55,8 +52,6 @@ pub struct FileConfig {
     canopy_url: Option<String>,
     #[serde(default)]
     api_key: Option<String>,
-    #[serde(default)]
-    elog_url: Option<String>,
     #[serde(default)]
     elog_api_key: Option<String>,
 }
@@ -106,14 +101,12 @@ impl CanopyConfig {
         let canopy_url = pick(cli.canopy_url, env, "CANOPY_BASE_URL", file.canopy_url)
             .unwrap_or_else(|| DEFAULT_CANOPY_URL.to_string());
         let api_key = pick(cli.api_key, env, "CANOPY_API_KEY", file.api_key).unwrap_or_default();
-        let elog_url = pick(cli.elog_url, env, "ELOG_BASE_URL", file.elog_url).map(strip_slash);
-        let elog_key =
-            pick(cli.elog_key, env, "ELOG_API_KEY", file.elog_api_key).unwrap_or_default();
+        let elog_key = pick(cli.elog_key, env, "CANOPY_ELOG_API_KEY", file.elog_api_key)
+            .unwrap_or_else(|| api_key.clone());
 
         Self {
             canopy_url: strip_slash(canopy_url),
             api_key,
-            elog_url,
             elog_key,
         }
     }
@@ -154,13 +147,11 @@ mod tests {
     fn cli(
         canopy_url: Option<&str>,
         api_key: Option<&str>,
-        elog_url: Option<&str>,
         elog_key: Option<&str>,
     ) -> CliOverrides {
         CliOverrides {
             canopy_url: canopy_url.map(str::to_string),
             api_key: api_key.map(str::to_string),
-            elog_url: elog_url.map(str::to_string),
             elog_key: elog_key.map(str::to_string),
         }
     }
@@ -187,8 +178,7 @@ mod tests {
         Some(FileConfig {
             canopy_url: Some("http://file:1".into()),
             api_key: Some("filekey".into()),
-            elog_url: Some("http://file-elog:2/".into()),
-            elog_api_key: Some("filetoken".into()),
+            elog_api_key: Some("fileelogkey".into()),
         })
     }
 
@@ -196,17 +186,11 @@ mod tests {
     fn cli_beats_env_and_file() {
         let cfg = resolve(
             file_all(),
-            cli(
-                Some("http://cli:2"),
-                Some("clikey"),
-                Some("http://cli-elog:3"),
-                Some("clitoken"),
-            ),
+            cli(Some("http://cli:2"), Some("clikey"), Some("clielogkey")),
         );
         assert_eq!(cfg.canopy_url, "http://cli:2");
         assert_eq!(cfg.api_key, "clikey");
-        assert_eq!(cfg.elog_url.as_deref(), Some("http://cli-elog:3"));
-        assert_eq!(cfg.elog_key, "clitoken");
+        assert_eq!(cfg.elog_key, "clielogkey");
     }
 
     #[test]
@@ -214,9 +198,7 @@ mod tests {
         let cfg = resolve(file_all(), CliOverrides::default());
         assert_eq!(cfg.canopy_url, "http://file:1");
         assert_eq!(cfg.api_key, "filekey");
-        // Trailing slash stripped on the elog URL too.
-        assert_eq!(cfg.elog_url.as_deref(), Some("http://file-elog:2"));
-        assert_eq!(cfg.elog_key, "filetoken");
+        assert_eq!(cfg.elog_key, "fileelogkey");
     }
 
     #[test]
@@ -224,23 +206,41 @@ mod tests {
         let cfg = resolve(None, CliOverrides::default());
         assert_eq!(cfg.canopy_url, DEFAULT_CANOPY_URL);
         assert_eq!(cfg.api_key, "");
-        // E-log defaults to disabled, matching the web app without ELOG_BASE_URL.
-        assert_eq!(cfg.elog_url, None);
         assert_eq!(cfg.elog_key, "");
     }
 
     #[test]
     fn empty_strings_do_not_shadow_lower_layers() {
-        let cfg = resolve(file_all(), cli(Some(""), Some(""), Some(""), Some("")));
+        let cfg = resolve(file_all(), cli(Some(""), Some(""), Some("")));
         assert_eq!(cfg.canopy_url, "http://file:1");
-        assert_eq!(cfg.elog_url.as_deref(), Some("http://file-elog:2"));
+        assert_eq!(cfg.elog_key, "fileelogkey");
+    }
+
+    /// Without an e-log key at any layer, or with only empty ones, the e-log
+    /// path gets the Canopy key, as in the Vite dev proxy.
+    #[test]
+    fn elog_key_falls_back_to_api_key() {
+        let file = || {
+            Some(FileConfig {
+                elog_api_key: Some(String::new()),
+                ..file_all().unwrap()
+            })
+        };
+        let unset = || CliOverrides::default();
+        let empty = || cli(None, None, Some(""));
+        let empty_env: &[(&str, &str)] = &[("CANOPY_ELOG_API_KEY", "")];
+        assert_eq!(resolve(file(), unset()).elog_key, "filekey");
+        assert_eq!(resolve(file(), empty()).elog_key, "filekey");
+        assert_eq!(resolve_env(file(), empty(), empty_env).elog_key, "filekey");
+        // The fallback is the resolved Canopy key, wherever it came from.
+        let cfg = resolve(file(), cli(None, Some("clikey"), None));
+        assert_eq!(cfg.elog_key, "clikey");
     }
 
     const ENV_ALL: &[(&str, &str)] = &[
         ("CANOPY_BASE_URL", "http://env:4/"),
         ("CANOPY_API_KEY", "envkey"),
-        ("ELOG_BASE_URL", "http://env-elog:5"),
-        ("ELOG_API_KEY", "envtoken"),
+        ("CANOPY_ELOG_API_KEY", "envelogkey"),
     ];
 
     #[test]
@@ -249,22 +249,20 @@ mod tests {
         // Trailing slash stripped on env values too.
         assert_eq!(cfg.canopy_url, "http://env:4");
         assert_eq!(cfg.api_key, "envkey");
-        assert_eq!(cfg.elog_url.as_deref(), Some("http://env-elog:5"));
-        assert_eq!(cfg.elog_key, "envtoken");
+        assert_eq!(cfg.elog_key, "envelogkey");
     }
 
     #[test]
     fn cli_beats_env() {
         let cfg = resolve_env(
             file_all(),
-            cli(Some("http://cli:2"), Some("clikey"), None, None),
+            cli(Some("http://cli:2"), Some("clikey"), None),
             ENV_ALL,
         );
         assert_eq!(cfg.canopy_url, "http://cli:2");
         assert_eq!(cfg.api_key, "clikey");
         // Values without a CLI override still come from env.
-        assert_eq!(cfg.elog_url.as_deref(), Some("http://env-elog:5"));
-        assert_eq!(cfg.elog_key, "envtoken");
+        assert_eq!(cfg.elog_key, "envelogkey");
     }
 
     #[test]
@@ -272,14 +270,12 @@ mod tests {
         let empty = &[
             ("CANOPY_BASE_URL", ""),
             ("CANOPY_API_KEY", ""),
-            ("ELOG_BASE_URL", ""),
-            ("ELOG_API_KEY", ""),
+            ("CANOPY_ELOG_API_KEY", ""),
         ];
         let cfg = resolve_env(file_all(), CliOverrides::default(), empty);
         assert_eq!(cfg.canopy_url, "http://file:1");
         assert_eq!(cfg.api_key, "filekey");
-        assert_eq!(cfg.elog_url.as_deref(), Some("http://file-elog:2"));
-        assert_eq!(cfg.elog_key, "filetoken");
+        assert_eq!(cfg.elog_key, "fileelogkey");
     }
 
     #[test]
@@ -287,14 +283,12 @@ mod tests {
         let https = CanopyConfig {
             canopy_url: "https://h:9".into(),
             api_key: String::new(),
-            elog_url: None,
             elog_key: String::new(),
         };
         assert_eq!(https.ws_url(), "wss://h:9");
         let http = CanopyConfig {
             canopy_url: "http://h:9".into(),
             api_key: String::new(),
-            elog_url: None,
             elog_key: String::new(),
         };
         assert_eq!(http.ws_url(), "ws://h:9");

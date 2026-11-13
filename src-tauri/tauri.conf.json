@@ -59,14 +59,9 @@
           "description": "X-API-Key value the proxy injects (overrides env and bundled config.json)"
         },
         {
-          "name": "elog-url",
-          "takesValue": true,
-          "description": "elog-plus backend base URL; unset disables e-log posting (overrides env and bundled config.json)"
-        },
-        {
           "name": "elog-key",
           "takesValue": true,
-          "description": "x-vouch-idp-accesstoken value the proxy injects on /elog (overrides env and bundled config.json)"
+          "description": "X-API-Key value the proxy injects on Trace's e-log app path; defaults to the Canopy API key (overrides env and bundled config.json)"
         }
       ]
     },
