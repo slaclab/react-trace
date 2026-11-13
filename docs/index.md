@@ -18,7 +18,7 @@ Trace remembers your light/dark mode and color palette choices in the browser. T
 
 ### Feedback/Issue Reporting
 
-Users can submit feedback or report issues via the [Microsoft Form](https://forms.office.com/r/qV7BmK2xi9), or by clicking the bug icon in Trace's header.
+Users can submit feedback or report issues by clicking the bug icon in Trace's header.
 
 Please include as much detail as possible, such as:
 

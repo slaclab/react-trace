@@ -8,18 +8,10 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
 import { TraceApp } from './TraceApp';
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return { isDisposed: () => true, getDom: () => null };
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+// No chart instance: PNG capture for the E-Log dialog skips this plot.
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
 
 describe('Blocked pop-up notice', () => {
   beforeEach(() => {
