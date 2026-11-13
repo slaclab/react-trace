@@ -1,4 +1,4 @@
-FROM node:24-alpine AS build
+FROM node:25-alpine AS build
 
 WORKDIR /app
 
@@ -19,7 +19,7 @@ ENV VITE_DOCS_URL=$VITE_DOCS_URL
 
 RUN pnpm build
 
-FROM nginx:1.29-alpine
+FROM nginx:1.31-alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY docker/nginx.conf.template /app/nginx.conf.template
