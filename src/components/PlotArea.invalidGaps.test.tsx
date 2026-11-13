@@ -2,8 +2,8 @@
 //
 // Regression tests for #120: an INVALID sample breaks the line until the next
 // good sample, the stretch is marked under the x-axis, and the min/max band and
-// the extension line don't bridge it. Mounts SinglePlot with a mocked
-// echarts-for-react and inspects the option it's handed.
+// the extension line don't bridge it. Mounts SinglePlot with canopy-charts'
+// CanopyChart stubbed out and inspects the option it's handed.
 import { describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { SinglePlot } from './PlotArea';
@@ -11,6 +11,7 @@ import type { Plot, PVTrace } from '../types';
 import type { AlarmSeverity } from '../api/types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
+import { chartStub } from '../test/chartStub';
 
 type Series = Record<string, unknown> & { id: string; type: string; data: unknown[] };
 interface Option {
@@ -21,19 +22,14 @@ interface Option {
 
 const { lastOption } = vi.hoisted(() => ({ lastOption: { current: null as unknown } }));
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component<{ option: unknown }> {
-    getEchartsInstance() {
-      return undefined;
-    }
-    render() {
-      lastOption.current = this.props.option;
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+// No instance: the chart never becomes ready, so SinglePlot's effects bail out
+// early without one.
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.onRender = (props) => {
+  lastOption.current = props.option;
+};
 
 // A fixed custom window, so the x-axis end (and a trailing stretch) is exact.
 const FROM_MS = Date.UTC(2026, 9, 1, 12, 0, 0);
