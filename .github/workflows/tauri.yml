@@ -1,17 +1,18 @@
 name: Build Desktop App
 
-# Builds the Tauri desktop bundles for macOS, Linux, and Windows. Runs on pushes
-# to main and — path-filtered to desktop-relevant files — on pull requests, so
-# bundle breakage is caught before merge; artifacts are uploaded per-platform
-# (this does not publish a release). The web deploy path is handled by the other
-# workflows.
+# Rust tests plus a cross-platform (macOS, Linux, Windows) sanity build of the
+# Tauri bundles. Runs on PRs that touch the desktop app (path-filtered, so
+# bundle breakage is caught before merge) and on manual dispatch; artifacts are
+# uploaded per-platform (this does not publish a release or deploy). The Linux
+# RPM build on pushes to main is owned by build-dev.yml, and releases by
+# build-release.yml, so this workflow deliberately does not trigger on push to
+# main to avoid a duplicate build.
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
     paths:
       - "src-tauri/**"
+      - "src/**"
       - ".github/workflows/tauri.yml"
       - ".github/actions/setup-tauri/**"
       - "package.json"
