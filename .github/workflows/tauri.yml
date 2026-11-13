@@ -16,6 +16,7 @@ on:
       - ".github/actions/setup-tauri/**"
       - "package.json"
       - "pnpm-lock.yaml"
+      - "vite.config.ts"
   workflow_dispatch:
 
 jobs:
