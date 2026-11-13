@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { CanopyError, searchPVs } from '@slaclab/canopy-client';
+import { searchPVs } from '@slaclab/canopy-client';
 import { useCanopyConnection } from '@slaclab/canopy-react';
+import { errorInfo } from '../api/errorInfo';
 
 export type PVSearchStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -42,8 +43,7 @@ export function usePVSearch(
           setResult({ status: 'ready', pvs: dto.pvs });
         } catch (err) {
           if ((err as { name?: string }).name === 'AbortError') return;
-          const code = err instanceof CanopyError ? err.code : 'unknown_error';
-          const detail = err instanceof CanopyError ? err.detail : (err as Error).message;
+          const { code, detail } = errorInfo(err);
           setResult({ status: 'error', pvs: [], error: { code, detail } });
         }
       })();

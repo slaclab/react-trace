@@ -1,4 +1,5 @@
-import { CanopyError, canopyFetch } from './client';
+import { canopyFetch } from './client';
+import { errorInfo, UNKNOWN_ERROR_CODE } from './errorInfo';
 import type {
   ElogAttachmentDTO,
   ElogConfigDTO,
@@ -86,7 +87,8 @@ export async function postEntry(
         if ((err as { name?: string }).name === 'AbortError') throw err;
         // A bad key or missing write access fails on the first upload. Report it
         // as the key error, not as a problem with this file.
-        if (err instanceof CanopyError && (err.status === 401 || err.status === 403)) throw err;
+        const { status } = errorInfo(err);
+        if (status === 401 || status === 403) throw err;
         throw new ElogAttachmentError(file.name, err);
       }
       uploaded.set(file, id);
@@ -115,14 +117,17 @@ export function describeElogError(err: unknown): string {
   if (err instanceof ElogAttachmentError) {
     return `${err.message}. ${describeElogError(err.cause)}`;
   }
-  if (!(err instanceof CanopyError)) {
+  // errorInfo() reads a CanopyError from any copy of canopy-client. Anything
+  // else has no status.
+  const info = errorInfo(err);
+  if (info.status === undefined) {
     return err instanceof Error ? err.message : 'Unexpected error';
   }
-  switch (err.code) {
+  switch (info.code) {
     case 'network_error':
-      return withDetail("Couldn't reach Canopy", err.detail);
+      return withDetail("Couldn't reach Canopy", info.detail);
     case 'invalid_api_key':
-      return withDetail("Canopy rejected Trace's e-log API key", err.detail);
+      return withDetail("Canopy rejected Trace's e-log API key", info.detail);
     case 'insufficient_module_access':
       return "Trace's e-log API key is not scoped for the e-log module (it needs elog).";
     case 'insufficient_read_access':
@@ -136,18 +141,18 @@ export function describeElogError(err: unknown): string {
     case 'elog_not_configured':
       return 'No e-log service is configured in Canopy.';
     case 'elog_upstream_error':
-      return withDetail('The e-log service returned an error', err.detail);
+      return withDetail('The e-log service returned an error', info.detail);
     case 'elog_upstream_timeout':
       return 'The e-log service timed out. Try again.';
     case 'elog_not_supported':
       return "The e-log service doesn't support this operation.";
     case 'elog_attachment_too_large':
-      return withDetail('The file is larger than the e-log attachment limit', err.detail);
+      return withDetail('The file is larger than the e-log attachment limit', info.detail);
   }
-  if (err.status === 413) return 'The file is too large to upload.';
+  if (info.status === 413) return 'The file is too large to upload.';
   // unknown_error: the body wasn't Canopy's JSON (e.g. a proxy's HTML error
   // page), and the SDK puts its raw text in `detail`. Not worth showing.
-  const detail = err.code === 'unknown_error' ? '' : err.detail;
-  if (err.status === 422) return withDetail('Canopy rejected the entry', detail);
-  return withDetail(`E-log request failed (HTTP ${err.status})`, detail);
+  const detail = info.code === UNKNOWN_ERROR_CODE ? '' : info.detail;
+  if (info.status === 422) return withDetail('Canopy rejected the entry', detail);
+  return withDetail(`E-log request failed (HTTP ${info.status})`, detail);
 }
