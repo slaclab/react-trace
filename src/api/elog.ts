@@ -145,6 +145,9 @@ export function describeElogError(err: unknown): string {
       return withDetail('The file is larger than the e-log attachment limit', err.detail);
   }
   if (err.status === 413) return 'The file is too large to upload.';
-  if (err.status === 422) return withDetail('Canopy rejected the entry', err.detail);
-  return withDetail(`E-log request failed (HTTP ${err.status})`, err.detail);
+  // unknown_error: the body wasn't Canopy's JSON (e.g. a proxy's HTML error
+  // page), and the SDK puts its raw text in `detail`. Not worth showing.
+  const detail = err.code === 'unknown_error' ? '' : err.detail;
+  if (err.status === 422) return withDetail('Canopy rejected the entry', detail);
+  return withDetail(`E-log request failed (HTTP ${err.status})`, detail);
 }

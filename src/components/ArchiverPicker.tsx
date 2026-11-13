@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Dropdown } from '@carbon/react';
-import { listArchivers } from '../api/mole';
-import { CanopyError } from '../api/client';
-import type { ArchiverInfoDTO } from '../api/types';
+import { CanopyError, listArchivers, type ArchiverInfoDTO } from '@slaclab/canopy-client';
+import { useCanopyConnection } from '@slaclab/canopy-react';
 
 export const GLOBAL_DEFAULT_OPTION = '__default__';
 export const GLOBAL_OPTION = '__global__';
@@ -32,6 +31,7 @@ export function ArchiverPicker({
   label = 'Archiver',
   width = 200,
 }: ArchiverPickerProps) {
+  const conn = useCanopyConnection();
   const [archivers, setArchivers] = useState<ArchiverInfoDTO[]>([]);
   const [defaultName, setDefaultName] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +40,7 @@ export function ArchiverPicker({
     const controller = new AbortController();
     void (async () => {
       try {
-        const list = await listArchivers(controller.signal);
+        const list = await listArchivers(conn, controller.signal);
         if (controller.signal.aborted) return;
         setArchivers(list.archivers);
         setDefaultName(list.default);
@@ -51,7 +51,7 @@ export function ArchiverPicker({
       }
     })();
     return () => controller.abort();
-  }, []);
+  }, [conn]);
 
   const items: ArchiverItem[] = [];
   if (includeGlobalOption) {
