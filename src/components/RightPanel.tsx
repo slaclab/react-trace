@@ -16,6 +16,7 @@ import {
   ComboBox,
   Slider,
 } from '@carbon/react';
+import type { SliderProps } from '@carbon/react';
 import type { Plot, PVTrace, Axis } from '../types';
 import { traceLabel } from '../traceLabel';
 import {
@@ -36,17 +37,20 @@ import {
   MIN_REFRESH_S,
   MAX_REFRESH_S,
   clampInterval,
+  refreshIntervalMs,
 } from '../hooks/useAutoScrollTimers';
 import { ArchiverPicker } from './ArchiverPicker';
 import { usePVSearch } from '../hooks/usePVSearch';
 import { PanelRail } from './PanelRail';
-import { validateFormula } from '../api/fox';
+import { validateFormula } from '../api/formulaEngine';
 import { CanopyError } from '../api/client';
 import { extractFormulaVars, resolveBindings } from '../formula';
 
 interface RightPanelProps {
   selectedItem: SelectedItem;
   activePlot: Plot;
+  // The active plot's clock ("now" for its time range); see useAutoScrollTimers.
+  nowMs: number;
   archiveResults: Map<string, ArchiveSeriesResult>;
   liveResults: Map<string, LiveSeriesResult>;
   collapsed: boolean;
@@ -67,6 +71,7 @@ interface RightPanelProps {
 export function RightPanel({
   selectedItem,
   activePlot,
+  nowMs,
   archiveResults,
   liveResults,
   collapsed,
@@ -173,7 +178,12 @@ export function RightPanel({
     tabs.push({
       label: 'General',
       render: () => (
-        <PlotGeneralTab plot={activePlot} onUpdate={onUpdatePlot} onApplyPalette={onApplyPalette} />
+        <PlotGeneralTab
+          plot={activePlot}
+          nowMs={nowMs}
+          onUpdate={onUpdatePlot}
+          onApplyPalette={onApplyPalette}
+        />
       ),
     });
     tabs.push({ label: 'Code', render: () => <PlotCodeTab plot={activePlot} /> });
@@ -232,7 +242,7 @@ export function RightPanel({
 
 // Editor for a formula curve: an expression over {var} placeholders plus a
 // binding table mapping each variable to a PV-backed curve on the same plot.
-// Replaces PV traces' "PV Name + Data Sources" with Fox-specific controls.
+// Replaces PV traces' "PV Name + Data Sources" with formula-specific controls.
 function FormulaGeneralTab({
   trace,
   axes,
@@ -250,7 +260,7 @@ function FormulaGeneralTab({
   const unbound = vars.filter((v) => !bindings[v]);
   const hasExpr = expression.trim().length > 0;
 
-  // Debounced live validation via Fox. Sends whatever bindings are resolved so
+  // Debounced live validation via the Formula Engine. Sends whatever bindings are resolved so
   // far, so the server red-lines bad syntax (and missing bindings) as you type.
   const [validation, setValidation] = useState<{ valid: boolean; errors: string[] } | null>(null);
   // Resolve to actual PV names here and key the effect on the result. Keying on
@@ -328,10 +338,11 @@ function FormulaGeneralTab({
       <div className="prop-section">
         <div className="prop-section__title">Formula</div>
         <p style={{ fontSize: 11, color: 'var(--cds-text-helper)', marginBottom: 8 }}>
-          Combine curves with <code style={{ color: '#78a9ff' }}>{'{x1}'}</code>-style variables,
-          e.g. <code style={{ color: '#78a9ff' }}>{'{x1} + {x2}'}</code>. Supports arithmetic and
-          math functions (<code>mean</code>, <code>ln</code>, <code>abs</code>, <code>sqrt</code>,
-          …).
+          Combine curves with <code style={{ color: 'var(--cds-link-primary)' }}>{'{x1}'}</code>
+          -style variables, e.g.{' '}
+          <code style={{ color: 'var(--cds-link-primary)' }}>{'{x1} + {x2}'}</code>. Supports
+          arithmetic and math functions (<code>mean</code>, <code>ln</code>, <code>abs</code>,{' '}
+          <code>sqrt</code>, …).
         </p>
         <textarea
           className="prop-code-area"
@@ -360,8 +371,8 @@ function FormulaGeneralTab({
         <div className="prop-section__title">Variables</div>
         {vars.length === 0 ? (
           <p style={{ fontSize: 11, color: 'var(--cds-text-helper)' }}>
-            Add a <code style={{ color: '#78a9ff' }}>{'{var}'}</code> to the formula to bind it to a
-            curve.
+            Add a <code style={{ color: 'var(--cds-link-primary)' }}>{'{var}'}</code> to the formula
+            to bind it to a curve.
           </p>
         ) : bindableTraces.length === 0 ? (
           <p style={{ fontSize: 11, color: 'var(--cds-text-helper)' }}>
@@ -1299,19 +1310,70 @@ function AxisCodeTab({ axis }: { axis: Axis }) {
 
 // ── Plot tabs ─────────────────────────────────────────────────────────────────
 
+/**
+ * A Carbon Slider whose `value` comes from the store that its onChange writes.
+ *
+ * Carbon's Slider copies `value` into its own state in one effect and reports
+ * that state through onChange in another. Passing each store update straight
+ * back as `value` can loop: when a keypress renders in the same batch as the
+ * store update for the previous key, Carbon reports the keypress while also
+ * resetting itself to the older store value, then reports that value while
+ * resetting to the newer one, and so on, swapping two steps forever.
+ *
+ * So `value` only reaches Carbon when it changes from outside (another plot,
+ * a loaded file): that remounts the slider at the new value. When the store
+ * just catches up with what the slider reported, Carbon's `value` stays put.
+ * This relies on onChange writing the store in the same update; a deferred
+ * write (a transition, a debounce) would look like an outside change.
+ *
+ * Single handle only.
+ */
+function StoreSlider({
+  value,
+  min,
+  max,
+  onChange,
+  ...props
+}: Omit<SliderProps, 'unstable_valueUpper'>) {
+  // `seed` is what Carbon was mounted with; `seen` is the latest value either
+  // the store or the slider has reported. Carbon also resets itself to its
+  // `value` prop when min or max change, so those remount it too, at the
+  // current value rather than the stale seed.
+  const [held, setHeld] = useState({ seed: value, seen: value, min, max, key: 0 });
+  // Object.is so a NaN from a malformed workspace file doesn't reseed forever.
+  if (!Object.is(value, held.seen) || min !== held.min || max !== held.max) {
+    setHeld({ seed: value, seen: value, min, max, key: held.key + 1 });
+  }
+  return (
+    <Slider
+      key={held.key}
+      {...props}
+      min={min}
+      max={max}
+      value={held.seed}
+      onChange={(data) => {
+        setHeld((prev) => ({ ...prev, seen: data.value }));
+        onChange?.(data);
+      }}
+    />
+  );
+}
+
 function PlotGeneralTab({
   plot,
+  nowMs,
   onUpdate,
   onApplyPalette,
 }: {
   plot: Plot;
+  nowMs: number;
   onUpdate: (u: Partial<Plot>) => void;
   onApplyPalette: (paletteId: string, scope: { plotId: string; axisId?: string }) => void;
 }) {
   // The Plot-tab picker controls the global default palette (persisted), so new
   // traces follow it; the button additionally recolors existing traces now.
   const { paletteId, setPaletteId } = usePaletteId();
-  // Free-text span field (e.g. "90m", "1.5h"). Seeded from the relative range
+  // Free-text span field (e.g. "30s", "90m", "1.5h"). Seeded from the relative range
   // minus its leading "-"; commits a normalized "-<span>" range on Enter/blur.
   const isCustom = plot.xAxis.timeRange === 'custom';
   const spanFromRange = isCustom ? '' : plot.xAxis.timeRange.replace(/^-/, '');
@@ -1335,17 +1397,37 @@ function PlotGeneralTab({
       return;
     }
     if (parseSpanMs(trimmed) === null) {
-      setSpanError('Use a number plus m, h, d, w, or M (e.g. 90m, 1.5h, 2w).');
+      setSpanError('Use a number plus s, m, h, d, w, or M (e.g. 30s, 90m, 1.5h, 2w).');
       return;
     }
     setSpanError(undefined);
     onUpdate({ xAxis: { ...plot.xAxis, timeRange: `-${trimmed}` } });
   };
-  const customError = isCustom ? resolveTimeWindow(plot.xAxis).error : undefined;
+  const customError = isCustom ? resolveTimeWindow(plot.xAxis, nowMs).error : undefined;
   // A relative range that isn't one of the dropdown presets (e.g. "-30m") needs
   // its own option, or the native Select would mislead by showing the first item.
-  const PRESETS = ['-1h', '-4h', '-1d', '-2d', '-1w', '-1M', 'custom'];
+  const PRESETS = [
+    '-30s',
+    '-1m',
+    '-5m',
+    '-15m',
+    '-1h',
+    '-4h',
+    '-1d',
+    '-2d',
+    '-1w',
+    '-1M',
+    'custom',
+  ];
   const isPresetRange = PRESETS.includes(plot.xAxis.timeRange);
+  // A short span caps the refresh interval (see refreshIntervalMs); say so,
+  // since the field still shows the interval the user set.
+  const refreshMs = refreshIntervalMs(plot);
+  const refreshCapped = refreshMs < clampInterval(plot.refreshIntervalS) * 1000;
+  const refreshHelp = refreshCapped
+    ? `Archive and formula data refresh every ${+(refreshMs / 1000).toFixed(1)} s at this span (at most a sixth of it), so the scrolling axis doesn't outrun them.`
+    : 'How often archive and formula data refresh. The axis scrolls continuously.';
+  const gridOpacityPct = Math.round(plot.gridOpacity * 100);
   return (
     <div>
       <div className="prop-section">
@@ -1443,13 +1525,16 @@ function PlotGeneralTab({
           </Select>
         </div>
         <div className="prop-row">
-          <Slider
+          {/* No number input: it doesn't fit beside the track at the default
+              panel width, so the value goes in the label instead. */}
+          <StoreSlider
             id="grid-opacity"
-            labelText="Gridline Opacity"
+            labelText={`Gridline Opacity (${gridOpacityPct}%)`}
+            hideTextInput
             min={0}
             max={100}
             step={5}
-            value={Math.round(plot.gridOpacity * 100)}
+            value={gridOpacityPct}
             onChange={({ value }) => onUpdate({ gridOpacity: value / 100 })}
           />
         </div>
@@ -1525,6 +1610,10 @@ function PlotGeneralTab({
             }}
             size="sm"
           >
+            <SelectItem value="-30s" text="Last 30 Seconds" />
+            <SelectItem value="-1m" text="Last 1 Minute" />
+            <SelectItem value="-5m" text="Last 5 Minutes" />
+            <SelectItem value="-15m" text="Last 15 Minutes" />
             <SelectItem value="-1h" text="Last 1 Hour" />
             <SelectItem value="-4h" text="Last 4 Hours" />
             <SelectItem value="-1d" text="Last 1 Day" />
@@ -1545,7 +1634,7 @@ function PlotGeneralTab({
             <div className="prop-row">
               <TextInput
                 id="time-span"
-                labelText="Span (e.g. 90m, 1.5h, 2w)"
+                labelText="Span (e.g. 30s, 90m, 1.5h, 2w)"
                 value={spanText}
                 invalid={!!spanError}
                 invalidText={spanError}
@@ -1572,6 +1661,7 @@ function PlotGeneralTab({
               <NumberInput
                 id="refresh-interval"
                 label="Refresh interval (s)"
+                helperText={refreshHelp}
                 min={MIN_REFRESH_S}
                 max={MAX_REFRESH_S}
                 step={1}
