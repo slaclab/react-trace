@@ -9,6 +9,10 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { RightPanel } from './RightPanel';
 import type { Plot } from '../types';
 import { WithCanopy } from '../test/canopy';
+import { stubCarbonDom } from '../test/dom';
+
+// RightPanel's Carbon Tabs observe their size; jsdom has no ResizeObserver.
+stubCarbonDom();
 
 // ArchiverPicker fetches the archiver list on mount; keep it pending so the
 // test needs no backend.
