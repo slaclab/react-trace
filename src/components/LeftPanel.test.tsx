@@ -68,6 +68,7 @@ function panel(plots: Plot[]) {
       onAddFormula={vi.fn()}
       onDeleteTrace={vi.fn()}
       onAddAxis={vi.fn()}
+      onSearchPvs={vi.fn()}
       onDeleteAxis={vi.fn()}
       onMoveTrace={vi.fn()}
     />

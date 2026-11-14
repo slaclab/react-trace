@@ -26,7 +26,7 @@ describe('usePVSearch', () => {
       {
         'GET /mole/v1/search': jsonResponse({
           archiver: 'slac',
-          pattern: '.*BPM.*',
+          pattern: '.*(?:BPM).*',
           pvs: ['A:BPM'],
         }),
       },
@@ -37,15 +37,19 @@ describe('usePVSearch', () => {
     expect(result.current.pvs).toEqual(['A:BPM']);
     expect(fetch.calls).toHaveLength(1);
     expect(fetch.calls[0].url.startsWith('http://canopy.test/mole/v1/search?')).toBe(true);
-    expect(fetch.calls[0].query).toEqual({ pattern: '.*BPM.*', archiver: 'slac', limit: '25' });
+    expect(fetch.calls[0].query).toEqual({
+      pattern: '.*(?:BPM).*',
+      archiver: 'slac',
+      limit: '25',
+    });
   });
 
-  it('passes an explicit pattern through unchanged', async () => {
+  it('keeps an explicit trailing .* without adding another', async () => {
     const { result, fetch } = renderSearch('A:.*', {
-      'GET /mole/v1/search': jsonResponse({ archiver: 'slac', pattern: 'A:.*', pvs: [] }),
+      'GET /mole/v1/search': jsonResponse({ archiver: 'slac', pattern: '.*(?:A:.*)', pvs: [] }),
     });
     await waitFor(() => expect(result.current.status).toBe('ready'));
-    expect(fetch.calls[0].query.pattern).toBe('A:.*');
+    expect(fetch.calls[0].query.pattern).toBe('.*(?:A:.*)');
   });
 
   it('reports the Canopy error code and detail', async () => {

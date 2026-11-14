@@ -1,4 +1,5 @@
 import {
+  Search,
   Save,
   Printer,
   Upload,
@@ -13,6 +14,8 @@ import { HeaderGlobalAction } from '@carbon/react';
 import { formatShortcut } from '../hooks/useKeyboardShortcuts';
 
 interface ToolbarProps {
+  /** Opens the Search PVs dialog for the active plot (#43). */
+  onSearchPvs: () => void;
   onSave: () => void;
   onPrint: () => void;
   onImport: () => void;
@@ -31,6 +34,7 @@ interface ToolbarProps {
 // HeaderGlobalAction gives us hover/tooltip/keyboard handling for free and
 // follows the header's theme.
 export function Toolbar({
+  onSearchPvs,
   onSave,
   onPrint,
   onImport,
@@ -43,6 +47,9 @@ export function Toolbar({
 }: ToolbarProps) {
   return (
     <>
+      <HeaderGlobalAction aria-label="Search PVs" tooltipAlignment="end" onClick={onSearchPvs}>
+        <Search size={20} />
+      </HeaderGlobalAction>
       <HeaderGlobalAction
         aria-label="Refresh archive data"
         tooltipAlignment="end"

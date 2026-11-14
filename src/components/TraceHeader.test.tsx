@@ -41,6 +41,7 @@ function renderHeader({ elog = false } = {}) {
             onExportImage={noop}
             onOpenDataInsight={noop}
             onRefreshArchive={noop}
+            onSearchPvs={noop}
             onOpenConfigStore={noop}
             onPostElog={elog ? noop : undefined}
           />
@@ -68,6 +69,7 @@ describe('TraceHeader', () => {
   it('puts trace actions first, then theme toggle, bug report and docs', () => {
     renderHeader();
     expect(headerButtonLabels()).toEqual([
+      'Search PVs',
       'Refresh archive data',
       `Data Insight (${formatShortcut('alt', 'D')})`,
       `Save (${formatShortcut('primary', 'S')})`,

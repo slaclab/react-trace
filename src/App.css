@@ -197,6 +197,8 @@
 }
 
 .layers-plot-group__add-axis {
+  display: flex;
+  gap: 4px;
   padding: 4px 0 2px;
 }
 
@@ -911,4 +913,85 @@
 
 .insight-tool__empty--error {
   color: var(--cds-text-error);
+}
+
+/* Search PVs dialog: a checkbox list of matches that scrolls inside the body,
+   so the pattern box and status line stay put with hundreds of matches. */
+.pv-search__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pv-search__status {
+  font-size: 12px;
+}
+
+.pv-search__results {
+  flex: 1 1 auto;
+  min-height: 12rem;
+  overflow-y: auto;
+}
+
+.pv-search__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pv-search__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+}
+
+.pv-search__row:hover {
+  background: var(--cds-layer-hover);
+}
+
+.pv-search__row--all {
+  border-bottom: 1px solid var(--cds-border-subtle);
+  margin-bottom: 2px;
+}
+
+/* Let the label span the row so clicking anywhere on the name toggles it. */
+.pv-search__row .cds--form-item {
+  flex: 1 1 auto;
+  align-items: stretch;
+  margin: 0;
+}
+
+.pv-search__row .cds--checkbox-label {
+  inline-size: 100%;
+}
+
+/* Selected strip: every tick in view, whatever search produced it. Sits under
+   the list so the rows never move when it appears. */
+.pv-search__selected {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--cds-border-subtle);
+}
+
+.pv-search__selected-label {
+  font-size: 12px;
+  color: var(--cds-text-secondary);
+  white-space: nowrap;
+  padding-top: 5px;
+}
+
+.pv-search__selected-tags {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 4.5rem;
+  overflow-y: auto;
+}
+
+.pv-search__selected-tags .cds--tag {
+  margin: 0;
 }
