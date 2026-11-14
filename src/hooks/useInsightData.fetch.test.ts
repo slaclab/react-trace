@@ -6,6 +6,7 @@
 // back off. The pure merge logic is covered in useInsightData.test.ts.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
+import { AlarmSeverity } from '@slaclab/canopy-client';
 
 vi.mock('../api/mole', () => ({ fetchData: vi.fn(), fetchMetadata: vi.fn() }));
 
@@ -45,14 +46,15 @@ function liveEntry(): LiveEntry {
     connected: true,
     severity: 'NO_ALARM',
     latest: {
-      pv: PV,
       value: 2,
-      severity: 'NO_ALARM',
-      tsNs: (T0_MS - 5_000) * 1e6,
+      displayValue: '2.000 mm',
+      severity: AlarmSeverity.NO_ALARM,
       connected: true,
+      timestamp: T0_MS - 5_000,
       units: 'mm',
       precision: 3,
-      error: null,
+      lowerLimit: 0,
+      upperLimit: 0,
     },
     error: null,
     points: [

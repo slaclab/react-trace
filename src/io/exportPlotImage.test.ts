@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
-import { dataUrlToBlob, capturePlots, capturedToFile, type PngSource } from './exportPlotImage';
+import { capturePlots, capturedToFile, type PngSource } from './exportPlotImage';
 
 // 1x1 transparent PNG.
 const PNG_DATA_URL =
@@ -9,17 +9,6 @@ const PNG_DATA_URL =
 function fakeInstance(dataUrl: string): PngSource {
   return { getDataURL: () => dataUrl };
 }
-
-describe('dataUrlToBlob', () => {
-  it('decodes a base64 data URL into a Blob with the right mime', async () => {
-    const blob = dataUrlToBlob(PNG_DATA_URL);
-    expect(blob.type).toBe('image/png');
-    expect(blob.size).toBeGreaterThan(0);
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    // PNG magic number.
-    expect(Array.from(bytes.slice(0, 4))).toEqual([0x89, 0x50, 0x4e, 0x47]);
-  });
-});
 
 describe('capturePlots', () => {
   it('captures instances and skips plots without one', () => {
@@ -34,6 +23,37 @@ describe('capturePlots', () => {
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({ id: 'p1', title: 'Plot 1', dataUrl: PNG_DATA_URL });
   });
+
+  it('bakes in the background at pixel ratio 2', () => {
+    const getDataURL = vi.fn(() => PNG_DATA_URL);
+    capturePlots([{ id: 'p1', title: 'Plot 1', instance: { getDataURL } }], '#f4f4f4');
+    expect(getDataURL).toHaveBeenCalledWith({
+      type: 'png',
+      pixelRatio: 2,
+      backgroundColor: '#f4f4f4',
+    });
+  });
+
+  it('skips instances that yield no image or throw', () => {
+    const captured = capturePlots(
+      [
+        { id: 'empty', title: 'Empty', instance: fakeInstance('') },
+        { id: 'bad', title: 'Bad', instance: fakeInstance('not a data url') },
+        {
+          id: 'throws',
+          title: 'Throws',
+          instance: {
+            getDataURL: () => {
+              throw new Error('disposed');
+            },
+          },
+        },
+        { id: 'ok', title: 'OK', instance: fakeInstance(PNG_DATA_URL) },
+      ],
+      '#161616'
+    );
+    expect(captured.map((c) => c.id)).toEqual(['ok']);
+  });
 });
 
 describe('capturedToFile', () => {
@@ -41,6 +61,13 @@ describe('capturedToFile', () => {
     const file = capturedToFile({ id: 'p1', title: 'Beam Current (mA)', dataUrl: PNG_DATA_URL }, 0);
     expect(file.name).toBe('trace_plot_1_Beam_Current_mA.png');
     expect(file.type).toBe('image/png');
+  });
+
+  it('decodes the PNG bytes into the file', async () => {
+    const file = capturedToFile({ id: 'p1', title: 'Plot', dataUrl: PNG_DATA_URL }, 0);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    // PNG magic number.
+    expect(Array.from(bytes.slice(0, 4))).toEqual([0x89, 0x50, 0x4e, 0x47]);
   });
 
   it('falls back to the id when the title has no usable characters', () => {

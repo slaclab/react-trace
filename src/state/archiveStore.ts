@@ -1,7 +1,12 @@
 import { fetchData as defaultFetchData } from '../api/mole';
-import type { ArchiverDataDTO, BinnedPointDTO, SampleDTO } from '../api/types';
+import type { AlarmSeverity, ArchiverDataDTO, BinnedPointDTO, SampleDTO } from '../api/types';
 import type { TimeWindowNs } from '../api/time';
 import { nsToMs } from '../api/time';
+import {
+  errorInfo as archiveErrorInfo,
+  type ErrorInfo as ArchiveErrorInfo,
+} from '../api/errorInfo';
+import { retryDelayMs } from './retry';
 
 // ── Mode policy ──────────────────────────────────────────────────────────────
 //
@@ -21,50 +26,44 @@ export const DRIFT_MIN_INTERVAL_MS = 2_000;
 // A tail fetch re-reads this much of the buffered window, so samples the
 // archiver writes late (after the previous fetch) aren't lost.
 export const TAIL_OVERLAP_MS = 10_000;
+// Bins are sized for the window they were fetched for. Zooming into a binned
+// buffer shows fewer and fewer of them, so once the window is shorter than
+// this share of the fetched span (bins at most 2x too coarse), refetch it.
+export const ZOOM_REFETCH_RATIO = 0.5;
 
 export interface FetchMode {
   binning?: 'auto';
   maxPoints: number;
 }
 
-export function pickFetchMode(windowMs: number, traceBins?: number): FetchMode {
-  if (windowMs <= RAW_WINDOW_MS_THRESHOLD) return { maxPoints: RAW_MAX_POINTS };
+// `rawDecimatedMs`: raw for a window this long came back decimated (thinned to
+// RAW_MAX_POINTS by the archiver), so a window at least this long fetches
+// binned instead, whose min/max band keeps the spikes thinning would drop.
+export function pickFetchMode(
+  windowMs: number,
+  traceBins?: number,
+  rawDecimatedMs = Infinity
+): FetchMode {
+  if (windowMs <= RAW_WINDOW_MS_THRESHOLD && windowMs < rawDecimatedMs) {
+    return { maxPoints: RAW_MAX_POINTS };
+  }
   return { binning: 'auto', maxPoints: traceBins ?? DEFAULT_OPTIMIZED_BINS };
 }
 
 // ── Errors ───────────────────────────────────────────────────────────────────
 
-export interface ArchiveErrorInfo {
-  code: string;
-  detail: string;
-}
+// Failures are read with the shared errorInfo(), under the names this store's
+// callers import.
+export { archiveErrorInfo, type ArchiveErrorInfo };
 
 // Mole's code for "the archiver doesn't have this PV". It's a property of the
 // (pv, archiver) pair, not of the time window, so it's remembered rather than
 // retried as the window moves.
 export const NOT_ARCHIVED_CODE = 'pv_not_found_in_archiver';
 
-// Retry schedule for every other failure (5xx, timeout, network, auth, ...).
-// Mirrors liveStore's reconnect backoff; the last step repeats.
-export const RETRY_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 15_000];
-
-export function retryDelayMs(attempts: number): number {
-  return RETRY_DELAYS_MS[Math.min(Math.max(attempts, 1), RETRY_DELAYS_MS.length) - 1];
-}
-
-/**
- * Pull `{ code, detail }` out of a failed fetch. Duck-typed on the
- * `CanopyError` shape rather than `instanceof`, so it keeps working whichever
- * module the error class comes from.
- */
-export function archiveErrorInfo(err: unknown): ArchiveErrorInfo {
-  const e = err as { code?: unknown; detail?: unknown; message?: unknown } | null | undefined;
-  if (typeof e?.code === 'string' && typeof e.detail === 'string') {
-    return { code: e.code, detail: e.detail };
-  }
-  const message = typeof e?.message === 'string' ? e.message : String(err);
-  return { code: 'unknown_error', detail: message };
-}
+// Every other failure (5xx, timeout, network, auth, ...) is retried on the
+// shared backoff schedule.
+export { RETRY_DELAYS_MS, retryDelayMs } from './retry';
 
 export function isNotArchivedError(info: { code: string }): boolean {
   return info.code === NOT_ARCHIVED_CODE;
@@ -72,15 +71,19 @@ export function isNotArchivedError(info: { code: string }): boolean {
 
 // ── Buffer model ─────────────────────────────────────────────────────────────
 
+// `severity` is per sample (raw) or per bin (binned). PlotArea breaks the line
+// at INVALID points. Mole currently reports every bin as NO_ALARM.
 export interface ArchivePlotPoint {
   time: number;
   value: number;
+  severity: AlarmSeverity;
 }
 
 export interface ArchiveBandPoint {
   time: number;
   min: number;
   max: number;
+  severity: AlarmSeverity;
 }
 
 export type ArchiveStatus = 'loading' | 'ready' | 'error';
@@ -145,18 +148,28 @@ interface InternalEntry {
   data: ArchiveEntry;
   // Most recently *issued* window. We only fetch when a new request lands
   // outside this (with tolerance). The in-flight promise covers `requestedWindow`.
-  // Null for an entry created already knowing the PV isn't archived.
+  // Null for an entry created already knowing the PV isn't archived, and when
+  // the window comes back inside the buffer after a fetch for another window:
+  // one in flight that wouldn't cover it is cancelled, a failed one's backoff
+  // is dropped.
   requestedWindow: TimeWindowNs | null;
-  // Most recent request, issued or not. `refetchAll()` re-issues this one so a
-  // manual refresh uses the current window, not one from before a long sticky
-  // or backoff stretch.
+  // Most recent request, issued or not, and when it was asked for (wall clock,
+  // ms). `refetchAll()` re-issues this one so a manual refresh uses the current
+  // window, not one from before a long sticky or backoff stretch. Retries and
+  // catch-ups re-issue it later than `wantedAtMs`.
   wanted: RequestOpts;
+  wantedAtMs: number;
+  // The in-flight request's window followed "now", judged when it was asked
+  // for (see forwardSlide).
+  requestedFollowedNow: boolean;
   controller: AbortController | null;
   failure: Failure | null;
-  // A fetch under this identity has succeeded, so `data.cover*` is real
-  // coverage. Distinguishes an archived PV with no samples in the window
-  // (covered, empty) from one never loaded.
-  hasCover: boolean;
+  // Signature of the fetch the buffer came from. Set once a fetch under this
+  // identity succeeds, so `data.cover*` is real coverage: an archived PV with
+  // no samples in the window is covered and empty, one never loaded is null.
+  // `fetchSig` moves to a new request as soon as it's issued while the buffer
+  // stays on screen, so only a buffer with the same signature counts as cover.
+  coverSig: FetchSig | null;
   // Pending retry of `wanted` after a transient failure (see scheduleRetry).
   retryTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -184,26 +197,68 @@ function coverageTolerance(win: TimeWindowNs): number {
   return Math.max(1, (win.toNs - win.fromNs) * 0.01);
 }
 
+// How far a window tracking "now" may drift: DRIFT_MIN_INTERVAL_MS, or 1% of
+// the span if that's longer.
+function driftSlack(win: TimeWindowNs): number {
+  return Math.max(coverageTolerance(win), DRIFT_MIN_INTERVAL_MS * 1_000_000);
+}
+
+// `win` ended at "now" (`atNs`, when it was asked for), within the slack
+// either way: a live window. One ending further in the future doesn't count.
+function followsNow(win: TimeWindowNs, atNs: number): boolean {
+  return Math.abs(win.toNs - atNs) <= driftSlack(win);
+}
+
+// The buffer was fetched under the current signature: a binned buffer kept on
+// screen while a raw fetch is pending (or the reverse) doesn't count.
+function bufferMatches(entry: InternalEntry): boolean {
+  return !!entry.coverSig && fetchSigEqual(entry.coverSig, entry.fetchSig);
+}
+
 function covers(entry: InternalEntry, win: TimeWindowNs, nowNs: number): boolean {
-  if (!entry.hasCover) return false;
+  if (!bufferMatches(entry)) return false;
+  const cover = { fromNs: entry.data.coverFromNs, toNs: entry.data.coverToNs };
+  return coverDraws(cover, entry.fetchSig.mode, win, nowNs);
+}
+
+// Whether a buffer fetched in `mode` and covering `cover` can draw `win`.
+function coverDraws(
+  cover: TimeWindowNs,
+  mode: 'raw' | 'binned',
+  win: TimeWindowNs,
+  nowNs: number
+): boolean {
+  // Zoomed into a binned buffer: the bins are too coarse for this window. (A
+  // binned buffer covers exactly the window its bins were fetched for.)
+  if (
+    mode === 'binned' &&
+    win.toNs - win.fromNs < (cover.toNs - cover.fromNs) * ZOOM_REFETCH_RATIO
+  ) {
+    return false;
+  }
   const tol = coverageTolerance(win);
-  if (entry.data.coverFromNs > win.fromNs + tol) return false;
-  if (entry.data.coverToNs >= win.toNs - tol) return true;
+  if (cover.fromNs > win.fromNs + tol) return false;
+  if (cover.toNs >= win.toNs - tol) return true;
   // A window tracking "now" can be behind by up to DRIFT_MIN_INTERVAL_MS
   // before it's worth asking the archiver for the newest part. Historical
   // windows (panned into the past) keep the plain tolerance.
-  const slack = Math.max(tol, DRIFT_MIN_INTERVAL_MS * 1_000_000);
-  return win.toNs >= nowNs - slack && entry.data.coverToNs >= win.toNs - slack;
+  const slack = driftSlack(win);
+  return win.toNs >= nowNs - slack && cover.toNs >= win.toNs - slack;
 }
 
 // When the buffer covers the start of `win` and only the end is new (a window
 // sliding forward with "now"), the range to fetch: the new part plus
 // TAIL_OVERLAP_MS of what's buffered. Null when a full fetch is needed: binned
 // mode (bins are relative to the whole window), a decimated buffer (a sparse
-// tail would mix densities), after a failure, or when the gap is over half
-// the span.
+// tail would mix densities), a buffer fetched under another signature, after
+// a failure, or when the gap is over half the span.
 function tailRange(entry: InternalEntry, win: TimeWindowNs): TimeWindowNs | null {
-  if (!entry.hasCover || entry.failure || entry.fetchSig.mode !== 'raw' || entry.data.decimated) {
+  if (
+    !bufferMatches(entry) ||
+    entry.failure ||
+    entry.fetchSig.mode !== 'raw' ||
+    entry.data.decimated
+  ) {
     return null;
   }
   const { coverFromNs, coverToNs } = entry.data;
@@ -216,15 +271,24 @@ function tailRange(entry: InternalEntry, win: TimeWindowNs): TimeWindowNs | null
   };
 }
 
-// The in-flight request for `prev` will cover most of `win`, which only moved
-// forward: let it finish instead of aborting it. Aborting on every small
-// advance could starve the archive at short spans (a new request every few
-// tens of ms, each cancelled before the archiver answers).
-function forwardSlide(prev: TimeWindowNs, win: TimeWindowNs): boolean {
+// `win` is `prev` moved forward at the same span, and either still overlaps it
+// or both follow "now" (the same live window, further along because the
+// archiver is slower than the span). Let the in-flight request for `prev`
+// finish instead of aborting it: aborting on every small advance could starve
+// the archive at short spans (a new request every few tens of ms, each
+// cancelled before the archiver answers). Any other jump forward is a new
+// request, so its window isn't left showing the old one's data meanwhile.
+function forwardSlide(
+  prev: TimeWindowNs,
+  prevFollowedNow: boolean,
+  win: TimeWindowNs,
+  winFollowsNow: boolean
+): boolean {
   return (
     win.toNs >= prev.toNs &&
     win.fromNs >= prev.fromNs - coverageTolerance(win) &&
-    !spanChanged(prev.toNs - prev.fromNs, win)
+    !spanChanged(prev.toNs - prev.fromNs, win) &&
+    (win.fromNs < prev.toNs || (prevFollowedNow && winFollowsNow))
   );
 }
 
@@ -267,9 +331,16 @@ interface ResolvedRequest {
   spanNs: number;
 }
 
-function resolveRequest(opts: RequestOpts): ResolvedRequest {
+// `rawDecimatedSpanNs`: the shortest span whose raw answer came back decimated
+// for this (pv, archiver). A span within the coverage tolerance of it counts as
+// that span, so window jitter doesn't retry raw.
+function resolveRequest(opts: RequestOpts, rawDecimatedSpanNs = Infinity): ResolvedRequest {
   const spanNs = opts.window.toNs - opts.window.fromNs;
-  const mode = pickFetchMode(spanNs / 1_000_000, opts.bins);
+  const mode = pickFetchMode(
+    spanNs / 1_000_000,
+    opts.bins,
+    (rawDecimatedSpanNs - coverageTolerance(opts.window)) / 1_000_000
+  );
   const identityKey: IdentityKey = { pv: opts.pv, archiver: opts.archiver ?? null };
   const fetchSig: FetchSig = {
     ...identityKey,
@@ -309,7 +380,9 @@ function dtoToData(
   if (dto.mode === 'raw') {
     const mean: ArchivePlotPoint[] = [];
     for (const s of dto.samples as SampleDTO[]) {
-      if (typeof s.value === 'number') mean.push({ time: nsToMs(s.tsNs), value: s.value });
+      if (typeof s.value === 'number') {
+        mean.push({ time: nsToMs(s.tsNs), value: s.value, severity: s.severity });
+      }
     }
     return {
       status: 'ready',
@@ -327,8 +400,8 @@ function dtoToData(
   const band: ArchiveBandPoint[] = [];
   for (const p of dto.points as BinnedPointDTO[]) {
     const t = nsToMs(p.tsNs);
-    mean.push({ time: t, value: p.mean });
-    band.push({ time: t, min: p.min, max: p.max });
+    mean.push({ time: t, value: p.mean, severity: p.severity });
+    band.push({ time: t, min: p.min, max: p.max, severity: p.severity });
   }
   return {
     status: 'ready',
@@ -388,7 +461,7 @@ function spliceTail(
   for (const s of dto.samples as SampleDTO[]) {
     if (typeof s.value !== 'number') continue;
     const time = nsToMs(s.tsNs);
-    if (time >= tailFromMs) mean.push({ time, value: s.value });
+    if (time >= tailFromMs) mean.push({ time, value: s.value, severity: s.severity });
   }
 
   // Blanks are kept the same way. Note the last one at or before the start,
@@ -432,6 +505,11 @@ export class ArchiveStore {
   // Survives `release()`; cleared by `refetchAll()`, `forgetNotArchived()`, or
   // a later successful fetch of the same pair.
   private notArchived = new Map<string, ArchiveErrorInfo>();
+  // Shortest span whose raw answer came back decimated, per (pv, archiver):
+  // windows at least this long fetch binned. It reflects how densely the PV
+  // is archived, so it's shared by every trace and only ever decreases. Kept
+  // across `release()` and `refetchAll()`.
+  private rawDecimatedSpanNs = new Map<string, number>();
   private readonly fetchData: FetchDataFn;
   private readonly now: () => number;
 
@@ -492,10 +570,11 @@ export class ArchiveStore {
       this.clearRetry(entry);
 
       const opts = entry.wanted;
-      const { fetchSig, mode } = resolveRequest(opts);
+      const { fetchSig, mode } = this.resolve(opts);
       const controller = new AbortController();
       entry.fetchSig = fetchSig;
       entry.requestedWindow = opts.window;
+      entry.requestedFollowedNow = followsNow(opts.window, entry.wantedAtMs * 1_000_000);
       entry.controller = controller;
       entry.failure = null;
       entry.data = { ...entry.data, status: 'loading', error: undefined };
@@ -517,13 +596,23 @@ export class ArchiveStore {
    *   until the archiver answers.
    * - Same identity, same fetch signature, buffer already covers the window:
    *   free render, no fetch. A window tracking "now" counts as covered until
-   *   it's DRIFT_MIN_INTERVAL_MS (or 1% of the span, if longer) ahead.
+   *   it's DRIFT_MIN_INTERVAL_MS (or 1% of the span, if longer) ahead. A zoom
+   *   into a binned buffer past ZOOM_REFETCH_RATIO isn't covered: it refetches
+   *   with the coarse buffer still on screen and status 'ready'. Coming back
+   *   inside the buffer (zooming back out, panning back) cancels a fetch still
+   *   in flight for a window that doesn't cover this one. A buffer kept on
+   *   screen while a fetch under another signature is pending (binned ↔ raw)
+   *   covers nothing; a window inside the pending one waits for its answer.
    * - Window slid forward past the buffer (raw mode): fetch only the new tail
    *   (plus TAIL_OVERLAP_MS) and splice it in, keeping status 'ready'. If that
    *   would take the buffer past the raw point budget, the whole window is
    *   fetched again instead and the archiver decimates it. An
-   *   in-flight fetch isn't aborted for a forward slide; once it lands, the
-   *   rest of the latest window is fetched.
+   *   in-flight fetch isn't aborted for a forward slide that still overlaps
+   *   it, or when both windows follow "now"; once it lands, the rest of the
+   *   latest window is fetched. A jump forward past it aborts it.
+   * - Raw came back decimated: refetch binned. For this (pv, archiver),
+   *   windows at least that long then go straight to binned; a shorter one
+   *   tries raw again.
    * - Last fetch failed for another reason: no fetch until its backoff expires.
    *   Then a timer retries the latest request, so a window that never moves
    *   retries too.
@@ -539,7 +628,14 @@ export class ArchiveStore {
    * is backing off) doesn't flicker back to 'loading'.
    */
   request(traceId: string, opts: RequestOpts): void {
-    const { identityKey, fetchSig, mode, key, spanNs } = resolveRequest(opts);
+    this.requestAt(traceId, opts, this.now());
+  }
+
+  // `request()` for a window asked for at `askedAtMs`. A retry or catch-up
+  // re-issues the latest window later than that, and passes its original time
+  // so a live window still counts as following "now".
+  private requestAt(traceId: string, opts: RequestOpts, askedAtMs: number): void {
+    const { identityKey, fetchSig, mode, key, spanNs } = this.resolve(opts);
     const known = this.notArchived.get(key);
 
     const existing = this.entries.get(traceId);
@@ -547,6 +643,7 @@ export class ArchiveStore {
 
     if (existing && sameIdentity) {
       existing.wanted = opts;
+      existing.wantedAtMs = askedAtMs;
       const failure = existing.failure;
 
       if (known) {
@@ -572,7 +669,32 @@ export class ArchiveStore {
       }
 
       const sameSig = fetchSigEqual(existing.fetchSig, fetchSig);
-      if (sameSig && covers(existing, opts.window, this.now() * 1_000_000)) {
+      const nowNs = this.now() * 1_000_000;
+      if (sameSig && covers(existing, opts.window, nowNs)) {
+        // Back on the buffer, so the transient failure is behind us: drop its
+        // backoff, or it would hold up the next uncovered window. A failed
+        // re-ask after a verdict stays, so the verdict isn't adopted over it.
+        if (failure && !failure.revalidating) {
+          this.clearRetry(existing);
+          existing.failure = null;
+          // Forget the window that failed too, or asking for it again would be
+          // taken for a request already answered. A retry still in flight
+          // keeps its window: the check below needs it.
+          if (!existing.controller) existing.requestedWindow = null;
+        }
+        // Back inside the buffer (zoomed back out, or panned back) before the
+        // fetch for the window in between answered. Its answer would replace
+        // the buffer on screen, so cancel it unless it covers this window too,
+        // and forget its window so asking for it again fetches.
+        if (
+          existing.controller &&
+          existing.requestedWindow &&
+          !coverDraws(existing.requestedWindow, fetchSig.mode, opts.window, nowNs)
+        ) {
+          existing.controller.abort();
+          existing.controller = null;
+          existing.requestedWindow = null;
+        }
         if (existing.data.status !== 'ready') {
           existing.data = { ...existing.data, status: 'ready', error: undefined };
           this.publish();
@@ -583,12 +705,21 @@ export class ArchiveStore {
       // Transient failure: wait out the backoff regardless of window drift.
       if (failure && !failure.notArchived && this.now() < failure.retryAtMs) return;
 
-      // A fetch is in flight and the window only moved forward: let it land.
+      // A fetch is in flight and the window only slid forward from it, or its
+      // answer will draw this window too (a zoom into it while the buffer on
+      // screen is from another signature): let it land. Its answer re-asks for
+      // the latest window.
       if (
         sameSig &&
         existing.controller &&
         existing.requestedWindow &&
-        forwardSlide(existing.requestedWindow, opts.window)
+        (forwardSlide(
+          existing.requestedWindow,
+          existing.requestedFollowedNow,
+          opts.window,
+          followsNow(opts.window, askedAtMs * 1_000_000)
+        ) ||
+          coverDraws(existing.requestedWindow, fetchSig.mode, opts.window, nowNs))
       ) {
         return;
       }
@@ -624,9 +755,11 @@ export class ArchiveStore {
         },
         requestedWindow: null,
         wanted: opts,
+        wantedAtMs: askedAtMs,
+        requestedFollowedNow: false,
         controller: null,
         failure: notArchivedFailure(known, spanNs),
-        hasCover: false,
+        coverSig: null,
         retryTimer: null,
       });
       this.publish();
@@ -670,15 +803,21 @@ export class ArchiveStore {
           },
       requestedWindow: opts.window,
       wanted: opts,
+      wantedAtMs: askedAtMs,
+      requestedFollowedNow: followsNow(opts.window, askedAtMs * 1_000_000),
       controller,
       failure: sameIdentity ? existing!.failure : null,
-      hasCover: sameIdentity ? existing!.hasCover : false,
+      coverSig: sameIdentity ? existing!.coverSig : null,
       retryTimer: null,
     };
     this.entries.set(traceId, entry);
     if (!keepShowing) this.publish();
 
     void this.runFetch(traceId, opts, fetchSig.mode, mode, controller, tail);
+  }
+
+  private resolve(opts: RequestOpts): ResolvedRequest {
+    return resolveRequest(opts, this.rawDecimatedSpanNs.get(registryKey(opts.pv, opts.archiver)));
   }
 
   private async runFetch(
@@ -715,6 +854,24 @@ export class ArchiveStore {
       if (!cur || cur.controller !== controller) return;
       // The archiver has this pair after all (e.g. archiving started since).
       const forgot = this.notArchived.delete(key);
+      // Raw came back thinned to maxPoints: the archiver keeps the sample
+      // nearest each of maxPoints evenly spaced times, dropping spikes between
+      // them. Don't keep it; re-request the window binned (the prior buffer
+      // stays on screen). A decimated tail means the whole window would be
+      // too. Only a raw request gets here, and only a shorter window tries raw
+      // again, so this can't loop.
+      if (resolvedMode === 'raw' && dto.mode === 'raw' && dto.decimated) {
+        const spanNs = opts.window.toNs - opts.window.fromNs;
+        this.rawDecimatedSpanNs.set(
+          key,
+          Math.min(this.rawDecimatedSpanNs.get(key) ?? Infinity, spanNs)
+        );
+        cur.controller = null;
+        cur.failure = null;
+        if (forgot) this.publish();
+        this.requestAt(traceId, cur.wanted, cur.wantedAtMs);
+        return;
+      }
       const data = tail
         ? spliceTail(cur.data, dto, tail, opts.window)
         : dtoToData(holdLastBefore(dto, opts.window), resolvedMode, opts.window);
@@ -722,7 +879,8 @@ export class ArchiveStore {
         // The tail would take the buffer past the raw point budget (the PV
         // got busier since the last full fetch). Fetch the whole window
         // instead, which the archiver decimates; the current buffer stays on
-        // screen meanwhile.
+        // screen meanwhile. It's the same window, asked for at the same time,
+        // so `requestedWindow` and `requestedFollowedNow` stand.
         const full = new AbortController();
         cur.controller = full;
         if (forgot) this.publish();
@@ -732,12 +890,12 @@ export class ArchiveStore {
       cur.data = data;
       cur.controller = null;
       cur.failure = null;
-      cur.hasCover = true;
+      cur.coverSig = cur.fetchSig;
       this.publish();
-      // The window may have moved on while this was in flight (a forward pan
-      // doesn't abort it). One that then stays put gets no other request(),
-      // so fetch whatever of the latest window is still missing.
-      this.request(traceId, cur.wanted);
+      // The window may have moved on while this was in flight (a forward
+      // slide doesn't abort it). One that then stays put gets no other
+      // request(), so fetch whatever of the latest window is still missing.
+      this.requestAt(traceId, cur.wanted, cur.wantedAtMs);
     } catch (err) {
       if ((err as { name?: string }).name === 'AbortError') return;
       const cur = this.entries.get(traceId);
@@ -782,7 +940,7 @@ export class ArchiveStore {
       }
       // Early by the injected clock: wait out the rest.
       if (this.now() < failure.retryAtMs) this.scheduleRetry(traceId, entry);
-      else this.request(traceId, entry.wanted);
+      else this.requestAt(traceId, entry.wanted, entry.wantedAtMs);
     }, failure.retryAtMs - this.now());
   }
 

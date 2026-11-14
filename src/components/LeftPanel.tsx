@@ -13,6 +13,7 @@ import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import {
   Add,
+  Search,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -56,6 +57,7 @@ interface LeftPanelProps {
   onAddFormula: (plotId: string, axisId: string) => void;
   onDeleteTrace: (plotId: string, traceId: string) => void;
   onAddAxis: (plotId: string) => void;
+  onSearchPvs: (plotId: string) => void;
   onDeleteAxis: (plotId: string, axisId: string) => void;
   onMoveTrace: (
     sourcePlotId: string,
@@ -384,7 +386,7 @@ interface PlotAxesProps {
   plot: Plot;
   archiveResults: Map<string, ArchiveSeriesResult>;
   selectedItem: SelectedItem;
-  expandedAxes: Set<string>;
+  collapsedAxes: Set<string>;
   onToggleAxis: (axisId: string) => void;
   onSelectItem: (item: SelectedItem) => void;
   onAddTrace: (plotId: string, axisId: string) => void;
@@ -399,7 +401,7 @@ function PlotAxes({
   plot,
   archiveResults,
   selectedItem,
-  expandedAxes,
+  collapsedAxes,
   onToggleAxis,
   onSelectItem,
   onAddTrace,
@@ -424,7 +426,7 @@ function PlotAxes({
               selectedItem.id === axis.id &&
               selectedItem.plotId === plot.id
             }
-            isExpanded={expandedAxes.has(axis.id)}
+            isExpanded={!collapsedAxes.has(axis.id)}
             selectedItem={selectedItem}
             canDelete={plot.axes.length > 1}
             onSelectAxis={() => onSelectItem({ type: 'axis', id: axis.id, plotId: plot.id })}
@@ -453,14 +455,16 @@ export function LeftPanel({
   onAddFormula,
   onDeleteTrace,
   onAddAxis,
+  onSearchPvs,
   onDeleteAxis,
   onMoveTrace,
   onCollapse,
   onExpand,
 }: LeftPanelProps) {
-  const [expandedAxes, setExpandedAxes] = useState<Set<string>>(
-    () => new Set(plots.flatMap((p) => p.axes.map((a) => a.id)))
-  );
+  // Track the axes the user collapsed rather than the expanded ones, so axes
+  // created after mount (Add Axis, a new plot's Y-Axis 1, a PV's units axis)
+  // start expanded too.
+  const [collapsedAxes, setCollapsedAxes] = useState<Set<string>>(() => new Set());
   const [activeDrag, setActiveDrag] = useState<DragData | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -469,7 +473,7 @@ export function LeftPanel({
   }
 
   const toggleAxisExpanded = (axisId: string) => {
-    setExpandedAxes((prev) => {
+    setCollapsedAxes((prev) => {
       const next = new Set(prev);
       if (next.has(axisId)) next.delete(axisId);
       else next.add(axisId);
@@ -543,7 +547,7 @@ export function LeftPanel({
                 plot={plot}
                 archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
                 selectedItem={selectedItem}
-                expandedAxes={expandedAxes}
+                collapsedAxes={collapsedAxes}
                 onToggleAxis={toggleAxisExpanded}
                 onSelectItem={onSelectItem}
                 onAddTrace={onAddTrace}
@@ -559,9 +563,19 @@ export function LeftPanel({
                   renderIcon={Add}
                   iconDescription="Add axis"
                   onClick={() => onAddAxis(plot.id)}
-                  style={{ width: '100%', fontSize: 12, maxInlineSize: 'unset' }}
+                  style={{ flex: 1, fontSize: 12, maxInlineSize: 'unset' }}
                 >
                   Add Axis
+                </Button>
+                <Button
+                  kind="ghost"
+                  size="sm"
+                  renderIcon={Search}
+                  iconDescription="Search PVs"
+                  onClick={() => onSearchPvs(plot.id)}
+                  style={{ flex: 1, fontSize: 12, maxInlineSize: 'unset' }}
+                >
+                  Search PVs
                 </Button>
               </div>
             </div>

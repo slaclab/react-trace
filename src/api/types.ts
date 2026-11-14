@@ -1,193 +1,98 @@
-// Wire types mirroring Canopy/Mole DTOs (camelCase, as emitted by canopy.contracts.base.CanopyModel).
-// Source of truth: the Canopy repo's src/canopy/mole/schemas + Canopy.wiki Module-Architecture:-Mole.md.
+// Transitional: trace's wire-type names, now backed by @slaclab/canopy-client.
+// The Mole DTOs and the error envelope are the SDK's own types. Vole, Magpie and
+// E-log below stay here until their clients move to the SDK.
 
-export type AlarmSeverity = 'NO_ALARM' | 'MINOR' | 'MAJOR' | 'INVALID';
-export type BinningMode = 'auto' | 'time';
+import type { SampleDTO as MoleSampleDTO, WireAlarmSeverity } from '@slaclab/canopy-client';
 
-export interface SampleDTO {
-  tsNs: number;
-  value: number | string | boolean | null;
-  severity: AlarmSeverity;
-  source: 'archive';
+export type AlarmSeverity = WireAlarmSeverity;
+
+export type {
+  ArchiverBinnedSeriesDTO,
+  ArchiverDataDTO,
+  ArchiverInfoDTO,
+  ArchiverListDTO,
+  ArchiverSeriesDTO,
+  BinnedPointDTO,
+  BinningMode,
+  ErrorEnvelope,
+  PVMetadataDTO,
+  SearchResultsDTO,
+} from '@slaclab/canopy-client';
+
+// One stored sample: Mole's (source 'archive') or Vole's live buffer
+// (source 'live'). The SDK's SampleDTO only knows Mole's.
+export interface SampleDTO extends Omit<MoleSampleDTO, 'source'> {
+  source: 'archive' | 'live';
 }
 
-export interface ArchiverSeriesDTO {
-  mode: 'raw';
+export interface VoleSeriesDTO {
   pv: string;
-  archiver: string;
-  from: number;
-  to: number;
-  decimated: boolean;
+  count: number;
   samples: SampleDTO[];
 }
 
-export interface BinnedPointDTO {
-  tsNs: number;
-  binNs: number;
-  mean: number;
-  stdDev: number;
-  min: number;
-  max: number;
-  count: number;
-  severity: AlarmSeverity;
-}
+// ── Magpie (config store) DTOs ───────────────────────────────────────────────
+// Source: canopy.magpie.schemas.config (camelCase wire). A Config stores an
+// opaque JSON `data` blob for a consuming app (here, "trace") — magpie does not
+// define its shape; the workspace shape is trace's concern (see io/serialize.ts).
 
-export interface ArchiverBinnedSeriesDTO {
-  mode: 'binned';
-  pv: string;
-  archiver: string;
-  from: number;
-  to: number;
-  binning: BinningMode;
-  binSizeNs: number | null;
-  targetBuckets: number | null;
-  points: BinnedPointDTO[];
-}
-
-export type ArchiverDataDTO = ArchiverSeriesDTO | ArchiverBinnedSeriesDTO;
-
-export interface PVMetadataDTO {
-  pv: string;
-  archiver: string;
+export interface ConfigDTO {
+  id: string;
+  app: string;
+  slug: string;
+  name: string | null;
   description: string | null;
-  units: string | null;
-  precision: number | null;
-  displayLow: number | null;
-  displayHigh: number | null;
-  alarmLow: number | null;
-  alarmHigh: number | null;
-  warningLow: number | null;
-  warningHigh: number | null;
+  // Opaque to the wire layer: a TraceWorkspace object, parsed by io/serialize's
+  // deserializeConfigData on load (deserializeWorkspace is the string-file door).
+  data: unknown;
+  createdBy: string | null;
+  createdDate: string; // ISO 8601
+  lastModifiedDate: string; // ISO 8601
 }
 
-export interface ArchiverInfoDTO {
+// Canopy's standard list envelope (canopy.contracts.pagination.PagedResult).
+export interface PagedResult<T> {
+  results: T[];
+  continuationToken: string | null;
+  totalCount: number | null;
+}
+
+// ── E-Log DTOs ───────────────────────────────────────────────────────────────
+// Source: canopy.elog (camelCase wire), mounted at /elog. Each client app has its
+// own elog-plus application token server-side; Trace's app path is
+// /elog/v1/apps/trace. Logbooks and tags are referenced by id.
+
+export interface ElogConfigDTO {
+  enabled: boolean;
+  provider: string | null;
+  defaultLogbookIds: string[];
+  // Why posting is disabled (no provider configured, or no token for this app).
+  reason: string | null;
+}
+
+export interface ElogLogbookDTO {
+  id: string;
   name: string;
-  typeName: string;
-  url: string;
-  healthy: boolean;
-  latencyMs: number | null;
-  lastError: string | null;
 }
 
-export interface ArchiverListDTO {
-  default: string;
-  archivers: ArchiverInfoDTO[];
+export interface ElogAttachmentDTO {
+  id: string;
 }
 
-export interface SearchResultsDTO {
-  archiver: string;
-  pattern: string;
-  pvs: string[];
+export interface ElogNewEntryDTO {
+  logbookIds: string[];
+  title: string;
+  // Canopy renders Markdown to HTML before handing the entry to elog-plus.
+  bodyMarkdown: string;
+  tagIds?: string[];
+  attachmentIds?: string[];
+  additionalAuthors?: string[];
+  important?: boolean;
+  eventAt?: string | null;
+  followsUpEntryId?: string | null;
 }
 
-export interface ErrorEnvelope {
-  code: string;
-  detail: string;
-}
-
-// ── Hare (live PV) DTOs ──────────────────────────────────────────────────────
-// Source: canopy.contracts.pv.PVValue + canopy.hare.api.v1.ws frame schema.
-// `tsNs` matches Mole's Sample.tsNs so live and archive share one time domain.
-
-export type PVScalarValue = number | string | boolean | null;
-export type PVValueType = PVScalarValue | PVScalarValue[];
-
-export interface PVValueDTO {
-  pv: string;
-  value: PVValueType;
-  severity: AlarmSeverity;
-  tsNs: number;
-  connected: boolean;
-  units: string | null;
-  precision: number | null;
-  error: string | null;
-}
-
-export interface WsInitialFrame {
-  type: 'initial';
-  data: Record<string, PVValueDTO>;
-  count: number;
-}
-
-export interface WsDiffFrame {
-  type: 'diff';
-  data: Record<string, PVValueDTO>;
-  count: number;
-  timestamp: number;
-}
-
-export interface WsHeartbeatFrame {
-  type: 'heartbeat';
-  timestamp: number;
-  backend: string | null;
-}
-
-export interface WsPongFrame {
-  type: 'pong';
-  timestamp: number;
-}
-
-export interface WsErrorFrame {
-  type: 'error';
-  code: string;
-  message: string;
-}
-
-export type WsFrame = WsInitialFrame | WsDiffFrame | WsHeartbeatFrame | WsPongFrame | WsErrorFrame;
-
-// ── Fox (formula) DTOs ───────────────────────────────────────────────────────
-// Source: canopy.contracts.formula + canopy.fox.schemas.formula (camelCase wire).
-// A formula curve evaluates an `expression` over named `bindings` (variable ->
-// PV name) for a time window. Results are a discriminated union keyed on `kind`.
-
-export type FormulaKind = 'scalar' | 'timeseries' | 'waveform';
-export type FormulaDataMode = 'raw' | 'binned';
-export type FormulaAlignMode = 'last' | 'interpolate';
-export type FormulaIndexMode = 'union' | 'intersection' | 'grid' | 'first_input';
-
-export interface FormulaSpecDTO {
-  kind: FormulaKind;
-  expression: string;
-  // Variable name -> PV name (a referenced curve is resolved to its PV upstream).
-  bindings: Record<string, string>;
-  // mode/align/index carry server defaults (raw / last / union) when omitted.
-  mode?: FormulaDataMode;
-  align?: FormulaAlignMode;
-  index?: FormulaIndexMode;
-  gridDtNs?: number | null;
-  maxPoints?: number | null;
-}
-
-export interface FormulaTimeseriesResultDTO {
-  tsNs: number[];
-  values: (number | null)[];
-  severity: AlarmSeverity[];
-  inputs: Record<string, string>;
-  decimated: boolean;
-}
-
-export interface FormulaScalarResultDTO {
-  tsNs: number;
-  value: number | string | boolean;
-  severity: AlarmSeverity;
-  inputsUsed: Record<string, number>;
-}
-
-export interface FormulaWaveformResultDTO {
-  tsNs: number;
-  values: number[];
-  severity: AlarmSeverity;
-}
-
-export interface FormulaResultDTO {
-  kind: FormulaKind;
-  scalar?: FormulaScalarResultDTO | null;
-  timeseries?: FormulaTimeseriesResultDTO | null;
-  waveform?: FormulaWaveformResultDTO | null;
-}
-
-export interface FormulaValidationDTO {
-  valid: boolean;
-  tokens: string[];
-  errors: string[];
+export interface ElogEntryCreatedDTO {
+  id: string;
+  url: string | null;
 }

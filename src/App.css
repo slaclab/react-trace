@@ -1,7 +1,7 @@
 /* Application-level layout overrides
  *
  * Colors come from Carbon theme tokens (--cds-*) so panels follow the
- * <Theme theme="g10|g90"> wrapper in App.tsx automatically. Custom hex is
+ * <ColorModeTheme> (g10 | g100) wrapper in App.tsx automatically. Custom hex is
  * reserved for things Carbon doesn't ship a token for (semantic indicator
  * colors with fixed hue regardless of theme, e.g. live-data green).
  */
@@ -15,17 +15,8 @@
   overflow: hidden;
 }
 
-/* Carbon Header takes position: fixed by default; pin it to the flex column
-   instead so the panel group fills the rest of the height. */
-.trace-header {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.trace-header__name {
-  letter-spacing: 0.04em;
-}
-
+/* The header itself is canopy-shell's AppHeader (in-flow, see TraceHeader).
+   The live/archive counts sit in its middle slot, pushed to the right. */
 .trace-header__archiver {
   margin-left: auto;
   display: flex;
@@ -45,6 +36,27 @@
   min-height: 0;
   overflow: hidden;
   display: flex;
+}
+
+/* Focused only programmatically, by the header's "Skip to main content" link. */
+.trace-panel-group:focus {
+  outline: none;
+}
+
+/* A panel's error fallback (canopy-shell ErrorBoundary) is a Carbon inline
+   notification plus two buttons, wider than the side panels; let both wrap to
+   the panel instead of being cut off. */
+.trace-panel-group .canopy-error-fallback .cds--inline-notification {
+  min-width: 0;
+}
+
+.trace-panel-group .canopy-error-fallback__actions {
+  flex-wrap: wrap;
+}
+
+/* The docked Data Insight fallback's extra "Close Data Insight" action. */
+.insight-fallback > .cds--btn {
+  margin: 0 1rem 1rem;
 }
 
 .trace-resize-handle {
@@ -185,6 +197,8 @@
 }
 
 .layers-plot-group__add-axis {
+  display: flex;
+  gap: 4px;
   padding: 4px 0 2px;
 }
 
@@ -519,6 +533,10 @@
   top: 40px;
   background-color: var(--cds-layer);
   z-index: 1;
+  /* Carbon's condensed tab density (8px inline padding instead of 16px) for
+     every properties tab set, so the widest one (a trace's General, Line,
+     Symbol, Code) fits the default panel width without the scroll arrow. */
+  --cds-layout-density-padding-inline: var(--cds-layout-density-padding-inline-condensed);
 }
 
 .properties-panel .cds--tab-content {
@@ -609,6 +627,17 @@
 .properties-panel .cds--btn--ghost:hover {
   background-color: var(--cds-layer-hover);
   color: var(--cds-text-primary);
+}
+
+/* Carbon's slider track has a 200px minimum, which with its range labels is
+   wider than the panel at its default width. Let the track shrink instead; the
+   row then needs an explicit width, since Carbon's form item shrink-wraps it. */
+.properties-panel .cds--slider-container {
+  inline-size: 100%;
+}
+
+.properties-panel .cds--slider {
+  min-inline-size: 0;
 }
 
 /* Carbon Tabs in properties panel */
@@ -884,4 +913,85 @@
 
 .insight-tool__empty--error {
   color: var(--cds-text-error);
+}
+
+/* Search PVs dialog: a checkbox list of matches that scrolls inside the body,
+   so the pattern box and status line stay put with hundreds of matches. */
+.pv-search__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pv-search__status {
+  font-size: 12px;
+}
+
+.pv-search__results {
+  flex: 1 1 auto;
+  min-height: 12rem;
+  overflow-y: auto;
+}
+
+.pv-search__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pv-search__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+}
+
+.pv-search__row:hover {
+  background: var(--cds-layer-hover);
+}
+
+.pv-search__row--all {
+  border-bottom: 1px solid var(--cds-border-subtle);
+  margin-bottom: 2px;
+}
+
+/* Let the label span the row so clicking anywhere on the name toggles it. */
+.pv-search__row .cds--form-item {
+  flex: 1 1 auto;
+  align-items: stretch;
+  margin: 0;
+}
+
+.pv-search__row .cds--checkbox-label {
+  inline-size: 100%;
+}
+
+/* Selected strip: every tick in view, whatever search produced it. Sits under
+   the list so the rows never move when it appears. */
+.pv-search__selected {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--cds-border-subtle);
+}
+
+.pv-search__selected-label {
+  font-size: 12px;
+  color: var(--cds-text-secondary);
+  white-space: nowrap;
+  padding-top: 5px;
+}
+
+.pv-search__selected-tags {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 4.5rem;
+  overflow-y: auto;
+}
+
+.pv-search__selected-tags .cds--tag {
+  margin: 0;
 }

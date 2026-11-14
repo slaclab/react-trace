@@ -1,5 +1,5 @@
 import type { Plot, PVTrace, Axis } from '../types';
-import type { ColorMode } from '../state/themeStore';
+import type { ColorMode } from '@slaclab/canopy-shell/color-mode';
 import { getPalette, colorForIndex, DEFAULT_PALETTE_ID } from '../palettes';
 import { parseSpanMs, toDatetimeLocal } from '../api/time';
 
@@ -16,14 +16,19 @@ export interface TraceWorkspace {
   plots: Plot[];
 }
 
-export function serializeWorkspace(args: { theme: ColorMode; plots: Plot[] }): string {
-  const ws: TraceWorkspace = {
+// Build the workspace object the config store persists as its JSON `data`.
+export function serializeConfigData(args: { theme: ColorMode; plots: Plot[] }): TraceWorkspace {
+  return {
     schemaVersion: SCHEMA_VERSION,
     savedAt: new Date().toISOString(),
     theme: args.theme,
     plots: args.plots.map(stripTraceData),
   };
-  return JSON.stringify(ws, null, 2);
+}
+
+// String form for a .trc.json file/export; the config store uses serializeConfigData.
+export function serializeWorkspace(args: { theme: ColorMode; plots: Plot[] }): string {
+  return JSON.stringify(serializeConfigData(args), null, 2);
 }
 
 // `data` is the per-trace mock array for live previews; it's regenerated at
@@ -42,9 +47,19 @@ export interface DeserializeResult {
   warnings: string[];
 }
 
+// Parse the string form (a .trc.json file or export). The config store, which
+// holds an already-parsed JSON object, uses deserializeConfigData instead.
 export function deserializeWorkspace(text: string): DeserializeResult {
-  const data: unknown = JSON.parse(text);
-  if (!data || typeof data !== 'object') throw new Error('Invalid file: not an object');
+  return deserializeConfigData(JSON.parse(text));
+}
+
+// Build a workspace from a parsed JSON value — the native (object) entry used by
+// the magpie config store, where `data` is JSON, not a string. deserializeWorkspace
+// is the thin string wrapper over this. Validates untrusted input (?config= links,
+// hand-edited files) before the cast so malformed shapes hit the caller's error
+// path rather than crashing the render body.
+export function deserializeConfigData(data: unknown): DeserializeResult {
+  if (!data || typeof data !== 'object') throw new Error('Invalid workspace: not an object');
   const obj = data as Record<string, unknown>;
 
   // Native format identification by schemaVersion.
@@ -54,16 +69,29 @@ export function deserializeWorkspace(text: string): DeserializeResult {
         `File schema version ${obj.schemaVersion} is newer than the app understands (${SCHEMA_VERSION}). Update the app.`
       );
     }
-    let plots = Array.isArray(obj.plots) ? (obj.plots as Plot[]).map(rehydratePlot) : [];
+    const rawPlots = Array.isArray(obj.plots) ? obj.plots : [];
+    const plotIds = new Set<string>();
+    rawPlots.forEach((rawPlot, i) => {
+      assertPlotShape(rawPlot, i);
+      if (plotIds.has(rawPlot.id)) {
+        throw new Error(`Invalid workspace: duplicate plot id '${rawPlot.id}'`);
+      }
+      plotIds.add(rawPlot.id);
+    });
+    let plots = (rawPlots as Plot[]).map(rehydratePlot);
     // Migrate the old workspace-level default archiver onto each plot that
     // doesn't already carry one (the default is now per-plot).
     if (typeof obj.globalArchiver === 'string') {
       const legacyDefault = obj.globalArchiver;
       plots = plots.map((p) => (p.archiver === undefined ? { ...p, archiver: legacyDefault } : p));
     }
+    // Saves from before the month preset rename used "-1m" for one month.
+    if (isMonthEraSave(obj.savedAt)) plots = plots.map(migrateMonthPreset);
     return {
       source: 'native',
-      theme: typeof obj.theme === 'string' ? (obj.theme as ColorMode) : undefined,
+      // Narrow to the supported literals; an untrusted theme (e.g. "sepia" from a
+      // share link) is dropped rather than cast and handed to setColorMode.
+      theme: obj.theme === 'light' || obj.theme === 'dark' ? obj.theme : undefined,
       plots,
       warnings: [],
     };
@@ -79,16 +107,71 @@ export function deserializeWorkspace(text: string): DeserializeResult {
   throw new Error('Unrecognized file format');
 }
 
+// Structural check for the fields the render path dereferences without guards.
+// rehydratePlot defaults the optional display fields, so only id, xAxis.timeRange,
+// and array traces/axes are required.
+function assertPlotShape(p: unknown, i: number): asserts p is Plot {
+  const where = `plots[${i}]`;
+  if (!p || typeof p !== 'object') throw new Error(`Invalid workspace: ${where} is not an object`);
+  const plot = p as Record<string, unknown>;
+  if (typeof plot.id !== 'string' || plot.id === '')
+    throw new Error(`Invalid workspace: ${where} is missing an id`);
+  const xAxis = plot.xAxis as Record<string, unknown> | undefined;
+  if (!xAxis || typeof xAxis.timeRange !== 'string')
+    throw new Error(`Invalid workspace: ${where} is missing xAxis.timeRange`);
+  if (!Array.isArray(plot.traces))
+    throw new Error(`Invalid workspace: ${where}.traces is not an array`);
+  if (!Array.isArray(plot.axes))
+    throw new Error(`Invalid workspace: ${where}.axes is not an array`);
+  // Validate elements too: the render path maps trace.data and reads axis.visible,
+  // so a malformed entry from a ?config= link crashes past the array check.
+  plot.traces.forEach((t, j) => {
+    if (!t || typeof t !== 'object')
+      throw new Error(`Invalid workspace: ${where}.traces[${j}] is not an object`);
+    const trace = t as Record<string, unknown>;
+    if (typeof trace.id !== 'string' || trace.id === '')
+      throw new Error(`Invalid workspace: ${where}.traces[${j}] is missing an id`);
+    if (
+      trace.kind === 'formula' &&
+      trace.expression !== undefined &&
+      typeof trace.expression !== 'string'
+    ) {
+      throw new Error(`Invalid workspace: ${where}.traces[${j}].expression must be a string`);
+    }
+    if (trace.data !== undefined) {
+      if (!Array.isArray(trace.data))
+        throw new Error(`Invalid workspace: ${where}.traces[${j}].data is not an array`);
+      // The render path reads p.time / p.value off each point (PlotArea).
+      trace.data.forEach((p, k) => {
+        if (!p || typeof p !== 'object')
+          throw new Error(`Invalid workspace: ${where}.traces[${j}].data[${k}] is not an object`);
+        const point = p as Record<string, unknown>;
+        if (typeof point.time !== 'number' || !Number.isFinite(point.time))
+          throw new Error(
+            `Invalid workspace: ${where}.traces[${j}].data[${k}].time must be a finite number`
+          );
+        if (typeof point.value !== 'number' || !Number.isFinite(point.value))
+          throw new Error(
+            `Invalid workspace: ${where}.traces[${j}].data[${k}].value must be a finite number`
+          );
+      });
+    }
+  });
+  plot.axes.forEach((a, j) => {
+    if (!a || typeof a !== 'object')
+      throw new Error(`Invalid workspace: ${where}.axes[${j}] is not an object`);
+    if (typeof (a as Record<string, unknown>).id !== 'string')
+      throw new Error(`Invalid workspace: ${where}.axes[${j}] is missing an id`);
+  });
+}
+
 function rehydratePlot(p: Plot): Plot {
   // Older saved workspaces used a single `showGridlines` flag and lacked grid
   // opacity / tick font size. Migrate the old flag to both X and Y toggles and
   // default the rest so loaded plots render the same as before.
   const legacy = p as Plot & { showGridlines?: boolean };
-  // The month preset value changed from "-1m" (ambiguous with minutes) to "-1M".
-  const xAxis = p.xAxis?.timeRange === '-1m' ? { ...p.xAxis, timeRange: '-1M' } : p.xAxis;
   return {
     ...p,
-    xAxis,
     // Older saved workspaces predate showLegend; default to shown.
     showLegend: p.showLegend ?? true,
     showCrosshair: p.showCrosshair ?? true,
@@ -96,8 +179,31 @@ function rehydratePlot(p: Plot): Plot {
     showYGridlines: p.showYGridlines ?? legacy.showGridlines ?? true,
     gridOpacity: p.gridOpacity ?? 1,
     tickFontSize: p.tickFontSize ?? 11,
-    traces: (p.traces ?? []).map((t) => ({ ...t, data: t.data ?? [] })),
+    // Samples are never saved (stripTraceData), and a file's own are not
+    // trusted: they reach the tooltip's HTML.
+    traces: (p.traces ?? []).map((t) => ({ ...t, data: [] })),
   };
+}
+
+// #66 (b92fbf1) renamed the month preset from "-1m" to "-1M" and made lowercase
+// m mean minutes; the cutoff is #66's GitHub mergedAt. Before it, "-1m" in a
+// native file could only be the month preset; after it, "-1m" is a typed
+// one-minute span.
+// Every native save stamps savedAt (since 98e35fe), which tells the two apart.
+// Merge time, not deploy time: builds from this instant on already saved typed
+// minutes as "-1m", so a later cutoff would turn those into months.
+const MONTH_PRESET_RENAMED_AT_MS = Date.parse('2026-07-17T16:15:54Z');
+
+// A missing or unparseable savedAt (e.g. a hand-written file) gets today's
+// meaning: minutes.
+function isMonthEraSave(savedAt: unknown): boolean {
+  if (typeof savedAt !== 'string') return false;
+  const ms = Date.parse(savedAt);
+  return Number.isFinite(ms) && ms < MONTH_PRESET_RENAMED_AT_MS;
+}
+
+function migrateMonthPreset(p: Plot): Plot {
+  return p.xAxis?.timeRange === '-1m' ? { ...p, xAxis: { ...p.xAxis, timeRange: '-1M' } } : p;
 }
 
 interface LegacyAxis {
@@ -227,7 +333,7 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
     };
   });
 
-  // Formula curves: strip the f:// prefix to get the Fox expression, and resolve
+  // Formula curves: strip the f:// prefix to get the Formula Engine expression, and resolve
   // each {var} via the legacy curveDict (variable -> PV channel name) against the
   // base curves above, so a binding points at a curve on the plot.
   const traceIdByPv = new Map<string, string>();
