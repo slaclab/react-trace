@@ -7,6 +7,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
+import { WithCanopy } from '../test/canopy';
 import { PVSearchModal, PV_SEARCH_LIMIT } from './PVSearchModal';
 import type { Plot, PVTrace } from '../types';
 
@@ -19,14 +20,23 @@ interface SearchCall {
 
 const { searchCalls } = vi.hoisted(() => ({ searchCalls: [] as SearchCall[] }));
 
-vi.mock('../api/mole', () => ({
-  searchPVs: (pattern: string, options: SearchCall['options'], signal: AbortSignal) =>
-    new Promise((resolve, reject) => {
+// Signature-agnostic (pattern, options, signal are the last three arguments),
+// so it survives a leading connection argument.
+vi.mock('@slaclab/canopy-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@slaclab/canopy-client')>()),
+  searchPVs: (...args: unknown[]) => {
+    const [pattern, options, signal] = args.slice(-3) as [
+      string,
+      SearchCall['options'],
+      AbortSignal,
+    ];
+    return new Promise((resolve, reject) => {
       searchCalls.push({ pattern, options, resolve: (pvs) => resolve({ pvs }), reject });
       signal.addEventListener('abort', () =>
         reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
       );
-    }),
+    });
+  },
 }));
 
 function trace(pvName: string): PVTrace {
@@ -89,7 +99,7 @@ function renderModal(props: Partial<ComponentProps<typeof PVSearchModal>> = {}) 
       {...next}
     />
   );
-  const view = render(element({}));
+  const view = render(element({}), { wrapper: WithCanopy });
   const rerender = (next: Partial<ComponentProps<typeof PVSearchModal>>) =>
     view.rerender(element(next));
   return { onAdd, onClose, rerender };

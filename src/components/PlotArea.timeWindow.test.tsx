@@ -217,6 +217,7 @@ describe('SinglePlot time axis', () => {
 
 describe('SinglePlot zoom reset', () => {
   beforeEach(() => fakeInstance.dispatchAction.mockClear());
+  afterEach(() => vi.useRealTimers());
 
   const RESET = { type: 'dataZoom', start: 0, end: 100 };
 
@@ -245,6 +246,35 @@ describe('SinglePlot zoom reset', () => {
     rerender(plotEl({ ...plot, xAxis: { timeRange: '-4h' } }, T0, new Map(), true));
     expect(fakeInstance.dispatchAction).toHaveBeenCalledTimes(1);
     expect(fakeInstance.dispatchAction).toHaveBeenCalledWith(RESET);
+    unmount();
+  });
+
+  // Issue 109: a pan's view window is debounced. Resuming before it lands must
+  // drop it, or it re-freezes the plot at the pan right after the reset.
+  it('drops a pan still waiting to be recorded when it resets', () => {
+    vi.useFakeTimers();
+    const onViewWindowChange = vi.fn();
+    const el = (p: Plot, following: boolean) => (
+      <SinglePlot
+        plot={p}
+        endMs={T0}
+        following={following}
+        onFollowStop={() => {}}
+        onViewWindowChange={onViewWindowChange}
+        archiveResults={new Map()}
+        liveResults={new Map()}
+        formulaResults={new Map()}
+      />
+    );
+    const plot = makePlot();
+    const { rerender, unmount } = render(el(plot, true));
+    fireChartEvent('datazoom');
+    rerender(el({ ...plot, autoScroll: false }, false));
+    // Autoscroll back on (or the span re-committed) within the debounce.
+    rerender(el(plot, true));
+    expect(fakeInstance.dispatchAction).toHaveBeenCalledWith(RESET);
+    vi.advanceTimersByTime(1000);
+    expect(onViewWindowChange).not.toHaveBeenCalled();
     unmount();
   });
 });

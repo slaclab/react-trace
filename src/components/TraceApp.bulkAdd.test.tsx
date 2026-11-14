@@ -14,6 +14,7 @@ import {
   renders,
   resetHarness,
 } from '../test/traceAppHarness';
+import { WithCanopy } from '../test/canopy';
 import { TraceApp } from './TraceApp';
 
 interface MetadataCall {
@@ -28,7 +29,8 @@ const { metadataCalls } = vi.hoisted(() => ({ metadataCalls: [] as MetadataCall[
 
 // Signature-agnostic (pv, archiver, signal are the last three arguments), so it
 // survives a leading connection argument.
-vi.mock('../api/mole', () => ({
+vi.mock('@slaclab/canopy-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@slaclab/canopy-client')>()),
   fetchMetadata: (...args: unknown[]) => {
     const [pv, archiver, signal] = args.slice(-3) as [string, string | undefined, AbortSignal];
     return new Promise((resolve, reject) => {
@@ -82,7 +84,7 @@ beforeEach(() => {
   metadataCalls.length = 0;
   // New traces stream live data; without a WebSocket the live store stays idle.
   vi.stubGlobal('WebSocket', undefined);
-  render(<TraceApp />);
+  render(<TraceApp />, { wrapper: WithCanopy });
 });
 
 afterEach(() => {

@@ -17,7 +17,7 @@ concurrency:
 jobs:
   build-image:
     name: Build and publish GHCR image
-    uses: slaclab/swapps-ci-helpers/.github/workflows/build-ghcr-image.yml@73e6ba924aac5f822b050bd6bed12b0e45c64034 # v1.1.0
+    uses: slaclab/swapps-ci-helpers/.github/workflows/build-ghcr-image.yml@8bd53f378725947845695f855304e7780407c66e # v1.1.5
     permissions:
       contents: read
       packages: write

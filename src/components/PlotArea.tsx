@@ -174,6 +174,12 @@ function formatCrosshairTime(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+// The tooltip is HTML, and a saved workspace file can carry any text in a
+// trace's label, colour or samples. Text is escaped, a colour is used only as a
+// plain hex or rgb() literal, and only the known alarm severities are named.
+const SHOWN_SEVERITIES: ReadonlySet<unknown> = new Set(['MINOR', 'MAJOR', 'INVALID']);
+const COLOR_LITERAL = /^(#[0-9A-Fa-f]{3,8}|rgba?\([\d\s.,%]+\))$/;
+
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => {
     switch (char) {
@@ -189,10 +195,6 @@ function escapeHtml(text: string): string {
         return '&#39;';
     }
   });
-}
-
-function safeTooltipColor(color: string): string {
-  return /^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i.test(color) ? color : '#000000';
 }
 
 // Human-readable signed offset between the cursor and the sample we're showing.
@@ -217,6 +219,14 @@ const EXTENSION_ANCHORS = 2048;
 // each point through its option preprocessors. With plain [t, v] pairs that was
 // most of the cost of an update, and a following plot updates on every scroll
 // step as well as on every live batch.
+//
+// Typed data is flat, so it can't say how many values make a point: every
+// series given xyData (or other flat data) must declare XY_DIMENSIONS. Without
+// it ECharts' development build asserts ("dimensions must be given if data is
+// TypedArray."), which the production build strips. The x and y dimensions map
+// to the axes in order, time then value; [t, v] pairs read the same way.
+const XY_DIMENSIONS = ['x', 'y'];
+
 function xyData(points: readonly PlotSample[]): Float64Array {
   const out = new Float64Array(points.length * 2);
   for (let i = 0; i < points.length; i++) {
@@ -225,12 +235,6 @@ function xyData(points: readonly PlotSample[]): Float64Array {
   }
   return out;
 }
-
-// Declared on every typed-array series. ECharts infers [x, y] from the
-// cartesian coordinate system in its production build, but its development
-// build asserts that `dimensions` is given for TypedArray data, so without
-// this the dev server throws on the first plotted sample.
-const XY_DIMENSIONS = ['x', 'y'];
 
 function traceSamples(
   trace: PVTrace,
@@ -419,12 +423,13 @@ export function SinglePlot({
         name: labels.get(trace.id),
         type: 'line',
         yAxisIndex,
-        dimensions: XY_DIMENSIONS,
         // Typed unless it has to break at an INVALID sample: the nulls and
-        // step-line hold points need plain point data.
+        // step-line hold points need plain point data. Dimensions either way,
+        // since the series merges by id when it switches between the two.
         data: tracesWithInvalid.has(trace.id)
           ? gappedLineData(points, (p) => p.value, step)
           : xyData(points),
+        dimensions: XY_DIMENSIONS,
         step: step ? 'end' : false,
         lineStyle: {
           color: trace.color,
@@ -557,6 +562,10 @@ export function SinglePlot({
     zoomTriggerRef.current = { rangeKey, following };
     const resumed = following && !prev.following;
     if (prev.rangeKey === rangeKey && !resumed) return;
+    // The reset discards the user's pan, so drop its view window if it's still
+    // debounced. Landing after the reset, it would save the old window and
+    // switch Autoscroll back off.
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     const inst = liveChart();
     if (!inst) return;
     programmaticZoomRef.current = true;
@@ -876,8 +885,8 @@ export function SinglePlot({
         name: `${trace.displayName} (extension)`,
         type: 'line',
         yAxisIndex,
-        dimensions: XY_DIMENSIONS,
         data,
+        dimensions: XY_DIMENSIONS,
         lineStyle: {
           color: trace.color,
           width: trace.lineWidth,
@@ -1070,15 +1079,13 @@ export function SinglePlot({
         for (const trace of visibleTraces) {
           const data = traceData.get(trace.id);
           const sample = data ? nearestSample(data, cursorMs) : undefined;
-          const severity =
-            sample?.severity && sample.severity !== 'NO_ALARM'
-              ? ` ${escapeHtml(sample.severity)}`
-              : '';
+          const severity = SHOWN_SEVERITIES.has(sample?.severity) ? ` ${sample?.severity}` : '';
           const valueCell = sample
             ? `${escapeHtml(formatValue(sample.value))}${severity} <span style="color:${theme.tooltipMuted}">(${formatTimeOffset(sample.time - cursorMs)})</span>`
             : `<span style="color:${theme.tooltipMuted}">no data</span>`;
+          const swatch = COLOR_LITERAL.test(trace.color) ? ` style="color:${trace.color}"` : '';
           lines.push(
-            `<span style="color:${safeTooltipColor(trace.color)}">${escapeHtml(labels.get(trace.id) ?? '')}</span>: ${valueCell}`
+            `<span${swatch}>${escapeHtml(labels.get(trace.id) ?? '')}</span>: ${valueCell}`
           );
         }
         return `<div style="font-size:11px"><div style="color:${theme.tooltipMuted};margin-bottom:4px">${time}</div>${lines.join('<br/>')}</div>`;
