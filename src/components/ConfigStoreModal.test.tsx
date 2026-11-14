@@ -68,6 +68,11 @@ function renderModal(onToast = vi.fn(), onLoaded = vi.fn()) {
   );
 }
 
+// The store body's scrolling region. Carbon up to 1.108 names it by its
+// aria-label ("Config store contents"), later versions by the modal heading
+// ("Config store").
+const storeBody = () => screen.getByRole('region', { name: /^Config store/ });
+
 describe('ConfigStoreModal', () => {
   beforeEach(() => {
     vi.stubGlobal(
@@ -176,9 +181,7 @@ describe('ConfigStoreModal', () => {
     await waitFor(() => expect(deleteConfig).toHaveBeenCalledWith('test-config'));
     await screen.findByText('No saved configs yet.');
     // The row's button went with the row, so focus falls back to the store body.
-    expect(document.activeElement).toBe(
-      screen.getByRole('region', { name: 'Config store contents' })
-    );
+    expect(document.activeElement).toBe(storeBody());
   });
 
   it('falls back to the store body when the delete trigger is disabled on close', async () => {
@@ -199,9 +202,7 @@ describe('ConfigStoreModal', () => {
     await waitFor(() =>
       expect(document.querySelectorAll('.cds--modal.is-visible')).toHaveLength(1)
     );
-    expect(document.activeElement).toBe(
-      screen.getByRole('region', { name: 'Config store contents' })
-    );
+    expect(document.activeElement).toBe(storeBody());
   });
 
   it('moves focus into the delete confirmation and back to its trigger on Escape', async () => {
