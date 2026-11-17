@@ -105,8 +105,12 @@ function renderModal(props: Partial<ComponentProps<typeof PVSearchModal>> = {}) 
   return { onAdd, onClose, rerender };
 }
 
+// The pattern field. Carbon after 1.108 also names the Search wrapper (role
+// "search") by this label, so a label lookup finds two elements.
+const patternInput = () => screen.getByRole('searchbox', { name: 'Pattern' }) as HTMLInputElement;
+
 async function typePattern(text: string) {
-  fireEvent.change(screen.getByLabelText('Pattern'), { target: { value: text } });
+  fireEvent.change(patternInput(), { target: { value: text } });
   await act(async () => {
     vi.advanceTimersByTime(300);
   });
@@ -308,7 +312,7 @@ describe('PVSearchModal', () => {
     fireEvent.click(screen.getByRole('option', { name: 'Plot 2' }));
     expect(screen.queryByText('KLYS:A')).toBeNull();
     expect(addButton().disabled).toBe(true);
-    expect((screen.getByLabelText('Pattern') as HTMLInputElement).value).toBe('KLYS');
+    expect(patternInput().value).toBe('KLYS');
 
     await act(async () => {
       vi.advanceTimersByTime(300);
