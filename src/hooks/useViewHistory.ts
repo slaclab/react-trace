@@ -38,12 +38,13 @@ function snapshotsEqual(a: ViewSnapshot, b: ViewSnapshot): boolean {
 }
 
 export interface ViewHistoryAPI {
-  push(plotId: string, snapshot: ViewSnapshot): void;
+  push(plotId: string, snapshot: ViewSnapshot, baseline?: ViewSnapshot): void;
   goBack(plotId: string): ViewSnapshot | null;
   goForward(plotId: string): ViewSnapshot | null;
   canGoBack(plotId: string): boolean;
   canGoForward(plotId: string): boolean;
   clear(plotId: string): void;
+  clearAll(): void;
 }
 
 export function useViewHistory(): ViewHistoryAPI {
@@ -104,7 +105,18 @@ export function useViewHistory(): ViewHistoryAPI {
   );
 
   const push = useCallback(
-    (plotId: string, snapshot: ViewSnapshot) => {
+    (plotId: string, snapshot: ViewSnapshot, baseline?: ViewSnapshot) => {
+      // When a plot has no history yet, seed the pre-change state so the first
+      // action can be undone. The baseline bypasses the coalesce timer.
+      if (baseline) {
+        const h = getOrCreate(plotId);
+        if (h.stack.length === 0 && !pendingRef.current.has(plotId)) {
+          h.stack.push(baseline);
+          h.cursor = 0;
+          updateNav(plotId, h);
+        }
+      }
+
       pendingRef.current.set(plotId, snapshot);
 
       const existing = timerRef.current.get(plotId);
@@ -118,7 +130,7 @@ export function useViewHistory(): ViewHistoryAPI {
         }, COALESCE_MS)
       );
     },
-    [commitPending]
+    [commitPending, getOrCreate, updateNav]
   );
 
   const goBack = useCallback(
@@ -186,5 +198,15 @@ export function useViewHistory(): ViewHistoryAPI {
     });
   }, []);
 
-  return { push, goBack, goForward, canGoBack, canGoForward, clear };
+  const clearAll = useCallback(() => {
+    for (const timer of timerRef.current.values()) {
+      clearTimeout(timer);
+    }
+    timerRef.current.clear();
+    pendingRef.current.clear();
+    historyRef.current.clear();
+    setNav(new Map());
+  }, []);
+
+  return { push, goBack, goForward, canGoBack, canGoForward, clear, clearAll };
 }

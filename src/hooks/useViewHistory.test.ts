@@ -243,6 +243,75 @@ describe('useViewHistory', () => {
     expect(result.current.canGoBack('p2')).toBe(false);
   });
 
+  it('seeds a baseline so the first zoom can be undone', () => {
+    const { result } = renderHook(() => useViewHistory());
+    const baseline = snapAt(0, 100);
+    const zoom = snapAt(50, 75);
+
+    act(() => {
+      result.current.push('p1', zoom, baseline);
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(result.current.canGoBack('p1')).toBe(true);
+
+    let restored: ViewSnapshot | null = null;
+    act(() => {
+      restored = result.current.goBack('p1');
+    });
+    expect(restored!.timeWindow).toEqual({ fromNs: 0, toNs: 100 });
+  });
+
+  it('does not seed baseline when history already exists', () => {
+    const { result } = renderHook(() => useViewHistory());
+
+    act(() => {
+      result.current.push('p1', snapAt(0, 100));
+      vi.advanceTimersByTime(300);
+    });
+    act(() => {
+      result.current.push('p1', snapAt(100, 200), snapAt(50, 150));
+      vi.advanceTimersByTime(300);
+    });
+
+    // Go back should return entry 0, not the baseline (which was ignored)
+    let restored: ViewSnapshot | null = null;
+    act(() => {
+      restored = result.current.goBack('p1');
+    });
+    expect(restored!.timeWindow).toEqual({ fromNs: 0, toNs: 100 });
+  });
+
+  it('clearAll removes history for all plots', () => {
+    const { result } = renderHook(() => useViewHistory());
+
+    act(() => {
+      result.current.push('p1', snapAt(0, 100));
+      vi.advanceTimersByTime(300);
+    });
+    act(() => {
+      result.current.push('p1', snapAt(100, 200));
+      vi.advanceTimersByTime(300);
+    });
+    act(() => {
+      result.current.push('p2', snapAt(0, 50));
+      vi.advanceTimersByTime(300);
+    });
+    act(() => {
+      result.current.push('p2', snapAt(50, 100));
+      vi.advanceTimersByTime(300);
+    });
+
+    act(() => {
+      result.current.clearAll();
+    });
+
+    expect(result.current.canGoBack('p1')).toBe(false);
+    expect(result.current.canGoBack('p2')).toBe(false);
+    expect(result.current.goBack('p1')).toBeNull();
+    expect(result.current.goBack('p2')).toBeNull();
+  });
+
   it('compares axis ranges in dedup', () => {
     const { result } = renderHook(() => useViewHistory());
     const axes1 = new Map([['a1', { min: 0, max: 10, autoScale: false }]]);

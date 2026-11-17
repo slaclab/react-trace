@@ -221,7 +221,17 @@ export function TraceApp() {
     return m;
   };
 
+  const currentSnapshot = (plotId: string): ViewSnapshot => {
+    const plot = plots.find((p) => p.id === plotId);
+    return {
+      timeWindow: viewWindowByPlot.get(plotId) ?? null,
+      axisRanges: snapshotAxes(plot),
+      autoScroll: plot?.autoScroll !== false,
+    };
+  };
+
   const handleViewWindowChange = (plotId: string, window: TimeWindowNs) => {
+    const baseline = currentSnapshot(plotId);
     setViewWindowByPlot((prev) => {
       const next = new Map(prev);
       next.set(plotId, window);
@@ -230,11 +240,11 @@ export function TraceApp() {
     // A manual pan/zoom takes over the window, so stop tracking "now". Picking a
     // time range re-enables it (see updatePlot).
     setPlots((prev) => prev.map((p) => (p.id === plotId ? { ...p, autoScroll: false } : p)));
-    viewHistory.push(plotId, {
-      timeWindow: window,
-      axisRanges: snapshotAxes(plots.find((p) => p.id === plotId)),
-      autoScroll: false,
-    });
+    viewHistory.push(
+      plotId,
+      { timeWindow: window, axisRanges: baseline.axisRanges, autoScroll: false },
+      baseline
+    );
   };
 
   // Split the flat result maps per plot. Memoized on (plots, archiveResults,
@@ -495,12 +505,7 @@ export function TraceApp() {
   };
 
   const handleResetZoom = (plotId: string) => {
-    const plot = plots.find((p) => p.id === plotId);
-    viewHistory.push(plotId, {
-      timeWindow: viewWindowByPlot.get(plotId) ?? null,
-      axisRanges: snapshotAxes(plot),
-      autoScroll: plot?.autoScroll !== false,
-    });
+    const baseline = currentSnapshot(plotId);
     clearViewWindow(plotId);
     setPlots((prev) =>
       prev.map((p) =>
@@ -514,6 +519,15 @@ export function TraceApp() {
       )
     );
     clock.resync([plotId]);
+    const resetAxes = new Map<string, AxisSnapshot>();
+    for (const [id] of baseline.axisRanges) {
+      resetAxes.set(id, { min: undefined, max: undefined, autoScale: true });
+    }
+    viewHistory.push(
+      plotId,
+      { timeWindow: null, axisRanges: resetAxes, autoScroll: true },
+      baseline
+    );
     setZoomTargetByPlot((prev) => {
       const next = new Map(prev);
       const gen = (prev.get(plotId)?.generation ?? 0) + 1;
@@ -824,24 +838,29 @@ export function TraceApp() {
   // plot (grid cells and popouts aren't necessarily the active plot), so route
   // by the plot id rather than assuming activePlotId.
   const updateAxisInPlot = (plotId: string, axisId: string, updates: Partial<Axis>) => {
-    setPlots((prev) => {
-      const next = prev.map((p) =>
+    const baseline = currentSnapshot(plotId);
+    setPlots((prev) =>
+      prev.map((p) =>
         p.id === plotId
-          ? {
-              ...p,
-              axes: p.axes.map((a) => (a.id === axisId ? { ...a, ...updates } : a)),
-            }
+          ? { ...p, axes: p.axes.map((a) => (a.id === axisId ? { ...a, ...updates } : a)) }
           : p
-      );
-      const plot = next.find((p) => p.id === plotId);
-      const axisRanges = snapshotAxes(plot);
-      viewHistory.push(plotId, {
+      )
+    );
+    const plot = plots.find((p) => p.id === plotId);
+    const updatedAxes = new Map<string, AxisSnapshot>();
+    for (const a of plot?.axes ?? []) {
+      const merged = a.id === axisId ? { ...a, ...updates } : a;
+      updatedAxes.set(a.id, { min: merged.min, max: merged.max, autoScale: merged.autoScale });
+    }
+    viewHistory.push(
+      plotId,
+      {
         timeWindow: viewWindowByPlot.get(plotId) ?? null,
-        axisRanges,
+        axisRanges: updatedAxes,
         autoScroll: plot?.autoScroll !== false,
-      });
-      return next;
-    });
+      },
+      baseline
+    );
   };
 
   const liveCount = activePlot.traces.filter((t) => t.useLive).length;
@@ -883,8 +902,10 @@ export function TraceApp() {
       setSelectedItem(null);
       setInsight((prev) => ({ ...prev, pv: undefined }));
       axisRangesRef.current.clear();
+      viewHistory.clearAll();
+      setZoomTargetByPlot(new Map());
     },
-    [abortUnitLookups, resyncClock]
+    [abortUnitLookups, resyncClock, viewHistory]
   );
 
   // Shareable-link bootstrap: ?config=<slug> loads a saved workspace from the

@@ -19,7 +19,7 @@ import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 import type { FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs, resolveTimeWindow } from '../api/time';
-import { formatShortcut } from '../hooks/useKeyboardShortcuts';
+import { formatShortcut, isMac } from '../hooks/useKeyboardShortcuts';
 import { echartsLineType, echartsSymbol } from '../curveStyle';
 import { isFollowing } from '../hooks/useAutoScrollTimers';
 import { useFollowNow } from '../hooks/useFollowNow';
@@ -589,6 +589,7 @@ export function SinglePlot({
       programmaticZoomRef.current = false;
     }, 0);
     return () => window.clearTimeout(clearTimer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only on generation bump, not on window content changes
   }, [zoomTarget?.generation]);
 
   const handleFinished = useCallback(() => {
@@ -1225,7 +1226,8 @@ export function PlotArea({
         <div className="plot-tab-bar__controls">
           <button
             className="view-mode-btn"
-            title={`Back (${formatShortcut('alt', '←')})`}
+            title={`Back (${isMac ? formatShortcut('alt', '←') : formatShortcut('primary', '[')})`}
+            aria-label="Back"
             disabled={!canGoBack?.(activePlot.id)}
             onClick={() => onViewBack?.(activePlot.id)}
           >
@@ -1233,7 +1235,8 @@ export function PlotArea({
           </button>
           <button
             className="view-mode-btn"
-            title={`Forward (${formatShortcut('alt', '→')})`}
+            title={`Forward (${isMac ? formatShortcut('alt', '→') : formatShortcut('primary', ']')})`}
+            aria-label="Forward"
             disabled={!canGoForward?.(activePlot.id)}
             onClick={() => onViewForward?.(activePlot.id)}
           >
@@ -1242,6 +1245,7 @@ export function PlotArea({
           <button
             className="view-mode-btn"
             title={`Reset zoom (${formatShortcut('alt', '0')})`}
+            aria-label="Reset zoom"
             onClick={() => onResetZoom?.(activePlot.id)}
           >
             <ZoomReset size={16} />
@@ -1337,6 +1341,7 @@ export function PlotArea({
                 <button
                   className="plot-grid__cell-btn plot-grid__cell-btn--reset"
                   title="Reset zoom"
+                  aria-label="Reset zoom"
                   onClick={() => onResetZoom?.(plot.id)}
                 >
                   <ZoomReset size={14} />

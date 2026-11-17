@@ -61,31 +61,63 @@ describe('resolveShortcut', () => {
     });
   });
 
-  describe('view history shortcuts (alt group)', () => {
-    it('maps Alt+ArrowLeft to viewBack', () => {
-      expect(resolveShortcut(ev({ key: 'ArrowLeft', altKey: true }), false)).toBe('onViewBack');
-      expect(resolveShortcut(ev({ key: 'ArrowLeft', altKey: true }), true)).toBe('onViewBack');
+  describe('view history shortcuts', () => {
+    describe('macOS: ⌥← / ⌥→', () => {
+      it('maps Alt+ArrowLeft to viewBack', () => {
+        expect(resolveShortcut(ev({ key: 'ArrowLeft', altKey: true }), true)).toBe('onViewBack');
+      });
+
+      it('maps Alt+ArrowRight to viewForward', () => {
+        expect(resolveShortcut(ev({ key: 'ArrowRight', altKey: true }), true)).toBe(
+          'onViewForward'
+        );
+      });
+
+      it('does not bind Alt+Arrow on non-Mac (browser Back/Forward conflict)', () => {
+        expect(resolveShortcut(ev({ key: 'ArrowLeft', altKey: true }), false)).toBeNull();
+        expect(resolveShortcut(ev({ key: 'ArrowRight', altKey: true }), false)).toBeNull();
+      });
+
+      it('does not match Alt+Arrow when primary modifier is also held', () => {
+        expect(
+          resolveShortcut(ev({ key: 'ArrowLeft', altKey: true, metaKey: true }), true)
+        ).toBeNull();
+      });
+
+      it('does not match arrow keys without Alt', () => {
+        expect(resolveShortcut(ev({ key: 'ArrowLeft' }), true)).toBeNull();
+        expect(resolveShortcut(ev({ key: 'ArrowRight' }), true)).toBeNull();
+      });
     });
 
-    it('maps Alt+ArrowRight to viewForward', () => {
-      expect(resolveShortcut(ev({ key: 'ArrowRight', altKey: true }), false)).toBe('onViewForward');
-      expect(resolveShortcut(ev({ key: 'ArrowRight', altKey: true }), true)).toBe('onViewForward');
+    describe('non-Mac: Ctrl+[ / Ctrl+]', () => {
+      it('maps Ctrl+[ to viewBack', () => {
+        expect(resolveShortcut(ev({ key: '[', ctrlKey: true }), false)).toBe('onViewBack');
+      });
+
+      it('maps Ctrl+] to viewForward', () => {
+        expect(resolveShortcut(ev({ key: ']', ctrlKey: true }), false)).toBe('onViewForward');
+      });
+
+      it('does not bind Ctrl+[/] on macOS (⌥Arrow is used instead)', () => {
+        expect(resolveShortcut(ev({ key: '[', metaKey: true }), true)).toBeNull();
+        expect(resolveShortcut(ev({ key: ']', metaKey: true }), true)).toBeNull();
+      });
     });
 
-    it('maps Alt+0 to resetZoom', () => {
-      expect(resolveShortcut(ev({ key: '0', altKey: true }), false)).toBe('onResetZoom');
-      expect(resolveShortcut(ev({ key: '0', altKey: true }), true)).toBe('onResetZoom');
-    });
+    describe('reset zoom: Alt+0 (all platforms)', () => {
+      it('maps Alt+0 to resetZoom', () => {
+        expect(resolveShortcut(ev({ key: '0', altKey: true }), false)).toBe('onResetZoom');
+        expect(resolveShortcut(ev({ key: '0', code: 'Digit0', altKey: true }), true)).toBe(
+          'onResetZoom'
+        );
+      });
 
-    it('does not match arrow keys without Alt', () => {
-      expect(resolveShortcut(ev({ key: 'ArrowLeft' }), false)).toBeNull();
-      expect(resolveShortcut(ev({ key: 'ArrowRight' }), false)).toBeNull();
-    });
-
-    it('does not match Alt+Arrow when primary modifier is also held', () => {
-      expect(
-        resolveShortcut(ev({ key: 'ArrowLeft', altKey: true, ctrlKey: true }), false)
-      ).toBeNull();
+      it('maps Alt+0 via code when Option changes key on macOS', () => {
+        expect(resolveShortcut(ev({ key: 'º', code: 'Digit0', altKey: true }), true)).toBe(
+          'onResetZoom'
+        );
+      });
     });
   });
 

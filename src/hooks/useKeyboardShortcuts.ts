@@ -40,7 +40,8 @@ export function formatShortcut(mod: Mod, key: string): string {
 }
 
 // Bindings: (modifier group, lowercase key) → the handler it invokes.
-const BINDINGS: { mod: Mod; key: string; action: Action }[] = [
+// `platform` restricts a binding to macOS ('mac') or non-Mac ('other').
+const BINDINGS: { mod: Mod; key: string; action: Action; platform?: 'mac' | 'other' }[] = [
   { mod: 'primary', key: 's', action: 'onSave' },
   { mod: 'primary', key: 'p', action: 'onPrint' },
   { mod: 'primary', key: 'e', action: 'onPostElog' },
@@ -48,8 +49,12 @@ const BINDINGS: { mod: Mod; key: string; action: Action }[] = [
   { mod: 'primary', key: 'i', action: 'onExportImage' },
   { mod: 'alt', key: 'd', action: 'onDataInsight' },
   { mod: 'alt', key: 't', action: 'onToggleTheme' },
-  { mod: 'alt', key: 'arrowleft', action: 'onViewBack' },
-  { mod: 'alt', key: 'arrowright', action: 'onViewForward' },
+  // Alt+Arrow is browser Back/Forward on Windows/Linux → macOS only.
+  // Non-Mac gets Ctrl+[ / Ctrl+] instead (no browser conflict).
+  { mod: 'alt', key: 'arrowleft', action: 'onViewBack', platform: 'mac' },
+  { mod: 'alt', key: 'arrowright', action: 'onViewForward', platform: 'mac' },
+  { mod: 'primary', key: '[', action: 'onViewBack', platform: 'other' },
+  { mod: 'primary', key: ']', action: 'onViewForward', platform: 'other' },
   { mod: 'alt', key: '0', action: 'onResetZoom' },
 ];
 
@@ -72,13 +77,18 @@ export interface KeyEventLike {
 export function resolveShortcut(e: KeyEventLike, mac: boolean): Action | null {
   if (e.shiftKey) return null;
   const primary = mac ? e.metaKey : e.ctrlKey;
-  // Option/Alt can change e.key on some keyboard layouts (e.g. Option+T => †
-  // on macOS). Prefer physical letter keys via e.code when available.
-  const keyFromCode =
-    typeof e.code === 'string' && /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : '';
+  // Option/Alt can change e.key on some keyboard layouts (e.g. Option+T => †,
+  // Option+0 => º on macOS). Prefer physical keys via e.code when available.
+  let keyFromCode = '';
+  if (typeof e.code === 'string') {
+    if (/^Key[A-Z]$/.test(e.code)) keyFromCode = e.code.slice(3).toLowerCase();
+    else if (/^Digit[0-9]$/.test(e.code)) keyFromCode = e.code.slice(5);
+  }
   const key = keyFromCode || e.key.toLowerCase();
   for (const b of BINDINGS) {
     if (b.key !== key) continue;
+    if (b.platform === 'mac' && !mac) continue;
+    if (b.platform === 'other' && mac) continue;
     const modMatches = b.mod === 'primary' ? primary && !e.altKey : e.altKey && !primary;
     if (modMatches) return b.action;
   }
