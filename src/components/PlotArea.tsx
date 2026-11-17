@@ -13,7 +13,18 @@ import {
   formatValue,
   useChartTheme,
 } from '@slaclab/canopy-charts';
-import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize, Redo, Undo, ZoomReset } from '@carbon/icons-react';
+import {
+  Add,
+  Close,
+  ColumnDependency,
+  Grid,
+  Launch,
+  Login,
+  Maximize,
+  Redo,
+  Undo,
+  ZoomReset,
+} from '@carbon/icons-react';
 import { effectiveBackground } from '../plotBackground';
 import { registerPlotChart } from '../capturePlot';
 import type { Axis, Plot, PVTrace } from '../types';
