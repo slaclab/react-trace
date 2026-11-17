@@ -13,6 +13,7 @@ import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import {
   Add,
+  Search,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -56,6 +57,7 @@ interface LeftPanelProps {
   onAddFormula: (plotId: string, axisId: string) => void;
   onDeleteTrace: (plotId: string, traceId: string) => void;
   onAddAxis: (plotId: string) => void;
+  onSearchPvs: (plotId: string) => void;
   onDeleteAxis: (plotId: string, axisId: string) => void;
   onMoveTrace: (
     sourcePlotId: string,
@@ -453,6 +455,7 @@ export function LeftPanel({
   onAddFormula,
   onDeleteTrace,
   onAddAxis,
+  onSearchPvs,
   onDeleteAxis,
   onMoveTrace,
   onCollapse,
@@ -560,9 +563,19 @@ export function LeftPanel({
                   renderIcon={Add}
                   iconDescription="Add axis"
                   onClick={() => onAddAxis(plot.id)}
-                  style={{ width: '100%', fontSize: 12, maxInlineSize: 'unset' }}
+                  style={{ flex: 1, fontSize: 12, maxInlineSize: 'unset' }}
                 >
                   Add Axis
+                </Button>
+                <Button
+                  kind="ghost"
+                  size="sm"
+                  renderIcon={Search}
+                  iconDescription="Search PVs"
+                  onClick={() => onSearchPvs(plot.id)}
+                  style={{ flex: 1, fontSize: 12, maxInlineSize: 'unset' }}
+                >
+                  Search PVs
                 </Button>
               </div>
             </div>

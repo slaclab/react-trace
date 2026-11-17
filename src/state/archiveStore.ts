@@ -36,8 +36,17 @@ export interface FetchMode {
   maxPoints: number;
 }
 
-export function pickFetchMode(windowMs: number, traceBins?: number): FetchMode {
-  if (windowMs <= RAW_WINDOW_MS_THRESHOLD) return { maxPoints: RAW_MAX_POINTS };
+// `rawDecimatedMs`: raw for a window this long came back decimated (thinned to
+// RAW_MAX_POINTS by the archiver), so a window at least this long fetches
+// binned instead, whose min/max band keeps the spikes thinning would drop.
+export function pickFetchMode(
+  windowMs: number,
+  traceBins?: number,
+  rawDecimatedMs = Infinity
+): FetchMode {
+  if (windowMs <= RAW_WINDOW_MS_THRESHOLD && windowMs < rawDecimatedMs) {
+    return { maxPoints: RAW_MAX_POINTS };
+  }
   return { binning: 'auto', maxPoints: traceBins ?? DEFAULT_OPTIMIZED_BINS };
 }
 
@@ -318,9 +327,16 @@ interface ResolvedRequest {
   spanNs: number;
 }
 
-function resolveRequest(opts: RequestOpts): ResolvedRequest {
+// `rawDecimatedSpanNs`: the shortest span whose raw answer came back decimated
+// for this (pv, archiver). A span within the coverage tolerance of it counts as
+// that span, so window jitter doesn't retry raw.
+function resolveRequest(opts: RequestOpts, rawDecimatedSpanNs = Infinity): ResolvedRequest {
   const spanNs = opts.window.toNs - opts.window.fromNs;
-  const mode = pickFetchMode(spanNs / 1_000_000, opts.bins);
+  const mode = pickFetchMode(
+    spanNs / 1_000_000,
+    opts.bins,
+    (rawDecimatedSpanNs - coverageTolerance(opts.window)) / 1_000_000
+  );
   const identityKey: IdentityKey = { pv: opts.pv, archiver: opts.archiver ?? null };
   const fetchSig: FetchSig = {
     ...identityKey,
@@ -431,6 +447,11 @@ export class ArchiveStore {
   // Survives `release()`; cleared by `refetchAll()`, `forgetNotArchived()`, or
   // a later successful fetch of the same pair.
   private notArchived = new Map<string, ArchiveErrorInfo>();
+  // Shortest span whose raw answer came back decimated, per (pv, archiver):
+  // windows at least this long fetch binned. It reflects how densely the PV
+  // is archived, so it's shared by every trace and only ever decreases. Kept
+  // across `release()` and `refetchAll()`.
+  private rawDecimatedSpanNs = new Map<string, number>();
   private readonly fetchData: FetchDataFn;
   private readonly now: () => number;
 
@@ -491,7 +512,7 @@ export class ArchiveStore {
       this.clearRetry(entry);
 
       const opts = entry.wanted;
-      const { fetchSig, mode } = resolveRequest(opts);
+      const { fetchSig, mode } = this.resolve(opts);
       const controller = new AbortController();
       entry.fetchSig = fetchSig;
       entry.requestedWindow = opts.window;
@@ -531,6 +552,9 @@ export class ArchiveStore {
    *   in-flight fetch isn't aborted for a forward slide that still overlaps
    *   it, or when both windows follow "now"; once it lands, the rest of the
    *   latest window is fetched. A jump forward past it aborts it.
+   * - Raw came back decimated: refetch binned. For this (pv, archiver),
+   *   windows at least that long then go straight to binned; a shorter one
+   *   tries raw again.
    * - Last fetch failed for another reason: no fetch until its backoff expires.
    *   Then a timer retries the latest request, so a window that never moves
    *   retries too.
@@ -553,7 +577,7 @@ export class ArchiveStore {
   // re-issues the latest window later than that, and passes its original time
   // so a live window still counts as following "now".
   private requestAt(traceId: string, opts: RequestOpts, askedAtMs: number): void {
-    const { identityKey, fetchSig, mode, key, spanNs } = resolveRequest(opts);
+    const { identityKey, fetchSig, mode, key, spanNs } = this.resolve(opts);
     const known = this.notArchived.get(key);
 
     const existing = this.entries.get(traceId);
@@ -732,6 +756,10 @@ export class ArchiveStore {
     void this.runFetch(traceId, opts, fetchSig.mode, mode, controller, tail);
   }
 
+  private resolve(opts: RequestOpts): ResolvedRequest {
+    return resolveRequest(opts, this.rawDecimatedSpanNs.get(registryKey(opts.pv, opts.archiver)));
+  }
+
   private async runFetch(
     traceId: string,
     opts: RequestOpts,
@@ -761,6 +789,24 @@ export class ArchiveStore {
       if (!cur || cur.controller !== controller) return;
       // The archiver has this pair after all (e.g. archiving started since).
       const forgot = this.notArchived.delete(key);
+      // Raw came back thinned to maxPoints: the archiver keeps the sample
+      // nearest each of maxPoints evenly spaced times, dropping spikes between
+      // them. Don't keep it; re-request the window binned (the prior buffer
+      // stays on screen). A decimated tail means the whole window would be
+      // too. Only a raw request gets here, and only a shorter window tries raw
+      // again, so this can't loop.
+      if (resolvedMode === 'raw' && dto.mode === 'raw' && dto.decimated) {
+        const spanNs = opts.window.toNs - opts.window.fromNs;
+        this.rawDecimatedSpanNs.set(
+          key,
+          Math.min(this.rawDecimatedSpanNs.get(key) ?? Infinity, spanNs)
+        );
+        cur.controller = null;
+        cur.failure = null;
+        if (forgot) this.publish();
+        this.requestAt(traceId, cur.wanted, cur.wantedAtMs);
+        return;
+      }
       const data = tail
         ? spliceTail(cur.data, dto, tail, opts.window)
         : dtoToData(dto, resolvedMode, opts.window);
