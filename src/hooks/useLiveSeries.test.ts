@@ -72,14 +72,15 @@ describe('useLiveSeries', () => {
           'PV:A': {
             pv: 'PV:A',
             value: 1,
+            valueKind: 'scalar',
             severity: 'NO_ALARM',
             tsNs: Date.now() * 1e6,
             connected: true,
-            units: null,
-            precision: null,
             error: null,
           },
         },
+        // Hare sends per-PV metadata with the first values.
+        meta: {},
         count: 1,
       });
     });

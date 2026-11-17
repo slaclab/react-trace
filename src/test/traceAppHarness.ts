@@ -1,6 +1,6 @@
 // Scaffolding for tests that mount the real <TraceApp> with its panels mocked
 // out. Import it BEFORE TraceApp: the browser stubs below must exist when
-// themeStore/paletteStore read localStorage at module load.
+// paletteStore reads localStorage at module load.
 //
 // `vi.mock` is hoisted per test file, so each file declares its own mocks and
 // points the factories here, e.g.
@@ -14,6 +14,7 @@ import { act } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { vi } from 'vitest';
 import type { LeftPanel } from '../components/LeftPanel';
+import type { PVSearchModal } from '../components/PVSearchModal';
 import type { PlotArea } from '../components/PlotArea';
 import type { RightPanel } from '../components/RightPanel';
 import type { Toolbar } from '../components/Toolbar';
@@ -74,6 +75,7 @@ export interface Captured {
   leftPanel: ComponentProps<typeof LeftPanel> | null;
   plotArea: ComponentProps<typeof PlotArea> | null;
   rightPanel: ComponentProps<typeof RightPanel> | null;
+  pvSearchModal: ComponentProps<typeof PVSearchModal> | null;
 }
 
 export const captured: Captured = {
@@ -81,6 +83,7 @@ export const captured: Captured = {
   leftPanel: null,
   plotArea: null,
   rightPanel: null,
+  pvSearchModal: null,
 };
 
 // Every render's props, oldest first, for assertions about intermediate frames.
@@ -89,6 +92,7 @@ export const renders: { [K in keyof Captured]: NonNullable<Captured[K]>[] } = {
   leftPanel: [],
   plotArea: [],
   rightPanel: [],
+  pvSearchModal: [],
 };
 
 function capture<K extends keyof Captured>(key: K) {
@@ -114,6 +118,7 @@ export const mocks = {
   LeftPanel: { LeftPanel: capture('leftPanel') },
   PlotArea: { PlotArea: capture('plotArea'), SinglePlot: () => null },
   RightPanel: { RightPanel: capture('rightPanel') },
+  PVSearchModal: { PVSearchModal: capture('pvSearchModal') },
   useElogConfig: { useElogConfig: () => null },
   download: {
     pickFile: async () => pickQueue.shift() ?? null,
@@ -127,6 +132,7 @@ export function resetHarness(): void {
   captured.leftPanel = null;
   captured.plotArea = null;
   captured.rightPanel = null;
+  captured.pvSearchModal = null;
   for (const list of Object.values(renders)) list.length = 0;
   pickQueue.length = 0;
   alertMock.mockClear();

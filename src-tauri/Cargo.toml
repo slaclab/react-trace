@@ -1,0 +1,45 @@
+[package]
+name = "app"
+version = "0.1.0"
+description = "Trace desktop app"
+authors = ["SLAC"]
+license = ""
+repository = ""
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "1.5.5", features = [] }
+# build.rs edits the TAURI_CONFIG merge patch (drops release-only resources in dev).
+serde_json = "1.0"
+
+[dependencies]
+# `dialog` is the bare Rust-only dialog API (startup-failure message box); it is
+# not CLI/allowlist-managed and exposes no JS IPC surface. The frontend never
+# touches @tauri-apps/api, so no allowlist-managed features are enabled at all.
+tauri = { version = "1.8", features = ["cli", "devtools", "dialog"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# In-process reverse proxy: serves the bundled SPA and forwards the Canopy path
+# prefixes to the configured backend, injecting X-API-Key so the JS bundle never
+# holds the key (mirrors the web deployment's reverse-proxy security model).
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+axum = { version = "0.7", features = ["ws"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["fs", "set-header"] }
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+futures-util = "0.3"
+http = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+# The request-body streaming test: Notify orders the chunks, and a timeout
+# makes a regression fail instead of hang.
+tokio = { version = "1", features = ["sync", "time"] }
+
+[features]
+# This feature is used for production builds or when a dev server is not specified,
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
