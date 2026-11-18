@@ -13,8 +13,14 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { Close, Login, ChevronUp } from '@carbon/icons-react';
-import { Theme, ToastNotification } from '@carbon/react';
-import { ErrorBoundary, useColorMode, useHostTheme } from '@slaclab/canopy-shell';
+import { Button, Theme, ToastNotification } from '@carbon/react';
+import {
+  ErrorBoundary,
+  ErrorFallback,
+  setColorMode,
+  useColorMode,
+  useHostTheme,
+} from '@slaclab/canopy-shell';
 import { chartThemeFor } from '@slaclab/canopy-charts';
 import type { FormulaSpec } from '@slaclab/canopy-client';
 import type { Plot, PVTrace } from '../types';
@@ -45,12 +51,13 @@ import { readLegacyPaletteId } from '../state/paletteStore';
 import { getPalette, colorForIndex, paletteOf, DEFAULT_PALETTE_ID } from '../palettes';
 import { withFilePalette } from '../io/paletteInference';
 import { downloadBlob, downloadDataUrl, pickFile } from '../io/download';
-import { serializeWorkspace, deserializeWorkspace } from '../io/serialize';
+import { serializeWorkspace, deserializeWorkspace, type DeserializeResult } from '../io/serialize';
 import { buildCsvFiles } from '../io/exportCsv';
 import { safeFilename, timestamp } from '../io/filename';
 import { makeId } from '../id';
 import { resolveFormulaSpec } from '../formula';
 import { capturePlots, type PngSource, type CapturedPlot } from '../io/exportPlotImage';
+import { createChartRegistry } from '../io/chartRegistry';
 import { PostToElogModal } from './PostToElogModal';
 import { useElogConfig } from '../hooks/useElogConfig';
 import {
@@ -208,6 +215,28 @@ function DetachedRoot({
   );
 }
 
+// Data Insight's close, minimize and reattach buttons are inside the tool, so
+// its error fallback (docked or detached) adds a way to close it; the actions
+// bar's Data Insight action only opens it.
+function DataInsightFallback({
+  error,
+  reset,
+  onClose,
+}: {
+  error: Error;
+  reset: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="insight-fallback">
+      <ErrorFallback error={error} reset={reset} />
+      <Button kind="ghost" size="sm" onClick={onClose}>
+        Close Data Insight
+      </Button>
+    </div>
+  );
+}
+
 export function TraceApp() {
   // Opening state comes from the page query (the CANOPY workspace names PVs
   // and a range); without one Trace opens a single empty plot.
@@ -347,7 +376,7 @@ export function TraceApp() {
     detached: boolean;
     pv?: string;
   }>({ open: false, minimized: false, detached: false });
-  const { colorMode, setColorMode } = useColorMode();
+  const { colorMode } = useColorMode();
   const elogConfig = useElogConfig();
   const capabilities = useTraceCapabilities();
   // E-Log post dialog. `captured` holds the plot PNGs snapshotted at open time
@@ -356,12 +385,25 @@ export function TraceApp() {
     open: false,
     captured: [],
   });
-  // Success/error toast shown after an E-Log post attempt.
-  const [elogToast, setElogToast] = useState<{
+  // Shared success/error toast (E-Log posts today; the config store's save and
+  // load share it once ported). `seq` keys the ToastNotification: Carbon arms
+  // its auto-dismiss timer in an effect keyed on `timeout`, so two same-kind
+  // toasts in a row would reuse one instance and the first toast's timer would
+  // dismiss the second early.
+  const [toast, setToast] = useState<{
     kind: 'success' | 'error';
     title: string;
     subtitle?: string;
+    timeout?: number;
+    seq: number;
   } | null>(null);
+  const toastSeq = useRef(0);
+  const showToast = useCallback(
+    (t: { kind: 'success' | 'error'; title: string; subtitle?: string; timeout?: number }) => {
+      setToast({ ...t, seq: ++toastSeq.current });
+    },
+    []
+  );
   // The visible window each plot's gestures wrote (the view window owns the
   // visible range). The chart shows it at once; a plot absent from
   // it shows its relative range against "now".
@@ -388,6 +430,10 @@ export function TraceApp() {
       fetchTimerRef.current = null;
     };
   }, [viewWindowByPlot]);
+  // Bumped on every workspace load. It keys the plot subtree (and the error
+  // boundaries' resets), so a loaded workspace that reuses a plot id remounts
+  // its charts instead of inheriting the outgoing workspace's chart state.
+  const [workspaceGeneration, setWorkspaceGeneration] = useState(0);
 
   // Per-plot "now". A following plot's anchor advances once per its refresh
   // interval; any other plot's anchor holds, which freezes its window. While
@@ -652,18 +698,16 @@ export function TraceApp() {
   );
 
   // Live ECharts instances per plot, for capturing PNGs to post to the e-log.
-  // A plot can be mounted twice (e.g. grid cell + fullscreen overlay); we keep
-  // whichever instance most recently registered and only clear on a matching
-  // unregister so a stale unmount can't wipe a live instance.
-  const chartInstancesRef = useRef(new Map<string, PngSource>());
+  // A plot can be mounted twice (its tab or grid cell plus the fullscreen
+  // overlay), so the registry keeps every mounted copy: closing the overlay
+  // falls back to the in-window copy, and while popped out the fullscreen copy
+  // is captured, as print and PNG export do.
+  const chartInstancesRef = useRef(createChartRegistry());
   const handleChartInstance = useCallback(
-    (plotId: string, instance: PngSource, active: boolean) => {
-      const map = chartInstancesRef.current;
-      if (active) {
-        map.set(plotId, instance);
-      } else if (map.get(plotId) === instance) {
-        map.delete(plotId);
-      }
+    (plotId: string, instance: PngSource, active: boolean, fullscreen = false) => {
+      const registry = chartInstancesRef.current;
+      if (active) registry.register(plotId, instance, fullscreen);
+      else registry.unregister(plotId, instance);
     },
     []
   );
@@ -784,6 +828,53 @@ export function TraceApp() {
     downloadBlob(`trace-${timestamp()}.trc.json`, 'application/json', json);
   };
 
+  // Apply a deserialized workspace to app state: the one code path for "set
+  // plots + active plot + theme". File import uses it; the config store's Load
+  // and its `?config=` links share it once they are ported.
+  const applyWorkspace = (result: DeserializeResult) => {
+    // A workspace with no plots would leave `activePlot` undefined, which the
+    // render body dereferences: refuse it rather than blank the app. This
+    // throws before any state changes, so the open workspace and its unit
+    // lookups stay as they were.
+    if (result.plots.length === 0) {
+      throw new Error('Workspace contains no plots');
+    }
+    unitLookups.abortAll();
+    // A `.trc.json` plot opens in the palette it states, else the one its curve
+    // colours imply; a legacy `.trc` opens in the default palette.
+    const loadedPlots =
+      result.source === 'native' ? result.plots.map(withFilePalette) : result.plots;
+    // A newly opened workspace starts with empty undo rings.
+    setTool({
+      plots: loadedPlots,
+      activePlotId: loadedPlots[0].id,
+      history: new Map(),
+      annotationMark: null,
+    });
+    setWorkspaceGeneration((generation) => generation + 1);
+    if (result.theme) setColorMode(result.theme);
+    // Everything below is keyed by plot id, and ids collide across workspaces
+    // (the default plot is `plot-1`, native saves keep ids verbatim, and the
+    // legacy .trc converter hardcodes `plot-1`). Carrying it over would let the
+    // outgoing workspace's viewport, detach state, hidden drawings or selection
+    // attach itself to the incoming plots, so reset it all as part of "apply a
+    // workspace". The clock needs no reset here: every loaded plot carries a
+    // new `xAxis`, which the `lastSeen` effect re-anchors at the current time.
+    if (fetchTimerRef.current !== null) {
+      clearTimeout(fetchTimerRef.current);
+      fetchTimerRef.current = null;
+    }
+    setViewWindowByPlot(new Map());
+    setFetchWindowByPlot(new Map());
+    setDetachedPlotIds([]);
+    setPoppedOutPlot(null);
+    setAnnotationsHiddenSet(new Set());
+    lastRelativeSpan.current.clear();
+    pendingSelection.current = null;
+    selection.reset();
+    setInsight((prev) => ({ ...prev, pv: undefined }));
+  };
+
   const handleImport = async () => {
     const file = await pickFile('.trc,.trc.json,.json,.xml,.stp');
     if (!file) return;
@@ -794,28 +885,16 @@ export function TraceApp() {
     }
     const text = await file.text();
     let result;
+    // A file that fails to parse, or holds no plots, leaves the open workspace,
+    // and its lookups, alone. Formula curves import intact in every mode:
+    // embedded, the host relays the Formula Engine's validate and evaluate POSTs.
     try {
       result = deserializeWorkspace(text);
+      applyWorkspace(result);
     } catch (err) {
       alert(`Failed to import: ${(err as Error).message}`);
       return;
     }
-    // A file that fails to parse leaves the open workspace, and its lookups, alone.
-    unitLookups.abortAll();
-    // Formula curves import intact in every mode: embedded, the host relays
-    // the Formula Engine's validate and evaluate POSTs.
-    // A `.trc.json` plot opens in the palette it states, else the one its curve
-    // colours imply; a legacy `.trc` opens in the default palette.
-    const importedPlots =
-      result.source === 'native' ? result.plots.map(withFilePalette) : result.plots;
-    // A newly opened workspace starts with empty undo rings.
-    setTool((s) => ({
-      plots: importedPlots,
-      activePlotId: importedPlots.length > 0 ? importedPlots[0].id : s.activePlotId,
-      history: new Map(),
-      annotationMark: null,
-    }));
-    if (result.theme) setColorMode(result.theme);
     if (result.warnings.length > 0) {
       console.warn('Import warnings:', result.warnings);
       alert(`Imported with ${result.warnings.length} warning(s):\n\n${result.warnings.join('\n')}`);
@@ -1053,8 +1132,9 @@ export function TraceApp() {
         <div className="plot-and-insight">
           <div className="plot-and-insight__plot">
             <TraceCursorContext.Provider value={recordCursor}>
-              <ErrorBoundary resetKeys={[activePlotId, viewMode]}>
+              <ErrorBoundary resetKeys={[activePlotId, viewMode, workspaceGeneration]}>
                 <PlotArea
+                  key={workspaceGeneration}
                   plots={plots}
                   activePlotId={activePlotId}
                   viewMode={viewMode}
@@ -1105,7 +1185,16 @@ export function TraceApp() {
           )}
           {insight.open && !insight.detached && !insight.minimized && (
             <div className="insight-dock">
-              <ErrorBoundary resetKeys={[insightPv]}>
+              <ErrorBoundary
+                resetKeys={[insightPv, workspaceGeneration]}
+                fallback={(error, reset) => (
+                  <DataInsightFallback
+                    error={error}
+                    reset={reset}
+                    onClose={() => setInsight((p) => ({ ...p, open: false }))}
+                  />
+                )}
+              >
                 <InsightTool
                   plots={insightPlots}
                   windowByPlotId={statsWindowByPlotId}
@@ -1187,25 +1276,33 @@ export function TraceApp() {
                   </div>
                 </div>
                 <div style={{ flex: 1, overflow: 'hidden' }}>
-                  <PlotWithStatistics
-                    plot={plot}
-                    fullscreen
-                    archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
-                    liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
-                    formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
-                    // Wired like the detached mount: fullscreen gestures go through
-                    // the one window-write path.
-                    onViewWindowChange={(w, opts) => handleViewWindowChange(plot.id, w, opts)}
-                    viewWindowNs={displayWindowByPlotId.get(plot.id)}
-                    endMs={axisEndFor(plot.id)}
-                    following={followingFor(plot.id)}
-                    statsWindowNs={statsWindowByPlotId.get(plot.id)}
-                    onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
-                    onApplyXAxis={(x) => handleApplyXAxis(plot.id, x)}
-                    // eslint-disable-next-line react-hooks/refs -- ref is written on mount/unmount, not during render
-                    onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
-                    {...annotationMountProps(plot.id, annotationChannel)}
-                  />
+                  {/* The close button above stays outside, so a chart error
+                      can be dismissed. */}
+                  <ErrorBoundary>
+                    <PlotWithStatistics
+                      plot={plot}
+                      fullscreen
+                      archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
+                      liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
+                      formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
+                      // Wired like the detached mount: fullscreen gestures go through
+                      // the one window-write path.
+                      onViewWindowChange={(w, opts) => handleViewWindowChange(plot.id, w, opts)}
+                      viewWindowNs={displayWindowByPlotId.get(plot.id)}
+                      endMs={axisEndFor(plot.id)}
+                      following={followingFor(plot.id)}
+                      statsWindowNs={statsWindowByPlotId.get(plot.id)}
+                      onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
+                      onApplyXAxis={(x) => handleApplyXAxis(plot.id, x)}
+                      // Registered as the fullscreen copy, which e-log capture
+                      // prefers while it is mounted (see createChartRegistry).
+                      onChartInstance={(inst, active) =>
+                        // eslint-disable-next-line react-hooks/refs -- ref is written on mount/unmount, not during render
+                        handleChartInstance(plot.id, inst, active, true)
+                      }
+                      {...annotationMountProps(plot.id, annotationChannel)}
+                    />
+                  </ErrorBoundary>
                 </div>
               </div>
             </div>
@@ -1296,21 +1393,25 @@ export function TraceApp() {
                 </div>
               </div>
               <div style={{ flex: 1, minHeight: 0 }}>
-                <PlotWithStatistics
-                  plot={plot}
-                  archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
-                  liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
-                  formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
-                  onViewWindowChange={(w, opts) => handleViewWindowChange(plot.id, w, opts)}
-                  viewWindowNs={displayWindowByPlotId.get(plot.id)}
-                  endMs={axisEndFor(plot.id)}
-                  following={followingFor(plot.id)}
-                  statsWindowNs={statsWindowByPlotId.get(plot.id)}
-                  onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
-                  onApplyXAxis={(x) => handleApplyXAxis(plot.id, x)}
-                  onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
-                  {...annotationMountProps(plot.id, annotationChannel)}
-                />
+                {/* The portal shares this React tree: without a boundary a chart
+                    error here would unmount the whole app. Reattach stays outside. */}
+                <ErrorBoundary>
+                  <PlotWithStatistics
+                    plot={plot}
+                    archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
+                    liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
+                    formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
+                    onViewWindowChange={(w, opts) => handleViewWindowChange(plot.id, w, opts)}
+                    viewWindowNs={displayWindowByPlotId.get(plot.id)}
+                    endMs={axisEndFor(plot.id)}
+                    following={followingFor(plot.id)}
+                    statsWindowNs={statsWindowByPlotId.get(plot.id)}
+                    onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
+                    onApplyXAxis={(x) => handleApplyXAxis(plot.id, x)}
+                    onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
+                    {...annotationMountProps(plot.id, annotationChannel)}
+                  />
+                </ErrorBoundary>
               </div>
             </DetachedRoot>
           </DetachedWindow>
@@ -1334,15 +1435,26 @@ export function TraceApp() {
               color: 'var(--cds-text-primary)',
             }}
           >
-            <InsightTool
-              plots={insightPlots}
-              windowByPlotId={statsWindowByPlotId}
-              selectedPv={insightPv}
-              detached
-              onSelectPv={(id) => setInsight((p) => ({ ...p, pv: id }))}
-              onClose={() => setInsight((p) => ({ ...p, open: false, detached: false }))}
-              onReattach={() => setInsight((p) => ({ ...p, detached: false }))}
-            />
+            <ErrorBoundary
+              resetKeys={[insightPv, workspaceGeneration]}
+              fallback={(error, reset) => (
+                <DataInsightFallback
+                  error={error}
+                  reset={reset}
+                  onClose={() => setInsight((p) => ({ ...p, open: false, detached: false }))}
+                />
+              )}
+            >
+              <InsightTool
+                plots={insightPlots}
+                windowByPlotId={statsWindowByPlotId}
+                selectedPv={insightPv}
+                detached
+                onSelectPv={(id) => setInsight((p) => ({ ...p, pv: id }))}
+                onClose={() => setInsight((p) => ({ ...p, open: false, detached: false }))}
+                onReattach={() => setInsight((p) => ({ ...p, detached: false }))}
+              />
+            </ErrorBoundary>
           </DetachedRoot>
         </DetachedWindow>
       )}
@@ -1383,19 +1495,19 @@ export function TraceApp() {
           buildConfigFile={buildElogConfigFile}
           onClose={() => setElogModal((p) => ({ ...p, open: false }))}
           onPosted={(entry) =>
-            setElogToast({
+            showToast({
               kind: 'success',
               title: 'Posted to E-Log',
               subtitle: `Entry ${entry.id} created`,
             })
           }
           onPostFailed={(message) =>
-            setElogToast({ kind: 'error', title: 'E-Log post failed', subtitle: message })
+            showToast({ kind: 'error', title: 'E-Log post failed', subtitle: message })
           }
         />
       )}
 
-      {elogToast &&
+      {toast &&
         createPortal(
           <div
             style={{ position: 'fixed', top: 56, right: 16, zIndex: 9999 }}
@@ -1403,12 +1515,13 @@ export function TraceApp() {
             aria-live="polite"
           >
             <ToastNotification
-              kind={elogToast.kind}
-              title={elogToast.title}
-              subtitle={elogToast.subtitle}
-              timeout={elogToast.kind === 'success' ? 5000 : 0}
+              key={toast.seq}
+              kind={toast.kind}
+              title={toast.title}
+              subtitle={toast.subtitle}
+              timeout={toast.timeout ?? (toast.kind === 'success' ? 5000 : 0)}
               onClose={() => {
-                setElogToast(null);
+                setToast(null);
                 return true;
               }}
             />

@@ -41,9 +41,12 @@ describe('merging', () => {
 describe('loadChannelCatalog', () => {
   beforeEach(() => {
     resetChannelCatalog();
+    // The panel layout: Canopy's modules beside trace/, opted into with '..'.
+    vi.stubEnv('VITE_CANOPY_BASE_PATH', '..');
     window.history.replaceState(null, '', '/panel/canopy/trace/');
   });
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     resetChannelCatalog();
     window.history.replaceState(null, '', '/');

@@ -193,6 +193,7 @@ function archiveEntry(
       mode === 'binned'
         ? times.map((t) => ({ time: t, min: 1, max: 3, severity: 'NO_ALARM' as const }))
         : [],
+    blanks: [],
     coverFromNs: times[0] * MS_NS,
     coverToNs: coverToMs * MS_NS,
     mode,

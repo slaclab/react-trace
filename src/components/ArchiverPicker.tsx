@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Dropdown } from '@carbon/react';
-import { CanopyError, listArchivers, type ArchiverInfoDTO } from '@slaclab/canopy-client';
+import { listArchivers, type ArchiverInfoDTO } from '@slaclab/canopy-client';
 import { useCanopyConnection } from '@slaclab/canopy-react';
+import { errorInfo } from '../api/errorInfo';
 
 export const GLOBAL_DEFAULT_OPTION = '__default__';
 export const GLOBAL_OPTION = '__global__';
@@ -47,7 +48,7 @@ export function ArchiverPicker({
         setError(null);
       } catch (err) {
         if ((err as { name?: string }).name === 'AbortError') return;
-        setError(err instanceof CanopyError ? err.detail : (err as Error).message);
+        setError(errorInfo(err).detail);
       }
     })();
     return () => controller.abort();

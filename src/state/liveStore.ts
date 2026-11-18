@@ -4,10 +4,12 @@
 // compatible. The connection (reconnect with capped backoff, ping/pong
 // liveness, resubscribe on reconnect) is the SDK's `HarePVService`; this store
 // keeps what is trace-specific on top of it: per-trace retention, the numeric
-// ring buffers the charts draw, and ref-stable snapshots. PV monitors are
-// refcounted so two traces watching the same PV share one Hare subscription.
+// buffers the charts draw, the Vole backfill, and ref-stable snapshots. PV
+// monitors are refcounted so two traces watching the same PV share one Hare
+// subscription.
 
 import {
+  AlarmSeverity,
   HarePVService,
   toWsUrl,
   type CanopyConnection,
@@ -16,7 +18,11 @@ import {
   type WireAlarmSeverity,
 } from '@slaclab/canopy-client';
 import { canopyConnection } from '../api/connection';
+import { errorInfo } from '../api/errorInfo';
 import { toWireSeverity } from '../api/severity';
+import { msToNs, nsToMs } from '../api/time';
+import { fetchBackfill, subscribeVoleBuffer } from '../api/vole';
+import type { SampleDTO } from '../api/types';
 
 export interface LivePoint {
   time: number;
@@ -38,7 +44,8 @@ export interface LiveEntry {
   // Socket-level connection state (shared across all entries).
   status: LiveStatus;
   // PV-level connection (Hare's PVValue.connected). True only after an update
-  // for this PV has been received reporting connected=true.
+  // for this PV has been received reporting connected=true, with a severity
+  // other than DISCONNECTED.
   connected: boolean;
   // Last alarm severity reported while the PV was connected.
   severity: WireAlarmSeverity | null;
@@ -86,13 +93,31 @@ export function resolveLiveRetentionMs(
 }
 
 export interface LiveStoreOptions {
-  // How to reach Canopy. Default: the app's shared connection.
+  // How to reach Hare. Default: the app's shared connection.
   connection?: CanopyConnection;
   // Injectable for tests. Default: the global WebSocket.
   webSocketFactory?: WebSocketFactory;
 }
 
 const HARE_WS_PATH = '/hare/v1/ws/pvs';
+
+// HarePVService reports a null wire value as 0, with this display value.
+const NO_VALUE_DISPLAY = '---';
+
+// Whether an update stands for a null value. An enum PV whose choice label at
+// that index is literally '---' displays the same, so that case is a real
+// value. (A null on such a PV still reads as that index: PVData can't tell
+// them apart, slaclab/canopy-sdk-js#42.)
+function isNullValue(data: PVData): boolean {
+  if (data.displayValue !== NO_VALUE_DISPLAY) return false;
+  return !(typeof data.value === 'number' && data.enumChoices?.[data.value] === NO_VALUE_DISPLAY);
+}
+
+// The error shown while the socket is down. The service's own connection errors
+// (the socket couldn't be created; a terminal close such as a rejected key) say
+// more, so they aren't replaced by it.
+const WS_DISCONNECTED_CODE = 'ws_disconnected';
+const SOCKET_ERROR_CODES = new Set(['ws_connect_failed', 'ws_terminal_close']);
 
 const HARD_CAP_POINTS = 100_000;
 // Eviction slack: defer the O(n) front-trim until the buffer holds noticeably
@@ -114,6 +139,8 @@ interface PVState {
   // `entryFor()` reuses the cached LiveEntry when the rev is unchanged so
   // downstream shallow-equality / React.memo checks hold across frames.
   rev: number;
+  // In-flight backfill controller — aborted on release or superseded request.
+  backfillController: AbortController | null;
 }
 
 interface TraceRef {
@@ -137,6 +164,8 @@ export class LiveStore {
 
   private pvs = new Map<string, PVState>();
   private byTrace = new Map<string, TraceRef>();
+  // PVs we've asked Vole to buffer during their current watch.
+  private voleSubscribed = new Set<string>();
 
   // Per-PV cached entry keyed by a signature of its published inputs. Lets
   // `rebuild()` reuse the prior LiveEntry object when nothing changed, so
@@ -193,6 +222,7 @@ export class LiveStore {
     this.byTrace.set(traceId, { pv, retentionMs });
 
     let state = this.pvs.get(pv);
+    const isFirst = !state;
     if (!state) {
       state = {
         refs: new Map(),
@@ -203,6 +233,7 @@ export class LiveStore {
         severity: null,
         unsubscribe: null,
         rev: 0,
+        backfillController: null,
       };
       this.pvs.set(pv, state);
     }
@@ -220,6 +251,8 @@ export class LiveStore {
         this.connectRequested = true;
         service.connect();
       }
+      // On a socket that is already open; otherwise the (re)connect backfills.
+      if (isFirst && this.wsStatus === 'connected') this.startBackfill(pv, state);
     }
     this.markDirty();
   }
@@ -253,7 +286,10 @@ export class LiveStore {
     if (!state) return true;
     state.refs.delete(traceId);
     if (state.refs.size === 0) {
+      state.backfillController?.abort();
+      state.backfillController = null;
       this.pvs.delete(prev.pv);
+      this.voleSubscribed.delete(prev.pv);
       state.unsubscribe?.();
     }
     return true;
@@ -299,9 +335,28 @@ export class LiveStore {
   }
 
   private handleStatus(status: LiveStatus): void {
+    const wasConnected = this.wsStatus === 'connected';
     this.wsStatus = status;
-    // A clean (re)connect clears any prior connection error.
-    if (status === 'connected') this.clearError();
+    if (status === 'connected') {
+      // A clean (re)connect clears any prior connection error.
+      this.clearError();
+      // Backfill on every (re)connect so the fetched window aligns with the
+      // subscribe moment: no gap between backfill coverage and the first live
+      // sample.
+      if (!wasConnected) {
+        for (const [pv, state] of this.pvs) this.startBackfill(pv, state);
+      }
+    } else if (
+      status === 'disconnected' &&
+      this.connectRequested &&
+      !SOCKET_ERROR_CODES.has(this.wsError?.code ?? '')
+    ) {
+      // The socket dropped, or never opened, while traces still watch. The
+      // service reports only connect failures and terminal closes, so say it
+      // here, under "Disconnected", until a clean reconnect clears it. Not on
+      // our own close after the last release (connectRequested is false then).
+      this.setError(WS_DISCONNECTED_CODE, 'Live connection error.');
+    }
     this.markDirty();
   }
 
@@ -309,18 +364,25 @@ export class LiveStore {
     const state = this.pvs.get(pv);
     // PV may have been released between subscribe and a stray late update.
     if (!state) return;
+    const connected = data.connected && data.severity !== AlarmSeverity.DISCONNECTED;
     // One break per outage: only the connected true -> false transition. A
     // dropped socket reaches here too, as a DISCONNECTED update per PV.
-    if (state.connected && !data.connected) this.recordBreak(state);
+    if (state.connected && !connected) this.recordBreak(state);
     state.latest = data;
-    state.connected = data.connected;
     // A disconnected PV (or a dropped socket, which the service reports as a
     // DISCONNECTED update with the last value) keeps its last alarm severity
-    // and adds no sample: its value is stale, or 0 standing in for null. The
-    // chart never draws past the break.
-    if (data.connected) {
-      state.severity = toWireSeverity(data.severity);
-      if (typeof data.value === 'number' && Number.isFinite(data.value)) {
+    // and adds no sample: its value is stale. A DISCONNECTED severity counts as
+    // disconnected even if the update says connected: it's a connection state,
+    // not an alarm, so it mustn't become an INVALID sample. A null value, which
+    // the service reports as 0, adds no sample either. The chart never draws
+    // past a break.
+    state.connected = connected;
+    if (connected) {
+      // Only a level the SDK doesn't define is left without a wire name. It
+      // reads as INVALID, as the SDK reads an unknown wire severity.
+      const severity = toWireSeverity(data.severity) ?? 'INVALID';
+      state.severity = severity;
+      if (typeof data.value === 'number' && Number.isFinite(data.value) && !isNullValue(data)) {
         let time = data.timestamp;
         // After a reconnect Hare replays an unchanged value with its original
         // timestamp. Stamped at or before the break it would hide the gap, so
@@ -329,12 +391,7 @@ export class LiveStore {
         if (lastBreak !== undefined && time <= lastBreak) {
           time = Math.max(lastBreak + 1, Date.now());
         }
-        state.points.push({
-          time,
-          value: data.value,
-          severity: state.severity ?? 'INVALID',
-        });
-        this.trim(state);
+        this.insertPoint(state, { time, value: data.value, severity });
       }
     }
     state.rev++;
@@ -349,6 +406,23 @@ export class LiveStore {
     state.breaks.push(at);
   }
 
+  private insertPoint(state: PVState, point: LivePoint): void {
+    const points = state.points;
+    const last = points[points.length - 1];
+    if (!last || point.time > last.time) {
+      points.push(point);
+    } else {
+      // Out of order (clock skew or step): insert in place so the trace keeps
+      // updating. Skip only an exact repeat, e.g. Hare's reconnect re-send.
+      let i = lowerBound(points, point.time);
+      for (; i < points.length && points[i].time === point.time; i++) {
+        if (points[i].value === point.value) return;
+      }
+      points.splice(i, 0, point);
+    }
+    this.trim(state);
+  }
+
   // `force` trims to the window at once, without the slack (a lowered retention).
   private trim(state: PVState, force = false): void {
     // Use the longest retention requested by any subscriber so each gets at
@@ -359,12 +433,10 @@ export class LiveStore {
     // buffer overshoot the window by up to TRIM_SLACK_POINTS, then evict in a
     // single pass. This amortizes eviction to O(1) per sample while never
     // exposing more than `slack` stale points to consumers.
-    let maxRetention = 0;
-    for (const r of state.refs.values()) if (r > maxRetention) maxRetention = r;
-
+    const retention = maxRetention(state);
     const points = state.points;
-    if (maxRetention > 0) {
-      const cutoff = Date.now() - maxRetention;
+    if (retention > 0) {
+      const cutoff = Date.now() - retention;
       // Only scan once enough stale points have accumulated. The newest point
       // is always within the window, so a quick check of the slack-th point
       // tells us whether a trim is even worth attempting.
@@ -455,6 +527,113 @@ export class LiveStore {
     this.entryCache.set(pv, { sig, entry });
     return entry;
   }
+
+  // ── backfill ───────────────────────────────────────────────────────────
+
+  private startBackfill(pv: string, state: PVState): void {
+    state.backfillController?.abort();
+    const controller = new AbortController();
+    state.backfillController = controller;
+
+    // Fill from the newest point, but never past the retention window.
+    const last = state.points[state.points.length - 1];
+    const fromMs = Math.max(last ? last.time : -Infinity, Date.now() - maxRetention(state));
+    const fromNs = msToNs(fromMs);
+
+    fetchBackfill(pv, fromNs, { signal: controller.signal })
+      .then((res) => {
+        if (controller.signal.aborted) return;
+        const current = this.pvs.get(pv);
+        if (!current || current.backfillController !== controller) return;
+        current.backfillController = null;
+        this.mergeBackfill(current, res.samples);
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        if ((err as { name?: string }).name === 'AbortError') return;
+        if (errorInfo(err).code === 'pv_not_buffered') {
+          // Ask Vole to buffer it for the next backfill, once per watch.
+          if (this.voleSubscribed.has(pv)) return;
+          this.voleSubscribed.add(pv);
+          subscribeVoleBuffer([pv], { signal: controller.signal }).catch((subErr) => {
+            // Let a later 404 try again.
+            this.voleSubscribed.delete(pv);
+            if (controller.signal.aborted) return;
+            console.warn('vole subscribe failed for', pv, subErr);
+          });
+          return;
+        }
+        console.warn('backfill failed for', pv, err);
+      });
+  }
+
+  private mergeBackfill(state: PVState, samples: SampleDTO[]): void {
+    const incoming: LivePoint[] = [];
+    for (const s of samples) {
+      if (typeof s.value !== 'number' || !Number.isFinite(s.value)) continue;
+      incoming.push({ time: nsToMs(s.tsNs), value: s.value, severity: s.severity });
+    }
+    if (incoming.length === 0) return;
+
+    // Merge only the tail that overlaps the backfill, not the whole buffer.
+    const points = state.points;
+    const start = lowerBound(points, incoming[0].time);
+    const merged = mergeSorted(points.slice(start), incoming);
+    if (merged.length === points.length - start) return;
+    points.length = start;
+    for (const p of merged) points.push(p);
+    state.rev++;
+    this.trim(state);
+    this.markDirty();
+  }
+}
+
+// Longest retention requested by any trace on this PV.
+function maxRetention(state: PVState): number {
+  let max = 0;
+  for (const r of state.refs.values()) if (r > max) max = r;
+  return max;
+}
+
+// Index of the first point at or after `time`. `points` is time-sorted.
+function lowerBound(points: readonly LivePoint[], time: number): number {
+  let lo = 0;
+  let hi = points.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (points[mid].time < time) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+// Merge two time-sorted point lists, keeping a sample in both (same time and
+// value) once. Handles Hare's `initial` landing before or after the backfill.
+export function mergeSorted(
+  existing: readonly LivePoint[],
+  incoming: readonly LivePoint[]
+): LivePoint[] {
+  const out: LivePoint[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < existing.length && j < incoming.length) {
+    const a = existing[i];
+    const b = incoming[j];
+    if (a.time < b.time) {
+      out.push(a);
+      i++;
+    } else if (b.time < a.time) {
+      out.push(b);
+      j++;
+    } else {
+      out.push(a);
+      i++;
+      if (a.value === b.value) j++;
+    }
+  }
+  while (i < existing.length) out.push(existing[i++]);
+  while (j < incoming.length) out.push(incoming[j++]);
+  return out;
 }
 
 export const liveStore = new LiveStore();

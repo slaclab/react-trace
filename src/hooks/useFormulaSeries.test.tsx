@@ -8,13 +8,13 @@ import { act, cleanup, render } from '@testing-library/react';
 import { StrictMode, useEffect, useState, type ReactNode } from 'react';
 import { msToNs, type TimeWindowNs } from '../api/time';
 import type { FormulaSpec } from '@slaclab/canopy-client';
+import { WithCanopy } from '../test/canopy';
 import { resolveFormulaSpec } from '../formula';
 import { formulaTrace, pvTrace } from '../test/traceAppHarness';
 import type { PVTrace } from '../types';
 import { useFormulaSeries, type FormulaSeriesResult } from './useFormulaSeries';
-import { WithCanopy } from '../test/canopy';
 
-interface FoxCall {
+interface EngineCall {
   expression: string;
   t0Ns: number;
   t1Ns: number;
@@ -27,8 +27,8 @@ interface FoxCall {
 // Expressions listed in `auto` settle by themselves after `latencyMs` (with
 // `error`, if set); the rest stay pending until the test settles them. An abort
 // rejects a pending call with AbortError, as fetch does.
-const fox = vi.hoisted(() => {
-  const calls: FoxCall[] = [];
+const engine = vi.hoisted(() => {
+  const calls: EngineCall[] = [];
   const auto = new Map<string, { latencyMs: number; error?: unknown; decimated?: boolean }>();
   // Signature-agnostic: spec, t0, t1 and signal are the last four arguments, so
   // this survives a leading connection argument.
@@ -47,7 +47,7 @@ const fox = vi.hoisted(() => {
         clearTimeout(timer);
         fn();
       };
-      const call: FoxCall = {
+      const call: EngineCall = {
         expression: spec.expression,
         t0Ns,
         t1Ns,
@@ -85,7 +85,7 @@ const fox = vi.hoisted(() => {
   return { calls, auto, evaluate };
 });
 
-vi.mock('../api/formulaEngine', () => ({ evaluateFormula: fox.evaluate }));
+vi.mock('../api/formulaEngine', () => ({ evaluateFormula: engine.evaluate }));
 
 // ── Windows, resolved on every render ────────────────────────────────────────
 
@@ -146,7 +146,7 @@ function Probe({ traces, windows, renderEveryMs, onRender }: ProbeProps) {
 let frames: Map<string, FormulaSeriesResult>[] = [];
 const record = (results: Map<string, FormulaSeriesResult>) => frames.push(results);
 const latest = (id: string) => frames[frames.length - 1].get(id);
-const callsFor = (expression: string) => fox.calls.filter((c) => c.expression === expression);
+const callsFor = (expression: string) => engine.calls.filter((c) => c.expression === expression);
 
 // Advance fake time in small steps, letting React render and run effects
 // between them as the browser would.
@@ -192,8 +192,8 @@ function mount(props: Omit<ProbeProps, 'onRender'>, { strict = false } = {}) {
 
 beforeEach(() => {
   vi.useFakeTimers({ now: T0 });
-  fox.calls.length = 0;
-  fox.auto.clear();
+  engine.calls.length = 0;
+  engine.auto.clear();
   frames = [];
 });
 
@@ -207,7 +207,7 @@ describe('useFormulaSeries results belong to the current spec', () => {
 
   async function readyWithFive() {
     const view = mount({ traces: [source, formula('f1', '{x1}*2')], windows });
-    fox.calls[0].resolve([5]);
+    engine.calls[0].resolve([5]);
     await settle();
     expect(latest('f1')).toMatchObject({ status: 'ready', points: [[T0, 5]] });
     return view;
@@ -255,8 +255,8 @@ describe('useFormulaSeries results belong to the current spec', () => {
   });
 
   it("doesn't re-evaluate a formula on a fixed window when another one's window moves", async () => {
-    fox.auto.set('{x1}*2', { latencyMs: 100 });
-    fox.auto.set('{x1}*3', { latencyMs: 100 });
+    engine.auto.set('{x1}*2', { latencyMs: 100 });
+    engine.auto.set('{x1}*3', { latencyMs: 100 });
     mount({
       traces: [source, formula('f1', '{x1}*2'), formula('f2', '{x1}*3')],
       windows: { f1: following(HOUR), f2: fixed(T0 - HOUR, T0) },
@@ -272,7 +272,7 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
   const traces = [source, formula('f1', '{x1}*2')];
 
   it('evaluates a following hour once in 10 s when nothing else re-renders', async () => {
-    fox.auto.set('{x1}*2', { latencyMs: 200 });
+    engine.auto.set('{x1}*2', { latencyMs: 200 });
     mount({ traces, windows: { f1: following(HOUR) } });
     await advance(10_000);
 
@@ -281,7 +281,7 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
   });
 
   it('evaluates a following hour once in 10 s of 10 Hz re-renders', async () => {
-    fox.auto.set('{x1}*2', { latencyMs: 200 });
+    engine.auto.set('{x1}*2', { latencyMs: 200 });
     mount({ traces, windows: { f1: following(HOUR) }, renderEveryMs: 100 });
     await advance(10_000);
 
@@ -289,7 +289,7 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
   });
 
   it('re-evaluates a following 5 minutes about every 3 s of drift', async () => {
-    fox.auto.set('{x1}*2', { latencyMs: 200 });
+    engine.auto.set('{x1}*2', { latencyMs: 200 });
     mount({ traces, windows: { f1: following(5 * MINUTE) }, renderEveryMs: 100 });
     await advance(10_000);
 
@@ -298,7 +298,7 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
   });
 
   it('draws the curve even when re-renders come faster than the Formula Engine answers', async () => {
-    fox.auto.set('{x1}*2', { latencyMs: 300 });
+    engine.auto.set('{x1}*2', { latencyMs: 300 });
     mount({ traces, windows: { f1: following(HOUR) }, renderEveryMs: 100 });
     await advance(1_000);
 
@@ -307,8 +307,8 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
   });
 
   it("doesn't let a fast formula starve a slow one", async () => {
-    fox.auto.set('{x1}*2', { latencyMs: 50 });
-    fox.auto.set('{x1}*3', { latencyMs: 400 });
+    engine.auto.set('{x1}*2', { latencyMs: 50 });
+    engine.auto.set('{x1}*3', { latencyMs: 400 });
     mount({
       traces: [source, formula('f1', '{x1}*2'), formula('f2', '{x1}*3')],
       windows: { f1: following(HOUR), f2: following(HOUR) },
@@ -320,7 +320,10 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
   });
 
   it('backs off a failing formula instead of retrying on every render', async () => {
-    fox.auto.set('{x1}*2', { latencyMs: 100, error: { code: 'buffer_at_capacity', status: 503 } });
+    engine.auto.set('{x1}*2', {
+      latencyMs: 100,
+      error: { code: 'buffer_at_capacity', status: 503 },
+    });
     mount({ traces, windows: { f1: following(5 * MINUTE) }, renderEveryMs: 100 });
     await advance(30_000);
 
@@ -330,8 +333,11 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
   });
 
   it("doesn't retry a 400 as the window moves, but does after a spec edit", async () => {
-    fox.auto.set('{x1}*', { latencyMs: 100, error: { code: 'formula_parse_error', status: 400 } });
-    fox.auto.set('{x1}*2', { latencyMs: 100 });
+    engine.auto.set('{x1}*', {
+      latencyMs: 100,
+      error: { code: 'formula_parse_error', status: 400 },
+    });
+    engine.auto.set('{x1}*2', { latencyMs: 100 });
     const windows = { f1: following(5 * MINUTE) };
     const view = mount({ traces: [source, formula('f1', '{x1}*')], windows, renderEveryMs: 100 });
     await advance(30_000);
@@ -344,7 +350,7 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
   });
 
   it("doesn't call the Formula Engine to zoom inside the evaluated window, but does to zoom out", async () => {
-    fox.auto.set('{x1}*2', { latencyMs: 100 });
+    engine.auto.set('{x1}*2', { latencyMs: 100 });
     const view = mount({ traces, windows: { f1: fixed(T0 - HOUR, T0) } });
     await advance(500);
 
@@ -358,7 +364,7 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
   });
 
   it('re-evaluates a zoom into under half of a decimated result, but not a wider one', async () => {
-    fox.auto.set('{x1}*2', { latencyMs: 100, decimated: true });
+    engine.auto.set('{x1}*2', { latencyMs: 100, decimated: true });
     const view = mount({ traces, windows: { f1: fixed(T0 - HOUR, T0) } });
     await advance(500);
 
@@ -391,8 +397,8 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
   });
 
   it('with a tick-anchored clock, evaluates an hour about every 40 s and 5 minutes every tick', async () => {
-    fox.auto.set('{x1}*2', { latencyMs: 200 });
-    fox.auto.set('{x1}*3', { latencyMs: 200 });
+    engine.auto.set('{x1}*2', { latencyMs: 200 });
+    engine.auto.set('{x1}*3', { latencyMs: 200 });
     mount({
       traces: [source, formula('f1', '{x1}*2'), formula('f2', '{x1}*3')],
       windows: { f1: anchored(HOUR, 5_000), f2: anchored(5 * MINUTE, 5_000) },
@@ -407,7 +413,7 @@ describe('useFormulaSeries evaluates only when the window needs it', () => {
   });
 
   it('settles after the StrictMode double mount', async () => {
-    fox.auto.set('{x1}*2', { latencyMs: 200 });
+    engine.auto.set('{x1}*2', { latencyMs: 200 });
     mount({ traces, windows: { f1: following(HOUR) }, renderEveryMs: 100 }, { strict: true });
     await advance(10_000);
 

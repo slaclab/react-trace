@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { SinglePlot } from './PlotArea';
 import type { Plot, PVTrace } from '../types';
-import type { WireAlarmSeverity } from '@slaclab/canopy-client';
+import type { AlarmSeverity } from '../api/types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 
@@ -93,7 +93,7 @@ function makePlot(traces: PVTrace[], axes: Plot['axes'] = [AX1]): Plot {
   };
 }
 
-type Pt = [seconds: number, value: number, severity: WireAlarmSeverity];
+type Pt = [seconds: number, value: number, severity: AlarmSeverity];
 const points = (pts: Pt[]) => pts.map(([s, value, severity]) => ({ time: at(s), value, severity }));
 
 function rawResult(pts: Pt[]): ArchiveSeriesResult {
@@ -229,7 +229,7 @@ describe('PlotArea: INVALID samples (#120)', () => {
     }
   });
 
-  const bins: [number, number, number, WireAlarmSeverity][] = [
+  const bins: [number, number, number, AlarmSeverity][] = [
     [10, 0, 2, 'NO_ALARM'],
     [20, 1, 3, 'NO_ALARM'],
     [30, 50, 60, 'INVALID'],
@@ -373,5 +373,40 @@ describe('PlotArea: INVALID samples (#120)', () => {
     expect(opt.tooltip.formatter([{ axisValue: at(31) }])).toContain('INVALID');
     expect(opt.tooltip.formatter([{ axisValue: at(21) }])).toContain('MINOR');
     expect(opt.tooltip.formatter([{ axisValue: at(49) }])).not.toMatch(/NO_ALARM|INVALID|MINOR/);
+  });
+
+  it('tooltip escapes untrusted labels and drops unknown severities and unsafe colors', () => {
+    const maliciousLabel = '<img src=x onerror=alert(1)>';
+    const maliciousSeverity = '<svg onload=alert(1)>';
+    const maliciousColor = '#ff0000" onmouseover="alert(1)';
+    const opt = mount(
+      [makeTrace({ displayName: maliciousLabel, color: maliciousColor })],
+      new Map([['t1', rawResult([[10, 1, maliciousSeverity as AlarmSeverity]])]])
+    );
+
+    const html = opt.tooltip.formatter([{ axisValue: at(10) }]);
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(html).not.toContain('svg onload');
+    expect(html).toContain('<span>&lt;img src=x onerror=alert(1)&gt;</span>');
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('<svg');
+    expect(html).not.toContain('onmouseover');
+  });
+
+  it('tooltip escapes untrusted sample values', () => {
+    const maliciousValue = '<img src=x onerror=alert(1)>';
+    const opt = mount(
+      [
+        makeTrace({
+          useArchive: false,
+          data: [{ time: at(10), value: maliciousValue as unknown as number }],
+        }),
+      ],
+      new Map()
+    );
+
+    const html = opt.tooltip.formatter([{ axisValue: at(10) }]);
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(html).not.toContain('<img');
   });
 });

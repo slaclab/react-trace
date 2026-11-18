@@ -1,6 +1,8 @@
 <!doctype html>
 <!-- Dark (g100) until main.tsx applies the stored color mode, so the first
-     paint isn't a white flash for the default dark theme. -->
+     paint isn't a white flash for the default dark theme. Keep it matching
+     TRACE_COLOR_MODE.defaultMode in src/state/colorMode.ts;
+     src/state/colorMode.test.ts fails if the two drift apart. -->
 <html lang="en" class="cds--g100" data-theme="dark">
   <head>
     <meta charset="UTF-8" />

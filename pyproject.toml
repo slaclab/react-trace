@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Documentation for react-trace"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = [
+dependencies = []
+
+[dependency-groups]
+docs = [
     "zensical>=0.0.41",
 ]

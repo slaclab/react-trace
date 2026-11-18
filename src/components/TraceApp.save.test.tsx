@@ -10,18 +10,9 @@ import { downloadBlob } from '../io/download';
 import { TraceApp } from './TraceApp';
 import { WithCanopy } from '../test/canopy';
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return { isDisposed: () => true };
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
 
 vi.mock('../io/download', () => ({
   downloadBlob: vi.fn(),

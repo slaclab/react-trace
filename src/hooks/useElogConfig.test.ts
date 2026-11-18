@@ -1,11 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 500): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    statusText: ok ? 'OK' : 'Error',
-    headers: { 'Content-Type': 'application/json' },
-  });
+// A real Response: the SDK's canopyFetch reads the body as text.
+function jsonResponse(body: unknown, ok = true, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, statusText: ok ? 'OK' : 'Error' });
 }
 
 // loadElogConfig caches at module scope; load a fresh copy per test.

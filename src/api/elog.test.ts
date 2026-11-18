@@ -9,19 +9,16 @@ import {
   postEntry,
   uploadAttachment,
 } from './elog';
-import { CanopyError } from '@slaclab/canopy-client';
+import { CanopyError } from './client';
 
-function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 500): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    statusText: ok ? 'OK' : 'Error',
-    headers: { 'Content-Type': 'application/json' },
-  });
+// Real Responses: the SDK's canopyFetch reads the body as text.
+function jsonResponse(body: unknown, ok = true, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, statusText: ok ? 'OK' : 'Error' });
 }
 
 // A proxy-generated error page (e.g. nginx's own 413): not JSON at all.
 function htmlResponse(status: number, statusText: string): Response {
-  return new Response('<html><body>' + statusText + '</body></html>', {
+  return new Response(`<html><body>${status} ${statusText}</body></html>`, {
     status,
     statusText,
     headers: { 'Content-Type': 'text/html' },
@@ -69,6 +66,7 @@ describe('listLogbooks', () => {
   });
 
   it('throws a CanopyError carrying the envelope code', async () => {
+    // A fresh Response per call: a body can only be read once.
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
       jsonResponse({ code: 'elog_upstream_timeout', detail: 'timed out' }, false, 504)
     );
@@ -262,7 +260,7 @@ describe('postEntry', () => {
     );
   });
 
-  it("reports FastAPI's 422 validation messages with their fields", async () => {
+  it("joins FastAPI's 422 validation messages into the error detail", async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       jsonResponse(
         {
@@ -281,14 +279,18 @@ describe('postEntry', () => {
       logbookIds: [],
       files: [],
     }).catch((e: unknown) => e);
+    // The SDK's canopyFetch reads the list as a validation_error and names
+    // each field.
     expect(err).toMatchObject({
       code: 'validation_error',
       status: 422,
       detail:
-        'body.title: String should have at most 255 characters; body.logbookIds: List should have at least 1 item',
+        'body.title: String should have at most 255 characters; ' +
+        'body.logbookIds: List should have at least 1 item',
     });
     expect(describeElogError(err)).toBe(
-      'Canopy rejected the entry: body.title: String should have at most 255 characters; body.logbookIds: List should have at least 1 item'
+      'Canopy rejected the entry: body.title: String should have at most 255 characters; ' +
+        'body.logbookIds: List should have at least 1 item'
     );
   });
 });
@@ -323,5 +325,12 @@ describe('describeElogError', () => {
   it('falls back to the message of other errors', () => {
     expect(describeElogError(new Error('nope'))).toBe('nope');
     expect(describeElogError('nope')).toBe('Unexpected error');
+  });
+
+  it("leaves a proxy's HTML error page out of the message", async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(htmlResponse(502, 'Bad Gateway'));
+    const err = await listLogbooks().catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'unknown_error', status: 502 });
+    expect(describeElogError(err)).toBe('E-log request failed (HTTP 502)');
   });
 });

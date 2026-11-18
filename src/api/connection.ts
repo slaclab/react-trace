@@ -1,19 +1,23 @@
 import type { CanopyConnection, FetchLike } from '@slaclab/canopy-client';
+import { normalizeBasePath } from './basePath';
 
 // How the browser reaches Canopy. Always a same-origin path: the Vite dev proxy
 // (vite.config.ts) and Trace's reverse proxy in deployed builds forward it to
 // Canopy and inject X-API-Key, so the bundle never holds the key.
 //
-// - VITE_CANOPY_BASE_PATH, e.g. /trace/api/canopy: one prefix in front of the
-//   per-module paths.
-// - Unset: the parent directory of the page. Trace served one directory below a
-//   gateway root (e.g. /x/y/trace/) reaches the modules as its siblings
-//   (/x/y/mole, /x/y/hare, /x/y/formula-engine); at the site root the prefix is
-//   empty, the per-module paths /mole/..., /hare/..., /formula-engine/... the
-//   dev proxy owns.
+// - Unset, empty or '/' (the local-dev default): the per-module paths at the
+//   site root, /mole/..., /hare/..., /formula-engine/..., which the dev proxy
+//   owns.
+// - VITE_CANOPY_BASE_PATH, e.g. /trace/api/canopy: one prefix in front of them.
+// - VITE_CANOPY_BASE_PATH=.. (opt-in): the parent directory of the page. Trace
+//   served one directory below a gateway root (e.g. /x/y/trace/) reaches the
+//   modules as its siblings (/x/y/mole, /x/y/hare, /x/y/formula-engine).
+export const PARENT_DIRECTORY = '..';
+
 export function canopyBaseUrl(raw: string | undefined, documentBase?: string): string {
-  const configured = (raw ?? '').trim().replace(/\/+$/, '');
-  if (configured || documentBase === undefined) return configured;
+  const configured = normalizeBasePath(raw);
+  if (configured !== PARENT_DIRECTORY) return configured;
+  if (documentBase === undefined) return '';
   // Collapse leading slashes: a page at `//evil.example/x/` has that pathname,
   // and as a prefix it would make every request protocol-relative, off-origin.
   const parent = new URL('../', documentBase).pathname.replace(/^\/+/, '/');

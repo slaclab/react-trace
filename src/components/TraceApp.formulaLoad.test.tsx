@@ -5,7 +5,6 @@
 // shares an id with the outgoing one and must not inherit its points.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
-import { WithCanopy } from '../test/canopy';
 import {
   axis,
   formulaTrace,
@@ -17,15 +16,19 @@ import {
   resetHarness,
   workspace,
 } from '../test/traceAppHarness';
+import { WithCanopy } from '../test/canopy';
 import { TraceApp } from './TraceApp';
 
-interface FoxCall {
+interface EngineCall {
   expression: string;
   settled: boolean;
   resolve: (value: number) => void;
 }
 
-const { foxCalls } = vi.hoisted(() => ({ foxCalls: [] as FoxCall[] }));
+const { engineCalls, plotAreaLifecycle } = vi.hoisted(() => ({
+  engineCalls: [] as EngineCall[],
+  plotAreaLifecycle: { mounts: 0, unmounts: 0 },
+}));
 
 // Signature-agnostic (spec, t0, t1, signal are the last four arguments), so it
 // survives a leading connection argument. Calls stay pending until resolved.
@@ -38,7 +41,7 @@ vi.mock('../api/formulaEngine', () => ({
       AbortSignal,
     ];
     return new Promise((resolve, reject) => {
-      const call: FoxCall = {
+      const call: EngineCall = {
         expression: spec.expression,
         settled: false,
         resolve: (value) => {
@@ -55,7 +58,7 @@ vi.mock('../api/formulaEngine', () => ({
           });
         },
       };
-      foxCalls.push(call);
+      engineCalls.push(call);
       signal.addEventListener('abort', () => {
         call.settled = true;
         reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
@@ -63,9 +66,24 @@ vi.mock('../api/formulaEngine', () => ({
     });
   },
 }));
-vi.mock('./PlotArea', async (importOriginal) =>
-  (await import('../test/traceAppHarness')).mocks.PlotArea(await importOriginal())
-);
+// The harness's recording PlotArea, wrapped to count mounts, so a test can tell
+// a remount of the plot subtree from a re-render.
+vi.mock('./PlotArea', async (importOriginal) => {
+  const React = await import('react');
+  const harness = await import('../test/traceAppHarness');
+  const mocked = harness.mocks.PlotArea(await importOriginal<typeof import('./PlotArea')>());
+  const RecordingPlotArea = mocked.PlotArea;
+  function MockPlotArea(props: React.ComponentProps<typeof RecordingPlotArea>) {
+    React.useEffect(() => {
+      plotAreaLifecycle.mounts++;
+      return () => {
+        plotAreaLifecycle.unmounts++;
+      };
+    }, []);
+    return RecordingPlotArea(props);
+  }
+  return { ...mocked, PlotArea: MockPlotArea };
+});
 vi.mock(
   '../hooks/useElogConfig',
   async () => (await import('../test/traceAppHarness')).mocks.useElogConfig
@@ -88,7 +106,7 @@ function legacyLike(
 }
 
 async function resolvePending(expression: string, value: number) {
-  const call = foxCalls.filter((c) => c.expression === expression && !c.settled).pop();
+  const call = engineCalls.filter((c) => c.expression === expression && !c.settled).pop();
   if (!call) throw new Error(`no pending evaluation of ${expression}`);
   await act(async () => {
     call.resolve(value);
@@ -105,7 +123,9 @@ function formulaFrames(from: number) {
 
 beforeEach(async () => {
   resetHarness();
-  foxCalls.length = 0;
+  engineCalls.length = 0;
+  plotAreaLifecycle.mounts = 0;
+  plotAreaLifecycle.unmounts = 0;
   render(<TraceApp />, { wrapper: WithCanopy });
   await loadWorkspace(legacyLike('A:PV', '{x1}*2'));
   await resolvePending('{x1}*2', 7);
@@ -118,6 +138,14 @@ beforeEach(async () => {
 afterEach(() => cleanup());
 
 describe('TraceApp formula results across a workspace load', () => {
+  it('remounts the plot subtree when a workspace reuses its plot id', async () => {
+    const mountsBefore = plotAreaLifecycle.mounts;
+    await loadWorkspace(legacyLike('B:PV', '{x1}+100'));
+
+    expect(plotAreaLifecycle.mounts).toBe(mountsBefore + 1);
+    expect(plotAreaLifecycle.unmounts).toBeGreaterThan(0);
+  });
+
   it("never shows the outgoing workspace's points for a reused formula id", async () => {
     const from = renders.plotArea.length;
     await loadWorkspace(legacyLike('B:PV', '{x1}+100'));

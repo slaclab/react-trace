@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { applyHostSheetFallback } from '@slaclab/canopy-shell';
+import {
+  CARBON_THEME,
+  applyHostSheetFallback,
+  useColorMode,
+  type ColorMode,
+} from '@slaclab/canopy-shell';
 
 interface DetachedWindowProps {
   /** Stable window name; reused so re-opening targets the same browsing context. */
@@ -43,6 +48,21 @@ function cloneStyles(dest: Document): Promise<void> {
   return Promise.all(linkLoads).then(() => undefined);
 }
 
+// Mirror the colour mode onto the popup's <html>, as canopy-shell's
+// syncDocumentColorMode does for the opener's: `data-theme` for plain CSS, and
+// the Carbon class (cds--g10/cds--g100), which gives the popup page its
+// background and native color-scheme (scrollbars, form controls). The content
+// inside the popup takes its tokens from the theme zone the parent renders
+// around it (TraceApp's DetachedRoot, also the popup's host-theme anchor, which
+// writes the same data-theme). syncDocumentColorMode only writes to the global document,
+// hence this copy; DetachedWindow.test.tsx fails if the two drift apart.
+function syncPopupTheme(doc: Document, mode: ColorMode): void {
+  const html = doc.documentElement;
+  html.dataset.theme = mode;
+  html.classList.remove('cds--white', 'cds--g10', 'cds--g90', 'cds--g100');
+  html.classList.add(`cds--${CARBON_THEME[mode]}`);
+}
+
 /**
  * Renders `children` into a separate browser window via a React portal. State,
  * context, and the data stores are shared with the opener, so live/archive
@@ -59,6 +79,7 @@ export function DetachedWindow({
 }: DetachedWindowProps) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
   const winRef = useRef<Window | null>(null);
+  const { colorMode } = useColorMode();
 
   useEffect(() => {
     const popup = window.open('', name, `popup=yes,width=${width},height=${height}`);
@@ -71,13 +92,8 @@ export function DetachedWindow({
     }
     popup.document.title = title;
     popup.document.body.style.margin = '0';
-    popup.document.documentElement.dataset.theme = document.documentElement.dataset.theme ?? 'dark';
-    // Also the Carbon theme class (cds--g10/cds--g100) the color-mode store puts
-    // on <html>, so Carbon content portaled inside the popup gets the right tokens.
-    const carbonTheme = Array.from(document.documentElement.classList).find((c) =>
-      /^cds--(white|g10|g90|g100)$/.test(c)
-    );
-    if (carbonTheme) popup.document.documentElement.classList.add(carbonTheme);
+    // The page theme (data-theme and the Carbon class) is set by the colour-mode
+    // effect below, which runs right after this one and before the root mounts.
     // A hosted opener hands its marker on; one that already fell back to the
     // standalone theme (its host stylesheet did not load) has none to hand on.
     const hostMarker = document.documentElement.dataset.canopyHost;
@@ -117,6 +133,13 @@ export function DetachedWindow({
     // Open exactly once per mount; `name` identifies the window.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Theme the popup's page, and keep it following the colour mode after it
+  // opens. Declared after the open effect, so the popup exists on the first run.
+  useEffect(() => {
+    const popup = winRef.current;
+    if (popup) syncPopupTheme(popup.document, colorMode);
+  }, [colorMode]);
 
   // Keep the OS window title in sync with the plot title.
   useEffect(() => {

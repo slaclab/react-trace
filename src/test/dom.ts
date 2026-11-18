@@ -1,5 +1,6 @@
 // Test helpers for jsdom tests that render Carbon / canopy-shell components.
-// vite.config.ts doesn't load a setup file, so tests import these directly.
+// Tests import these directly; src/test/setup.ts (vite.config.ts setupFiles)
+// doesn't install them.
 
 /**
  * jsdom implements neither window.matchMedia nor ResizeObserver; Carbon's

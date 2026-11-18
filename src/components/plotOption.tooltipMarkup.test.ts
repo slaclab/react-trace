@@ -99,9 +99,16 @@ describe('read-out tooltip: markup from a loaded file', () => {
     );
   });
 
-  it('a file-loaded value carrying markup renders inert in the tooltip', () => {
+  it('a file with a markup value is refused, and the value renders inert anyway', () => {
     const sample = { time: T, value: PAYLOAD, severity: 'NO_ALARM' };
-    const [plot] = deserializeWorkspace(workspaceWith(sample)).plots;
+    // The import's shape check refuses a non-numeric sample value outright.
+    expect(() => deserializeWorkspace(workspaceWith(sample))).toThrow(
+      /value must be a finite number/
+    );
+    // Should one reach the read-out some other way, it is still text.
+    const [plot] = deserializeWorkspace(
+      workspaceWith({ time: T, value: 1.5, severity: 'NO_ALARM' })
+    ).plots;
     expect(plot.traces[0].data).toEqual([]);
     expect(readout(plot).querySelector('img')).toBeNull();
 

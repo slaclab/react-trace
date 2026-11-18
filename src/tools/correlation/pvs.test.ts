@@ -411,12 +411,15 @@ describe('endpoints under a prefixed base href', () => {
   let base: HTMLBaseElement;
 
   beforeEach(() => {
+    // The panel layout: Canopy's modules beside trace/, opted into with '..'.
+    vi.stubEnv('VITE_CANOPY_BASE_PATH', '..');
     base = document.createElement('base');
     base.href = `${window.location.origin}/panel/canopy/trace/correlation.html`;
     document.head.appendChild(base);
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     base.remove();
   });
 

@@ -1,58 +1,25 @@
-import { CanopyError, canopyFetch } from '@slaclab/canopy-client';
-import { canopyConnection } from './connection';
-
-// ── E-Log DTOs ───────────────────────────────────────────────────────────────
-// Source: canopy.elog (camelCase wire), mounted at /elog. Each client app has its
-// own elog-plus application token server-side; Trace's app path is
-// /elog/v1/apps/trace. Logbooks and tags are referenced by id.
-
-export interface ElogConfigDTO {
-  enabled: boolean;
-  provider: string | null;
-  defaultLogbookIds: string[];
-  // Why posting is disabled (no provider configured, or no token for this app).
-  reason: string | null;
-}
-
-export interface ElogLogbookDTO {
-  id: string;
-  name: string;
-}
-
-export interface ElogAttachmentDTO {
-  id: string;
-}
-
-export interface ElogNewEntryDTO {
-  logbookIds: string[];
-  title: string;
-  // Canopy renders Markdown to HTML before handing the entry to elog-plus.
-  bodyMarkdown: string;
-  tagIds?: string[];
-  attachmentIds?: string[];
-  additionalAuthors?: string[];
-  important?: boolean;
-  eventAt?: string | null;
-  followsUpEntryId?: string | null;
-}
-
-export interface ElogEntryCreatedDTO {
-  id: string;
-  url: string | null;
-}
+import { canopyFetch } from './client';
+import { errorInfo, UNKNOWN_ERROR_CODE } from './errorInfo';
+import type {
+  ElogAttachmentDTO,
+  ElogConfigDTO,
+  ElogEntryCreatedDTO,
+  ElogLogbookDTO,
+  ElogNewEntryDTO,
+} from './types';
 
 // E-log posting goes through Canopy's shared e-log module, which holds Trace's
 // elog-plus application token server-side. Requests use the same Canopy base path
-// as Mole/Hare/Formula Engine; the proxy injects a dedicated e-log key (read+write@elog), so
+// as Mole/Hare/the Formula Engine; the proxy injects a dedicated e-log key (read+write@elog), so
 // neither that key nor the elog-plus token reaches the browser bundle.
 const APP_BASE = '/elog/v1/apps/trace';
 
 export function getElogConfig(signal?: AbortSignal): Promise<ElogConfigDTO> {
-  return canopyFetch<ElogConfigDTO>(canopyConnection, `${APP_BASE}/config`, { signal });
+  return canopyFetch<ElogConfigDTO>(`${APP_BASE}/config`, { signal });
 }
 
 export function listLogbooks(signal?: AbortSignal): Promise<ElogLogbookDTO[]> {
-  return canopyFetch<ElogLogbookDTO[]>(canopyConnection, `${APP_BASE}/logbooks`, { signal });
+  return canopyFetch<ElogLogbookDTO[]>(`${APP_BASE}/logbooks`, { signal });
 }
 
 // Multipart upload of a single file (part name `file`). Returns the attachment
@@ -60,7 +27,7 @@ export function listLogbooks(signal?: AbortSignal): Promise<ElogLogbookDTO[]> {
 export async function uploadAttachment(file: File, signal?: AbortSignal): Promise<string> {
   const form = new FormData();
   form.append('file', file, file.name);
-  const res = await canopyFetch<ElogAttachmentDTO>(canopyConnection, `${APP_BASE}/attachments`, {
+  const res = await canopyFetch<ElogAttachmentDTO>(`${APP_BASE}/attachments`, {
     method: 'POST',
     body: form,
     signal,
@@ -72,7 +39,7 @@ export function createEntry(
   entry: ElogNewEntryDTO,
   signal?: AbortSignal
 ): Promise<ElogEntryCreatedDTO> {
-  return canopyFetch<ElogEntryCreatedDTO>(canopyConnection, `${APP_BASE}/entries`, {
+  return canopyFetch<ElogEntryCreatedDTO>(`${APP_BASE}/entries`, {
     method: 'POST',
     body: entry,
     signal,
@@ -120,7 +87,8 @@ export async function postEntry(
         if ((err as { name?: string }).name === 'AbortError') throw err;
         // A bad key or missing write access fails on the first upload. Report it
         // as the key error, not as a problem with this file.
-        if (err instanceof CanopyError && (err.status === 401 || err.status === 403)) throw err;
+        const { status } = errorInfo(err);
+        if (status === 401 || status === 403) throw err;
         throw new ElogAttachmentError(file.name, err);
       }
       uploaded.set(file, id);
@@ -149,14 +117,17 @@ export function describeElogError(err: unknown): string {
   if (err instanceof ElogAttachmentError) {
     return `${err.message}. ${describeElogError(err.cause)}`;
   }
-  if (!(err instanceof CanopyError)) {
+  // errorInfo() reads a CanopyError from any copy of canopy-client. Anything
+  // else has no status.
+  const info = errorInfo(err);
+  if (info.status === undefined) {
     return err instanceof Error ? err.message : 'Unexpected error';
   }
-  switch (err.code) {
+  switch (info.code) {
     case 'network_error':
-      return withDetail("Couldn't reach Canopy", err.detail);
+      return withDetail("Couldn't reach Canopy", info.detail);
     case 'invalid_api_key':
-      return withDetail("Canopy rejected Trace's e-log API key", err.detail);
+      return withDetail("Canopy rejected Trace's e-log API key", info.detail);
     case 'insufficient_module_access':
       return "Trace's e-log API key is not scoped for the e-log module (it needs elog).";
     case 'insufficient_read_access':
@@ -170,15 +141,18 @@ export function describeElogError(err: unknown): string {
     case 'elog_not_configured':
       return 'No e-log service is configured in Canopy.';
     case 'elog_upstream_error':
-      return withDetail('The e-log service returned an error', err.detail);
+      return withDetail('The e-log service returned an error', info.detail);
     case 'elog_upstream_timeout':
       return 'The e-log service timed out. Try again.';
     case 'elog_not_supported':
       return "The e-log service doesn't support this operation.";
     case 'elog_attachment_too_large':
-      return withDetail('The file is larger than the e-log attachment limit', err.detail);
+      return withDetail('The file is larger than the e-log attachment limit', info.detail);
   }
-  if (err.status === 413) return 'The file is too large to upload.';
-  if (err.status === 422) return withDetail('Canopy rejected the entry', err.detail);
-  return withDetail(`E-log request failed (HTTP ${err.status})`, err.detail);
+  if (info.status === 413) return 'The file is too large to upload.';
+  // unknown_error: the body wasn't Canopy's JSON (e.g. a proxy's HTML error
+  // page), and the SDK puts its raw text in `detail`. Not worth showing.
+  const detail = info.code === UNKNOWN_ERROR_CODE ? '' : info.detail;
+  if (info.status === 422) return withDetail('Canopy rejected the entry', detail);
+  return withDetail(`E-log request failed (HTTP ${info.status})`, detail);
 }

@@ -2,9 +2,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getColorMode, setColorMode } from '@slaclab/canopy-shell/color-mode';
 import { memoryStorage } from '../test/dom';
+import indexHtml from '../../index.html?raw';
 import { TRACE_COLOR_MODE, setupColorMode } from './colorMode';
 
 let storage: Storage;
+
+// The part of an <html> the colour mode owns: data-theme and the Carbon classes.
+function colorModeAttributes(html: HTMLElement) {
+  return {
+    theme: html.dataset.theme,
+    carbon: Array.from(html.classList).filter((c) => c.startsWith('cds--')),
+  };
+}
 
 beforeEach(() => {
   storage = memoryStorage();
@@ -48,5 +57,15 @@ describe('setupColorMode', () => {
     setupColorMode();
     setColorMode('light');
     expect(storage.getItem('trace.theme')).toBe('light');
+  });
+});
+
+describe('index.html', () => {
+  it('pre-paints <html> as setupColorMode paints it for a new user', () => {
+    // index.html's attributes cover the first paint before main.tsx runs; they
+    // must match TRACE_COLOR_MODE.defaultMode or new users see the wrong theme flash.
+    setupColorMode(); // nothing stored
+    const prePaint = new DOMParser().parseFromString(indexHtml, 'text/html').documentElement;
+    expect(colorModeAttributes(prePaint)).toEqual(colorModeAttributes(document.documentElement));
   });
 });

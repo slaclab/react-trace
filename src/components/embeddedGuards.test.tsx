@@ -192,6 +192,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   setEmbedded(false);
@@ -300,6 +301,8 @@ describe('formula validation', () => {
   });
 
   it('validates against the Canopy base embedded under a gateway prefix', async () => {
+    // The gateway layout (modules beside trace/) is opted into with '..'.
+    vi.stubEnv('VITE_CANOPY_BASE_PATH', '..');
     vi.useFakeTimers();
     window.history.replaceState(null, '', '/x/y/trace/?embedded=true');
     render(<FormulaWorkbench plot={formulaPlot()} />, { wrapper: AppCanopy });

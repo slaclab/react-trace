@@ -10,7 +10,8 @@ import {
 // WebSocket (FormulaEngineService) but not these, so they stay here on its REST
 // core.
 
-// Result of POST /formula-engine/v1/validate (canopy.formula_engine.schemas.formula).
+// Result of POST /formula-engine/v1/validate
+// (canopy.formula_engine.schemas.formula).
 export interface FormulaValidationDTO {
   valid: boolean;
   tokens: string[];

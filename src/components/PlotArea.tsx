@@ -8,7 +8,7 @@ import {
   useState,
 } from 'react';
 import ReactECharts from 'echarts-for-react';
-import { useChartFont, useColorMode } from '@slaclab/canopy-shell';
+import { ErrorBoundary, useChartFont, useColorMode } from '@slaclab/canopy-shell';
 import { useChartTheme } from '@slaclab/canopy-charts';
 import { useDrawingTheme } from '../annotationTheme';
 import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
@@ -657,15 +657,22 @@ export function SinglePlot({
   // some prop changes. Anything subscribed to a zrender instance at mount time
   // dies within the first frame. The wrapper div is stable for the lifetime of
   // this component, so each handler resolves the *live* instance on demand.
+  //
+  // getModel() is left out of ECharts' typings and returns nothing while the
+  // chart has no model yet (echarts-for-react's throwaway measuring instance)
+  // or after dispose(), so every read through it is guarded.
   type Ecm = {
     convertFromPixel: (fh: { yAxisIndex: number }, px: number) => number;
     convertToPixel: (fh: { yAxisIndex: number }, val: number) => number;
-    getModel: () => {
-      getComponent: (
-        n: string,
-        i: number
-      ) => { axis: { scale: { getExtent: () => [number, number] } } } | undefined;
-    };
+    getModel: () =>
+      | {
+          getComponent: (
+            n: string,
+            i: number
+          ) => { axis?: { scale?: { getExtent: () => [number, number] } } } | undefined;
+        }
+      | null
+      | undefined;
     getWidth: () => number;
     getHeight: () => number;
     getZr: () => { setCursorStyle: (cursor: string) => void };
@@ -820,7 +827,7 @@ export function SinglePlot({
         const ec = liveEc();
         const idx = gestureAxesRef.current.indexOf.get(axis.id);
         if (!ec || idx === undefined) return null;
-        const ext = ec.getModel().getComponent('yAxis', idx)?.axis?.scale?.getExtent();
+        const ext = ec.getModel()?.getComponent('yAxis', idx)?.axis?.scale?.getExtent();
         return ext ? { min: ext[0], max: ext[1] } : null;
       },
       valueAt(axis, grid, px) {
@@ -1476,35 +1483,38 @@ export function PlotArea({
               onReattach={() => onReattachPlot(activePlot.id)}
             />
           ) : (
-            <PlotWithStatistics
-              key={activePlot.id}
-              plot={activePlot}
-              archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
-              liveResults={liveResultsByPlot.get(activePlot.id) ?? EMPTY_LIVE_RESULTS}
-              formulaResults={formulaResultsByPlot.get(activePlot.id) ?? EMPTY_FORMULA_RESULTS}
-              onViewWindowChange={
-                onViewWindowChange
-                  ? (w, opts) => onViewWindowChange(activePlot.id, w, opts)
-                  : undefined
-              }
-              viewWindowNs={displayWindowByPlotId.get(activePlot.id)}
-              endMs={axisEndFor?.(activePlot.id)}
-              following={followingFor?.(activePlot.id)}
-              statsWindowNs={statsWindowByPlotId?.get(activePlot.id)}
-              onAxisRangesChange={
-                onAxisRangesChange ? (r) => onAxisRangesChange(activePlot.id, r) : undefined
-              }
-              onUpdateAxis={
-                onUpdateAxis ? (id, u) => onUpdateAxis(activePlot.id, id, u) : undefined
-              }
-              onApplyXAxis={onApplyXAxis ? (x) => onApplyXAxis(activePlot.id, x) : undefined}
-              onChartInstance={
-                onChartInstance
-                  ? (inst, active) => onChartInstance(activePlot.id, inst, active)
-                  : undefined
-              }
-              {...annotationMountProps(activePlot.id, channel)}
-            />
+            // Each chart has its own boundary, so a crash leaves the plot tabs and
+            // view controls usable (switch to another plot, remove or detach this one).
+            <ErrorBoundary key={activePlot.id}>
+              <PlotWithStatistics
+                plot={activePlot}
+                archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
+                liveResults={liveResultsByPlot.get(activePlot.id) ?? EMPTY_LIVE_RESULTS}
+                formulaResults={formulaResultsByPlot.get(activePlot.id) ?? EMPTY_FORMULA_RESULTS}
+                onViewWindowChange={
+                  onViewWindowChange
+                    ? (w, opts) => onViewWindowChange(activePlot.id, w, opts)
+                    : undefined
+                }
+                viewWindowNs={displayWindowByPlotId.get(activePlot.id)}
+                endMs={axisEndFor?.(activePlot.id)}
+                following={followingFor?.(activePlot.id)}
+                statsWindowNs={statsWindowByPlotId?.get(activePlot.id)}
+                onAxisRangesChange={
+                  onAxisRangesChange ? (r) => onAxisRangesChange(activePlot.id, r) : undefined
+                }
+                onUpdateAxis={
+                  onUpdateAxis ? (id, u) => onUpdateAxis(activePlot.id, id, u) : undefined
+                }
+                onApplyXAxis={onApplyXAxis ? (x) => onApplyXAxis(activePlot.id, x) : undefined}
+                onChartInstance={
+                  onChartInstance
+                    ? (inst, active) => onChartInstance(activePlot.id, inst, active)
+                    : undefined
+                }
+                {...annotationMountProps(activePlot.id, channel)}
+              />
+            </ErrorBoundary>
           )
         ) : (
           <div
@@ -1568,34 +1578,36 @@ export function PlotArea({
                     onReattach={() => onReattachPlot(plot.id)}
                   />
                 ) : (
-                  <PlotWithStatistics
-                    plot={plot}
-                    archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
-                    liveResults={liveResultsByPlot.get(plot.id) ?? EMPTY_LIVE_RESULTS}
-                    formulaResults={formulaResultsByPlot.get(plot.id) ?? EMPTY_FORMULA_RESULTS}
-                    onViewWindowChange={
-                      onViewWindowChange
-                        ? (w, opts) => onViewWindowChange(plot.id, w, opts)
-                        : undefined
-                    }
-                    viewWindowNs={displayWindowByPlotId.get(plot.id)}
-                    endMs={axisEndFor?.(plot.id)}
-                    following={followingFor?.(plot.id)}
-                    statsWindowNs={statsWindowByPlotId?.get(plot.id)}
-                    onAxisRangesChange={
-                      onAxisRangesChange ? (r) => onAxisRangesChange(plot.id, r) : undefined
-                    }
-                    onUpdateAxis={
-                      onUpdateAxis ? (id, u) => onUpdateAxis(plot.id, id, u) : undefined
-                    }
-                    onApplyXAxis={onApplyXAxis ? (x) => onApplyXAxis(plot.id, x) : undefined}
-                    onChartInstance={
-                      onChartInstance
-                        ? (inst, active) => onChartInstance(plot.id, inst, active)
-                        : undefined
-                    }
-                    {...annotationMountProps(plot.id, channel)}
-                  />
+                  <ErrorBoundary>
+                    <PlotWithStatistics
+                      plot={plot}
+                      archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
+                      liveResults={liveResultsByPlot.get(plot.id) ?? EMPTY_LIVE_RESULTS}
+                      formulaResults={formulaResultsByPlot.get(plot.id) ?? EMPTY_FORMULA_RESULTS}
+                      onViewWindowChange={
+                        onViewWindowChange
+                          ? (w, opts) => onViewWindowChange(plot.id, w, opts)
+                          : undefined
+                      }
+                      viewWindowNs={displayWindowByPlotId.get(plot.id)}
+                      endMs={axisEndFor?.(plot.id)}
+                      following={followingFor?.(plot.id)}
+                      statsWindowNs={statsWindowByPlotId?.get(plot.id)}
+                      onAxisRangesChange={
+                        onAxisRangesChange ? (r) => onAxisRangesChange(plot.id, r) : undefined
+                      }
+                      onUpdateAxis={
+                        onUpdateAxis ? (id, u) => onUpdateAxis(plot.id, id, u) : undefined
+                      }
+                      onApplyXAxis={onApplyXAxis ? (x) => onApplyXAxis(plot.id, x) : undefined}
+                      onChartInstance={
+                        onChartInstance
+                          ? (inst, active) => onChartInstance(plot.id, inst, active)
+                          : undefined
+                      }
+                      {...annotationMountProps(plot.id, channel)}
+                    />
+                  </ErrorBoundary>
                 )}
               </div>
             ))}

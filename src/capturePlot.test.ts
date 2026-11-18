@@ -85,7 +85,7 @@ describe('capturePlotPng', () => {
     );
   });
 
-  it('prefers the fullscreen copy when asked, the in-window one otherwise', async () => {
+  it('captures the fullscreen copy when asked, the in-window one otherwise', async () => {
     const inWindow = mountChart({ dataUrl: 'data:image/png;base64,aW4=' });
     const fullscreen = mountChart({ fullscreen: true, dataUrl: 'data:image/png;base64,ZnM=' });
     expect(await capturePlotPng(plot(), 'dark', true)).toBe('data:image/png;base64,ZnM=');
@@ -94,8 +94,40 @@ describe('capturePlotPng', () => {
     expect(inWindow).toHaveBeenCalledTimes(1);
   });
 
-  it('returns null instead of throwing when the chart yields no image', async () => {
+  it('returns null while the plot is mounted but its chart yields no image', async () => {
     mountChart({ dataUrl: '' });
+    expect(await capturePlotPng(plot(), 'dark')).toBeNull();
+  });
+
+  it('returns null for a plot wrapper with no chart instance', async () => {
+    const wrap = document.createElement('div');
+    wrap.dataset.plotId = 'p1';
+    const chartHost = document.createElement('div');
+    chartHost.dataset.chartHost = '';
+    chartHost.appendChild(document.createElement('div'));
+    wrap.appendChild(chartHost);
+    document.body.appendChild(wrap);
+    expect(await capturePlotPng(plot(), 'dark')).toBeNull();
+  });
+
+  it('does not fall back to the in-window copy while the fullscreen chart is not ready', async () => {
+    const inWindow = mountChart();
+    mountChart({ fullscreen: true, dataUrl: '' });
+    expect(await capturePlotPng(plot(), 'dark', true)).toBeNull();
+    expect(inWindow).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to the in-window copy while the fullscreen copy is not mounted', async () => {
+    const inWindow = mountChart();
+    expect(await capturePlotPng(plot(), 'dark', true)).toBeNull();
+    expect(inWindow).not.toHaveBeenCalled();
+  });
+
+  it('returns null instead of throwing when the chart fails to render an image', async () => {
+    const getDataURL = mountChart();
+    getDataURL.mockImplementation(() => {
+      throw new Error('ECharts failed');
+    });
     expect(await capturePlotPng(plot(), 'dark')).toBeNull();
   });
 });

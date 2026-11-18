@@ -1,16 +1,41 @@
 import { describe, expect, it } from 'vitest';
+import type { ProxyOptions } from 'vite';
 import { canopyDevProxy } from '@slaclab/canopy-vite';
-import { canopyProxyOptions, elogAppProxy } from './vite.config';
+import { canopyProxyOptions, elogProxy } from './vite.config';
 
 const base = { CANOPY_BASE_URL: 'http://canopy.test:9000', CANOPY_API_KEY: 'k' };
 
+// The headers a route sets on the request it forwards for `req`: its
+// configure() registers proxyReq handlers, which drop cookies and set the key.
+function forwardedHeaders(
+  route: ProxyOptions,
+  path: string,
+  req: { headers: Record<string, string> } = { headers: {} }
+): Record<string, string> {
+  const handlers: ((proxyReq: unknown, req: unknown) => void)[] = [];
+  const proxy = {
+    on: (event: string, handler: (proxyReq: unknown, req: unknown) => void) => {
+      if (event === 'proxyReq') handlers.push(handler);
+    },
+  };
+  (route.configure as (proxy: unknown, options: unknown) => void)(proxy, route);
+  const set: Record<string, string> = {};
+  const proxyReq = {
+    path,
+    removeHeader: (name: string) => delete set[name],
+    setHeader: (name: string, value: string) => (set[name] = value),
+  };
+  for (const handler of handlers) handler(proxyReq, req);
+  return set;
+}
+
 describe('canopyProxyOptions', () => {
-  it('proxies /mole, /hare and /formula-engine when no Canopy base path is set', () => {
+  it('proxies the per-module paths when no Canopy base path is set', () => {
     const options = canopyProxyOptions(base);
     expect(options).toMatchObject({
       target: 'http://canopy.test:9000',
       apiKey: 'k',
-      modules: ['/mole', '/hare', '/formula-engine'],
+      modules: ['/mole', '/hare', '/formula-engine', '/magpie', '/vole'],
     });
     expect(options.basePath).toBeUndefined();
     const proxy = canopyDevProxy(options);
@@ -18,49 +43,109 @@ describe('canopyProxyOptions', () => {
       '^/mole(?=[/?#]|$)',
       '^/hare(?=[/?#]|$)',
       '^/formula-engine(?=[/?#]|$)',
+      '^/magpie(?=[/?#]|$)',
+      '^/vole(?=[/?#]|$)',
     ]);
     expect(Object.values(proxy).every((route) => route.ws === true)).toBe(true);
+    expect(forwardedHeaders(proxy['^/mole(?=[/?#]|$)'], '/mole/v1/archivers')).toEqual({
+      'X-API-Key': 'k',
+    });
   });
 
   it('switches to the single deployed prefix when VITE_CANOPY_BASE_PATH is set', () => {
     const options = canopyProxyOptions({ ...base, VITE_CANOPY_BASE_PATH: ' /trace/api/canopy ' });
     expect(options.basePath).toBe('/trace/api/canopy');
     expect(options.modules).toBeUndefined();
-    const proxy = canopyDevProxy(options);
-    expect(Object.keys(proxy)).toEqual(['^/trace/api/canopy(?=[/?#]|$)']);
+    expect(Object.keys(canopyDevProxy(options))).toEqual(['^/trace/api/canopy(?=[/?#]|$)']);
   });
 
-  // The X-API-Key the e-log route sets for a request path: its configure()
-  // registers a proxyReq handler that injects the key on Trace's app path only.
-  function elogKeyFor(env: Record<string, string>, path: string): string | undefined {
-    const [route] = Object.values(elogAppProxy(env));
-    let handler: ((proxyReq: unknown) => void) | undefined;
-    const proxy = { on: (_event: string, h: (proxyReq: unknown) => void) => (handler = h) };
-    (route.configure as (proxy: unknown, options: unknown) => void)(proxy, route);
-    const set: Record<string, string> = {};
-    handler!({ path, setHeader: (name: string, value: string) => (set[name] = value) });
-    return set['X-API-Key'];
-  }
-
-  it("proxies only Trace's e-log app path, with the e-log key", () => {
-    const env = { ...base, CANOPY_ELOG_API_KEY: 'e' };
-    expect(Object.keys(elogAppProxy(env))).toEqual(['/elog/v1/apps/trace/']);
-    expect(elogKeyFor(env, '/elog/v1/apps/trace/entries')).toBe('e');
-    // A raw URL that matches the prefix but resolves elsewhere gets no key.
-    expect(elogKeyFor(env, '/elog/v1/apps/trace/../other/entries')).toBeUndefined();
-    expect(elogKeyFor(env, '/elog/v1/apps/trace/%2e%2e/other/entries')).toBeUndefined();
+  it('treats a root or blank base path as the per-module layout', () => {
+    for (const raw of ['/', ' / ', '//', '   ']) {
+      const env = { ...base, VITE_CANOPY_BASE_PATH: raw };
+      const options = canopyProxyOptions(env);
+      expect(options.basePath).toBeUndefined();
+      expect(options.modules).toEqual(['/mole', '/hare', '/formula-engine', '/magpie', '/vole']);
+      // canopyDevProxy rejects a root prefix, so this would stop the dev server.
+      expect(() => canopyDevProxy(options)).not.toThrow();
+      expect(Object.keys(elogProxy(env))).toEqual(['^/elog/v1/apps/trace(?=[/?#]|$)']);
+    }
   });
 
-  it('falls back to CANOPY_API_KEY when CANOPY_ELOG_API_KEY is unset', () => {
-    expect(elogKeyFor(base, '/elog/v1/apps/trace/config')).toBe('k');
+  it('drops trailing slashes from the deployed base path', () => {
+    const options = canopyProxyOptions({ ...base, VITE_CANOPY_BASE_PATH: '/trace/api/canopy/' });
+    expect(options.basePath).toBe('/trace/api/canopy');
   });
 
-  it('serves the e-log route under VITE_CANOPY_BASE_PATH, ahead of the Canopy prefix', () => {
-    const env = { ...base, VITE_CANOPY_BASE_PATH: '/trace/api/canopy' };
-    const routes = elogAppProxy(env);
-    expect(Object.keys(routes)).toEqual(['/trace/api/canopy/elog/v1/apps/trace/']);
-    const [route] = Object.values(routes);
-    expect(route.rewrite!('/trace/api/canopy/elog/v1/apps/trace/config')).toBe(
+  it("doesn't let canopy-vite put an e-log key on all of /elog", () => {
+    const previous = process.env.CANOPY_ELOG_API_KEY;
+    process.env.CANOPY_ELOG_API_KEY = 'elog-key';
+    try {
+      const options = canopyProxyOptions({ ...base, VITE_CANOPY_BASE_PATH: '/trace/api/canopy' });
+      expect(Object.keys(canopyDevProxy(options))).toEqual(['^/trace/api/canopy(?=[/?#]|$)']);
+    } finally {
+      if (previous === undefined) delete process.env.CANOPY_ELOG_API_KEY;
+      else process.env.CANOPY_ELOG_API_KEY = previous;
+    }
+  });
+});
+
+describe('elogProxy', () => {
+  const KEY = '^/elog/v1/apps/trace(?=[/?#]|$)';
+
+  it("proxies only Trace's e-log app path, REST only", () => {
+    const proxy = elogProxy(base);
+    expect(Object.keys(proxy)).toEqual([KEY]);
+    expect(proxy[KEY].target).toBe('http://canopy.test:9000');
+    expect(proxy[KEY].ws).toBe(false);
+    expect(proxy[KEY].rewrite).toBeUndefined();
+  });
+
+  it('sends CANOPY_ELOG_API_KEY, or CANOPY_API_KEY when it is unset', () => {
+    const path = '/elog/v1/apps/trace/config';
+    expect(forwardedHeaders(elogProxy({ ...base, CANOPY_ELOG_API_KEY: 'e' })[KEY], path)).toEqual({
+      'X-API-Key': 'e',
+    });
+    expect(forwardedHeaders(elogProxy(base)[KEY], path)).toEqual({ 'X-API-Key': 'k' });
+    expect(forwardedHeaders(elogProxy({ ...base, CANOPY_ELOG_API_KEY: '' })[KEY], path)).toEqual({
+      'X-API-Key': 'k',
+    });
+  });
+
+  it('drops the key when the path leaves the app path', () => {
+    const route = elogProxy({ ...base, CANOPY_ELOG_API_KEY: 'e' })[KEY];
+    expect(forwardedHeaders(route, '/elog/v1/apps/trace/../other/entries')).toEqual({});
+    expect(forwardedHeaders(route, '/elog/v1/apps/trace/%2e%2e/other/entries')).toEqual({});
+    expect(forwardedHeaders(route, '/elog/v1/apps/trace')).toEqual({ 'X-API-Key': 'e' });
+    expect(forwardedHeaders(route, '/elog/v1/apps/trace?x=1')).toEqual({ 'X-API-Key': 'e' });
+  });
+
+  it('keeps the key under a CANOPY_BASE_URL path and still drops it on an escape', () => {
+    // http-proxy puts the target's path in front of the forwarded path.
+    const route = elogProxy({
+      ...base,
+      CANOPY_BASE_URL: 'http://canopy.test:9000/canopy/',
+      CANOPY_ELOG_API_KEY: 'e',
+    })[KEY];
+    expect(forwardedHeaders(route, '/canopy/elog/v1/apps/trace/config')).toEqual({
+      'X-API-Key': 'e',
+    });
+    expect(forwardedHeaders(route, '/canopy/elog/v1/apps/trace/../other/entries')).toEqual({});
+    expect(forwardedHeaders(route, '/elog/v1/apps/trace/config')).toEqual({});
+  });
+
+  it('refuses cross-origin requests like the Canopy routes', () => {
+    const route = elogProxy({ ...base, CANOPY_ELOG_API_KEY: 'e' })[KEY];
+    const crossOrigin = { headers: { origin: 'http://evil.example', host: 'localhost:5173' } };
+    expect(forwardedHeaders(route, '/elog/v1/apps/trace/config', crossOrigin)).toEqual({});
+    const bypass = route.bypass as (req: unknown, res: unknown) => unknown;
+    expect(bypass(crossOrigin, undefined)).toBe(false);
+  });
+
+  it('sits under VITE_CANOPY_BASE_PATH and strips it, like the Canopy route', () => {
+    const proxy = elogProxy({ ...base, VITE_CANOPY_BASE_PATH: '/trace/api/canopy/' });
+    const key = '^/trace/api/canopy/elog/v1/apps/trace(?=[/?#]|$)';
+    expect(Object.keys(proxy)).toEqual([key]);
+    expect(proxy[key].rewrite!('/trace/api/canopy/elog/v1/apps/trace/config')).toBe(
       '/elog/v1/apps/trace/config'
     );
   });

@@ -279,7 +279,8 @@ describe('SinglePlot keymap', () => {
   it('is focusable with no outline ring', () => {
     const { root } = mount();
     expect(root.tabIndex).toBe(0);
-    expect(root.style.outline).toMatch(/none/);
+    // jsdom 31 serialises `outline: none` as "medium"; the style itself is none.
+    expect(root.style.outlineStyle).toBe('none');
   });
 
   it("zooms in x1.25 about the centre on key '+' with a German layout code", () => {

@@ -1,38 +1,8 @@
 # React Trace
 
-[![dev deploy](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/slaclab/swapps-deployment-status/main/status/trace-dev.json)](https://github.com/slaclab/swapps-deployment)
-
 React + Vite frontend for the Canopy / Trace plotting tool. Reads archive data from
-Canopy's Mole module (`/mole/v1/...`), live PVs from Hare, formulas from the Formula Engine, and posts
-e-log entries through Canopy's e-log module (`/elog/v1/apps/trace/...`).
-
-## Registry access
-
-The shared Canopy packages (`@slaclab/canopy-*`) are published to GitHub Packages, not
-npm. The committed `.npmrc` points the `@slaclab` scope at `https://npm.pkg.github.com`.
-That registry requires authentication even to read, so once the app depends on an
-`@slaclab` package, `pnpm install` needs a token:
-
-1. Create a classic personal access token with the `read:packages` scope.
-2. Add it to your user-level `~/.npmrc`, never to the repo's `.npmrc`:
-
-   ```
-   //npm.pkg.github.com/:_authToken=<PAT>
-   ```
-
-CI authenticates with the workflow's `GITHUB_TOKEN` (`packages: read`). That only works
-if each `@slaclab/canopy-*` package grants this repository read access under
-**Package settings → Manage Actions access**. See the
-[canopy-sdk-js install notes](https://github.com/slaclab/canopy-sdk-js#installing-consumers).
-
-The container image build gets the same token through swapps-ci-helpers'
-`npm-github-packages` input. It is a BuildKit secret named `npmrc` that `docker/Dockerfile`
-mounts as `/root/.npmrc` for the `pnpm install` step only, so it never lands in an image
-layer. To build the image locally, pass your user-level config:
-
-```bash
-docker build --secret id=npmrc,src=$HOME/.npmrc -f docker/Dockerfile .
-```
+Canopy's Mole module (`/mole/v1/...`), live PVs from Hare and formulas from the Formula
+Engine, and posts e-log entries through Canopy's e-log module (`/elog/v1/apps/trace/...`).
 
 ## User docs
 
@@ -76,26 +46,31 @@ cp .env.example .env
 ```
 
 `CANOPY_API_KEY` is a server-side env var (no `VITE_` prefix). The Vite dev server proxies
-`/mole`, `/hare` and `/formula-engine` (HTTP and WebSocket), and Trace's e-log app path
-(`/elog/v1/apps/trace/`), to `CANOPY_BASE_URL` and injects the `X-API-Key` header, so the
-key never reaches the browser bundle. If `VITE_CANOPY_BASE_PATH` is set (for example
-`/trace/api/canopy`), the dev server proxies that one prefix instead and strips it before
-forwarding, like the container's nginx.
+`/mole`, `/hare`, `/formula-engine`, `/magpie` and `/vole` (HTTP and WebSocket), and Trace's
+e-log app path (`/elog/v1/apps/trace/`), to `CANOPY_BASE_URL` and injects the `X-API-Key`
+header, so the key never reaches the browser bundle. If `VITE_CANOPY_BASE_PATH` is set (for
+example `/trace/api/canopy`), the dev server proxies that one prefix instead and strips it
+before forwarding, like the container's nginx. `VITE_CANOPY_BASE_PATH=..` is for a gateway
+that serves the modules beside Trace: a page at `/x/y/trace/` then calls `/x/y/mole/...`.
+The dev server treats `..` as unset.
+
+Trace uses two Canopy keys:
+
+- `CANOPY_API_KEY` for Mole, Hare, the Formula Engine, Magpie and Vole:
+  `read+write@mole+hare+formula-engine+magpie+vole`. Saving workspaces to the config store
+  (Magpie) needs `write`. Canopy's `write` scope belongs to the key, not to a module, so this
+  key can also write PVs through Hare.
+- `CANOPY_ELOG_API_KEY` for the e-log module: `read+write@elog`.
+
+The e-log key is separate so e-log access stays on Trace's own app path (see the production
+notes below). In local dev, leave `CANOPY_ELOG_API_KEY` unset and the e-log proxy reuses
+`CANOPY_API_KEY`, which covers both with a wildcard key like `dev:read+write@*`.
 
 The proxy is [`canopyDevProxy`](https://github.com/slaclab/canopy-sdk-js/tree/main/packages/vite)
 from `@slaclab/canopy-vite`. It refuses cross-origin browser requests, including pages on
 another `localhost` port, so other sites open in your browser can't use the injected key.
-A trusted page on another origin needs to be listed in `allowedOrigins` in `vite.config.ts`.
-
-Trace uses two Canopy keys:
-
-- `CANOPY_API_KEY` for Mole, Hare and Formula Engine. Read-only is enough: `read@mole+hare+formula-engine`.
-- `CANOPY_ELOG_API_KEY` for the e-log module: `read+write@elog`.
-
-They are separate because Canopy's `write` scope belongs to the key, not to a module: giving
-the main key `write` so it could post e-log entries would also let it write PVs through
-Hare. In local dev, leave `CANOPY_ELOG_API_KEY` unset and the e-log proxy reuses
-`CANOPY_API_KEY`, which covers both with a wildcard key like `dev:read+write@*`.
+To let a trusted page on another origin use it, add `allowedOrigins` to the options
+`canopyProxyOptions()` returns in `vite.config.ts`.
 
 #### E-Log posting (optional)
 
@@ -119,6 +94,10 @@ reason. Logbooks preselected in the post dialog come from `DEFAULT_LOGBOOK_IDS`.
 lists only the logbooks Trace's token can post to, so a default Trace can't post to isn't
 preselected.
 
+The dev server proxies only Trace's e-log app path. Other `/elog` paths aren't proxied. Under
+`VITE_CANOPY_BASE_PATH` they go through that prefix with `CANOPY_API_KEY`, like every other
+Canopy path in the container's nginx.
+
 Migrating from the direct elog-plus setup: `DEFAULT_LOGBOOK_IDS` takes logbook **ids**,
 not the logbook **names** `VITE_ELOG_DEFAULT_LOGBOOKS` took. Names match nothing, so
 copying them over silently preselects no logbook. `ELOG_BASE_URL`, `ELOG_API_KEY` and
@@ -127,13 +106,19 @@ copying them over silently preselects no logbook. `ELOG_BASE_URL`, `ELOG_API_KEY
 In production the Trace container reverse-proxies `/trace/api/canopy/*` to the
 in-cluster Canopy service and injects `X-API-Key`, so the browser bundle never
 receives a key. `/trace/api/canopy/elog/v1/apps/trace/*` gets `CANOPY_ELOG_API_KEY`;
-everything else (the Mole, Hare and Formula Engine HTTP and WebSocket routes, and any other e-log
-path) gets `CANOPY_API_KEY`. The e-log key stays on Trace's own app path because Canopy
-doesn't bind keys to apps: on a wider path it could post as any app configured in Canopy.
+everything else (the Mole, Hare, Formula Engine, Magpie and Vole HTTP and WebSocket
+routes, and any other e-log path) gets `CANOPY_API_KEY`. The e-log key stays on Trace's own app path
+because Canopy doesn't bind keys to apps: on a wider path it could post as any app
+configured in Canopy.
 `CANOPY_ELOG_API_KEY` is optional: without it the container still starts, logs a
 warning, and the post dialog shows Canopy's missing-key error. The e-log location
 accepts request bodies up to 25 MiB so attachments (20 MiB by default in Canopy)
 reach Canopy.
+
+The header's bug and help buttons open this repo's GitHub issues and the public
+docs site. A deployment can point them elsewhere with `VITE_BUG_REPORT_URL` and
+`VITE_DOCS_URL` at build time; the image build reads them from the
+`BUG_REPORT_URL` and `DOCS_URL` repository variables.
 
 #### Channel catalog (optional)
 
@@ -141,7 +126,7 @@ Every PV field suggests names from two sources: Mole's archiver index, and a
 channel catalog the host may serve beside it. The catalog is
 `GET <Canopy base>/channels`, where `<Canopy base>` is the prefix the Mole,
 Hare and Formula Engine routes sit under (`VITE_CANOPY_BASE_PATH` when set,
-else the directory above the page; `src/api/connection.ts`). It answers with a
+else the site root; `src/api/connection.ts`). It answers with a
 JSON array of PV names (`string[]`) and a strong `ETag`; Trace fetches it once
 per page and ranks it in the browser (`src/pvSearch/`). A `404` means the
 deployment has no catalog, and suggestions then come from Mole alone. A

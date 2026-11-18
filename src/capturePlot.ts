@@ -52,12 +52,15 @@ export async function composePlotCapture(
  * override) is baked into the image so the result is legible on paper in
  * both dark and light mode. Resolves null when the plot's chart isn't mounted
  * in this document (e.g. detached to its own window), or when canopy-charts'
- * captureChartPng can't get an image (disposed chart, ECharts error).
+ * captureChartPng can't get an image (chart not ready yet, disposed, ECharts
+ * error).
  *
- * When `preferFullscreen` is set, the popped-out copy is captured instead of
- * the in-window one. Both are mounted with the same `data-plot-id`, and the
- * in-window copy comes first in the DOM, so a plain query would grab the chart
- * the user isn't looking at (and in grid view it's a distorted tile).
+ * When `fullscreen` is set, only the popped-out copy is captured. Both copies
+ * are mounted with the same `data-plot-id`, and the in-window copy comes first
+ * in the DOM, so a plain query would grab the chart the user isn't looking at
+ * (and in grid view it's a distorted tile). While the fullscreen copy isn't
+ * mounted (e.g. its chart crashed and an error boundary replaced it), the
+ * result is null rather than the in-window copy hidden behind the overlay.
  *
  * The ECharts host is found through `[data-chart-host] > div`, not the
  * wrapper's first child, so chrome mounted ahead of the chart (a rail) does not
@@ -66,12 +69,12 @@ export async function composePlotCapture(
 export async function capturePlotPng(
   plot: Plot,
   colorMode: 'dark' | 'light',
-  preferFullscreen = false,
+  fullscreen = false,
   annotationsHidden = false
 ): Promise<string | null> {
-  const root =
-    (preferFullscreen && document.querySelector(`[data-plot-id="${plot.id}"][data-fullscreen]`)) ||
-    document.querySelector(`[data-plot-id="${plot.id}"]`);
+  const root = document.querySelector(
+    fullscreen ? `[data-plot-id="${plot.id}"][data-fullscreen]` : `[data-plot-id="${plot.id}"]`
+  );
   if (!root) return null;
   const host = root.querySelector('[data-chart-host] > div');
   if (!(host instanceof HTMLElement)) return null;
