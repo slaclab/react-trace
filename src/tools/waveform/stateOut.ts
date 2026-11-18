@@ -7,7 +7,9 @@
 // `{type:'canopy:trace-query', query}` to the host. The opening state is
 // never posted: the host already holds it.
 //
-// What is reported is exactly what `serializeWaveformQuery` writes, so a
+// What is reported is what `serializeWaveformQuery` writes (with the
+// `waveformLinkQuery` marker while this site's new views differ from the
+// baseline), so a
 // snapshot reference never leaves the page and Δ against a snapshot is
 // not written: taking, dropping or restyling a snapshot changes no
 // query and posts nothing.
@@ -25,6 +27,7 @@ import type { Catalog } from '../../annotations/catalog/types';
 import type { ShedStore } from '../../annotations/host/shedStore';
 import { pageKeyReserve, usePublishedQuery } from '../shared/publishQuery';
 import { serializeWaveformQueryWithShed, type WaveformState } from './query';
+import { waveformLinkQuery } from './defaults';
 
 export interface WaveformStateOutOptions {
   /** The plot's drawing catalog; default WAVEFORM_CATALOG. */
@@ -45,5 +48,5 @@ export function useWaveformStateOut(
     () => serializeWaveformQueryWithShed(state, { catalog, reserve: pageKeyReserve() }),
     [state, catalog]
   );
-  usePublishedQuery(out.query, out.shed, shed);
+  usePublishedQuery(waveformLinkQuery(out.query), out.shed, shed);
 }

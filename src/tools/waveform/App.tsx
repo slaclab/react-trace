@@ -86,7 +86,8 @@ import { referenceFor } from './reference';
 import type { WaveformModel } from './model';
 import { WaveformPlot } from './Plot';
 import { renderedXSource, type WaveformPlotInput } from './plotOption';
-import { parseWaveformQuery, serializeWaveformQuery, type WaveformState } from './query';
+import { serializeWaveformQuery, type WaveformState } from './query';
+import { initialWaveformState, waveformLinkQuery } from './defaults';
 import { useWaveformStateOut } from './stateOut';
 import {
   WaveformController,
@@ -211,7 +212,7 @@ const Canvas = memo(WaveformPlot);
 
 export function WaveformApp({ hare, controllerOptions, onTool }: WaveformAppProps) {
   const [record, setRecord] = useState<WaveformAppRecord>(() => ({
-    state: parseWaveformQuery(window.location.search),
+    state: initialWaveformState(window.location.search),
     drawingHistory: { history: new Map() },
   }));
   const state = record.state;
@@ -383,7 +384,11 @@ export function WaveformApp({ hare, controllerOptions, onTool }: WaveformAppProp
 
   // "Attach config": the page address that reopens this state.
   const buildConfigFile = useCallback(
-    () => pageConfigFile(serializeWaveformQuery(stateRef.current), 'waveform_config.txt'),
+    () =>
+      pageConfigFile(
+        waveformLinkQuery(serializeWaveformQuery(stateRef.current)),
+        'waveform_config.txt'
+      ),
     []
   );
   // The logbook listing loaded ⇒ Post to e-log is shown.

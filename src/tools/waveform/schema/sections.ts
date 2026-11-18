@@ -2,14 +2,8 @@
 // The list sections: Live, Reference and X.
 
 import { apply, setDelta, setRolling, setSpread } from '../edit';
-import {
-  MAX_LIVE,
-  DEFAULT_ROLL_S,
-  MIN_ROLL_S,
-  MAX_ROLL_S,
-  MAX_SPREAD,
-  referenceHasSpread,
-} from '../query';
+import { siteRollS } from '../defaults';
+import { MAX_LIVE, MIN_ROLL_S, MAX_ROLL_S, MAX_SPREAD, referenceHasSpread } from '../query';
 import { GROUPS } from '../../vocabulary';
 import type { FieldDef, SectionSchema } from '../../../workbench/types';
 
@@ -70,7 +64,7 @@ export function referenceSection<
       level: 'L1',
       help: 'Each curve’s reference is its own mean over the last Window seconds, with a σ per element.',
       get: (ctx) => ctx.state.reference?.kind === 'rolling',
-      set: (ctx, on) => ctx.update((state) => setRolling(state, on ? DEFAULT_ROLL_S : null)),
+      set: (ctx, on) => ctx.update((state) => setRolling(state, on ? siteRollS() : null)),
     },
     {
       id: 'rolling-window',
@@ -84,7 +78,7 @@ export function referenceSection<
       unit: 's',
       when: (ctx) => ctx.state.reference?.kind === 'rolling',
       get: (ctx) =>
-        ctx.state.reference?.kind === 'rolling' ? ctx.state.reference.seconds : DEFAULT_ROLL_S,
+        ctx.state.reference?.kind === 'rolling' ? ctx.state.reference.seconds : siteRollS(),
       set: (ctx, value) => {
         if (value === null || !Number.isFinite(value)) return;
         const n = Math.round(value);

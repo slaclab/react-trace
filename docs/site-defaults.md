@@ -67,9 +67,10 @@ open the same everywhere.
 
 A link that names only PVs (and, for Trace, a range), such as "Open in Trace"
 from another tool, carries no settings. It opens as a new plot or view, with
-this site's defaults. If a Trace plot's settings are all back at the
-baseline while this site's new plots differ from it, its links carry an empty
-`plot={"v":1}`, so they still reopen at the baseline values.
+this site's defaults. If a plot's or view's settings are all back at the
+baseline while this site's new ones differ from it, its links carry a marker
+(an empty `plot={"v":1}` in Trace, `rail=1` in Waveform), so they still reopen
+at the baseline values. Correlation's links always state their settings.
 
 ## Keys
 
@@ -137,7 +138,7 @@ Used when the page opens with no state beyond its PVs (`x`, `y`, `trig`).
 | Key            | Built in                                  | Meaning                                                                                           |
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `lookback`     | `1h`                                      | 1m to 24h.                                                                                        |
-| `dt`           | `1`                                       | The Timer trigger's period in seconds, at least 0.1.                                              |
+| `dt`           | `1`                                       | The Timer trigger's period in seconds, at least 0.1; also where switching back to Timer starts.   |
 | `metrics`      | the [defaults](correlation.md#statistics) | The statistics columns, in order, as the link's `m=` tokens (`-` first: listed but not a column). |
 | `drawingTools` | `true`                                    | The drawing rail.                                                                                 |
 

@@ -32,7 +32,6 @@ import type { Catalog } from '../../annotations/catalog/types';
 import { VALUE_X_AXIS } from '../../annotations/catalog/xAxis';
 import { validateAnnotationIn, type Annotation } from '../../annotations/model';
 import {
-  DEFAULT_DT_S,
   keepCorrelationReferences,
   MAX_Y,
   normalizeCorrelationState,
@@ -41,6 +40,7 @@ import {
   type CorrelationState,
 } from './query';
 import { CORRELATION_METRICS } from './metrics';
+import { siteTimer } from './defaults';
 import {
   MAX_METRICS,
   defaultMetrics,
@@ -72,8 +72,6 @@ export function apply(
 ): CorrelationState {
   return keepCorrelationReferences(state, normalizeCorrelationState(fn(state), catalog));
 }
-
-const TIMER = { mode: 'timer', dtS: DEFAULT_DT_S } as const;
 
 /** The refusal shown when Y has no room. */
 export function yFullMessage(): string {
@@ -138,12 +136,12 @@ export function addPv(
   return { state: apply(state, (s) => ({ ...s, ys: [...s.ys, pv] })) };
 }
 
-/** Remove `pv` from `role`; removing the trigger PV returns to Timer 1 s. */
+/** Remove `pv` from `role`; removing the trigger PV returns to Timer at the site's period. */
 export function removePv(state: CorrelationState, role: PvRole, pv: string): CorrelationState {
   if (!hasRole(state, role, pv)) return state;
   return apply(state, (s) => {
     if (role === 'x') return { ...s, x: '' };
-    if (role === 'trig') return { ...s, trigger: TIMER };
+    if (role === 'trig') return { ...s, trigger: siteTimer() };
     return { ...s, ys: s.ys.filter((y) => y !== pv) };
   });
 }
@@ -182,7 +180,7 @@ export function movePv(state: CorrelationState, from: PvRole, pv: string, to: Pv
       let { x, ys, trigger } = s;
       // Take the PV out of its slot; a displaced PV fills that slot.
       if (from === 'x') x = '';
-      else if (from === 'trig') trigger = TIMER;
+      else if (from === 'trig') trigger = siteTimer();
       else ys = ys.flatMap((y) => (y === pv ? (displaced !== '' ? [displaced] : []) : [y]));
       if (displaced !== '' && from === 'x') x = displaced;
       if (displaced !== '' && from === 'trig') trigger = { mode: 'pv', pv: displaced };
@@ -195,10 +193,10 @@ export function movePv(state: CorrelationState, from: PvRole, pv: string, to: Pv
   };
 }
 
-/** Timer mode; an interval already set is kept, a trigger PV is dropped for Timer 1 s. */
+/** Timer mode; an interval already set is kept, a trigger PV is dropped for the site's period. */
 export function setTimer(state: CorrelationState): CorrelationState {
   if (state.trigger.mode === 'timer') return apply(state, (s) => s);
-  return apply(state, (s) => ({ ...s, trigger: TIMER }));
+  return apply(state, (s) => ({ ...s, trigger: siteTimer() }));
 }
 
 /** Fire on; undefined = Every update. Kept by the normalizer in PV mode only. */

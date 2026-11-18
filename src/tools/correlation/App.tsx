@@ -75,7 +75,8 @@ import {
   useCorrelationFrame,
 } from './Plot';
 import { useCorrelationPvs } from './pvs';
-import { parseCorrelationQuery, serializeCorrelationQuery, type CorrelationState } from './query';
+import { serializeCorrelationQuery, type CorrelationState } from './query';
+import { initialCorrelationState } from './defaults';
 import { useCorrelationStateOut } from './stateOut';
 import { useTable, type FormulaEngineFactory } from './useTable';
 import './correlation.css';
@@ -117,7 +118,7 @@ function CorrelationMenu({ input }: { input: CorrelationMenuInput }) {
 
 export function CorrelationApp({ hare, createFormulaEngine, search }: CorrelationAppProps) {
   const [record, setRecord] = useState<CorrelationAppRecord>(() => ({
-    state: parseCorrelationQuery(window.location.search),
+    state: initialCorrelationState(window.location.search),
     drawingHistory: { history: new Map() },
   }));
   const state = record.state;

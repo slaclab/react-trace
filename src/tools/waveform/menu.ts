@@ -15,6 +15,7 @@ import type { WaveformFrames } from './WaveformController';
 import { groupOf, movePv, moveRefusal, type WaveformGroup } from './edit';
 import { autoScale } from './gestures';
 import { serializeWaveformQuery, type WaveformState } from './query';
+import { waveformLinkQuery } from './defaults';
 import type { PlotPoint, PointMenu } from '../../annotations/host/useDrawingHost';
 import type {
   ContextMenuWriters,
@@ -165,7 +166,7 @@ export function waveformMenuWriters(input: WaveformMenuInput): ContextMenuWriter
           )
         );
     },
-    viewLink: () => viewLinkFor('waveform', serializeWaveformQuery(state)),
+    viewLink: () => viewLinkFor('waveform', waveformLinkQuery(serializeWaveformQuery(state))),
   };
 }
 
