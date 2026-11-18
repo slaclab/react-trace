@@ -6,7 +6,9 @@
 //   - `signal`: a right-click on a Properties row or on a curve's legend entry;
 //     the request names one signal, or several picked rows;
 //   - `point`: a right-click in the plot area; the request names the curve
-//     nearest the pointer (when there is one) and the reading under it.
+//     nearest the pointer (when there is one) and the reading under it;
+//   - `drawing`: a right-click on a drawing, on the plot or on its card; the
+//     request names the drawing, and the menu's header is its name.
 // Which tools offer it follows from the writers: a tool wires the writers it
 // can serve, and an action whose writer is not wired is left out. Nothing
 // here names a tool.
@@ -20,8 +22,8 @@
 
 import { formatShortcut } from '../useCanvasActions';
 
-/** Where a menu was opened: a signal (row or legend entry) or a point on the plot. */
-export type MenuScope = 'signal' | 'point';
+/** Where a menu was opened: a signal (row or legend entry), a point on the plot, or a drawing. */
+export type MenuScope = 'signal' | 'point' | 'drawing';
 
 /** A plotted signal as the menus see it: its item id and full PV name. */
 export interface MenuSignal {
@@ -38,6 +40,19 @@ export interface MenuRequest {
   signals: readonly MenuSignal[];
   /** The reading under the pointer (point): the header line and the copied text. */
   reading?: { header: string; text: string };
+  /** The drawing's id (drawing). */
+  drawing?: string;
+}
+
+/** What a tool offers for one drawing (the drawing menu). */
+export interface DrawingOffer {
+  /** The menu's header: the drawing's name. */
+  name: string;
+  locked: boolean;
+  /** Select the drawing and open its card. */
+  edit?(): void;
+  setLocked?(locked: boolean): void;
+  remove?(): void;
 }
 
 /** Something a writer offers to run, with its label when it differs from the action's own. */
@@ -114,6 +129,8 @@ export interface ContextMenuWriters {
   copyImage?(): (() => Promise<Blob | null>) | null;
   /** A link that reopens this tool with this view. */
   viewLink?(): string | null;
+  /** The drawing an id names, or null when the id is no drawing. */
+  drawing?(id: string): DrawingOffer | null;
 }
 
 /** The effects the items run through, owned by the menu host. */
@@ -160,6 +177,8 @@ export interface ResolveInput {
   request: MenuRequest;
   /** The first signal of the request, or null. */
   signal: MenuSignal | null;
+  /** The drawing the request names (drawing), or null. */
+  drawing: DrawingOffer | null;
   w: ContextMenuWriters;
   env: MenuEnv;
 }
@@ -359,6 +378,15 @@ export const CONTEXT_ACTIONS: readonly ContextActionSpec[] = Object.freeze([
         : null,
   },
   {
+    id: 'edit-drawing',
+    scopes: ['drawing'],
+    group: 'view',
+    resolve: ({ drawing }) => {
+      const edit = drawing?.edit;
+      return edit ? { id: 'edit-drawing', label: 'Edit', run: () => edit() } : null;
+    },
+  },
+  {
     id: 'reset-zoom',
     scopes: ['point'],
     group: 'view',
@@ -449,10 +477,33 @@ export const CONTEXT_ACTIONS: readonly ContextActionSpec[] = Object.freeze([
       };
     },
   },
+  {
+    id: 'lock-drawing',
+    scopes: ['drawing'],
+    group: 'item',
+    resolve: ({ drawing }) => {
+      const set = drawing?.setLocked;
+      if (!drawing || !set) return null;
+      const locked = drawing.locked;
+      return { id: 'lock-drawing', label: locked ? 'Unlock' : 'Lock', run: () => set(!locked) };
+    },
+  },
+  {
+    id: 'delete-drawing',
+    scopes: ['drawing'],
+    group: 'item',
+    resolve: ({ drawing }) => {
+      const remove = drawing?.remove;
+      return remove
+        ? { id: 'delete-drawing', label: 'Delete', danger: true, run: () => remove() }
+        : null;
+    },
+  },
 ] satisfies ContextActionSpec[]);
 
-/** The menu's header line: the full PV name, the count, or the reading. */
+/** The menu's header line: the full PV name, the count, or the reading (a drawing's: its name). */
 export function menuHeader(request: MenuRequest): string {
+  if (request.scope === 'drawing') return '';
   if (request.scope === 'point') return request.reading?.header ?? request.signals[0]?.pv ?? '';
   const n = request.signals.length;
   return n === 1 ? request.signals[0].pv : `${n} signals`;
@@ -466,7 +517,11 @@ export function resolveMenu(
   actions: readonly ContextActionSpec[] = CONTEXT_ACTIONS
 ): MenuModel | null {
   const multi = request.scope === 'signal' && request.signals.length > 1;
-  const input: ResolveInput = { request, signal: request.signals[0] ?? null, w, env };
+  const drawing =
+    request.scope === 'drawing' && request.drawing !== undefined
+      ? (w.drawing?.(request.drawing) ?? null)
+      : null;
+  const input: ResolveInput = { request, signal: request.signals[0] ?? null, drawing, w, env };
   const byGroup = new Map<MenuGroup, MenuItemModel[]>();
   for (const spec of actions) {
     if (!spec.scopes.includes(request.scope)) continue;
@@ -479,7 +534,7 @@ export function resolveMenu(
   }
   const groups = MENU_GROUPS.flatMap((g) => (byGroup.has(g) ? [byGroup.get(g)!] : []));
   if (groups.length === 0) return null;
-  return { header: menuHeader(request), groups };
+  return { header: drawing ? drawing.name : menuHeader(request), groups };
 }
 
 /** The Copy PV name item of a resolved menu, the one ⌘C runs. */

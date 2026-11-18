@@ -1015,6 +1015,7 @@ export function SinglePlot({
           clientX: e.clientX,
           clientY: e.clientY,
           target,
+          hit: e.target,
         });
         return;
       }

@@ -13,8 +13,9 @@
 //      plot as image, Add note here).
 //
 // Callers open a menu with `useContextMenu()`: `openSignals(ids, at)` for a
-// Properties row or a legend entry, `open(request, at, local)` for a point. Both
-// return false when nothing applies, so the caller leaves the native menu.
+// Properties row or a legend entry, `openDrawing(id, at)` for a drawing's card,
+// `open(request, at, local)` for a point or a drawing on the plot. Each
+// returns false when nothing applies, so the caller leaves the native menu.
 //
 // The menu is a plain Carbon `Menu` (focus, arrows, Esc, outside click and
 // close-on-select come from Carbon), with the header line as its first,
@@ -207,9 +208,14 @@ export function ContextMenuProvider({ schemaWriters, children }: ContextMenuProv
     [open, signalOf]
   );
 
+  const openDrawing = useCallback(
+    (id: string, at: MenuAt): boolean => open({ scope: 'drawing', signals: [], drawing: id }, at),
+    [open]
+  );
+
   const api = useMemo<ContextMenuApi>(
-    () => ({ open, openSignals, signalOf, toast }),
-    [open, openSignals, signalOf, toast]
+    () => ({ open, openSignals, openDrawing, signalOf, toast }),
+    [open, openSignals, openDrawing, signalOf, toast]
   );
 
   const close = () => setMenu(null);

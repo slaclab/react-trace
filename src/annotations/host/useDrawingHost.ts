@@ -26,7 +26,9 @@
 // `useDrawingPlotMenu(host, own)` is the plot context menu: the workbench's
 // point menu, joined by one "Add … here" entry per catalog tool with a
 // `menuAdd`, placed at the clicked point on the axis `ownerAxisAt` names
-// (snapped through `config.snap` when the magnet is on).
+// (snapped through `config.snap` when the magnet is on). A right-click on a
+// drawing opens its drawing menu instead (Edit, Lock / Unlock, Delete),
+// written through the document, so every change is one undo step.
 // `useDrawingWrapperListeners(wrapRef, host)` is for plots without a listener
 // of their own.
 //
@@ -44,7 +46,11 @@ import { makeAnnotationId } from '../ids';
 import type { AnnotationLayerProps, AnnotationLayerTheme, OverlayHandle } from '../AnnotationLayer';
 import type { HostConfig, SnapHit } from '../catalog/types';
 import { useContextMenu } from '../../workbench/contextMenu/context';
-import type { ContextMenuWriters, MenuSignal } from '../../workbench/contextMenu/registry';
+import type {
+  ContextMenuWriters,
+  DrawingOffer,
+  MenuSignal,
+} from '../../workbench/contextMenu/registry';
 import {
   createCursorStore,
   isPlotChrome,
@@ -52,7 +58,7 @@ import {
   type ProjectionStore,
 } from '../../plot/geometry';
 import type { DrawingCommand } from '../keys';
-import { quantizePointIn, type Annotation } from '../model';
+import { objNameIn, quantizePointIn, type Annotation } from '../model';
 import { appendCommitIn, seedDrawingIn, type Anchor } from '../tools';
 import { routeDrawingKey } from './hostKeys';
 import type { ShedSnapshot } from './shedStore';
@@ -71,6 +77,8 @@ export interface PlotMenuAt {
   clientY: number;
   /** Portal target: the wrapper's `ownerDocument.body`; the global document's body when absent. */
   target?: Element;
+  /** The element the right-click hit: a drawing's opens the drawing menu. */
+  hit?: EventTarget | null;
 }
 
 /** What the plot hands its drawing parts. */
@@ -336,6 +344,55 @@ export function drawingMenuEntriesAt(host: DrawingHost, x: number, y: number): D
   });
 }
 
+/** The id of the drawing `target` belongs to (never the draft), or null. */
+export function drawingIdAt(
+  host: DrawingHost,
+  target: EventTarget | null | undefined
+): string | null {
+  const el = target as Element | null | undefined;
+  if (!el || typeof el.closest !== 'function') return null;
+  const g = el.closest('[data-annotation-id]');
+  if (!g || g.getAttribute('data-annotation-draft') === 'true') return null;
+  const id = g.getAttribute('data-annotation-id');
+  return host.document.annotations.some((a) => a.id === id) ? id : null;
+}
+
+/**
+ * The drawing menu's offer for drawing `id` of the plot: named as its card
+ * is; Edit selects it (which opens its card); Lock / Unlock and Delete are
+ * one commit each. Null when the plot holds no such drawing.
+ */
+export function drawingOfferOf(host: DrawingHost, id: string): DrawingOffer | null {
+  const { config, document: doc } = host;
+  const a = doc.annotations.find((d) => d.id === id);
+  if (a === undefined) return null;
+  const noun = config.catalog.byKind(a.kind)?.label.short ?? a.kind;
+  const axes = host.axes.map((ax) => ({
+    id: ax.id,
+    name: ax.name ?? '',
+    units: ax.units,
+    unitLabel: ax.unitLabel,
+  }));
+  return {
+    name: objNameIn(config.catalog, config.xAxis, a, axes),
+    locked: a.locked === true,
+    edit: () => doc.select(id),
+    setLocked: (locked) =>
+      doc.commit(
+        (list) =>
+          list.map((d) => {
+            if (d.id !== id || (d.locked === true) === locked) return d;
+            const next = { ...d };
+            if (locked) next.locked = true;
+            else delete next.locked;
+            return next;
+          }),
+        `${locked ? 'Lock' : 'Unlock'} ${noun}`
+      ),
+    remove: () => doc.commit((list) => list.filter((d) => d.id !== id), `Delete ${noun}`),
+  };
+}
+
 /** A right-click in the plot, as the plot's `point` reads it. */
 export interface PlotPoint {
   at: PlotMenuAt;
@@ -382,6 +439,15 @@ export function useDrawingPlotMenu(host: DrawingHost, own: DrawingPlotMenuOption
     if (at === null) return;
     menu.set(null);
     if (menus === null) return;
+    const drawingId = drawingIdAt(host, at.hit);
+    if (drawingId !== null) {
+      menus.open(
+        { scope: 'drawing', signals: [], drawing: drawingId },
+        { x: at.clientX, y: at.clientY, target: at.target },
+        { drawing: (id) => drawingOfferOf(host, id) }
+      );
+      return;
+    }
     const entries = drawingMenuEntriesAt(host, at.localX, at.localY);
     const p = pointAt(host, at);
     const spec = pointRef.current?.(p) ?? { signals: [] };
@@ -455,6 +521,7 @@ export function useDrawingWrapperListeners(
         clientX: e.clientX,
         clientY: e.clientY,
         target: wrap.ownerDocument.body,
+        hit: e.target,
       });
     };
     const onMouseMove = (e: MouseEvent) => hostRef.current.cursorStore.set(toLocal(e));

@@ -653,3 +653,45 @@ describe('WaveformApp Display › Drawing tools and Drawings', () => {
     expect(hideButton()?.getAttribute('aria-pressed')).toBe('true');
   });
 });
+
+describe('WaveformApp drawing menu', () => {
+  function readyWithHline(): { m: Mounted; id: string } {
+    const m = mount(`pv=${A}`);
+    act(() => m.hare.initial([[A, 'mm', wf(1, 2, 3)]]));
+    m.flush();
+    const stage = document.querySelector('.waveform-plot__stage')!;
+    fireEvent.contextMenu(stage, { clientX: 300, clientY: 200 });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add horizontal line here' }));
+    return { m, id: m.tool.getState().drawings[0].id };
+  }
+  const items = () => screen.getAllByRole('menuitem').map((i) => i.textContent?.trim());
+
+  it('a right-click on the drawing opens Edit, Lock and Delete; Lock locks it', () => {
+    const { m, id } = readyWithHline();
+    fireEvent.contextMenu(document.querySelector(`[data-annotation-id="${id}"]`)!, {
+      clientX: 300,
+      clientY: 200,
+    });
+    expect(items()).toEqual(['Edit', 'Lock', 'Delete']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Lock' }));
+    expect(m.tool.getState().drawings[0].locked).toBe(true);
+  });
+
+  it('a right-click on its card opens the same menu; Edit opens the card, Delete deletes', () => {
+    const { m, id } = readyWithHline();
+    const row = () => document.querySelector<HTMLElement>(`[data-row-id="${id}"]`)!;
+    const style = () => document.getElementById('annotation-style');
+    // The new drawing is selected; Escape goes back to the tool level.
+    act(() => {
+      fireEvent.keyDown(row(), { key: 'Escape' });
+    });
+    expect(style()).toBeNull();
+    expect(fireEvent.contextMenu(row())).toBe(false); // the native menu is suppressed
+    expect(items()).toEqual(['Edit', 'Lock', 'Delete']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit' }));
+    expect(style()).not.toBeNull();
+    fireEvent.contextMenu(row());
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    expect(m.tool.getState().drawings).toEqual([]);
+  });
+});

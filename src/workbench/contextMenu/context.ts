@@ -15,6 +15,8 @@ export interface MenuAt {
 export interface ContextMenuApi {
   /** Open the signal menu for these item ids; false when none is a signal. */
   openSignals(ids: readonly string[], at: MenuAt): boolean;
+  /** Open the drawing menu for this item id; false when it is no drawing. */
+  openDrawing?(id: string, at: MenuAt): boolean;
   /** Open a menu for `request`; false when nothing applies. */
   open(request: MenuRequest, at: MenuAt, local?: ContextMenuWriters): boolean;
   /** The signal an item id names (the tool's `signalOf`), or null. */

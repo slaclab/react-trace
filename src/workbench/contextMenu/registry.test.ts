@@ -209,6 +209,9 @@ describe('placement contract (scene 7)', () => {
     'move-to-axis': [true, false],
     'move-to-plot': [true, false],
     'reset-zoom': [false, true],
+    'edit-drawing': [false, false],
+    'lock-drawing': [false, false],
+    'delete-drawing': [false, false],
   };
 
   it('every action is placed, and only where the table puts it', () => {

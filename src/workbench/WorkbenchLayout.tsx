@@ -91,6 +91,7 @@ import {
 import type {
   Action,
   Capabilities,
+  OutlineRow,
   OutlineViewModel,
   Selection,
   Target,
@@ -384,6 +385,15 @@ class LayoutSource<S, M, U extends ToolUi> {
     };
   }
 
+  /** The Outline row `id` names, or null. */
+  menuRow(id: string): OutlineRow | null {
+    for (const section of this.outline.sections) {
+      const row = section.rows.find((r) => r.id === id);
+      if (row !== undefined) return row;
+    }
+    return null;
+  }
+
   /** An Outline row's fields and a context over the latest props (the menu's schema writers). */
   menuItem(id: string): { fields: FieldDef<S, M, U>[]; ctx: ToolContext<S, M, U> } | null {
     for (const section of this.outline.sections) {
@@ -595,11 +605,19 @@ export function WorkbenchLayout<S, M, U extends ToolUi = ToolUi>(
 
   // The menus' Hide / Move to axis / Inspect / Create formula / Remove, read
   // from each item's own fields over the latest props.
-  const [menuWriters] = useState(() =>
-    schemaMenuWriters<S, M, U>({
-      item: (id) => source.menuItem(id),
-      remove: (id) => source.definition.binding.ops.remove(id),
-    })
+  // A drawing's Edit selects its row, which opens its card.
+  const menuWriters = useMemo(
+    () =>
+      schemaMenuWriters<S, M, U>({
+        item: (id) => source.menuItem(id),
+        remove: (id) => source.definition.binding.ops.remove(id),
+        open: (id) => {
+          const row = source.menuRow(id);
+          if (row !== null) selection.select({ level: 'item', kind: row.kind, id }, 'user');
+        },
+        label: (id) => source.menuRow(id)?.label ?? null,
+      }),
+    [source, selection]
   );
 
   const [canvas] = useState(() => new CanvasStore(children));

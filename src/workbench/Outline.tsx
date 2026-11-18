@@ -863,7 +863,8 @@ export function Outline<S, M, U extends ToolUi = ToolUi>(props: OutlineProps<S, 
           ? rows.filter((id) => pickedNow.has(id))
           : [itemId];
       const at = { x: e.clientX, y: e.clientY, target: e.currentTarget.ownerDocument.body };
-      if (menus.openSignals(ids, at)) e.preventDefault();
+      // A row that is no signal may be a drawing: its own menu.
+      if (menus.openSignals(ids, at) || menus.openDrawing?.(itemId, at)) e.preventDefault();
     },
     [menus]
   );
