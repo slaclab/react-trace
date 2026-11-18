@@ -75,9 +75,12 @@ const FLAG_WIDTH: Record<string, AnnotationWidth> = {
  * are legal in a query.
  */
 export function encodeJsonParam(value: unknown): string {
-  return encodeURIComponent(JSON.stringify(value)).replace(/%(3A|2C|5B|5D|7B|7D)/gi, (m) =>
-    decodeURIComponent(m)
-  );
+  return encodeJsonText(JSON.stringify(value));
+}
+
+/** JSON text, already stringified, encoded as {@link encodeJsonParam} encodes a value. */
+export function encodeJsonText(json: string): string {
+  return encodeURIComponent(json).replace(/%(3A|2C|5B|5D|7B|7D)/gi, (m) => decodeURIComponent(m));
 }
 
 /** Which tools and which x axis a tuple is read against. */

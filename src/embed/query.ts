@@ -10,11 +10,21 @@
 // invalid range costs one console warning and becomes `-1h`. A missing `plot`
 // opens Trace's defaults; an unusable one is ignored with one warning.
 //
+// The 4 KB are counted the same way on the way in as on the way out: the
+// parser measures the query as the serializer would write it (each value
+// re-encoded as `serializeTraceQuery` encodes it), page keys left out. A
+// browser's URL (`'` becomes `%27`), `plotQuery` (`:,[]{}` become `%XX`) or
+// the page keys in front therefore never push a query the serializer wrote
+// over the limit. A query that is over it on arrival (hand-made) opens
+// without its drawings when that fits, else without its `plot` config; only
+// when even its PVs and range are over is it ignored whole. One warning each.
+//
 // This module is the only parser of the grammar; hosts check size and
 // decodability only. Both functions are pure apart from the warnings.
 
 import { relativeRangeMs, resolveTimeWindow } from '../api/time';
-import { encodeJsonParam, MAX_DRAWINGS } from '../annotations/config';
+import { encodeJsonParam, encodeJsonText, MAX_DRAWINGS } from '../annotations/config';
+import { PAGE_KEYS } from './pageKeys';
 import { axesOnly, parsePlotConfig, type PlotConfig } from './plotConfig';
 
 export const MAX_QUERY_BYTES = 4096;
@@ -76,18 +86,68 @@ function describeRange(xAxis: TraceQueryXAxis): string {
   return `custom from=${JSON.stringify(xAxis.timeFrom ?? '')} to=${JSON.stringify(xAxis.timeTo ?? '')}`;
 }
 
+// The bytes `params` take as the serializer writes them: each value encoded
+// as `encode` encodes it, the page keys left out.
+function writtenBytes(params: URLSearchParams): number {
+  const parts: string[] = [];
+  for (const [key, value] of params) {
+    if (PAGE_KEYS.includes(key)) continue;
+    const encoded = key === 'plot' ? encodeJsonText(value) : encodeComponent(value);
+    parts.push(`${encodeComponent(key)}=${encoded}`);
+  }
+  return byteLength(parts.join('&'));
+}
+
+// The `plot` JSON without its drawings; null when it has none or is not an object.
+function withoutDrawingsJson(plot: string): string | null {
+  try {
+    const value: unknown = JSON.parse(plot);
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+    if (!('drawings' in value)) return null;
+    const rest: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+    delete rest.drawings;
+    return JSON.stringify(rest);
+  } catch {
+    return null;
+  }
+}
+
+// `params` cut to fit the limit (drawings first, then the plot config), with
+// one warning; null when even its PVs and range do not fit.
+function fitParams(params: URLSearchParams): URLSearchParams | null {
+  const size = writtenBytes(params);
+  if (size <= MAX_QUERY_BYTES) return params;
+  const over = `Trace query is ${size} bytes, over the ${MAX_QUERY_BYTES}-byte limit`;
+  const plot = params.get('plot');
+  if (plot !== null) {
+    const stripped = withoutDrawingsJson(plot);
+    if (stripped !== null) {
+      const next = new URLSearchParams(params);
+      next.set('plot', stripped);
+      if (writtenBytes(next) <= MAX_QUERY_BYTES) {
+        console.warn(`${over}; opening it without its drawings.`);
+        return next;
+      }
+    }
+    const next = new URLSearchParams(params);
+    next.delete('plot');
+    if (writtenBytes(next) <= MAX_QUERY_BYTES) {
+      console.warn(`${over}; opening it without its plot config.`);
+      return next;
+    }
+  }
+  console.warn(`${over}; ignoring it.`);
+  return null;
+}
+
 // Parse a host query string (with or without a leading "?"). Unknown keys are
-// ignored; a missing range is `-1h`. Over 4 KB the whole query is rejected.
+// ignored; a missing range is `-1h`. Measured as written (see the header);
+// over 4 KB the drawings go, then the plot config, then the whole query.
 export function parseTraceQuery(s: string): TraceQuery {
   const raw = s.startsWith('?') ? s.slice(1) : s;
-  if (byteLength(raw) > MAX_QUERY_BYTES) {
-    console.warn(
-      `Trace query is ${byteLength(raw)} bytes, over the ${MAX_QUERY_BYTES}-byte limit; ignoring it.`
-    );
-    return { pvs: [], xAxis: defaultXAxis() };
-  }
+  const params = fitParams(new URLSearchParams(raw));
+  if (params === null) return { pvs: [], xAxis: defaultXAxis() };
 
-  const params = new URLSearchParams(raw);
   const pvs = params.getAll('pv').filter((name) => !isBlank(name));
   const plotRaw = params.get('plot');
   const plot = plotRaw === null ? null : parsePlotConfig(plotRaw);
