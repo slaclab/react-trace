@@ -611,3 +611,39 @@ describe('number: an empty field the tool will not clear', () => {
     expect(input.hasAttribute('aria-invalid')).toBe(false);
   });
 });
+
+describe('number: step', () => {
+  it("the arrow keys step by the schema's step", () => {
+    const { stub, container } = mount(offsetField);
+    const input = container.querySelector<HTMLInputElement>('#stub-offset')!;
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(stub.getState().offsets['STUB:A']).toBe(0.1);
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(stub.getState().offsets['STUB:A']).toBe(0.2);
+    expect(input.value).toBe('0.2');
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(stub.getState().offsets['STUB:A']).toBe(0.1);
+  });
+
+  it('stays inside the bounds', () => {
+    const stub = createStubTool();
+    stub.update((s) => ({ ...s, items: s.items.map((i) => ({ ...i, gain: 1 })) }));
+    const field = { ...gainField, min: 0, max: 1, step: 0.5 } as StubField;
+    const { container } = mount(field, { stub });
+    const input = container.querySelector<HTMLInputElement>('#stub-gain')!;
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(itemA(stub).gain).toBe(1);
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(itemA(stub).gain).toBe(0);
+  });
+
+  it('does nothing without a step', () => {
+    const stub = createStubTool();
+    stub.update((s) => ({ ...s, items: s.items.map((i) => ({ ...i, gain: 2 })) }));
+    const { container } = mount(gainField, { stub });
+    fireEvent.keyDown(container.querySelector('#stub-gain')!, { key: 'ArrowUp' });
+    expect(itemA(stub).gain).toBe(2);
+  });
+});

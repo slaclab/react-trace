@@ -81,6 +81,7 @@ export function FieldControl<S, M, U extends ToolUi = ToolUi>({
           value={field.get(ctx)}
           min={field.min}
           max={field.max}
+          step={field.step}
           unit={field.unit}
           disabled={disabled}
           describedBy={describedBy}
@@ -236,12 +237,32 @@ function rangeText(min?: number, max?: number): string {
   return 'A number';
 }
 
+/** The number of decimals `value` is written with. */
+function decimals(value: number): number {
+  const text = String(value);
+  const exponent = /e-(\d+)$/.exec(text);
+  if (exponent) return Number(exponent[1]);
+  const dot = text.indexOf('.');
+  return dot === -1 ? 0 : text.length - dot - 1;
+}
+
+/** `from` (else `min`, else 0) moved by `by`, clamped to the bounds, without float noise. */
+function stepped(from: number | null, by: number, min?: number, max?: number): number {
+  const base = from ?? min ?? 0;
+  const places = Math.min(Math.max(decimals(base), decimals(by)), 15);
+  let next = Number((base + by).toFixed(places));
+  if (min !== undefined) next = Math.max(min, next);
+  if (max !== undefined) next = Math.min(max, next);
+  return next;
+}
+
 function NumberControl({
   id,
   label,
   value,
   min,
   max,
+  step,
   unit,
   disabled,
   describedBy,
@@ -253,6 +274,7 @@ function NumberControl({
   value: number | null;
   min?: number;
   max?: number;
+  step?: number;
   unit?: string;
   disabled: boolean;
   describedBy?: string;
@@ -295,6 +317,15 @@ function NumberControl({
           setText(e.target.value);
           const parsed = parseNumber(e.target.value, { min, max });
           if (parsed !== undefined) onChange(parsed);
+        }}
+        onKeyDown={(e) => {
+          // A text input has no steppers: ArrowUp/ArrowDown step by `step`.
+          const direction = e.key === 'ArrowUp' ? 1 : e.key === 'ArrowDown' ? -1 : 0;
+          if (direction === 0 || step === undefined || !(step > 0)) return;
+          e.preventDefault();
+          const next = stepped(parseNumber(text) ?? current, direction * step, min, max);
+          setText(String(next));
+          if (next !== current) onChange(next);
         }}
       />
       {unit !== undefined && <span className="wb-field__unit">{unit}</span>}
