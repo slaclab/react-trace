@@ -186,6 +186,16 @@ applies:
    says why it is not drawn.
 4. **waiting for data**.
 
+## Drawings
+
+Waveform draws lines, boxes, notes and measurements like Trace; see
+[Drawing in Correlation and Waveform](drawing-tools.md#other-plots). A
+**Measure** card reads Δx and Δy, then, for each live curve shown, the
+number of its elements whose x lies inside the measured span, their mean
+(x̄) and σ; with more than one curve, each line starts with the curve's
+name. It shows no Δ%. Right-click a drawing, or its card under
+**Drawings**, to edit, lock or delete it.
+
 ## Link format { #link-format }
 
 The tool's state travels in its page URL: the query a host page, a saved

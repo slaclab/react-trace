@@ -66,9 +66,11 @@ detached window) carries the range controls:
   _Reset scale_. _Invert_ is listed but not available yet.
 
 Right-click inside the plot for the point's menu: _Add horizontal line here_,
-_Add vertical line here_, _Add note here_, _Reset zoom_ (the time range and
-every hand-scaled axis back) and the copy and share actions; see
-[Right-click menus](workbench.md#right-click).
+_Add vertical line here_, _Add note here_ (which opens the new note's text
+box), _Reset zoom_ (the time range and every hand-scaled axis back) and the
+copy and share actions; see [Right-click menus](workbench.md#right-click).
+Right-click a drawing instead for the drawing's own menu (see
+[Editing](#editing)).
 
 ## Drawing { #drawing }
 
@@ -80,7 +82,8 @@ Pick a tool, then:
 
 - **Horizontal line**, **Vertical line** and **Note** place with one click.
 - **Trend line**, **Time range**, **Box** and **Measure** take two points:
-  drag from the first to the second, or click twice.
+  drag from the first to the second, or click twice. (Shift-drag measures
+  without picking the tool; see [Measuring](#measuring).)
 
 A new note opens its text box right on the plot: type, then press Enter or
 click elsewhere to keep it, or Escape to leave it as it was. Double-click a
@@ -131,26 +134,43 @@ a drawing's handles).
 A vertical line and a time range span the whole height of the plot; every
 other drawing belongs to one Y axis.
 
-### Measuring
+### Measuring { #measuring }
 
 Hold **Shift** and drag in the plot for a quick measurement shown while you
-drag; it disappears when you let go. The **Measure** tool draws one that stays. Both show Δ of
-the value, Δ% against the first point, Δt, and the number of samples, mean
-and σ of the curve under the measurement, written as a figure would
-(`Δy = −186.5`, `x̄ = 2950`, `σ = 25.02`). When that curve shows binned
-archive data, the count reads in bins and σ is marked approximate. Select a
-measurement to drag its readout by the grip beside it; double-click the grip
-to put the readout back.
+drag; it disappears when you let go. The **Measure** tool (drag, or click
+twice) draws one that stays. In Trace both show Δ of the value, Δ% against
+the first point, Δt, and the number of samples, mean and σ of the curve
+under the measurement, written as a figure would (`Δy = −186.5`,
+`x̄ = 2950`, `σ = 25.02`). When that curve shows binned archive data, the
+count reads in bins and σ is marked approximate. Select a measurement to
+drag its readout by the grip beside it; double-click the grip to put the
+readout back. Its card in **Drawings** is named for the change it measures,
+with the same minus sign (`Measure Δ−21.49 mA / 4 s`).
 
-### Editing
+In Correlation and Waveform x is a value, so the card shows Δx instead of
+Δt, and no Δ%:
+
+- **Correlation**: Δx, Δy and Δy/Δx (the slope of the drawn diagonal), then
+  the number of points of the drawing's Y series inside the box, their mean
+  (ȳ) and σ.
+- **Waveform**: Δx and Δy, then for each live curve shown, the number of
+  its elements whose x lies inside the measured span, their mean (x̄) and σ.
+  With more than one curve, each line starts with the curve's name.
+
+### Editing { #editing }
 
 - **Click** a drawing to select it; **drag** it to move it; drag one of its
   handles to reshape it.
+- **Right-click** a drawing, on the plot or its card under **Drawings**, for
+  its menu, headed by its name: **Edit** (selects it and opens its card),
+  **Lock** or **Unlock**, and **Delete**.
 - A selected drawing shows a round **style** button. It opens the drawing's
   color (ink, the color of each plotted curve, or an accent), its line
   width (0.5 to 2 px) and solid or dashed.
 - A locked drawing cannot be moved, reshaped or restyled and shows a lock
-  instead of handles.
+  instead of handles. On its card, **Color**, **Width**, **Style**,
+  **Axis**, **Value** and **Extend** are unavailable ("Locked"), and so is a
+  locked note's **Label**. It can still be hidden, unlocked and deleted.
 - **Esc** cancels a drawing in progress, then disarms the tool.
 - **Delete** or **Backspace** deletes the selected drawing, unless it is
   locked.
@@ -175,7 +195,8 @@ Click a drawing's card (or select the drawing on the plot) and it offers:
 - **Axis**, for the drawings that carry a value.
 - **Value**, for a horizontal line.
 - **Extend** (_None_, _Right_, _Both_), for a trend line.
-- **Locked**, **Visible** and **Delete**.
+- **Delete**. **Locked** and **Visible** are not fields: they are the lock
+  and eye buttons on the card's head.
 
 ## Drawing in Correlation and Waveform { #other-plots }
 
@@ -271,7 +292,10 @@ Drawings are part of the plot:
 - An embedded Trace tile keeps the drawings of its **first plot** in its URL,
   up to 64 of them. When the URL runs out of room, the last drawings are
   dropped first (the browser console logs how many were kept); if not even
-  one fits, none are kept. The status line of
+  one fits, none are kept. A tile always reopens with everything its URL
+  kept, also from **Copy link to this view**; a link that is over the limit
+  when it arrives (one edited by hand) opens without its drawings, or
+  without its plot settings, rather than empty. The status line of
   any other plot in an embedded tile says _Drawings on this plot are not
   saved in the tile_.
 

@@ -68,3 +68,12 @@ unit, or Y per X.
 `m=` keys, as the [Statistics](statistics.md#in-the-url) page describes.
 When a URL grows past its 4 KB budget, the `m=` keys are dropped after the
 labels, colors, markers and hidden list, and Ys only after that.
+
+## Drawings
+
+Correlation draws lines, boxes, notes and measurements like Trace; see
+[Drawing in Correlation and Waveform](drawing-tools.md#other-plots). A
+**Measure** card reads Δx, Δy and Δy/Δx (the slope of its diagonal), then
+the number of points of its Y series inside the box, their mean (ȳ) and σ.
+It shows no Δ%. Right-click a drawing, or its card under **Drawings**, to
+edit, lock or delete it.

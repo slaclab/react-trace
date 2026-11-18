@@ -184,6 +184,10 @@ this shot**, **Use this shot as reference** and **Freeze this shot**, which
 keeps the shot on the plot, dotted, without pausing; choose **Release frozen
 shot** to drop it. Correlation adds **Copy fit**.
 
+On a drawing (right-click it on the plot, or its card under **Drawings**):
+the first line is its name, then **Edit** (selects it and opens its card),
+**Lock** or **Unlock**, and **Delete**.
+
 Each copy is confirmed at the bottom of the tool for two seconds.
 
 ## Defaults
