@@ -108,8 +108,10 @@ function isFinite(v: number | null | undefined): v is number {
   return v !== null && v !== undefined && Number.isFinite(v);
 }
 
-/** The indices where every column is finite. */
+/** The indices where every column is finite; none when there are no columns. */
 function finiteIndices(columns: readonly StatColumn[]): number[] {
+  // No column bounds the scan: Math.min() of nothing is Infinity.
+  if (columns.length === 0) return [];
   const len = Math.min(...columns.map((c) => c.length));
   const keep: number[] = [];
   for (let i = 0; i < len; i++) {
