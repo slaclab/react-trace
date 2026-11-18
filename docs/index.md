@@ -41,7 +41,7 @@ These pages describe them:
 
 ### Feedback/Issue Reporting
 
-Users can submit feedback or report issues by clicking the bug icon in Trace's header.
+Users can submit feedback or report issues by clicking the bug icon in Trace's actions bar.
 
 Please include as much detail as possible, such as:
 

@@ -15,7 +15,9 @@ three tools:
      **X axis PV**, Correlation's **X axis PV** and **Trigger**.
    - **Drawings**, once the plot has any.
 
-   Each list ends with an add row where you type or search for a PV.
+   Each list ends with an add row where you type or search for a PV. In
+   Trace, the search button beside the field opens **Search PVs**, for
+   adding several PVs at once.
 
 2. **How the whole plot behaves**, as sections you open and close. A closed
    section shows a one-line summary:
@@ -82,8 +84,11 @@ storage scope uses its own key. Only your own clicks and drags write them.
 ## Where actions live
 
 Commands that act on the whole canvas sit in the **actions bar** above it:
-Pause, exports, Snapshot, Post to E-Log and so on, depending on the tool. The
-bar ends with the standard actions:
+Pause, exports, Snapshot, Post to E-Log and so on, depending on the tool.
+Trace's bar starts with **Search PVs** and has a **Config store** action
+after Save. In Trace, the row starts with the name **Trace** and the active
+plot's **N Live • N Archive** counter, before the actions. The bar ends with
+the standard actions:
 
 - **Theme** (standalone pages only; inside a host the host sets the theme),
 - **Report a bug**,
@@ -112,12 +117,15 @@ when it loads:
 
 - `embedded=true`: the tool runs inside a host. The theme follows the host,
   so the theme toggle is gone, and the tool reports its state back to the
-  host.
+  host. Trace shows its Live/Archive counter without its name, and never
+  changes the host page's URL (a `?config=` link is left as it is).
 - `hostbar=1` (only together with `embedded=true`): the host draws the tool's
   tile bar and its verbs. The actions bar is hidden, but every keyboard
   shortcut still works; ++ctrl+s++ / ++cmd+s++ asks the host to save its view;
   the plot area draws no verbs of its own; and the tool reports its actions
-  so the host can draw and invoke them.
+  so the host can draw and invoke them. Trace's counter still shows, alone,
+  above the panel and canvas. Trace's **Search PVs…** and **Config store…**
+  go in the host's menu.
 
 The tool and the host talk through nine messages. Every message is posted
 with `postMessage` at the page's own origin, and the tool accepts a message

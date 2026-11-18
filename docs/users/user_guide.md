@@ -6,13 +6,15 @@
 
 The Trace window has three areas:
 
-- **① Actions bar** — saving, exporting, printing, and other actions.
+- **① Actions bar** — searching for PVs, saving, exporting, printing, and other actions. It starts with Trace's name and a counter, such as **2 Live • 3 Archive**, of how many traces on the active plot use live and archive data. A trace that uses both counts in each.
 - **② Properties panel** — the plot's traces, grouped by Y-axis, and the plot-wide sections **Acquisition**, **Axes**, **Display**, and **Statistics**. See [The properties panel](../workbench.md).
 - **③ Plot area** — the plot itself, with plot tabs, range controls, and view controls above it and the drawing tools beside it.
 
 <div style="text-align:center; margin:1.5rem 0;">
   <a class="glightbox" href="../images/trace_window.png"><img src="../images/trace_window.png" alt="The Trace window" style="width:80%; border-radius:0.5rem;"></a>
 </div>
+
+When Trace is embedded in another page, the counter is shown without the name, since the page around it already names the tool.
 
 ### Resize and Collapse Panels
 
@@ -42,7 +44,7 @@ Once you choose a PV, the trace starts drawing:
 
 - **④ Card** — the trace's card in the list of its axis. Click it any time to open its settings in place; see [Signals and cards](../workbench.md#signals-and-cards).
 - **⑤ Units axis** — the trace moves to an axis named after the PV's units (here **mm**). See [Axes and Units](#axes-and-units).
-- **⑥ Status** — the card's **Data** block shows **Live status** and **Archive status**. Useful when a trace isn't drawing and you want to know why.
+- **⑥ Status** — the status lines at the end of the card's **Data** block, among them **Live status** and **Archive status**. Useful when a trace isn't drawing and you want to know why; see [When a Trace Doesn't Draw](#when-a-trace-doesnt-draw).
 
 <div style="text-align:center; margin:1.5rem 0;">
   <a class="glightbox" href="../images/plot_pv_plotted.png"><img src="../images/plot_pv_plotted.png" alt="A PV plotted with live and archive data" style="width:80%; border-radius:0.5rem;"></a>
@@ -50,13 +52,15 @@ Once you choose a PV, the trace starts drawing:
 
 ### Add Several PVs at Once
 
-To add many PVs in one go, click the **Search PVs** icon in the header, or the **Search PVs** button below a plot's axes in the **Layers** panel.
+To add many PVs in one go, click **Search PVs**, the first icon in the actions bar, or the search button next to any **Add PV** field. Both open the **Search PVs** dialog for the active plot.
 
-1. Type part of a PV name in **Pattern**. Matches from the archiver appear as you type. `*` matches any run of characters and `?` matches one, so `SIM:BPM*:X` finds every PV that starts with `SIM:BPM` and ends with `:X`.
+1. Type part of a PV name in **Pattern**. Matches from the plot's archiver appear as you type. `*` matches any run of characters and `?` matches one, so `SIM:BPM*:X` finds every PV that starts with `SIM:BPM` and ends with `:X`.
 2. Tick the PVs you want, or use **Select all** at the top of the list. Matches are listed alphabetically. Ticks are kept when you change the pattern, so you can gather PVs from several searches; the **Selected** row shows them and lets you remove one or clear them all.
 3. Click **Add N PVs**. Double-clicking a match adds it straight away, together with anything already selected.
 
-The new traces appear under the plot's first axis and move to their units axes as the lookups finish (see [Axes and Units](#axes-and-units)). PVs that are already on the plot are marked **on plot**; you can still add them again. The dialog lists at most 500 matches, so narrow the pattern if the PV you want isn't shown. With more than one plot open, the dialog starts on the current plot and **Add to plot** lets you pick another.
+The new traces appear under the plot's first axis and move to their units axes as the lookups finish (see [Axes and Units](#axes-and-units)). The last one added is selected, so its card opens. PVs that are already on the plot are marked **on plot**; you can still add them again. The dialog lists at most 500 matches; when there are more, it says **Showing the first 500 matches**, so narrow the pattern if the PV you want isn't shown.
+
+With more than one plot open, the dialog starts on the current plot and **Add to plot** lets you pick another. The search uses that plot's **Default archiver**, and if you pick a plot with a different archiver, your ticks are cleared. After adding, Trace switches to that plot.
 
 ### Axes and Units
 
@@ -75,13 +79,41 @@ Both switches are in the card's **Data** block; the other settings are under its
 
 ### When a Trace Doesn't Draw
 
-Check the status lines in the card's **Data** block, or the dot at the left of the card. Hover over the dot to see the full error.
+Check the status lines at the end of the card's **Data** block. Each line shows only when it applies:
 
-- **Disconnected** (Live status) — the live connection dropped. Trace reconnects on its own.
+- **Data points** — how many samples the trace holds: the archive's while **Archive** is on, otherwise the live data's.
+- **Live status** — **Connecting…**, **Connected**, **Waiting for value**, **Disconnected**, or **Disabled**.
+- **Severity** — the PV's alarm severity, while it is connected.
+- **Live error** — the live connection's error message.
+- **Archive status** — **Idle**, **Loading…**, **Loaded (raw)** or **Loaded (binned)** (with **· decimated** when the archiver thinned out the samples), **Disabled**, or the name of an archive error.
+- **Source** — the archiver that answered.
+- **Archive error** — the full message of an archive error.
+
+The dot at the left of the card shows problems too. Hover over it to see the full message for each source that failed, live and archive.
+
+- **Disconnected** (Live status) — the live connection dropped. Trace reconnects on its own; see [Live Outages](#live-outages).
 - **Waiting for value** (Live status) — connected, but no value has arrived for this PV yet.
-- **Not archived** — the archiver has no PV with that name. Check the spelling in **PV name**.
+- **Archiver down** — the archiver isn't responding.
+- **Timeout** — the archiver took too long to answer.
+- **Bad response** — the archiver's answer couldn't be read.
+- **Auth error** — Trace isn't allowed to read the archive.
+- **Offline** — the network between Trace and the archiver is down.
+- **Not archived** — the archiver has no PV with that name. Check the spelling in **PV name**, or choose another archiver.
 - **No archiver** — no archiver is configured for this PV. Choose one in the plot's **Default archiver** setting or the trace's **Archiver** setting.
-- Any other archive error shows its error code, for example when the archiver or network isn't responding. Click the refresh icon in the actions bar to try again.
+- Any other archive error shows its error code.
+
+Trace retries most archive errors by itself, waiting a little longer after each try. Two are different:
+
+- **Not archived** is asked again when the length of the time range changes (a new range, or a zoom) or when you choose another archiver.
+- **No archiver** isn't retried by itself; choosing another archiver asks again.
+
+Click the refresh icon (**Refresh archive data**) in the actions bar to ask the archiver again for every trace, whatever its error.
+
+### Live Outages
+
+When the live connection drops, the line holds its last value up to the moment of the disconnect, then leaves a gap. When the PV reconnects, the line picks up again from that moment with the new value.
+
+If only Trace's connection to the server dropped, and the server's live buffer kept recording the PV in the meantime, Trace fills the gap from that buffer once it answers. A gap where the PV itself disconnected stays.
 
 ---
 
@@ -107,7 +139,12 @@ Choose **Custom Range...**, then set **From** and **To (blank = now)**. Leave **
 
 ### Returning to the Full Range
 
-Zooming or panning the plot stops it from following the current time. Click **Now** above the plot to follow the current time again with the last span you used, or choose a **Time range** or **Span**.
+Zooming or panning the plot stops it from following the current time and turns **Autoscroll** off. Any of these returns to the full time range and follows the current time again:
+
+- Turn **Autoscroll** back on.
+- Click **1h**, **6h**, or **24h** above the plot, even the one that is already selected.
+- Click in **Span** and press **Enter**, even without changing it. Leaving the field without pressing **Enter** keeps the zoom.
+- Click **Now** above the plot to use the last span you used, or choose a different **Time range** or **Span**.
 
 ---
 
@@ -293,6 +330,16 @@ Trace can also open `.trc` files from the older PyDM-based Trace. Settings that 
 
 _Note: Importing replaces the current workspace without asking. Save first if you want to keep it._
 
+### The Config Store
+
+The config store keeps workspaces on the server, so you can open them again or share them as a link. Click the **Config store** icon, just after the save icon in the actions bar, to open it.
+
+- **Save** — under **Save current workspace**, enter a **Name** and, optionally, a **Description**, then click **Save & copy share link**. Trace saves the workspace and copies its link to the clipboard. If the browser doesn't allow the copy, the message shows the link so you can copy it yourself.
+- **Open** — under **Saved configs**, click **Load** on a row. It replaces the open workspace without asking.
+- **Manage** — **Rename** changes a config's name, the copy icon copies its share link, and the delete icon removes it after you confirm. Deleting a config breaks every link to it and can't be undone.
+
+A share link is Trace's address with `?config=<slug>`, where the slug is the short id shown under each config's name. Opening it loads that workspace when Trace starts. A `config` link wins over any other plot settings in the same address, such as `pv`, `range`, or `plot`; those are ignored. Afterwards, whether or not the workspace loaded, Trace removes `config` from the address bar, so reloading the page doesn't load the stored workspace over your changes. When Trace is embedded in another page, it never changes that page's address.
+
 ---
 
 ## Export and Print
@@ -377,6 +424,14 @@ Every icon in Trace has a tooltip that appears on hover. Here's a quick referenc
 ## Dark Mode
 
 Click the sun/moon icon in the actions bar (++option+t++ / ++alt+t++) to switch between dark and light mode. Your choice is saved in the browser and used on future visits. Plots with the default background follow the theme; a plot with a custom **Background colour** keeps it.
+
+---
+
+## When Part of Trace Fails
+
+If one part of the window runs into an error, only that part stops: the **Signals** list, the plot-wide sections, the plot area or a single plot, a fullscreen or detached plot, or Data Insight. It shows the error message with **Try again**, which redraws just that part, and **Reload**, which reloads the page. The rest of Trace keeps working, so you can still save your workspace first. Data Insight also offers **Close Data Insight**.
+
+The **Signals** list and the plot-wide sections also try again by themselves when you switch plots, select something else, or open a workspace.
 
 ---
 
