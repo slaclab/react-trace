@@ -38,8 +38,17 @@
   align-items: stretch;
 }
 
-.wb-panel .wb-field--action {
-  align-items: flex-start;
+/* A panel action (Inspect data, Create formula from this curve) fills the
+   card's width, so a card's actions line up and a long label can't run past
+   the edge. Carbon sizes a button to its text (max-content, no shrink) and
+   reserves end padding for an icon these buttons don't have. */
+.wb-panel .wb-field--action > .cds--btn {
+  inline-size: 100%;
+  max-inline-size: none;
+  min-inline-size: 0;
+  flex-shrink: 1;
+  padding-inline-end: calc(var(--cds-layout-density-padding-inline-local) - 0.0625rem);
+  white-space: normal;
 }
 
 .wb-panel .wb-field__head {
