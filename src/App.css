@@ -99,6 +99,18 @@
   font-style: italic;
 }
 
+/* The tab's name while it is being renamed: the tab's own type, on a field. */
+.plot-tab__rename {
+  font: inherit;
+  color: var(--cds-text-primary);
+  background-color: var(--cds-field);
+  border: none;
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+  padding: 2px 4px;
+  min-inline-size: 0;
+}
+
 .plot-tab__action-btn {
   display: flex;
   align-items: center;

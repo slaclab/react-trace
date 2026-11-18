@@ -836,6 +836,11 @@ export function TraceApp() {
     );
   };
 
+  // A plot renamed from its tab: the same title as Display's Title field.
+  const renamePlot = (plotId: string, title: string) => {
+    setPlots((prev) => prev.map((p) => (p.id === plotId ? { ...p, title } : p)));
+  };
+
   // A plot's view settings from the strip (tooltip, drag mode), routed by plot
   // id like the axis writes above.
   const setPlotView = (plotId: string, patch: Partial<PlotView>) => {
@@ -1325,6 +1330,7 @@ export function TraceApp() {
                   onSetActivePlot={setActivePlotId}
                   onAddPlot={addPlot}
                   onRemovePlot={removePlot}
+                  onRenamePlot={renamePlot}
                   onSetViewMode={setViewMode}
                   onPopOutPlot={setPoppedOutPlot}
                   detachedPlotIds={detachedPlotIds}

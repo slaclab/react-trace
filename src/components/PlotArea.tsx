@@ -40,6 +40,7 @@ import type { OverlayHandle } from '../annotations/AnnotationLayer';
 import type { Annotation } from '../annotations/model';
 import { AxisBadges } from '../tools/trace/plot/AxisBadges';
 import { DrawingRail } from '../annotations/DrawingRail';
+import { PlotTabName } from './PlotTabName';
 import { AxisMenu, TimeBandMenu } from '../tools/trace/plot/menus';
 import { BUILTIN_CATALOG } from '../annotations/catalog';
 import { DrawingLayers, DrawingRailFor } from '../annotations/host/DrawingOverlay';
@@ -181,6 +182,8 @@ interface PlotAreaProps extends AnnotationChannel {
   onSetActivePlot: (id: string) => void;
   onAddPlot: () => void;
   onRemovePlot: (id: string) => void;
+  /** Renames a plot from its tab (double-click the name). Without it the name is plain text. */
+  onRenamePlot?: (id: string, title: string) => void;
   onSetViewMode: (mode: 'tabs' | 'grid') => void;
   onPopOutPlot: (id: string) => void;
   /** Plot IDs currently detached into their own windows. */
@@ -1439,6 +1442,7 @@ export function PlotArea({
   onSetActivePlot,
   onAddPlot,
   onRemovePlot,
+  onRenamePlot,
   onSetViewMode,
   onPopOutPlot,
   detachedPlotIds,
@@ -1503,7 +1507,10 @@ export function PlotArea({
                 onClick={() => onSetActivePlot(plot.id)}
                 {...dropTargetProps(plot, activePlotId)}
               >
-                <span>{plot.title}</span>
+                <PlotTabName
+                  title={plot.title}
+                  onRename={onRenamePlot ? (title) => onRenamePlot(plot.id, title) : undefined}
+                />
                 <button
                   className="plot-tab__action-btn"
                   title="Fullscreen"
