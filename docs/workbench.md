@@ -23,8 +23,9 @@ three tools:
    section shows a one-line summary:
    - **Acquisition**: how data is taken (time window, persistence, sampling).
    - **Axes**: the Y axis and the X axis (range, scale, unit).
-   - **Display**: legend, grid, crosshair, data tooltip, mouse drag and
-     the tool's own display options.
+   - **Display**: legend, grid, crosshair, data tooltip, mouse drag,
+     drawing tools (the drawing rail), drawings (shown or hidden) and the
+     tool's own display options.
    - **Statistics**: the readout table under the chart.
 3. **Show chart source**, a link at the bottom.
 

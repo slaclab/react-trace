@@ -104,6 +104,25 @@ are the same in every plot tool:
 - **Zoom box** sets what a left-drag in the plot does: draw a zoom box
   (pressed) or pan. Every tool zooms by default.
 
+### Hiding the rail { #hiding-the-rail }
+
+Turn off **Drawing tools** in the plot's **Display** section to hide the
+rail (in Trace and Correlation it is under **More**). While it is off, an
+armed tool goes back to the pointer and the drawing keys (Alt+H … Alt+M)
+do nothing. The drawings you already have stay on the plot: open them from
+their cards under **Drawings**, or right-click one, to edit, lock or delete
+them.
+
+**Drawings**, in the same section, shows or hides the plot's drawings. It is
+the rail's **Hide all drawings** button under another name, so the two always
+agree, and it still works while the rail is hidden.
+
+The rail's other toggles have a home in **Display** too: **Data tooltip**,
+and **Mouse drag** for the zoom box. **Magnet** and **Keep drawing** have
+none: they only matter while drawing, and they keep their last setting while
+the rail is hidden (the magnet still applies to **Add … here** and to dragging
+a drawing's handles).
+
 A vertical line and a time range span the whole height of the plot; every
 other drawing belongs to one Y axis.
 
@@ -219,6 +238,9 @@ current plot. Keys do nothing while you type in a field.
 | Delete / Backspace | Delete the selected drawing (not a locked one)       |
 | ⌘Z / Ctrl+Z        | Undo the last drawing change of the current plot     |
 
+The tool keys (Alt+H … Alt+M) do nothing while the plot's **Drawing tools**
+is off; Esc and Delete still act on the drawings you have.
+
 ## What the plot tells you { #status-line }
 
 The **status line** under the plot shows the time and the first Y axis's
@@ -244,6 +266,11 @@ Drawings are part of the plot:
 
 Correlation and Waveform links keep drawings as described in [Drawings in
 the link](#link-notices).
+
+**Drawing tools** off is saved with the plot: in Trace, in the **.trc.json**
+workspace and the config store (not in an embedded tile's URL); in
+Correlation and Waveform, as `rail=0` in the link. Without that key a plot
+opens with the rail shown. **Drawings** (hide all) is not saved.
 
 ## For developers { #developers }
 
