@@ -485,6 +485,7 @@ export function AnnotationLayer(props: AnnotationLayerProps) {
         axisId,
         snap,
         pxStep: Number.isFinite(step) ? step : 0,
+        grid,
       },
       grid: gi,
     };

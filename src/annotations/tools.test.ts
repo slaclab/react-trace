@@ -412,6 +412,38 @@ describe('cursor mode: select, move, handle', () => {
     expect(r.commits[0].commit!.fn([a])[0].points[1]).toEqual({ t: 3000, v: 33 });
   });
 
+  it('a move on a log axis shifts every point by the same ratio, in the axis scale', () => {
+    // y = 300 - 100 * log10(v): 1 at y 300, 100 at y 100, 1000 at y 0.
+    const grid = {
+      tToX: (t: number) => (t - 1000) / 10,
+      xToT: (x: number) => 1000 + x * 10,
+      vToY: (v: number) => 300 - 100 * Math.log10(v),
+      yToV: (y: number) => 10 ** ((300 - y) / 100),
+    };
+    const at = (x: number, y: number): ToolPoint => ({
+      x,
+      y,
+      t: grid.xToT(x),
+      v: grid.yToV(y),
+      axisId: AXIS,
+      grid,
+    });
+    const a = ann({
+      points: [
+        { t: 1000, v: 1 },
+        { t: 2000, v: 1000 },
+      ],
+    });
+    // Grabbed at the 1000 end and dropped where 100 is.
+    const r = run(prefs(), [down(at(100, 0), body(a)), move(at(100, 100)), up(at(100, 100))]);
+    expect(r.commits).toHaveLength(1);
+    const [p0, p1] = r.commits[0].commit!.fn([a])[0].points;
+    expect(p0.t).toBe(1000);
+    expect(p0.v).toBeCloseTo(0.1, 9);
+    expect(p1.t).toBe(2000);
+    expect(p1.v).toBeCloseTo(100, 9);
+  });
+
   it('zero movement on a handle commits nothing', () => {
     const a = ann();
     const r = run(prefs(), [down(pt(0, 0), handle(a, 0)), up(pt(0, 0))]);

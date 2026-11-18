@@ -24,8 +24,10 @@
 //
 // Point convention: a `ToolPoint` carries pixel x/y (for the drag threshold)
 // and data t/v on `axisId`. For a move/handle drag the overlay projects the
-// pointer onto the dragged drawing's axis, so v deltas stay in its units.
-import { DRAG_THRESHOLD_PX, type SnapHit } from '../plot/geometry';
+// pointer onto the dragged drawing's axis, so v deltas stay in its units. A
+// move shifts each point in the axes' own scale through the point's `grid`
+// converters (a log axis keeps its ratios); without them it shifts linearly.
+import { DRAG_THRESHOLD_PX, type GridProjection, type SnapHit } from '../plot/geometry';
 import { ANNOTATION_INK } from '../annotationTheme';
 import { makeAnnotationId } from './ids';
 import type { Catalog, DrawingTool, XAxisDescriptor } from './catalog/types';
@@ -68,6 +70,8 @@ export interface ToolPoint {
   snap?: SnapHit | null;
   /** One pixel's worth of x on the grid the point lies in (the x quantum); 0 when unknown. */
   pxStep?: number;
+  /** The converters of the grid the point was projected through; a move shifts in their scale. */
+  grid?: Pick<GridProjection, 'tToX' | 'xToT' | 'vToY' | 'yToV'>;
 }
 
 /** What lies under the pointer at pointerDown. */
@@ -318,14 +322,49 @@ function dragDraft(
     const p = commitPoint(ctx, original.kind, a.point, a.snapped, pxStep);
     return { ...original, points: original.points.map((q, j) => (j === i ? p : q)) };
   }
-  const dt = pt.t - start.t;
-  const dv = pt.v - start.v;
+  const g = pt.grid;
+  const axisId = original.axisId;
+  const toY = g ? (v: number) => g.vToY(v, axisId) : undefined;
+  const fromY = g ? (y: number) => g.yToV(y, axisId) : undefined;
   return {
     ...original,
     points: original.points.map((q) =>
-      commitPoint(ctx, original.kind, { t: q.t + dt, v: q.v + dv }, false, pxStep)
+      commitPoint(
+        ctx,
+        original.kind,
+        {
+          t: shiftInScale(q.t, start.t, pt.t, g?.tToX, g?.xToT),
+          v: shiftInScale(q.v, start.v, pt.v, toY, fromY),
+        },
+        false,
+        pxStep
+      )
     ),
   };
+}
+
+/**
+ * `q` moved as `from` moved to `to`, in the axis's own scale: through its
+ * pixel converters when given (a log axis shifts by a ratio, so a point never
+ * crosses zero), else linearly. On a linear axis both agree, and the exact
+ * linear sum is kept. A coordinate the converters cannot carry (a
+ * kind's unused 0 on a log axis) shifts linearly.
+ */
+function shiftInScale(
+  q: number,
+  from: number,
+  to: number,
+  toPx?: (v: number) => number,
+  fromPx?: (px: number) => number
+): number {
+  const linear = q + (to - from);
+  if (!toPx || !fromPx) return linear;
+  const px = toPx(q) + (toPx(to) - toPx(from));
+  // A linear axis lands on the same pixel: keep the exact sum, free of the
+  // round trip's float noise.
+  if (Math.abs(toPx(linear) - px) < 1e-6) return linear;
+  const moved = fromPx(px);
+  return Number.isFinite(moved) ? moved : linear;
 }
 
 /** The catalog's shift-drag tool (the measure), if it offers one. */

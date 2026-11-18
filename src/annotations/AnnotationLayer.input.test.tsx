@@ -805,3 +805,71 @@ describe('AnnotationLayer input: abnormal gesture ends', () => {
     expect(onCommit).not.toHaveBeenCalled();
   });
 });
+
+describe('AnnotationLayer input: moving on a log axis', () => {
+  it('a move drag keeps every point positive and the shape intact', () => {
+    // Grid (60, 20), 400 x 300; y on 'a' is log: 1 at y 320, 1000 at y 20.
+    const LOG = { left: 60, top: 20, width: 400, height: 300 };
+    const store = createProjectionStore(() =>
+      projectionOf({
+        tToX: (t) => LOG.left + t / 10,
+        xToT: (x) => (x - LOG.left) * 10,
+        vToY: (v, axisId) => (axisId === 'a' ? 320 - 100 * Math.log10(v) : NaN),
+        yToV: (y, axisId) => (axisId === 'a' ? 10 ** ((320 - y) / 100) : NaN),
+        gridRect: LOG,
+        axisIds: ['a'],
+      })
+    );
+    const onCommit = vi.fn();
+    const list: { current: Annotation[] } = {
+      current: [
+        ann({
+          id: 'tr',
+          kind: 'trend',
+          points: [
+            { t: 0, v: 1 },
+            { t: 2000, v: 1000 },
+          ],
+        }),
+      ],
+    };
+    function Harness() {
+      const [annotations, setList] = useState(list.current);
+      list.current = annotations;
+      return (
+        <div style={{ position: 'relative' }}>
+          <AnnotationLayer
+            config={TRACE_LAYER}
+            projectionStore={store}
+            annotations={annotations}
+            axes={[{ id: 'a' }]}
+            theme={drawingThemeFor('dark')}
+            selectedId={null}
+            prefs={DEFAULT_TOOL_PREFS}
+            onCommit={(fn, label) => {
+              onCommit(label);
+              setList((l) => fn(l));
+            }}
+          />
+        </div>
+      );
+    }
+    const utils = render(<Harness />);
+    act(() => store.bump());
+    const root = utils.container.querySelector('svg[data-annotation-layer]') as SVGSVGElement;
+    const body = utils.container.querySelector(
+      '[data-annotation-id="tr"] [data-annotation-hit]'
+    ) as Element;
+    // Grab the line near its 1000 end (x 260, y 20) and drag down to where 100 is.
+    act(() => {
+      firePointer(body, 'pointerdown', { x: 260, y: 20 });
+      firePointer(root, 'pointermove', { x: 260, y: 70 });
+      firePointer(root, 'pointermove', { x: 260, y: 120 });
+      firePointer(root, 'pointerup', { x: 260, y: 120 });
+    });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    const [p0, p1] = list.current[0].points;
+    expect(p0.v).toBeCloseTo(0.1, 6);
+    expect(p1.v).toBeCloseTo(100, 6);
+  });
+});
