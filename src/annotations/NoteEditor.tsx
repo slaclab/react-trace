@@ -2,9 +2,9 @@
 //
 // No colour literals here (src/annotations is literal-guarded): its colours
 // come from the chart theme and the drawing's stored colour.
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { annotationPaint } from '../annotationTheme';
-import type { GridProjection } from '../plot/geometry';
+import { stopPressPropagation, type GridProjection } from '../plot/geometry';
 import { noteCallout } from './catalog/shapeKit';
 import type { DrawingTheme } from './catalog/types';
 import { MAX_ANNOTATION_TEXT, type Annotation } from './model';
@@ -24,10 +24,16 @@ export interface NoteEditorProps {
  * it and growing with the text. Enter or leaving the field saves, Escape
  * cancels. It is a sibling of the svgs (never part of the PNG capture), and
  * keeps its keys and presses to itself so no drawing or chart shortcut fires
- * while typing.
+ * while typing. Presses are stopped natively too: the plot wrapper's native
+ * press listeners (focus-on-press, the gesture layer) run before React's, and
+ * would take the focus from the input, which saves and closes it.
  */
 export function NoteEditor({ a, text, grid, theme, onChange, onFinish }: NoteEditorProps) {
   const ref = useRef<HTMLInputElement | null>(null);
+  const setRef = useCallback((el: HTMLInputElement | null) => {
+    ref.current = el;
+    stopPressPropagation(el);
+  }, []);
   const done = useRef(false);
   useEffect(() => {
     ref.current?.focus();
@@ -44,7 +50,7 @@ export function NoteEditor({ a, text, grid, theme, onChange, onFinish }: NoteEdi
   };
   return (
     <input
-      ref={ref}
+      ref={setRef}
       data-annotation-editor=""
       aria-label="Note text"
       value={text}

@@ -17,7 +17,7 @@ import type { FrameStore, GridProjection, HostConfig } from '../catalog/types';
 import { createProjectionStore, type Projection } from '../../plot/geometry';
 import type { Annotation } from '../model';
 import { DEFAULT_TOOL_PREFS, type AnnotationToolPrefs } from '../tools';
-import { firePointer, projectionOf } from '../../plot/testUtils';
+import { fireMouse, firePointer, projectionOf } from '../../plot/testUtils';
 import { createShedStore } from './shedStore';
 import type { DrawingDocument } from './useDrawingDocument';
 import {
@@ -261,6 +261,28 @@ describe('drawing host keys', () => {
     });
     expect(focus).toHaveBeenCalledWith({ preventScroll: true });
     expect(document.activeElement).toBe(wrap);
+  });
+
+  it('a press inside an open note editor keeps it open and focused (never the wrapper)', () => {
+    const { wrap, fire, svgs } = mount('single', { prefs: { tool: 'note' } });
+    fire(svgs()[0], 'pointerdown', 50, 40);
+    fire(svgs()[0], 'pointerup', 50, 40);
+    const editor = () => wrap.querySelector<HTMLInputElement>('input[data-annotation-editor]');
+    const input = editor()!;
+    expect(input).not.toBeNull();
+    expect(document.activeElement).toBe(input);
+    fireEvent.change(input, { target: { value: 'hello world note' } });
+    // The plot's own press listeners (focus, gestures) are native on the wrapper.
+    const wrapperPress = vi.fn();
+    wrap.addEventListener('pointerdown', wrapperPress);
+    wrap.addEventListener('mousedown', wrapperPress);
+    act(() => {
+      firePointer(input, 'pointerdown', { x: 52, y: 30 });
+      fireMouse(input, 'mousedown', { x: 52, y: 30 });
+    });
+    expect(wrapperPress).not.toHaveBeenCalled();
+    expect(editor()).toBe(input);
+    expect(document.activeElement).toBe(input);
   });
 
   it('pure routing: navigation resolves to no drawing command; a refused command is not claimed', () => {
