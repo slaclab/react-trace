@@ -406,8 +406,19 @@ function tokenize(src: string): Token[] {
 // Recursive descent over the grammar in the header, building the closure tree
 // directly. `vars` collects variable names in first-use order.
 
+/**
+ * Bounds on the shape of an expression. The parser recurses, and the closure
+ * tree it builds is evaluated by recursion, so unbounded input (thousands of
+ * nested parentheses, a very long chain of terms) would overflow the stack.
+ * Both limits are far above any real metric and are reported as ordinary
+ * compile errors.
+ */
+const MAX_TOKENS = 1000;
+const MAX_NESTING = 100;
+
 class Parser {
   private i = 0;
+  private depth = 0;
   readonly vars: string[] = [];
 
   private readonly tokens: Token[];
@@ -452,7 +463,24 @@ class Parser {
     return typed;
   }
 
+  /** `build()` one nesting level deeper, failing cleanly past MAX_NESTING. */
+  private nested<T>(build: () => T): T {
+    if (this.depth >= MAX_NESTING) {
+      throw new ExprError('Expression is nested too deeply', this.peek().pos);
+    }
+    this.depth++;
+    try {
+      return build();
+    } finally {
+      this.depth--;
+    }
+  }
+
   private sum(): Typed {
+    return this.nested(() => this.sumTerms());
+  }
+
+  private sumTerms(): Typed {
     let left = this.product();
     while (this.isOp('+') || this.isOp('-')) {
       const op = this.next().text as BinaryOp;
@@ -477,7 +505,7 @@ class Parser {
   private unary(): Typed {
     if (this.isOp('-')) {
       this.next();
-      const operand = this.unary();
+      const operand = this.nested(() => this.unary());
       return { node: (env) => map(operand.node(env), (x) => -x), vector: operand.vector };
     }
     return this.power();
@@ -487,7 +515,7 @@ class Parser {
     const base = this.atom();
     if (!this.isOp('^')) return base;
     this.next();
-    const exponent = this.unary();
+    const exponent = this.nested(() => this.unary());
     return {
       node: (env) => binary('^', base.node(env), exponent.node(env)),
       vector: base.vector || exponent.vector,
@@ -556,7 +584,9 @@ export function compileExpression(expr: string, lang: ExprLanguage): CompileResu
   let root: Node;
   let vars: readonly string[];
   try {
-    const parser = new Parser(tokenize(expr), lang);
+    const tokens = tokenize(expr);
+    if (tokens.length > MAX_TOKENS) throw new ExprError('Expression is too long', 0);
+    const parser = new Parser(tokens, lang);
     const typed = parser.parseAll();
     if (typed.vector) throw new ExprError(NOT_SCALAR, 0);
     root = typed.node;
