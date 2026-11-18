@@ -288,11 +288,12 @@ describe('SinglePlot gap markers', () => {
   });
 
   it('a recorded Hare break flows liveStore → useLiveSeries → one null, then resumes', async () => {
-    // Only Date is faked: the re-stamped sample lands at "now", so the clock
-    // has to move before the extension has any length to draw. The clock is
-    // pinned to an instant whose sample timestamp, written in nanoseconds, is
-    // not an exact double: the store then records the point 1 ms earlier than
-    // the millisecond it was built from (true of one wall-clock ms in eight).
+    // Only Date is faked: the break lands at "now", and the clock has to move
+    // before a later sample and its extension have any length to draw. The
+    // clock is pinned to an instant whose sample timestamp, written in
+    // nanoseconds, is not an exact double: the store then records the point
+    // 1 ms earlier than the millisecond it was built from (true of one
+    // wall-clock ms in eight).
     vi.useFakeTimers({ toFake: ['Date'], now: SENT_MS + 120 * S });
     const trace = makeTrace({ id: 'live1', pvName: 'GAP:LIVE', useLive: true });
     const { rerender } = render(<LivePlot plot={makePlot([trace])} />);
@@ -303,12 +304,12 @@ describe('SinglePlot gap markers', () => {
     const tsNs = (Date.now() - 120 * S) * MS_NS;
     const t0 = nsToMs(tsNs);
     expect(t0).toBe(SENT_MS - 1);
-    const value = (connected: boolean): PVValueDTO => ({
+    const value = (connected: boolean, v = 4, ns = tsNs): PVValueDTO => ({
       pv: 'GAP:LIVE',
-      value: 4,
+      value: v,
       valueKind: 'scalar',
       severity: 'NO_ALARM',
-      tsNs,
+      tsNs: ns,
       connected,
       error: null,
     });
@@ -327,26 +328,46 @@ describe('SinglePlot gap markers', () => {
     expect(nullTimes(seriesById(lastOption(), 'live1'))).toEqual([]);
     expect(seriesById(lastOption(), 'live1-extension')).toBeDefined();
 
-    // Two disconnected frames: one break, an open one, so no extension.
+    // Two disconnected frames: one break, at the disconnect, an open one, so
+    // no extension. The step line holds the value up to it.
+    const tDown = Date.now();
     await flush(() => {
       ws.emit({ type: 'diff', data: { 'GAP:LIVE': value(false) }, count: 1 });
       ws.emit({ type: 'diff', data: { 'GAP:LIVE': value(false) }, count: 1 });
     });
-    expect(nullTimes(seriesById(lastOption(), 'live1'))).toEqual([t0 + 1]);
+    expect(nullTimes(seriesById(lastOption(), 'live1'))).toEqual([tDown]);
+    expect(seriesById(lastOption(), 'live1')!.data).toContainEqual({
+      value: [tDown, 4],
+      symbol: 'none',
+    });
     expect(seriesById(lastOption(), 'live1-extension')).toBeUndefined();
 
-    // Reconnect with the unchanged value and its old timestamp: the sample is
-    // re-stamped past the break, the line resumes and the extension returns.
+    // Back with the unchanged value and its old timestamp: an exact repeat, not
+    // re-stamped, so no sample. The line resumes at the time it came back, as
+    // a hold point, not a sample, and the extension continues from there.
+    vi.setSystemTime(Date.now() + 5 * S);
+    const tUp = Date.now();
     await flush(() => {
       ws.emit({ type: 'diff', data: { 'GAP:LIVE': value(true) }, count: 1 });
     });
-    const data = seriesById(lastOption(), 'live1')!.data;
-    expect(nullTimes({ data })).toEqual([t0 + 1]);
-    expect(data.at(-1)![1]).toBe(4);
-    expect(data.at(-1)![0]).toBeGreaterThan(t0 + 1);
+    let data = seriesById(lastOption(), 'live1')!.data;
+    expect(nullTimes({ data })).toEqual([tDown]);
+    expect(data.at(-1)).toEqual({ value: [tUp, 4], symbol: 'none' });
     vi.setSystemTime(Date.now() + 5 * S);
     rerender(<LivePlot plot={makePlot([trace])} />);
-    expect(seriesById(lastOption(), 'live1-extension')).toBeDefined();
+    const extension = seriesById(lastOption(), 'live1-extension');
+    expect(extension).toBeDefined();
+    expect((extension!.data as unknown as Float64Array)[0]).toBe(tUp);
+
+    // The next change takes over past the resume.
+    vi.setSystemTime(Date.now() + 5 * S);
+    const tsNs1 = Date.now() * MS_NS;
+    await flush(() => {
+      ws.emit({ type: 'diff', data: { 'GAP:LIVE': value(true, 5, tsNs1) }, count: 1 });
+    });
+    data = seriesById(lastOption(), 'live1')!.data;
+    expect(nullTimes({ data })).toEqual([tDown]);
+    expect(data.at(-1)).toEqual([nsToMs(tsNs1), 5]);
     vi.useRealTimers();
   });
 

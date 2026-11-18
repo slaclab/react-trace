@@ -6,8 +6,10 @@ import {
   extensionAnchor,
   gapThresholds,
   insertArchiveGaps,
+  isResumePoint,
   nearestSample,
   traceLineData,
+  withLiveResumes,
   type LinePoint,
 } from './traceGaps';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
@@ -221,6 +223,75 @@ describe('traceLineData', () => {
     expect(extensionAnchor(t, traceLineData(t, undefined, l, undefined), undefined, l)).toBe(
       undefined
     );
+  });
+});
+
+describe('withLiveResumes', () => {
+  const now = T0 + 3_600 * S;
+  const b = now - 60 * S;
+  const withResume = (l: LiveSeriesResult, time: number, value = 1): LiveSeriesResult => ({
+    ...l,
+    resumes: [{ after: b, time, value }],
+  });
+
+  it('resumes after a kept break, and the extension anchors there', () => {
+    const t = trace({ useLive: true });
+    const l = withResume(live([now - 600 * S], [b]), now - 50 * S, 3);
+    const data = traceLineData(t, undefined, l, undefined);
+    // The line data the read-outs and statistics see has no resume.
+    expect(data).toEqual([
+      [now - 600 * S, 1],
+      [b, null],
+    ]);
+    const drawn = withLiveResumes(t, data, l);
+    expect(drawn).toEqual([
+      [now - 600 * S, 1],
+      [b, null],
+      [now - 50 * S, 3],
+    ]);
+    expect(drawn.map(isResumePoint)).toEqual([false, false, true]);
+    expect(extensionAnchor(t, drawn, undefined, l)).toEqual([now - 50 * S, 3]);
+    // Cached: the same drawn line while neither input changes.
+    expect(withLiveResumes(t, data, l)).toBe(drawn);
+  });
+
+  it('goes between the break and a later sample', () => {
+    const t = trace({ useLive: true });
+    const l = withResume(live([now - 600 * S, now - 10 * S], [b]), now - 50 * S);
+    const drawn = withLiveResumes(t, traceLineData(t, undefined, l, undefined), l);
+    expect(drawn.map((p) => p[0])).toEqual([now - 600 * S, b, now - 50 * S, now - 10 * S]);
+  });
+
+  it('leaves it out when a sample after the break is at or before it', () => {
+    const t = trace({ useLive: true });
+    for (const sampleAt of [now - 55 * S, now - 50 * S]) {
+      const l = withResume(live([now - 600 * S, sampleAt], [b]), now - 50 * S);
+      const data = traceLineData(t, undefined, l, undefined);
+      expect(withLiveResumes(t, data, l)).toBe(data);
+    }
+  });
+
+  it('adds nothing without resumes, for a formula, or with Live off', () => {
+    const l = withResume(live([now - 600 * S], [b]), now - 50 * S);
+    const data = traceLineData(trace({ useLive: true }), undefined, l, undefined);
+    const plain = live([now - 600 * S], [b]);
+    expect(withLiveResumes(trace({ useLive: true }), data, plain)).toBe(data);
+    expect(withLiveResumes(trace({ useLive: true }), data, undefined)).toBe(data);
+    expect(withLiveResumes(trace({ useLive: false }), data, l)).toBe(data);
+    expect(withLiveResumes(trace({ useLive: true, kind: 'formula' }), data, l)).toBe(data);
+  });
+
+  it('ignores a resume whose break is not in the line (behind the archive seam)', () => {
+    const t = trace({ useLive: true, useArchive: true });
+    const times = grid(now - 600 * S, 10 * S, 59);
+    const a = archive(times, times.at(-1)! + 5 * S);
+    // Break and resume both before the archive's last sample.
+    const l: LiveSeriesResult = {
+      ...live([now - 400 * S], [now - 300 * S]),
+      resumes: [{ after: now - 300 * S, time: now - 200 * S, value: 1 }],
+    };
+    const data = traceLineData(t, a, l, undefined);
+    expect(withLiveResumes(t, data, l)).toBe(data);
   });
 });
 

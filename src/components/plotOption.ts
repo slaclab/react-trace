@@ -28,9 +28,11 @@ import { AXIS_OFFSET } from './axisHitTest';
 import {
   bandLineData,
   extensionAnchor,
+  isResumePoint,
   nearestSample,
   traceLineData,
   traceSamples,
+  withLiveResumes,
   type LinePoint,
 } from './traceGaps';
 import {
@@ -317,7 +319,8 @@ export function useTraceData(
   );
 }
 
-// A step line's hold point: not a sample, so it never draws a symbol.
+// A step line's hold point, or a live resume point: not a sample, so it never
+// draws a symbol.
 interface HoldPoint {
   value: [number, number];
   symbol: 'none';
@@ -337,9 +340,12 @@ const XY_DIMENSIONS = ['x', 'y'];
  * setOption neither deep-clones it nor runs each point through its option
  * preprocessors. With breaks it stays point data, and a step line (`hold`)
  * first holds its last value up to each break, so the step reaches the gap.
+ * A live resume point (traceGaps `withLiveResumes`) becomes a hold point on
+ * either line type, so the line resumes there without a sample's symbol.
  */
 function toSeriesData(points: readonly LinePoint[], hold: boolean): SeriesData {
-  if (!points.some((p) => p[1] === null)) {
+  const resumes = points.some(isResumePoint);
+  if (!resumes && !points.some((p) => p[1] === null)) {
     const out = new Float64Array(points.length * 2);
     for (let i = 0; i < points.length; i++) {
       out[2 * i] = points[i][0];
@@ -347,12 +353,18 @@ function toSeriesData(points: readonly LinePoint[], hold: boolean): SeriesData {
     }
     return out;
   }
-  if (!hold) return points as LinePoint[];
+  if (!hold && !resumes) return points as LinePoint[];
   const out: (LinePoint | HoldPoint)[] = [];
   let prev: number | null = null;
   for (const p of points) {
-    if (p[1] === null && prev !== null) out.push({ value: [p[0], prev], symbol: 'none' });
-    out.push(p);
+    if (isResumePoint(p)) {
+      out.push({ value: [p[0], p[1] as number], symbol: 'none' });
+    } else {
+      if (hold && p[1] === null && prev !== null) {
+        out.push({ value: [p[0], prev], symbol: 'none' });
+      }
+      out.push(p);
+    }
     prev = p[1];
   }
   return out;
@@ -635,13 +647,16 @@ export function buildPlotOption({
         }
 
         const fullPoints = traceData.get(trace.id) ?? [];
+        // The line as drawn: with the live resume points, which only the
+        // curve and its extension see (traceData stays samples and gaps).
+        const drawn = withLiveResumes(trace, fullPoints, liveResults.get(trace.id));
         series.push({
           id: trace.id,
           name: labels.get(trace.id),
           type: 'line',
           dimensions: XY_DIMENSIONS,
           yAxisIndex,
-          data: seriesData(fullPoints, step, cut),
+          data: seriesData(drawn, step, cut),
           step: step ? 'end' : false,
           lineStyle: {
             color: trace.color,
@@ -714,11 +729,11 @@ export function buildPlotOption({
         }
 
         if (trace.showExtensionLine !== false && trace.lineStyle !== 'none') {
-          // Anchors on the last non-null point; none while a live trace is
-          // disconnected, an archive-only tail is stale or the curve ends
-          // INVALID (traceGaps.ts). The x axis spans exactly the window, so
-          // the line's two ends are its whole data.
-          const last = extensionAnchor(trace, fullPoints, archive, liveResults.get(trace.id));
+          // Anchors on the last non-null point (a resume point included);
+          // none while a live trace is disconnected, an archive-only tail is
+          // stale or the curve ends INVALID (traceGaps.ts). The x axis spans
+          // exactly the window, so the line's two ends are its whole data.
+          const last = extensionAnchor(trace, drawn, archive, liveResults.get(trace.id));
           if (last && last[0] < xAxisMax) {
             const startTime = Math.max(last[0], xAxisMin);
             const data = new Float64Array([startTime, last[1], xAxisMax, last[1]]);

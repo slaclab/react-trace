@@ -57,11 +57,35 @@ export interface LiveEntry {
   // Numeric time series. Non-numeric values still update `latest` for status
   // display but don't enter this buffer.
   points: readonly LivePoint[];
-  // Recorded disconnects (ms, ascending): one per outage, at the time of the
-  // last point + 1 ms, so the chart draws a gap there. Kept apart from
-  // `points` because other consumers read the samples as plain numbers.
-  // Absent = none.
+  // Recorded disconnects (ms, ascending): one per outage, at the time the
+  // disconnect was seen (never before the last point + 1 ms), so the held
+  // value draws up to the outage and the chart draws a gap there. A socket
+  // outage that the reconnect's Vole backfill covers is removed again (see
+  // "outage breaks" below). Kept apart from `points` because other consumers
+  // read the samples as plain numbers. Absent = none.
   breaks?: readonly number[];
+  // Where the line resumes after a break: one per break the PV has since
+  // reported connected after, ascending. Drawing only, never a sample (see
+  // `LiveResume`). Absent = none.
+  resumes?: readonly LiveResume[];
+}
+
+/**
+ * When a PV reported connected again after a break, and with what value: the
+ * chart resumes the line there instead of leaving it blank until the next
+ * change (an unchanged replay adds no sample). Not a sample: it never enters
+ * `points`, so read-outs, statistics, counts and exports never see it.
+ */
+export interface LiveResume {
+  // The break it follows (a value in `breaks`).
+  after: number;
+  // The client time the first connected update with a value after the break
+  // arrived (ms), at least `after + 1`.
+  time: number;
+  // The value that update carried: the replay's, or the new one if it changed.
+  // A later sample stamped before the break replaces it, while no sample
+  // lands after the break.
+  value: number;
 }
 
 // Live retention bounds. The default applies to a curve whose time range is
@@ -130,6 +154,19 @@ interface PVState {
   refs: Map<string, number>;
   points: LivePoint[];
   breaks: number[];
+  // The breaks recorded on a socket drop that no backfill has settled yet
+  // (`settleBreaks`). A subset of `breaks`.
+  socketBreaks: Set<number>;
+  // True from a socket (re)connect until the PV's first update on it.
+  awaitingReport: boolean;
+  // A covering backfill that came back before that first update. Applied
+  // when the PV reports connected; dropped when it reports down.
+  deferredCover: BackfillCover | null;
+  // Published as `LiveEntry.resumes`, ascending.
+  resumes: LiveResume[];
+  // The newest break, until the PV's first connected update after it records
+  // its resume (or the break goes). Null otherwise.
+  resumeFor: number | null;
   latest: PVData | null;
   connected: boolean;
   severity: WireAlarmSeverity | null;
@@ -141,6 +178,13 @@ interface PVState {
   rev: number;
   // In-flight backfill controller — aborted on release or superseded request.
   backfillController: AbortController | null;
+}
+
+// What a covering backfill settles: the socket breaks recorded before it was
+// requested, and the start of the window it covers.
+interface BackfillCover {
+  fromMs: number;
+  breaks: readonly number[];
 }
 
 interface TraceRef {
@@ -228,6 +272,11 @@ export class LiveStore {
         refs: new Map(),
         points: [],
         breaks: [],
+        socketBreaks: new Set(),
+        awaitingReport: false,
+        deferredCover: null,
+        resumes: [],
+        resumeFor: null,
         latest: null,
         connected: false,
         severity: null,
@@ -344,7 +393,10 @@ export class LiveStore {
       // subscribe moment: no gap between backfill coverage and the first live
       // sample.
       if (!wasConnected) {
-        for (const [pv, state] of this.pvs) this.startBackfill(pv, state);
+        for (const [pv, state] of this.pvs) {
+          state.awaitingReport = true;
+          this.startBackfill(pv, state);
+        }
       }
     } else if (
       status === 'disconnected' &&
@@ -365,9 +417,36 @@ export class LiveStore {
     // PV may have been released between subscribe and a stray late update.
     if (!state) return;
     const connected = data.connected && data.severity !== AlarmSeverity.DISCONNECTED;
+    const socketUp = this.wsStatus === 'connected';
     // One break per outage: only the connected true -> false transition. A
-    // dropped socket reaches here too, as a DISCONNECTED update per PV.
-    if (state.connected && !connected) this.recordBreak(state);
+    // dropped socket reaches here too, as a DISCONNECTED update per PV, after
+    // `handleStatus` has seen the close (see "outage breaks").
+    if (state.connected && !connected) this.recordBreak(state, !socketUp);
+    if (socketUp && state.awaitingReport) {
+      // The PV's first update since the socket came back.
+      state.awaitingReport = false;
+      const cover = state.deferredCover;
+      state.deferredCover = null;
+      if (!connected) {
+        // Still down: it may have gone down at any time in the outage, as far
+        // as anyone can tell, so its socket breaks stay.
+        state.socketBreaks.clear();
+      } else if (cover) {
+        this.settleBreaks(state, cover.breaks, cover.fromMs);
+      }
+    }
+    const value =
+      typeof data.value === 'number' && Number.isFinite(data.value) && !isNullValue(data)
+        ? data.value
+        : null;
+    // The first connected update with a value after a break (still kept, so
+    // not covered) records where the line resumes: now, with that value. One
+    // per break; an update with no value to draw leaves it to the next one.
+    if (connected && value !== null && state.resumeFor !== null) {
+      const after = state.resumeFor;
+      state.resumeFor = null;
+      state.resumes.push({ after, time: Math.max(Date.now(), after + 1), value });
+    }
     state.latest = data;
     // A disconnected PV (or a dropped socket, which the service reports as a
     // DISCONNECTED update with the last value) keeps its last alarm severity
@@ -382,28 +461,119 @@ export class LiveStore {
       // reads as INVALID, as the SDK reads an unknown wire severity.
       const severity = toWireSeverity(data.severity) ?? 'INVALID';
       state.severity = severity;
-      if (typeof data.value === 'number' && Number.isFinite(data.value) && !isNullValue(data)) {
-        let time = data.timestamp;
-        // After a reconnect Hare replays an unchanged value with its original
-        // timestamp. Stamped at or before the break it would hide the gap, so
-        // it is re-stamped to its receipt time, strictly after the break.
-        const lastBreak = state.breaks.at(-1);
-        if (lastBreak !== undefined && time <= lastBreak) {
-          time = Math.max(lastBreak + 1, Date.now());
-        }
-        this.insertPoint(state, { time, value: data.value, severity });
+      if (value !== null) {
+        // Always the IOC's timestamp. After a reconnect Hare replays an
+        // unchanged value with its original timestamp: an exact repeat, which
+        // insertPoint drops. A value that changed meanwhile lands at its time.
+        this.insertPoint(state, { time: data.timestamp, value, severity });
+        this.followResume(state, data.timestamp, value);
       }
     }
     state.rev++;
     this.markDirty();
   }
 
-  private recordBreak(state: PVState): void {
+  // ── outage breaks ──────────────────────────────────────────────────────
+  //
+  // A break is recorded on the PV's connected -> disconnected transition, at
+  // the time it is seen (never before the last point + 1 ms), so the held
+  // value draws up to the outage. Its cause decides whether it goes again:
+  //
+  // - Socket drop. ResilientSocket reports the close through `handleStatus`
+  //   before HarePVService hands each PV a DISCONNECTED copy (and a reconnect
+  //   reports 'connected' before Hare's first frame), so a transition seen
+  //   while `wsStatus` is not 'connected' is the socket's. Canopy kept the PV
+  //   meanwhile, so the reconnect's Vole backfill settles the break: dropped
+  //   when the backfill covers it, kept when the backfill fails, is refused
+  //   (`pv_not_buffered`) or doesn't cover it.
+  // - PV disconnect, on an open socket: the IOC, or Hare's link to it, went
+  //   away. That break always stays. Vole ingests the same Hare stream and
+  //   skips its `connected: false` frames, so its data can't show the PV kept
+  //   updating through an outage seen here: what it holds after the break is
+  //   the PV's own later updates, which land after the break as they are.
+  // - A PV whose first update after a reconnect says it is down: it may have
+  //   gone down at any time in the outage, so its socket breaks stay too. A
+  //   cover that comes back before that first update waits for it.
+  //
+  // "Covers": the backfill asks for [from, now], `from` being the newest
+  // point's ms clamped to the retention window. It covers that window when it
+  // resolves and its first sample falls in or before `from`'s millisecond.
+  // That sample is either the newest point itself (at its full-ns stamp) or,
+  // with `align=last`, Vole's last sample before `from` pinned at `from`.
+  // Either way Vole's buffer reached back to `from`, and a buffer is kept
+  // from Vole's subscribe until it is dropped. An empty response, or one
+  // whose first sample is later (a buffer started since), proves nothing. A
+  // cover drops the socket breaks recorded before the request, at or after
+  // `from`; a break before `from` (an outage longer than the retention
+  // window) stays. Whatever its result, a backfill settles those breaks: the
+  // ones it doesn't drop stay for good. Vole's answer can't show a buffer
+  // that was dropped and created again since, if the PV has not changed.
+  //
+  // Resumes: an unchanged replay adds no sample, so a kept break alone would
+  // leave a slow PV's line blank until its next change. The first connected
+  // update with a value after a break therefore records a `LiveResume`: its
+  // receipt time (at least the break + 1 ms) and its value. A later sample
+  // stamped before the break updates that value while none lands after it.
+  // The chart resumes the line there (traceGaps `withLiveResumes`) until a
+  // real sample takes over. It is never a sample, and it goes with its break.
+
+  // `socket`: recorded because the socket dropped, not the PV.
+  private recordBreak(state: PVState, socket: boolean): void {
     const last = state.points.at(-1);
     if (!last) return;
-    const at = last.time + 1;
-    if (state.breaks.at(-1) === at) return;
+    const at = Math.max(last.time + 1, Date.now());
+    const prev = state.breaks.at(-1);
+    if (prev !== undefined && prev >= at) {
+      // An open break already ends the line there (same millisecond, or a
+      // clock stepped back): it stands for this outage too, and can't go if
+      // this one is the PV's. A resume it had is void: the PV is down again.
+      if (!socket) state.socketBreaks.delete(prev);
+      dropResume(state, prev);
+      state.resumeFor = prev;
+      return;
+    }
     state.breaks.push(at);
+    if (socket) state.socketBreaks.add(at);
+    state.resumeFor = at;
+  }
+
+  // A sample stamped at or before the newest break is still the PV's newest
+  // reading while nothing lands after the break: the line resumes with it,
+  // not with the value the resume was recorded with.
+  private followResume(state: PVState, time: number, value: number): void {
+    const last = state.resumes.length - 1;
+    const resume = state.resumes[last];
+    if (!resume || resume.after !== state.breaks.at(-1) || time > resume.after) return;
+    const newest = state.points.at(-1);
+    if (newest && newest.time > resume.after) return;
+    if (resume.value !== value) state.resumes[last] = { ...resume, value };
+  }
+
+  // Settle the socket breaks `breaks` (those recorded before a backfill was
+  // requested): with `coverFromMs`, the ones at or after it are dropped, with
+  // their resumes. The rest stay for good.
+  private settleBreaks(
+    state: PVState,
+    breaks: readonly number[],
+    coverFromMs: number | null
+  ): void {
+    let dropped = false;
+    for (const at of breaks) {
+      // Already settled (or trimmed).
+      if (!state.socketBreaks.delete(at)) continue;
+      if (coverFromMs === null || at < coverFromMs) continue;
+      const i = state.breaks.indexOf(at);
+      if (i >= 0) {
+        state.breaks.splice(i, 1);
+        dropResume(state, at);
+        if (state.resumeFor === at) state.resumeFor = null;
+        dropped = true;
+      }
+    }
+    if (dropped) {
+      state.rev++;
+      this.markDirty();
+    }
   }
 
   private insertPoint(state: PVState, point: LivePoint): void {
@@ -454,8 +624,17 @@ export class LiveStore {
     const breaks = state.breaks;
     if (breaks.length > 0 && points.length > 0 && breaks[0] < points[0].time) {
       let drop = 0;
-      while (drop < breaks.length && breaks[drop] < points[0].time) drop++;
+      while (drop < breaks.length && breaks[drop] < points[0].time) {
+        state.socketBreaks.delete(breaks[drop]);
+        if (state.resumeFor === breaks[drop]) state.resumeFor = null;
+        drop++;
+      }
       breaks.splice(0, drop);
+      // Their resumes go with them (they are sorted the same way).
+      const first = breaks.length > 0 ? breaks[0] : Infinity;
+      let gone = 0;
+      while (gone < state.resumes.length && state.resumes[gone].after < first) gone++;
+      if (gone > 0) state.resumes.splice(0, gone);
     }
   }
 
@@ -523,6 +702,7 @@ export class LiveStore {
       // the same PV legitimately see the same buffer.
       points: state.points,
       breaks: state.breaks,
+      resumes: state.resumes,
     };
     this.entryCache.set(pv, { sig, entry });
     return entry;
@@ -539,6 +719,10 @@ export class LiveStore {
     const last = state.points[state.points.length - 1];
     const fromMs = Math.max(last ? last.time : -Infinity, Date.now() - maxRetention(state));
     const fromNs = msToNs(fromMs);
+    // The socket breaks this backfill settles (see "outage breaks"). This one
+    // supersedes any earlier cover still waiting.
+    const breaks = [...state.socketBreaks];
+    state.deferredCover = null;
 
     fetchBackfill(pv, fromNs, { signal: controller.signal })
       .then((res) => {
@@ -547,10 +731,23 @@ export class LiveStore {
         if (!current || current.backfillController !== controller) return;
         current.backfillController = null;
         this.mergeBackfill(current, res.samples);
+        // Compared in ms: `from` is the newest point's floored ms, and Vole
+        // returns that same sample at its full-ns stamp, up to 1 ms later.
+        const covers = res.samples.length > 0 && nsToMs(res.samples[0].tsNs) <= fromMs;
+        if (covers && current.awaitingReport) {
+          current.deferredCover = { fromMs, breaks };
+        } else {
+          this.settleBreaks(current, breaks, covers ? fromMs : null);
+        }
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
         if ((err as { name?: string }).name === 'AbortError') return;
+        // A failed backfill covers nothing: the breaks it settles stay.
+        const current = this.pvs.get(pv);
+        if (current && current.backfillController === controller) {
+          this.settleBreaks(current, breaks, null);
+        }
         if (errorInfo(err).code === 'pv_not_buffered') {
           // Ask Vole to buffer it for the next backfill, once per watch.
           if (this.voleSubscribed.has(pv)) return;
@@ -586,6 +783,12 @@ export class LiveStore {
     this.trim(state);
     this.markDirty();
   }
+}
+
+// Remove the resume that follows break `after`, if any.
+function dropResume(state: PVState, after: number): void {
+  const i = state.resumes.findIndex((r) => r.after === after);
+  if (i >= 0) state.resumes.splice(i, 1);
 }
 
 // Longest retention requested by any trace on this PV.

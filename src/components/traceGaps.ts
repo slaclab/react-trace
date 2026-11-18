@@ -14,13 +14,18 @@
 //   at the same t as the mean's.
 // - Live (Hare monitors): silence means "unchanged", so there is no spacing
 //   rule. A null appears only at a recorded disconnect (`LiveEntry.breaks`).
+// - Live resumes (`LiveEntry.resumes`): where the PV reported connected again
+//   after a break. Never samples, so `traceLineData` (which statistics,
+//   read-outs and snapping also read) leaves them out. Only the chart's line
+//   and its extension add them (`withLiveResumes`), as a point the line
+//   resumes from, until the first real sample after the break.
 // - Seam: when the archive's covered window ends more than the tail threshold
 //   after its last sample, live data that follows is separated by
 //   `[t_last_archive + 1 ms, null]`.
 // - The dashed now-extension anchors on the last non-null point. A live trace
-//   draws it only while connected with no open break; an archive-only trace
-//   drops it when its covered window ends more than the tail threshold after
-//   its last sample.
+//   draws it only while connected with no open break (a resume closes one);
+//   an archive-only trace drops it when its covered window ends more than the
+//   tail threshold after its last sample.
 // - `traceSamples` is the same merge as plain samples, INVALID ones included
 //   with their severity: the tooltip and the INVALID markers read it.
 
@@ -31,7 +36,7 @@ import type {
   ArchiveSeriesResult,
 } from '../hooks/useArchiveSeries';
 import type { FormulaSeriesResult } from '../hooks/useFormulaSeries';
-import type { LiveSeriesResult } from '../hooks/useLiveSeries';
+import type { LiveResume, LiveSeriesResult } from '../hooks/useLiveSeries';
 import type { PVTrace } from '../types';
 import { isInvalid, type PlotSample } from './invalidGaps';
 import type { WireAlarmSeverity } from '@slaclab/canopy-client';
@@ -190,6 +195,58 @@ function liveLine(live: LiveSeriesResult): LinePoint[] {
   return out;
 }
 
+// Resume points `withLiveResumes` made, so the series builder can draw them as
+// non-sample points (no symbol) wherever a cut puts them.
+const resumePoints = new WeakSet<LinePoint>();
+
+/** Whether `p` is a resume point (`withLiveResumes`), not a sample. */
+export function isResumePoint(p: LinePoint): boolean {
+  return resumePoints.has(p);
+}
+
+// The drawn line per line array, with the resumes it was built from.
+const resumedCache = new WeakMap<
+  readonly LinePoint[],
+  { resumes: readonly LiveResume[]; line: readonly LinePoint[] }
+>();
+
+/**
+ * `data` (the trace's `traceLineData`) as the chart draws it: after each live
+ * break the PV has resumed after, a resume point at the time it reported
+ * connected again, with the value it reported, so the line and the extension
+ * go on from there. None when the next entry after the break is at or before
+ * that time: a real sample (or another marker) has taken over. Drawing only,
+ * never a sample. Sorted, like `data`; the same array when nothing is added.
+ */
+export function withLiveResumes(
+  trace: PVTrace,
+  data: readonly LinePoint[],
+  live: LiveSeriesResult | undefined
+): readonly LinePoint[] {
+  const resumes = trace.kind !== 'formula' && trace.useLive ? live?.resumes : undefined;
+  if (!resumes || resumes.length === 0) return data;
+  const cached = resumedCache.get(data);
+  if (cached && cached.resumes === resumes) return cached.line;
+  const byBreak = new Map(resumes.map((r) => [r.after, r]));
+  let out: LinePoint[] | null = null;
+  for (let i = 0; i < data.length; i++) {
+    const p = data[i];
+    out?.push(p);
+    if (p[1] !== null) continue;
+    const r = byBreak.get(p[0]);
+    if (!r || r.time <= p[0]) continue;
+    const next = data[i + 1];
+    if (next && next[0] <= r.time) continue;
+    if (!out) out = data.slice(0, i + 1);
+    const point: LinePoint = [r.time, r.value];
+    resumePoints.add(point);
+    out.push(point);
+  }
+  const line = out ?? data;
+  resumedCache.set(data, { resumes, line });
+  return line;
+}
+
 export function traceLineData(
   trace: PVTrace,
   archive: ArchiveSeriesResult | undefined,
@@ -256,7 +313,9 @@ export function traceSamples(
 /**
  * The point the dashed now-extension starts from, or undefined when none is
  * drawn: the last non-null point, provided no gap or INVALID run follows it, a
- * live trace is connected, and an archive-only trace's tail is not stale.
+ * live trace is connected, and an archive-only trace's tail is not stale. The
+ * chart passes the drawn line (`withLiveResumes`), so a live trace that
+ * resumed after its last break anchors on the resume point.
  */
 export function extensionAnchor(
   trace: PVTrace,

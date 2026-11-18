@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { liveStore, resolveLiveRetentionMs } from '../state/liveStore';
-import type { LiveEntry, LiveError, LivePoint, LiveStatus } from '../state/liveStore';
+import type { LiveEntry, LiveError, LivePoint, LiveResume, LiveStatus } from '../state/liveStore';
 import type { PVTrace } from '../types';
 
 // The default retention, and the longest retention the trace settings accept
@@ -12,7 +12,7 @@ export {
   LIVE_RETENTION_MAX_MS,
 } from '../state/liveStore';
 
-export type { LivePoint, LiveStatus, LiveError } from '../state/liveStore';
+export type { LivePoint, LiveResume, LiveStatus, LiveError } from '../state/liveStore';
 
 export interface LiveSeriesResult {
   status: LiveStatus;
@@ -21,9 +21,12 @@ export interface LiveSeriesResult {
   latest: LiveEntry['latest'];
   error: LiveError | null;
   points: readonly LivePoint[];
-  // Recorded Hare disconnects (ms, ascending), each at last point + 1 ms;
-  // absent = none.
+  // Recorded Hare disconnects (ms, ascending), each at the time it was seen
+  // (never before the last point + 1 ms); absent = none.
   breaks?: readonly number[];
+  // Where the line resumes after a break (`LiveEntry.resumes`). Drawing only:
+  // never a sample, so only the chart's line and extension read it.
+  resumes?: readonly LiveResume[];
 }
 
 const IDLE_RESULT: LiveSeriesResult = {
@@ -34,6 +37,7 @@ const IDLE_RESULT: LiveSeriesResult = {
   error: null,
   points: [],
   breaks: [],
+  resumes: [],
 };
 
 const EMPTY_SERIES = new Map<string, LiveSeriesResult>();
@@ -60,6 +64,7 @@ function entryToResult(entry: LiveEntry): LiveSeriesResult {
     error: entry.error,
     points: entry.points,
     breaks: entry.breaks,
+    resumes: entry.resumes,
   };
   resultCache.set(entry, result);
   return result;

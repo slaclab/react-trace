@@ -1143,7 +1143,7 @@ describe('LiveStore Hare breaks', () => {
     return { store, ws, instances };
   }
 
-  it('records one break per outage: two connected=false updates give one break', () => {
+  it('records one break per outage, at the disconnect: two connected=false updates give one', () => {
     const { store, ws } = connectedStore();
     const t0 = Date.now() - 5_000;
     ws.message(initial({ GAP: pvValue('GAP', 1, t0) }));
@@ -1151,61 +1151,82 @@ describe('LiveStore Hare breaks', () => {
 
     const down = { ...pvValue('GAP', 1, t0), connected: false };
     ws.message(diff({ GAP: down }, t0));
+    const tDown = Date.now();
+    vi.setSystemTime(tDown + 1_000);
     ws.message(diff({ GAP: down }, t0));
     const entry = store.getSnapshot().get('t1')!;
     expect(entry.connected).toBe(false);
-    expect(entry.breaks).toEqual([t0 + 1]);
+    // When the disconnect was seen, not the last sample + 1 ms.
+    expect(entry.breaks).toEqual([tDown]);
     // A disconnected update never adds a point after the break.
     expect(entry.points.map((p) => p.time)).toEqual([t0]);
 
     // A socket close while the PV is already down adds no second break.
     ws.close(1006);
+    expect(store.getSnapshot().get('t1')!.breaks).toEqual([tDown]);
+  });
+
+  it('breaks at the last sample + 1 ms when the clock is not later', () => {
+    const { store, ws } = connectedStore();
+    // The IOC's clock is ahead of this one.
+    const t0 = Date.now() + 2_000;
+    ws.message(initial({ GAP: pvValue('GAP', 1, t0) }));
+    ws.close(1006);
     expect(store.getSnapshot().get('t1')!.breaks).toEqual([t0 + 1]);
   });
 
-  it('socket close, reopen and an initial frame with an old tsNs: one break, sample re-stamped', () => {
+  it('socket close, reopen and an initial frame with an old tsNs: one break, no re-stamp', () => {
     const { store, ws, instances } = connectedStore();
     const t0 = Date.now() - 60_000;
     ws.message(initial({ GAP: pvValue('GAP', 7, t0) }));
 
+    const tDrop = Date.now();
     ws.close(1006);
-    expect(store.getSnapshot().get('t1')!.breaks).toEqual([t0 + 1]);
+    expect(store.getSnapshot().get('t1')!.breaks).toEqual([tDrop]);
 
     vi.advanceTimersByTime(1_000);
     const ws2 = instances[1];
     ws2.open();
-    // Hare replays the unchanged value with its original (pre-break) timestamp.
+    // Hare replays the unchanged value with its original (pre-break) timestamp:
+    // an exact repeat, so no second point. (The empty backfill covers nothing.)
     ws2.message(initial({ GAP: pvValue('GAP', 7, t0) }));
 
     const entry = store.getSnapshot().get('t1')!;
     expect(entry.connected).toBe(true);
-    expect(entry.breaks).toEqual([t0 + 1]);
-    expect(entry.points.map((p) => p.time)).toEqual([t0, Date.now()]);
-    expect(entry.points.at(-1)!.time).toBeGreaterThan(t0 + 1);
+    expect(entry.breaks).toEqual([tDrop]);
+    expect(entry.points).toEqual([{ time: t0, value: 7, severity: 'NO_ALARM' }]);
   });
 
-  it('re-stamps a post-break sample to break + 1 ms when now is not later', () => {
+  it('lands a value that changed before the drop at its IOC time, before the break', () => {
     const { store, ws, instances } = connectedStore();
     const t0 = Date.now();
     ws.message(initial({ GAP: pvValue('GAP', 1, t0) }));
+    vi.setSystemTime(t0 + 10_000);
     ws.close(1006);
     vi.advanceTimersByTime(1_000);
-    vi.setSystemTime(t0); // clock not advanced past the break
     const ws2 = instances[1];
     ws2.open();
-    ws2.message(initial({ GAP: pvValue('GAP', 1, t0 - 10) }));
-    expect(store.getSnapshot().get('t1')!.points.at(-1)!.time).toBe(t0 + 2);
+    // The change at t0 + 4 s never arrived before the socket dropped.
+    ws2.message(initial({ GAP: pvValue('GAP', 2, t0 + 4_000) }));
+    const entry = store.getSnapshot().get('t1')!;
+    expect(entry.points.map((p) => [p.time, p.value])).toEqual([
+      [t0, 1],
+      [t0 + 4_000, 2],
+    ]);
+    expect(entry.breaks).toEqual([t0 + 10_000]);
   });
 
   it('keeps a fresh post-break timestamp as is', () => {
     const { store, ws } = connectedStore();
     const t0 = Date.now() - 60_000;
     ws.message(initial({ GAP: pvValue('GAP', 1, t0) }));
+    const tDown = Date.now();
     ws.message(diff({ GAP: { ...pvValue('GAP', 1, t0), connected: false } }, t0));
-    ws.message(diff({ GAP: pvValue('GAP', 2, t0 + 30_000) }));
+    vi.setSystemTime(tDown + 30_000);
+    ws.message(diff({ GAP: pvValue('GAP', 2, tDown + 30_000) }));
     const entry = store.getSnapshot().get('t1')!;
-    expect(entry.breaks).toEqual([t0 + 1]);
-    expect(entry.points.map((p) => p.time)).toEqual([t0, t0 + 30_000]);
+    expect(entry.breaks).toEqual([tDown]);
+    expect(entry.points.map((p) => p.time)).toEqual([t0, tDown + 30_000]);
   });
 
   it('records no break for a PV that never had a point', () => {
@@ -1214,6 +1235,406 @@ describe('LiveStore Hare breaks', () => {
     ws.close(1006);
     expect(store.getSnapshot().get('t1')!.breaks).toEqual([]);
   });
+});
+
+// R2: a socket blip must not blank a slow PV back to its last change.
+describe('LiveStore socket blips (R2)', () => {
+  const MIN = 60_000;
+  const PV = 'SLOW';
+
+  function vole(samples: { tsNs: number; value: number }[]): VoleSeriesDTO {
+    return {
+      pv: PV,
+      count: samples.length,
+      samples: samples.map((s) => ({ ...s, severity: 'NO_ALARM', source: 'live' as const })),
+    };
+  }
+
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  // A slow PV that last changed 10 minutes before the socket drops, stamped
+  // `subMsNs` into its millisecond. Returns the store, the PV's last change,
+  // the disconnect time, and `reconnect()`, which waits out the backoff and
+  // returns the next socket, not yet open.
+  async function blip(retentionMs = 30 * MIN, subMsNs = 0) {
+    const { store, instances } = setup();
+    store.watch('t1', PV, retentionMs);
+    const ws = instances[0];
+    ws.open();
+    const t0 = Date.now() - 10 * MIN;
+    ws.message(initial({ [PV]: { ...pvValue(PV, 7, t0), tsNs: t0 * 1e6 + subMsNs } }));
+    // The first backfill (empty) settles.
+    await vi.advanceTimersByTimeAsync(0);
+    vi.setSystemTime(Date.now() + 5_000);
+    const tDrop = Date.now();
+    ws.close(1006);
+    let next = 1;
+    const reconnect = () => {
+      vi.advanceTimersByTime(1_000);
+      return instances[next++];
+    };
+    return { store, ws, t0, tDrop, reconnect };
+  }
+
+  const entryOf = (store: LiveStore) => store.getSnapshot().get('t1')!;
+  // The `from` the latest backfill asked Vole for, in ns.
+  const lastFromNs = () => mockFetchBackfill.mock.calls.at(-1)![1];
+  // Vole's `align=last` answer when its buffer reaches back to `from`: its last
+  // sample before `from`, pinned at `from`.
+  const pinned = (value: number) => vole([{ tsNs: lastFromNs(), value }]);
+
+  it('draws the held value up to the disconnect, not back to its last change', async () => {
+    const { store, t0, tDrop } = await blip();
+    const entry = entryOf(store);
+    expect(entry.connected).toBe(false);
+    expect(entry.points.map((p) => p.time)).toEqual([t0]);
+    // The step line holds 7 from t0 up to the break: ten minutes, not 1 ms.
+    expect(entry.breaks).toEqual([tDrop]);
+    expect(tDrop - t0).toBe(10 * MIN + 5_000);
+  });
+
+  it('does not re-stamp the replay of an unchanged value', async () => {
+    const { store, t0, tDrop, reconnect } = await blip();
+    const ws2 = reconnect();
+    ws2.open();
+    ws2.message(initial({ [PV]: pvValue(PV, 7, t0) }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    const entry = entryOf(store);
+    expect(entry.connected).toBe(true);
+    // An exact repeat: dropped, not moved to its receipt time.
+    expect(entry.points).toEqual([{ time: t0, value: 7, severity: 'NO_ALARM' }]);
+    // The empty backfill covers nothing, so the break stays.
+    expect(entry.breaks).toEqual([tDrop]);
+  });
+
+  it('lands a value that changed during the outage at its IOC time', async () => {
+    const { store, t0, tDrop, reconnect } = await blip();
+    const ws2 = reconnect();
+    ws2.open();
+    ws2.message(initial({ [PV]: pvValue(PV, 8, tDrop + 500) }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    const entry = entryOf(store);
+    expect(entry.points.map((p) => [p.time, p.value])).toEqual([
+      [t0, 7],
+      [tDrop + 500, 8],
+    ]);
+    expect(entry.breaks).toEqual([tDrop]);
+  });
+
+  it('drops the break when the backfill covers the outage, Hare first', async () => {
+    const { store, t0, reconnect } = await blip();
+    const pending = deferred<VoleSeriesDTO>();
+    mockFetchBackfill.mockReturnValueOnce(pending.promise);
+    const ws2 = reconnect();
+    ws2.open();
+    // From the newest point.
+    expect(lastFromNs()).toBe(t0 * 1e6);
+    ws2.message(initial({ [PV]: pvValue(PV, 7, t0) }));
+    pending.resolve(pinned(7));
+    await vi.advanceTimersByTimeAsync(0);
+
+    const entry = entryOf(store);
+    expect(entry.breaks).toEqual([]);
+    expect(entry.points).toEqual([{ time: t0, value: 7, severity: 'NO_ALARM' }]);
+  });
+
+  it('drops the break when the backfill covers the outage, Vole first', async () => {
+    const { store, t0, tDrop, reconnect } = await blip();
+    mockFetchBackfill.mockImplementationOnce(async (_pv, fromNs) =>
+      vole([{ tsNs: fromNs, value: 7 }])
+    );
+    const ws2 = reconnect();
+    ws2.open();
+    await vi.advanceTimersByTimeAsync(0);
+    // The cover waits for the PV's first update: it might still be down.
+    expect(entryOf(store).breaks).toEqual([tDrop]);
+
+    ws2.message(initial({ [PV]: pvValue(PV, 7, t0) }));
+    expect(entryOf(store).breaks).toEqual([]);
+  });
+
+  it("drops the break when Vole's buffer starts at the newest point itself", async () => {
+    // Real stamps carry sub-ms digits. The store keeps the floored ms, so
+    // `from` falls before the sample's own stamp, and Vole, holding nothing
+    // earlier, returns that sample as it is, without a pin.
+    const tsNs = (Date.now() - 10 * MIN) * 1e6 + 456_789;
+    const { store, t0, reconnect } = await blip(30 * MIN, 456_789);
+    expect(entryOf(store).points.map((p) => p.time)).toEqual([t0]);
+    mockFetchBackfill.mockResolvedValueOnce(vole([{ tsNs, value: 7 }]));
+    const ws2 = reconnect();
+    ws2.open();
+    expect(lastFromNs()).toBeLessThan(tsNs);
+    ws2.message(initial({ [PV]: { ...pvValue(PV, 7, t0), tsNs } }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    const entry = entryOf(store);
+    expect(entry.breaks).toEqual([]);
+    expect(entry.points.map((p) => p.time)).toEqual([t0]);
+  });
+
+  it('drops the break when a backfill clamped to the retention window covers it', async () => {
+    // Retention 5 min, last change 10 min back: `from` is now - 5 min, where
+    // Vole pins the held value.
+    const { store, t0, reconnect } = await blip(5 * MIN);
+    const pending = deferred<VoleSeriesDTO>();
+    mockFetchBackfill.mockReturnValueOnce(pending.promise);
+    const ws2 = reconnect();
+    ws2.open();
+    const fromMs = Date.now() - 5 * MIN;
+    expect(lastFromNs()).toBe(fromMs * 1e6);
+    ws2.message(initial({ [PV]: pvValue(PV, 7, t0) }));
+    pending.resolve(pinned(7));
+    await vi.advanceTimersByTimeAsync(0);
+
+    const entry = entryOf(store);
+    expect(entry.breaks).toEqual([]);
+    expect(entry.points.map((p) => [p.time, p.value])).toEqual([
+      [t0, 7],
+      [fromMs, 7],
+    ]);
+  });
+
+  it.each([
+    ['fails', () => mockFetchBackfill.mockRejectedValueOnce(new Error('network down'))],
+    [
+      'is refused (pv_not_buffered)',
+      () =>
+        mockFetchBackfill.mockRejectedValueOnce(
+          new CanopyError('pv_not_buffered', 404, 'not buffered')
+        ),
+    ],
+    ['is empty', () => mockFetchBackfill.mockResolvedValueOnce(vole([]))],
+    [
+      'starts after `from` (a buffer started since)',
+      () =>
+        mockFetchBackfill.mockImplementationOnce(async (_pv, fromNs) =>
+          vole([{ tsNs: fromNs + 60_000 * 1e6, value: 7 }])
+        ),
+    ],
+  ])('keeps the break when the backfill %s', async (_name, mockBackfill) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { store, t0, tDrop, reconnect } = await blip();
+    mockBackfill();
+    const ws2 = reconnect();
+    ws2.open();
+    ws2.message(initial({ [PV]: pvValue(PV, 7, t0) }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(entryOf(store).breaks).toEqual([tDrop]);
+    warn.mockRestore();
+  });
+
+  it('keeps the break of an outage longer than the retention window', async () => {
+    const { store, t0, tDrop, reconnect } = await blip(5 * MIN);
+    // Two hours asleep: `from` (now - 5 min) is after the disconnect.
+    vi.setSystemTime(tDrop + 2 * 60 * MIN);
+    const ws2 = reconnect();
+    mockFetchBackfill.mockImplementationOnce(async (_pv, fromNs) =>
+      vole([{ tsNs: fromNs, value: 7 }])
+    );
+    ws2.open();
+    ws2.message(initial({ [PV]: pvValue(PV, 7, t0) }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(entryOf(store).breaks).toEqual([tDrop]);
+  });
+
+  it('settles a break once: a later covering backfill drops only its own outage', async () => {
+    const { store, t0, tDrop, reconnect } = await blip();
+    const ws2 = reconnect();
+    ws2.open(); // the default empty backfill covers nothing
+    ws2.message(initial({ [PV]: pvValue(PV, 7, t0) }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    vi.setSystemTime(Date.now() + 5_000);
+    const tDrop2 = Date.now();
+    ws2.close(1006);
+    expect(entryOf(store).breaks).toEqual([tDrop, tDrop2]);
+
+    mockFetchBackfill.mockImplementationOnce(async (_pv, fromNs) =>
+      vole([{ tsNs: fromNs, value: 7 }])
+    );
+    const ws3 = reconnect();
+    ws3.open();
+    ws3.message(initial({ [PV]: pvValue(PV, 7, t0) }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Its window (from t0) spans both, but the first was settled already.
+    expect(entryOf(store).breaks).toEqual([tDrop]);
+  });
+
+  it('keeps the break of a PV that went down at the IOC, through a covering backfill', async () => {
+    const { store, instances } = setup();
+    store.watch('t1', PV, 30 * MIN);
+    const ws = instances[0];
+    ws.open();
+    const t0 = Date.now() - 10 * MIN;
+    ws.message(initial({ [PV]: pvValue(PV, 7, t0) }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The IOC goes away on an open socket, then comes back unchanged.
+    vi.setSystemTime(Date.now() + 5_000);
+    const tDown = Date.now();
+    ws.message(diff({ [PV]: { ...pvValue(PV, null, t0), connected: false } }));
+    vi.setSystemTime(Date.now() + 5_000);
+    ws.message(diff({ [PV]: pvValue(PV, 7, t0) }));
+
+    // Then the socket blips, and Vole covers the whole window from t0.
+    vi.setSystemTime(Date.now() + 5_000);
+    const tDrop = Date.now();
+    ws.close(1006);
+    expect(entryOf(store).breaks).toEqual([tDown, tDrop]);
+    mockFetchBackfill.mockImplementationOnce(async (_pv, fromNs) =>
+      vole([{ tsNs: fromNs, value: 7 }])
+    );
+    vi.advanceTimersByTime(1_000);
+    const ws2 = instances[1];
+    ws2.open();
+    expect(lastFromNs()).toBe(t0 * 1e6);
+    ws2.message(initial({ [PV]: pvValue(PV, 7, t0) }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Only the socket's break goes; Vole can't show the IOC outage.
+    expect(entryOf(store).breaks).toEqual([tDown]);
+  });
+
+  describe('resumes', () => {
+    it('records one per kept break: the first connected update, at its receipt time', async () => {
+      const { store, t0, tDrop, reconnect } = await blip();
+      const ws2 = reconnect();
+      const tBack = Date.now();
+      ws2.open();
+      ws2.message(initial({ [PV]: pvValue(PV, 7, t0) }));
+      await vi.advanceTimersByTimeAsync(0);
+      // A later update records no second one.
+      vi.setSystemTime(Date.now() + 5_000);
+      ws2.message(diff({ [PV]: pvValue(PV, 7, t0) }));
+
+      const entry = entryOf(store);
+      expect(entry.resumes).toEqual([{ after: tDrop, time: tBack, value: 7 }]);
+      // Not a sample.
+      expect(entry.points).toEqual([{ time: t0, value: 7, severity: 'NO_ALARM' }]);
+    });
+
+    it('records none when the cover settles first (Vole before Hare)', async () => {
+      const { store, t0, reconnect } = await blip();
+      mockFetchBackfill.mockImplementationOnce(async (_pv, fromNs) =>
+        vole([{ tsNs: fromNs, value: 7 }])
+      );
+      const ws2 = reconnect();
+      ws2.open();
+      await vi.advanceTimersByTimeAsync(0);
+      ws2.message(initial({ [PV]: pvValue(PV, 7, t0) }));
+
+      const entry = entryOf(store);
+      expect(entry.breaks).toEqual([]);
+      expect(entry.resumes).toEqual([]);
+    });
+
+    it('waits past an update with no value for the first one with a value', async () => {
+      const { store, t0, tDrop, reconnect } = await blip();
+      const ws2 = reconnect();
+      ws2.open();
+      // Hare reopened the monitor: first no value, then the unchanged one.
+      ws2.message(initial({ [PV]: pvValue(PV, null, t0) }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(entryOf(store).resumes).toEqual([]);
+
+      vi.setSystemTime(Date.now() + 2_000);
+      const tValue = Date.now();
+      ws2.message(diff({ [PV]: pvValue(PV, 7, t0) }));
+      const entry = entryOf(store);
+      expect(entry.breaks).toEqual([tDrop]);
+      expect(entry.points.map((p) => p.time)).toEqual([t0]);
+      expect(entry.resumes).toEqual([{ after: tDrop, time: tValue, value: 7 }]);
+    });
+
+    it('takes the value of a later sample stamped before the break', async () => {
+      const { store, t0, tDrop, reconnect } = await blip();
+      const ws2 = reconnect();
+      const tBack = Date.now();
+      ws2.open();
+      ws2.message(initial({ [PV]: pvValue(PV, 7, t0) }));
+      // An IOC clock behind: a change after the reconnect stamped before the break.
+      ws2.message(diff({ [PV]: pvValue(PV, 8, tDrop - 1_000) }));
+      expect(entryOf(store).resumes).toEqual([{ after: tDrop, time: tBack, value: 8 }]);
+
+      // Once a sample lands after the break, the resume's value is left alone.
+      vi.setSystemTime(Date.now() + 5_000);
+      ws2.message(diff({ [PV]: pvValue(PV, 9, Date.now()) }));
+      ws2.message(diff({ [PV]: pvValue(PV, 10, tDrop - 500) }));
+      expect(entryOf(store).resumes).toEqual([{ after: tDrop, time: tBack, value: 8 }]);
+    });
+
+    it('resumes a PV still down at reconnect when it comes back', async () => {
+      const { store, t0, tDrop, reconnect } = await blip();
+      const ws2 = reconnect();
+      ws2.open();
+      ws2.message(initial({ [PV]: { ...pvValue(PV, null, t0), connected: false } }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(entryOf(store).resumes).toEqual([]);
+
+      vi.setSystemTime(Date.now() + 20_000);
+      const tUp = Date.now();
+      ws2.message(diff({ [PV]: pvValue(PV, 7, t0) }));
+      expect(entryOf(store).resumes).toEqual([{ after: tDrop, time: tUp, value: 7 }]);
+    });
+
+    it('goes with its break when retention trims it', async () => {
+      const { store, t0, tDrop, reconnect } = await blip();
+      const ws2 = reconnect();
+      ws2.open();
+      ws2.message(initial({ [PV]: pvValue(PV, 7, t0) }));
+      await vi.advanceTimersByTimeAsync(0);
+      vi.setSystemTime(Date.now() + 5_000);
+      const t1 = Date.now();
+      ws2.message(diff({ [PV]: pvValue(PV, 8, t1) }));
+      expect(entryOf(store).resumes).toHaveLength(1);
+
+      // 1 min retention: t0 goes, so the break before t1 has nothing to separate.
+      store.watch('t1', PV, 60_000);
+      const entry = entryOf(store);
+      expect(entry.points.map((p) => p.time)).toEqual([t1]);
+      expect(entry.breaks).toEqual([]);
+      expect(entry.resumes).toEqual([]);
+      expect(tDrop).toBeLessThan(t1);
+    });
+  });
+
+  it.each([
+    ['before', true],
+    ['after', false],
+  ])(
+    'keeps the break of a PV still down when the socket comes back (Hare %s Vole)',
+    async (_name, hareFirst) => {
+      const { store, t0, tDrop, reconnect } = await blip();
+      mockFetchBackfill.mockImplementationOnce(async (_pv, fromNs) =>
+        vole([{ tsNs: fromNs, value: 7 }])
+      );
+      const ws2 = reconnect();
+      ws2.open();
+      const down = initial({ [PV]: { ...pvValue(PV, null, t0), connected: false } });
+      if (hareFirst) ws2.message(down);
+      await vi.advanceTimersByTimeAsync(0);
+      if (!hareFirst) ws2.message(down);
+      expect(entryOf(store).breaks).toEqual([tDrop]);
+
+      // Back at the IOC later: the break still stands.
+      vi.setSystemTime(Date.now() + 5_000);
+      ws2.message(diff({ [PV]: pvValue(PV, 9, Date.now()) }));
+      const entry = entryOf(store);
+      expect(entry.breaks).toEqual([tDrop]);
+      expect(entry.points.map((p) => p.value)).toEqual([7, 9]);
+    }
+  );
 });
 
 describe('LiveStore retention in place', () => {
