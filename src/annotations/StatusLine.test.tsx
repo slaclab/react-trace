@@ -166,7 +166,7 @@ describe('StatusLine hints', () => {
     ['trend', 'Trend line: drag or click twice'],
     ['trange', 'Time range: drag or click twice'],
     ['box', 'Box: drag or click twice'],
-    ['measure', 'Measure: shift-drag to measure'],
+    ['measure', 'Measure: drag or click twice'],
   ] as const)('the %s tool hints "%s"', (tool, hint) => {
     expect(toolHintIn(BUILTIN_CATALOG, tool, { xAxis: TIME_X_AXIS })).toBe(hint);
     const { projectionStore, cursorStore } = stores();

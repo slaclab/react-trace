@@ -71,7 +71,8 @@ export const MEASURE_TOOL: DrawingTool = {
     const dv = withUnit(withMinus(fmtValue(p1.v - p0.v)), axisUnit(ctx.axis));
     return `Measure ${ctx.binned ? '≈' : ''}Δ${dv} / ${ctx.xAxis.formatSpan(p1.t - p0.t)}`;
   },
-  hint: () => `${LONG}: shift-drag to measure`,
+  // What places it while armed; Shift-drag measures without arming it.
+  hint: () => `${LONG}: drag or click twice`,
   card: (a, ctx) => ctx.measure.card(a, ctx),
   modifierGesture: 'shift',
   fields: [],

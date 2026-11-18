@@ -5,9 +5,9 @@
 // It shows the time under the pointer and the primary Y axis's value there,
 // plus two slots — the armed tool's hint and the embedded hint. The hints derive purely from props (`tool`, `plotIndex`) so
 // they never touch the plot's option build: a 1-point tool reads "click to
-// place", a 2-point tool "drag or click twice", Measure "shift-drag to
-// measure"; embedded, every plot but the first (the only one the tile
-// publishes, see embed/stateOut.ts) says its drawings are not saved.
+// place", a 2-point tool (Measure too) "drag or click twice"; embedded,
+// every plot but the first (the only one the tile publishes, see
+// embed/stateOut.ts) says its drawings are not saved.
 //
 // Through the catalog: the time is the plot's x axis
 // descriptor's `'status'` form (Trace: the time axis, the crosshair's format),

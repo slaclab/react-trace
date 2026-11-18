@@ -75,7 +75,7 @@ describe('measure tool identity', () => {
   });
 
   it('hints shift-drag to measure', () => {
-    expect(T.hint({ xAxis: TIME_X_AXIS })).toBe('Measure: shift-drag to measure');
+    expect(T.hint({ xAxis: TIME_X_AXIS })).toBe('Measure: drag or click twice');
   });
 });
 
