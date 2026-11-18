@@ -93,9 +93,9 @@ describe('listConfigs', () => {
 
   it('includes search and continuationToken when provided', async () => {
     const { captured } = spyFetch({ results: [], continuationToken: null, totalCount: 0 });
-    await listConfigs({ search: 'li22', continuationToken: 'tok' });
+    await listConfigs({ search: 'overview', continuationToken: 'tok' });
     const url = new URL(captured.url as string, 'http://x');
-    expect(url.searchParams.get('search')).toBe('li22');
+    expect(url.searchParams.get('search')).toBe('overview');
     expect(url.searchParams.get('continuationToken')).toBe('tok');
   });
 

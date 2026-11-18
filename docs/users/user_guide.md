@@ -52,7 +52,7 @@ Once you choose a PV, the trace starts drawing:
 
 To add many PVs in one go, click the **Search PVs** icon in the header, or the **Search PVs** button below a plot's axes in the **Layers** panel.
 
-1. Type part of a PV name in **Pattern**. Matches from the archiver appear as you type. `*` matches any run of characters and `?` matches one, so `KLYS:LI2*:PDES` finds every PV that starts with `KLYS:LI2` and ends with `:PDES`.
+1. Type part of a PV name in **Pattern**. Matches from the archiver appear as you type. `*` matches any run of characters and `?` matches one, so `SIM:BPM*:X` finds every PV that starts with `SIM:BPM` and ends with `:X`.
 2. Tick the PVs you want, or use **Select all** at the top of the list. Matches are listed alphabetically. Ticks are kept when you change the pattern, so you can gather PVs from several searches; the **Selected** row shows them and lets you remove one or clear them all.
 3. Click **Add N PVs**. Double-clicking a match adds it straight away, together with anything already selected.
 

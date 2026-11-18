@@ -26,7 +26,7 @@ function secondsDto(params: FetchDataParams): ArchiverDataDTO {
   return {
     mode: 'raw',
     pv: PV,
-    archiver: 'lcls',
+    archiver: 'primary',
     from: params.fromNs,
     to: toNs,
     decimated: false,
@@ -103,7 +103,7 @@ describe('archiveStore: severity (#120)', () => {
     const h = setup((params) => ({
       mode: 'binned',
       pv: PV,
-      archiver: 'lcls',
+      archiver: 'primary',
       from: params.fromNs,
       to: params.toNs ?? params.fromNs,
       binning: 'auto',

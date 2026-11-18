@@ -80,7 +80,7 @@ function makePlot(id: string, title: string, extra: Partial<Plot> = {}): Plot {
 
 // Plot 1 already shows SIMPV:B.
 const plot1 = makePlot('plot-1', 'Plot 1', { archiver: 'primary', traces: [trace('SIMPV:B')] });
-const plot2 = makePlot('plot-2', 'Plot 2', { archiver: 'facet' });
+const plot2 = makePlot('plot-2', 'Plot 2', { archiver: 'secondary' });
 // Plot 3 reads the same archiver as plot 1.
 const plot3 = makePlot('plot-3', 'Plot 3', { archiver: 'primary' });
 
@@ -290,7 +290,7 @@ describe('PVSearchModal', () => {
     expect(screen.getByText('Add to Plot 2')).toBeTruthy();
 
     await typePattern('SIMPV');
-    expect(searchCalls[0].options.archiver).toBe('facet');
+    expect(searchCalls[0].options.archiver).toBe('secondary');
     await resolveSearch(0, ['SIMPV:A']);
     tick('SIMPV:A');
     fireEvent.click(addButton());
@@ -312,7 +312,7 @@ describe('PVSearchModal', () => {
     await act(async () => {
       vi.advanceTimersByTime(300);
     });
-    expect(searchCalls[1].options.archiver).toBe('facet');
+    expect(searchCalls[1].options.archiver).toBe('secondary');
     await resolveSearch(1, ['SIMPV:A', 'SIMPV:F']);
     // SIMPV:A exists on both archivers, but the earlier tick is gone.
     expect(addButton().disabled).toBe(true);
@@ -342,7 +342,7 @@ describe('PVSearchModal', () => {
     tick('SIMPV:A');
     expect(addButton().textContent).toContain('Add 1 PV');
 
-    rerender({ plots: [makePlot('plot-1', 'Plot 1', { archiver: 'facet' })] });
+    rerender({ plots: [makePlot('plot-1', 'Plot 1', { archiver: 'secondary' })] });
     expect(addButton().disabled).toBe(true);
     expect(screen.queryByText(/^Selected/)).toBeNull();
 
