@@ -10,7 +10,7 @@
 // rail on, its baseline), so it reopens at the baseline, as it is.
 import { siteDefaults } from '../../site/store';
 import type { WaveformDefaults } from '../../site/types';
-import { namesOnlyPvs } from '../shared/freshQuery';
+import { carriesOnly } from '../shared/freshQuery';
 import {
   defaultWaveformState,
   parseWaveformQuery,
@@ -35,7 +35,7 @@ export function initialWaveformState(
   d: WaveformDefaults = siteDefaults().waveform
 ): WaveformState {
   const state = parseWaveformQuery(search);
-  return namesOnlyPvs(search, WAVEFORM_PV_KEYS) ? withWaveformCreation(state, d) : state;
+  return carriesOnly(search, WAVEFORM_PV_KEYS) ? withWaveformCreation(state, d) : state;
 }
 
 /** The Rolling mean window a user turns on, in seconds. */
@@ -64,6 +64,6 @@ export function waveformLinkQuery(
   query: string,
   d: WaveformDefaults = siteDefaults().waveform
 ): string {
-  if (!namesOnlyPvs(query, WAVEFORM_PV_KEYS) || freshQueryIsBaseline(d)) return query;
+  if (!carriesOnly(query, WAVEFORM_PV_KEYS) || freshQueryIsBaseline(d)) return query;
   return query === '' ? 'rail=1' : `${query}&rail=1`;
 }

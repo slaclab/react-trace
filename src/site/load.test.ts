@@ -154,6 +154,12 @@ describe('getSiteSettings', () => {
     expect(String(fetch.mock.calls[0][0])).toBe('/magpie/v1/settings/trace');
   });
 
+  it('is none, quietly, when a static server answers with its SPA page', async () => {
+    respond('<!doctype html><html></html>', { type: 'text/html' });
+    expect(await getSiteSettings()).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it('is none while unset (404) and on any other failure', async () => {
     respond('{"detail":"not found"}', { status: 404, type: 'application/json' });
     expect(await getSiteSettings()).toBeNull();

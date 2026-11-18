@@ -11,6 +11,7 @@ import {
   withCorrelationCreation,
 } from '../tools/correlation/defaults';
 import { removePv, setTimer } from '../tools/correlation/edit';
+import { correlationQueryFor } from '../tools/contextMenu';
 import {
   defaultCorrelationState,
   normalizeCorrelationState,
@@ -106,5 +107,21 @@ describe('the Timer trigger', () => {
     expect(setTimer(pv).trigger).toEqual({ mode: 'timer', dtS: 0.5 });
     expect(removePv(pv, 'trig', 'T').trigger).toEqual({ mode: 'timer', dtS: 0.5 });
     expect(siteDefaults().correlation.dt).toBe(0.5);
+  });
+});
+
+describe('another tool’s Open in Correlation', () => {
+  it('opens a fresh view: the site’s defaults, with the lookback it carries', () => {
+    atSite(SITE);
+    const fromTrace = initialCorrelationState(`?${correlationQueryFor({ x: 'A' }, '2h')}`);
+    expect(fromTrace).toMatchObject({
+      x: 'A',
+      lookback: '2h',
+      trigger: { mode: 'timer', dtS: 0.5 },
+      drawingTools: false,
+    });
+    expect(fromTrace.metrics.map((m) => m.id)).toEqual(['n', 'mean', 'r']);
+    const bare = initialCorrelationState(`?${correlationQueryFor({ x: 'A', y: 'B' })}`);
+    expect(bare.lookback).toBe('30m');
   });
 });

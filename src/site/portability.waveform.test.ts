@@ -8,6 +8,7 @@
 // reopens at the baseline. The Rolling mean starts at the site's window.
 import { afterEach, describe, expect, it } from 'vitest';
 import { setRolling } from '../tools/waveform/edit';
+import { waveformQuery } from '../tools/correlation/outline';
 import {
   initialWaveformState,
   siteRollS,
@@ -102,5 +103,17 @@ describe('the Rolling mean', () => {
       true
     );
     expect(next?.reference).toEqual({ kind: 'rolling', seconds: 120 });
+  });
+});
+
+describe('another tool’s Open in Waveform', () => {
+  it('opens a fresh view with the site’s defaults', () => {
+    atSite(SITE);
+    for (const query of [waveformQuery('WF:A'), 'pv=WF:A']) {
+      const state = initialWaveformState(`?${query}`);
+      expect(state.pvs).toEqual(['WF:A']);
+      expect(state.drawingTools).toBe(false);
+      expect(state.metrics.map((m) => m.id)).toEqual(['n', 'mean']);
+    }
   });
 });

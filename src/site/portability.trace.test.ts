@@ -8,6 +8,7 @@
 // plots are not still reopens at the baseline, through the empty `plot=`.
 import { afterEach, describe, expect, it } from 'vitest';
 import { serializeTraceQuery } from '../embed/query';
+import { traceQueryFor } from '../tools/contextMenu';
 import { deserializeWorkspace, serializeWorkspace } from '../io/serialize';
 import {
   initialTracePlots,
@@ -187,5 +188,18 @@ describe('a link with PVs and no plot settings', () => {
     });
     // Without a range, the site's time range.
     expect(initialTracePlots('?pv=A')[0].xAxis).toEqual({ timeRange: '-30m' });
+  });
+});
+
+describe('another tool’s Open in Trace', () => {
+  it('opens a new plot with the site’s defaults and the range it carries', () => {
+    atSite(EVERY_KEY);
+    const [plot] = initialTracePlots(`?${traceQueryFor('A', '-2h')}`);
+    expect(settingsOf(plot)).toMatchObject({
+      showCrosshair: false,
+      dragMode: 'pan',
+      xAxis: { timeRange: '-2h' },
+      traces: [{ pvName: 'A', lineWidth: 3, lineType: 'direct', showSymbol: true }],
+    });
   });
 });

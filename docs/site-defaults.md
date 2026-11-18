@@ -65,7 +65,7 @@ Correlation or Waveform link with any setting beyond its PVs. A new plot whose
 values differ from that baseline writes them into its links and files, so they
 open the same everywhere.
 
-A link that names only PVs (and, for Trace, a range), such as "Open in Trace"
+A link that names only PVs (and, for Trace, a range; for Correlation, a lookback), such as "Open in Trace"
 from another tool, carries no settings. It opens as a new plot or view, with
 this site's defaults. If a plot's or view's settings are all back at the
 baseline while this site's new ones differ from it, its links carry a marker
@@ -133,7 +133,7 @@ Live retention is not a site default: it follows the plot's span (at most
 
 ### `correlation`: a fresh Correlation view
 
-Used when the page opens with no state beyond its PVs (`x`, `y`, `trig`).
+Used when the page opens with no state beyond its PVs (`x`, `y`, `trig`) and a `lookback`, as another tool's Open in Correlation writes; a `lookback` it carries wins over the site's.
 
 | Key            | Built in                                  | Meaning                                                                                           |
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
