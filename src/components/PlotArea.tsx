@@ -647,15 +647,6 @@ export function SinglePlot({
     () => (canCommit ? host : { ...host, config: { ...host.config, ownerAxisAt: () => null } }),
     [host, canCommit]
   );
-  // The status line keeps today's slots: no armed-tool hint (Trace never
-  // passed the tool), so it reads a document whose tool is the cursor.
-  const statusHost = useMemo<DrawingHost>(
-    () => ({
-      ...host,
-      document: { ...host.document, prefs: { ...host.document.prefs, tool: 'cursor' } },
-    }),
-    [host]
-  );
   // The latest host for the mount-once listeners. Alt+tool arms only when
   // there is a prefs writer (claimed only then); Esc and Delete go through
   // the host and are claimed only when consumed, so an Esc with nothing to
@@ -1354,7 +1345,7 @@ export function SinglePlot({
           />
         )}
       </div>
-      {plot.showStatusLine !== false && <DrawingStatusLine host={statusHost} />}
+      {plot.showStatusLine !== false && <DrawingStatusLine host={host} />}
     </div>
   );
 }
