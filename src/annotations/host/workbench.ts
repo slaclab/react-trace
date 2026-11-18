@@ -11,6 +11,12 @@
 // Every write goes through `ctx.update` with the host's `access.patch` /
 // `access.remove`, so the host's history-wrapped writer makes it undoable.
 // The optional flags (`dash`, `locked`, `hidden`) are stored only when set.
+//
+// A locked drawing cannot be moved, reshaped or restyled, and a locked note
+// keeps its text: while it is locked, Color, Width, Style, Axis and the
+// tools' own fields (Value, Extend, ...) are disabled with the reason
+// "Locked", and so is Label for a tool whose text is typed on the plot (the
+// note). Locked, Visible and Delete stay available.
 
 import type {
   AxisRef,
@@ -82,6 +88,9 @@ function widthOptionsFor(a: Annotation | undefined) {
     ? [...WIDTH_OPTIONS, widthOption(a.width)]
     : WIDTH_OPTIONS;
 }
+
+/** The reason a locked drawing's style and geometry fields are disabled. */
+export const LOCKED_REASON = 'Locked';
 
 /** The swatch colour of the theme's ink: the chrome's primary text, which follows the theme. */
 const INK_SWATCH = 'var(--cds-text-primary)';
@@ -165,6 +174,14 @@ export function createDrawingSchema<S, M, U extends ToolUi = ToolUi>(
   const patch = (ctx: Ctx, fn: (a: Annotation) => Annotation) =>
     ctx.update((state) => access.patch(state, ctx.target.id, fn));
   const base = { tab: DRAWING_TAB_ID, level: 'L1' as const };
+  // Disabled while the drawing is locked.
+  const lockedReason = (ctx: Ctx): false | string =>
+    drawing(ctx)?.locked === true ? LOCKED_REASON : false;
+  // The label of a tool whose text is typed on the plot is the note's text.
+  const lockedText = (ctx: Ctx): false | string => {
+    const a = drawing(ctx);
+    return a?.locked === true && toolOf(a)?.inlineText === true ? LOCKED_REASON : false;
+  };
 
   const head: FieldDef<S, M, U>[] = [
     {
@@ -183,6 +200,7 @@ export function createDrawingSchema<S, M, U extends ToolUi = ToolUi>(
       id: 'annotation-label',
       label: 'Label',
       kind: 'text',
+      disabled: lockedText,
       get: (ctx) => drawing(ctx)?.text ?? '',
       set: (ctx, text) => {
         const next = text.slice(0, MAX_ANNOTATION_TEXT);
@@ -195,6 +213,7 @@ export function createDrawingSchema<S, M, U extends ToolUi = ToolUi>(
       label: 'Color',
       kind: 'colour',
       row: 'swatch',
+      disabled: lockedReason,
       get: (ctx) => {
         const color = drawing(ctx)?.color ?? '';
         return color === ANNOTATION_INK ? INK_SWATCH : color;
@@ -211,6 +230,7 @@ export function createDrawingSchema<S, M, U extends ToolUi = ToolUi>(
       id: 'annotation-width',
       label: 'Width',
       kind: 'select',
+      disabled: lockedReason,
       options: (ctx) => widthOptionsFor(drawing(ctx)),
       get: (ctx) => {
         const a = drawing(ctx);
@@ -227,6 +247,7 @@ export function createDrawingSchema<S, M, U extends ToolUi = ToolUi>(
       id: 'annotation-style',
       label: 'Style',
       kind: 'select',
+      disabled: lockedReason,
       options: () => STYLE_OPTIONS,
       get: (ctx) => (drawing(ctx)?.dash ? 'dashed' : 'solid'),
       set: (ctx, value) => {
@@ -241,6 +262,7 @@ export function createDrawingSchema<S, M, U extends ToolUi = ToolUi>(
       id: 'annotation-axis',
       label: 'Axis',
       kind: 'select',
+      disabled: lockedReason,
       when: (ctx) => {
         const tool = toolOf(drawing(ctx));
         return tool !== undefined && tool.axes !== 'x';
@@ -284,7 +306,13 @@ export function createDrawingSchema<S, M, U extends ToolUi = ToolUi>(
         if (spec === undefined) return a;
         return (spec.set as (a: Annotation, v: unknown) => Annotation)(a, value);
       });
-    const common = { ...base, id: group.id, label: group.label, when: shown };
+    const common = {
+      ...base,
+      id: group.id,
+      label: group.label,
+      when: shown,
+      disabled: lockedReason,
+    };
     switch (group.kind) {
       case 'number':
         return {
