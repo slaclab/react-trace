@@ -47,8 +47,7 @@ import { useFormulaSeries, type FormulaSeriesResult } from '../hooks/useFormulaS
 import type { TimeWindowNs } from '../api/time';
 import { relativeRangeMs, resolveTimeWindow } from '../api/time';
 import { useHostThemeId } from '../state/colorMode';
-import { readLegacyPaletteId } from '../state/paletteStore';
-import { getPalette, colorForIndex, paletteOf, withPalette, DEFAULT_PALETTE_ID } from '../palettes';
+import { colorForIndex, paletteOf } from '../palettes';
 import { withFilePalette } from '../io/paletteInference';
 import { downloadBlob, downloadDataUrl, pickFile } from '../io/download';
 import {
@@ -72,7 +71,6 @@ import { ConfigStoreModal } from './ConfigStoreModal';
 import { useElogConfig } from '../hooks/useElogConfig';
 import {
   INITIAL_PLOT_ID,
-  buildInitialPlots,
   configLinkIgnores,
   configLinkSlug,
   CONFIG_LINK_KEY,
@@ -80,7 +78,8 @@ import {
   rangeSpanMs,
 } from '../embed/initialPlots';
 import { isEmbedded } from '../embed/embedded';
-import { newPlot } from '../embed/plotConfig';
+import { initialTracePlots, newSitePlot, traceCreation } from '../tools/trace/defaults';
+import { withCurveCreation } from '../tools/trace/creation';
 import { useTraceStateOut } from '../embed/stateOut';
 import { WorkbenchLayout, type WorkbenchPaneWrapper } from '../workbench/WorkbenchLayout';
 import { useContextMenuWriters } from '../workbench/contextMenu/context';
@@ -257,12 +256,10 @@ export function TraceApp() {
   // Opening state comes from the page query (the CANOPY workspace names PVs
   // and a range); without one Trace opens a single empty plot.
   const [initial] = useState(() => {
-    // A fresh tab (no `plot=`) opens in the user's remembered palette when it
-    // names a valid one (`rememberPaletteId` writes it on a pick).
-    const seeded = buildInitialPlots(
-      window.location.search,
-      getPalette(readLegacyPaletteId() ?? DEFAULT_PALETTE_ID)
-    );
+    // A fresh tab or link (no `plot=`) opens with the site defaults, in the
+    // user's remembered palette when it names a valid one (`rememberPaletteId`
+    // writes it on a pick), else the site's.
+    const seeded = initialTracePlots(window.location.search);
     return { plots: seeded, selection: openingSelection(seeded) };
   });
   // A config-store link (`?config=<slug>`): the stored workspace the effect
@@ -770,8 +767,9 @@ export function TraceApp() {
 
   const addPlot = () => {
     const id = makeId('plot');
-    // A new plot opens in the user's remembered palette, as on main.
-    const plot = withPalette(newPlot(id, plots.length), readLegacyPaletteId());
+    // A new plot opens with the site defaults, in the user's remembered
+    // palette, as on main, else the site's.
+    const plot = newSitePlot(id, plots.length);
     setTool((s) => ({ ...s, plots: [...s.plots, plot], activePlotId: id }));
   };
 
@@ -856,7 +854,7 @@ export function TraceApp() {
     const source = plot?.traces.find((t) => t.id === sourceTraceId);
     if (!plot || !source) return;
     const id = makeId('formula');
-    const formula: PVTrace = {
+    const base: PVTrace = {
       id,
       kind: 'formula',
       pvName: '',
@@ -876,6 +874,7 @@ export function TraceApp() {
       symbolSize: 10,
       data: [],
     };
+    const formula = withCurveCreation(base, traceCreation().trace);
     setPlots((prev) =>
       prev.map((p) => (p.id === plot.id ? { ...p, traces: [...p.traces, formula] } : p))
     );

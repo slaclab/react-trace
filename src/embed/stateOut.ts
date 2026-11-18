@@ -12,7 +12,8 @@
 import { useEffect, useRef } from 'react';
 import { isEmbedded } from './embedded';
 import { PAGE_KEYS } from './pageKeys';
-import { plotConfigOf, type PlotConfig, type PlotConfigSource } from './plotConfig';
+import type { PlotConfig, PlotConfigSource } from './plotConfig';
+import { linkPlotConfig } from '../tools/trace/defaults';
 import { serializeTraceQuery, type TraceQueryXAxis } from './query';
 
 export const STATE_OUT_DEBOUNCE_MS = 500;
@@ -56,10 +57,11 @@ function publish(plot: StateOutPlot, config: PlotConfig | undefined): void {
 // Report plot 0's PVs, range and config to the host, 500 ms after they last
 // changed. The opening state is not reported: the host already holds it.
 // The plot's own palette decides which trace colors the config leaves out
-// (plotConfigOf).
+// (plotConfigOf); a plot at the baseline while this site's new plots are not
+// reports the empty config (`linkPlotConfig`).
 export function useTraceStateOut(plots: readonly StateOutPlot[]): void {
   const first = plots[0];
-  const config = first === undefined ? undefined : plotConfigOf(first);
+  const config = first === undefined ? undefined : linkPlotConfig(first);
   const key = stateKey(first, config);
   const published = useRef(key);
   const latest = useRef({ first, config });

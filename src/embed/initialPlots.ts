@@ -16,6 +16,12 @@
 // the default. The traces take their colors from it before the config's own
 // colors apply.
 //
+// A fresh link (a query that names PVs or a range but carries no `plot`
+// key, or no query at all) is a new plot: given the site's creation defaults
+// (`creation`, src/site), it opens with them, and with their time range when
+// it names none. A `plot` key, however sparse, reads every key it leaves out
+// at the baseline above, never at the site's values.
+//
 // A config-store link (`config=<slug>`) opens a stored workspace instead,
 // which TraceApp fetches after mount. It wins over the plot keys: a link with
 // both opens on the default plot, then the stored workspace, and the plot keys
@@ -36,6 +42,7 @@ import {
 import { PAGE_KEYS } from './pageKeys';
 import { parseTraceQuery, type TraceQuery, type TraceQueryXAxis } from './query';
 import { applyPlotConfig, axisDefaults, PLOT_DEFAULTS, TRACE_DEFAULTS } from './plotConfig';
+import { withCurveCreation, withPlotCreation, type TraceCreation } from '../tools/trace/creation';
 
 export const INITIAL_PLOT_ID = 'plot-1';
 export const INITIAL_AXIS_ID = 'y-axis-1';
@@ -101,13 +108,16 @@ function pvTrace(pvName: string, index: number, palette: Palette): PVTrace {
 
 // Build the opening plots from a page query (`location.search`, with or
 // without the leading "?"). `freshPalette` is the palette a query with no
-// `plot` key opens in. A config-store link opens the default plot.
+// `plot` key opens in, and `creation` the site's defaults such a query opens
+// with (none: the baseline). A config-store link opens the default plot.
 export function buildInitialPlots(
   search: string,
-  freshPalette: Palette = getPalette(DEFAULT_PALETTE_ID)
+  freshPalette: Palette = getPalette(DEFAULT_PALETTE_ID),
+  creation?: TraceCreation
 ): Plot[] {
   const query = configLinkSlug(search) === null ? plotQuery(search) : '';
-  const hasPlotKey = new URLSearchParams(query).has('plot');
+  const params = new URLSearchParams(query);
+  const hasPlotKey = params.has('plot');
   const {
     pvs,
     xAxis,
@@ -117,7 +127,7 @@ export function buildInitialPlots(
     config?.palette ?? (hasPlotKey ? DEFAULT_PALETTE_ID : freshPalette.id)
   );
   const palette = getPalette(paletteId ?? DEFAULT_PALETTE_ID);
-  const plot: Plot = {
+  let plot: Plot = {
     // The plot and trace defaults are plotConfig.ts's sparse baseline.
     ...PLOT_DEFAULTS,
     id: INITIAL_PLOT_ID,
@@ -127,6 +137,10 @@ export function buildInitialPlots(
     traces: pvs.map((pv, i) => pvTrace(pv, i, palette)),
     ...(paletteId === undefined ? {} : { palette: paletteId }),
   };
+  if (creation !== undefined && !hasPlotKey) {
+    plot = withPlotCreation(plot, creation.plot, { timeRange: !params.has('range') });
+    plot.traces = plot.traces.map((t) => withCurveCreation(t, creation.trace));
+  }
   return [config === undefined ? plot : applyPlotConfig(plot, config)];
 }
 

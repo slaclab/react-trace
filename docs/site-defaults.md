@@ -67,7 +67,9 @@ open the same everywhere.
 
 A link that names only PVs (and, for Trace, a range), such as "Open in Trace"
 from another tool, carries no settings. It opens as a new plot or view, with
-this site's defaults.
+this site's defaults. If a Trace plot's settings are all back at the
+baseline while this site's new plots differ from it, its links carry an empty
+`plot={"v":1}`, so they still reopen at the baseline values.
 
 ## Keys
 

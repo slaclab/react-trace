@@ -15,7 +15,6 @@
 import { createContext } from 'react';
 import { toDatetimeLocal, type TimeWindowNs } from '../../api/time';
 import { capturePlotPng } from '../../capturePlot';
-import { plotConfigOf } from '../../embed/plotConfig';
 import { serializeTraceQuery } from '../../embed/query';
 import { traceLineData, type LinePoint } from '../../components/traceGaps';
 import type { ArchiveSeriesResult } from '../../hooks/useArchiveSeries';
@@ -41,6 +40,7 @@ import {
   viewLinkFor,
 } from '../contextMenu';
 import type { TraceDotState } from './dots';
+import { linkPlotConfig } from './defaults';
 import { moveToPlotRefusal } from './outline';
 import { curveOf, plotHoldingCurve } from './schema/curve';
 
@@ -191,7 +191,7 @@ export function tracePointMenu(p: PlotPoint, input: TracePointInput): PointMenu 
     viewLink: () =>
       viewLinkFor(
         'trace',
-        serializeTraceQuery(plot.traces, linkXAxis(plot, input.window), plotConfigOf(plot))
+        serializeTraceQuery(plot.traces, linkXAxis(plot, input.window), linkPlotConfig(plot))
       ),
   };
   const hit = p.hit;

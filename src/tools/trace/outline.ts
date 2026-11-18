@@ -64,7 +64,8 @@
 import { Add, Function as FunctionIcon, Search } from '@carbon/icons-react';
 import { fetchMetadata } from '@slaclab/canopy-client';
 import { canopyConnection } from '../../api/connection';
-import { axisUnitText, newAxis, newFormula, newTrace } from '../../embed/plotConfig';
+import { axisUnitText, newAxis } from '../../embed/plotConfig';
+import { newSiteFormula, newSiteTrace } from './defaults';
 import type { ArchiveSeriesResult } from '../../hooks/useArchiveSeries';
 import type { FormulaSeriesResult } from '../../hooks/useFormulaSeries';
 import type { LiveSeriesResult } from '../../hooks/useLiveSeries';
@@ -492,7 +493,7 @@ export function addPvCurves<S extends TraceDotState>(
   const palette = paletteOf(plot);
   // displayName stays '': the row label follows the PV.
   const curves = names.map((pv, i) =>
-    newTrace(makeId('trace'), pv, axisId, colorForIndex(palette, plot.traces.length + i), [])
+    newSiteTrace(makeId('trace'), pv, axisId, colorForIndex(palette, plot.traces.length + i), [])
   );
   io.update((state) => appendCurves(state, plotId, curves));
   for (const curve of curves) {
@@ -535,7 +536,7 @@ export function traceBinding<S extends TraceDotState, M extends TraceCurveModel>
     if (!plot.axes.some((a) => a.id === sectionId)) return { message: NOT_ACTIVE_AXIS_REASON };
     const id = makeId('trace');
     // displayName stays '': the row label follows the PV.
-    const curve = newTrace(
+    const curve = newSiteTrace(
       id,
       pv,
       sectionId,
@@ -571,7 +572,11 @@ export function traceBinding<S extends TraceDotState, M extends TraceCurveModel>
     const axis = plot && (selectedAxis(plot) ?? plot.axes[0]);
     if (!plot || !axis) return;
     const id = makeId('formula');
-    const formula = newFormula(id, axis.id, colorForIndex(getModel().palette, plot.traces.length));
+    const formula = newSiteFormula(
+      id,
+      axis.id,
+      colorForIndex(getModel().palette, plot.traces.length)
+    );
     update((state) => appendCurve(state, formula));
     select?.({ level: 'item', kind: FORMULA_CURVE_ITEM_KIND, id });
   }
