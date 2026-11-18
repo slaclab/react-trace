@@ -22,7 +22,8 @@
 //     the `ui` record's `drawingsHidden`; the link's shed counts reach the
 //     status line through a `ShedStore`. The model carries the drawn X for
 //     the workbench; the canvas stamps it on new drawings (`xRef`).
-//   - Canvas: the health line, the chart, the readout and the strips. It
+//   - Canvas: the health line (with a suffix for the points a log axis
+//     leaves out), the chart, the readout and the strips. It
 //     registers the actions bar's list (tools/correlation/actions.ts): Pause
 //     (a pressed toggle), Clear, Export CSV / PNG (disabled until a frame
 //     exists), Post to e-log under the `elog` capability, and the
@@ -65,7 +66,8 @@ import { WorkbenchLayout } from '../../workbench/WorkbenchLayout';
 import { apply } from './edit';
 import { downloadCsv } from './export';
 import { HealthBar } from './HealthBar';
-import type { HealthPVSource } from './health';
+import { logAxisNote, withHealthSuffix, type HealthPVSource } from './health';
+import { logAxisOmitted } from './plotOption';
 import {
   CorrelationCanvas,
   correlationPlotInput,
@@ -246,6 +248,14 @@ export function CorrelationApp({ hare, createFormulaEngine, search }: Correlatio
   const elog = elogPost.elog;
   const capabilities = useMemo<CorrelationCapabilities>(() => ({ elog }), [elog]);
 
+  // The health line, with the points a log axis leaves out of the frame on screen.
+  const omitted = useMemo(
+    () =>
+      logAxisOmitted(correlationPlotInput(state, shown, { unitsOf, theme: chartTheme, width: 0 })),
+    [state, shown, unitsOf, chartTheme]
+  );
+  const shownHealth = withHealthSuffix(health, logAxisNote(omitted));
+
   const noFrame: string | false = shown === null ? NO_FRAME_REASON : false;
   const disabled = { 'export-csv': noFrame, 'export-png': noFrame };
   const togglePause = () => setPaused((p) => !p);
@@ -299,7 +309,7 @@ export function CorrelationApp({ hare, createFormulaEngine, search }: Correlatio
             }}
           />
           <div className="correlation-app__canvas">
-            <HealthBar health={health} onRetry={retry} />
+            <HealthBar health={shownHealth} onRetry={retry} />
             <CorrelationCanvas
               state={state}
               frame={onScreen}

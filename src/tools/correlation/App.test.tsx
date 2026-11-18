@@ -465,6 +465,15 @@ describe('correlation app on the workbench', () => {
     expect(suffixes()).toEqual(['1.000 rows/s']);
   });
 
+  it('names the points a log axis leaves out, before the row rate', async () => {
+    // Y2 is −i: every one of its 12 points is ≤ 0 on the log Y.
+    await mount(`${TIMER}&ylog=1`);
+    act(() => engine.result(table(12, 'seeded')));
+    expect(suffixes()).toEqual(['12 points ≤ 0 not shown on a log axis', '1.000 rows/s']);
+    const series = lastOption().series as { name?: string; type?: string; data?: unknown[] }[];
+    expect(series.find((s) => s.type === 'scatter' && s.name === Y2)?.data).toEqual([]);
+  });
+
   it('shows "not archived: <PV>" for every PV of a frame without an archive', async () => {
     await mount(TIMER);
     act(() => engine.result(table(3, 'not-archived')));

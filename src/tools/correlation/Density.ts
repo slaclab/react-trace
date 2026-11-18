@@ -6,6 +6,11 @@
 // extent; a hex is then regular on screen whatever the units. Cells are
 // pointy-top, axial coordinates with cube rounding, matching the reference
 // implementation. Only occupied cells are returned.
+//
+// On a log axis the hexes are binned in that axis's scale: the values are
+// log10'd before binning (points ≤ 0 are left out: a log axis cannot show
+// them) and centres and vertices are mapped back, so the hexes are regular on
+// screen there too.
 
 import type { CustomSeriesOption } from 'echarts';
 
@@ -26,6 +31,24 @@ export interface HexBins {
   spanX: number;
   spanY: number;
   maxCount: number;
+  /** The log axes the hexes were binned for; absent on linear axes. */
+  log?: HexLogAxes;
+}
+
+/** Which axes are logarithmic. */
+export interface HexLogAxes {
+  x?: boolean;
+  y?: boolean;
+}
+
+/** A value in an axis's scale: log10 on a log axis, null where that cannot be drawn. */
+function toScale(v: number, log: boolean | undefined): number | null {
+  if (!log) return v;
+  return v > 0 ? Math.log10(v) : null;
+}
+
+function fromScale(v: number, log: boolean | undefined): number {
+  return log ? 10 ** v : v;
 }
 
 const SQRT3 = Math.sqrt(3);
@@ -43,12 +66,17 @@ function roundAxial(q: number, r: number): [number, number] {
   return [rq, rr];
 }
 
-/** Bin the pairwise non-null, finite (x, y) pairs into hexes. */
+/**
+ * Bin the pairwise non-null, finite (x, y) pairs into hexes, in each axis's
+ * scale (`log`).
+ */
 export function hexBin(
   xCells: (number | null)[],
   yCells: (number | null)[],
-  columns = DENSITY_COLUMNS
+  columns = DENSITY_COLUMNS,
+  log: HexLogAxes = {}
 ): HexBins {
+  const logged = log.x === true || log.y === true ? { log: { x: log.x, y: log.y } } : {};
   const xs: number[] = [];
   const ys: number[] = [];
   const len = Math.min(xCells.length, yCells.length);
@@ -56,10 +84,13 @@ export function hexBin(
     const x = xCells[i];
     const y = yCells[i];
     if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
-    xs.push(x);
-    ys.push(y);
+    const sx = toScale(x, log.x);
+    const sy = toScale(y, log.y);
+    if (sx === null || sy === null) continue;
+    xs.push(sx);
+    ys.push(sy);
   }
-  if (xs.length === 0) return { cells: [], radius: 0, spanX: 1, spanY: 1, maxCount: 0 };
+  if (xs.length === 0) return { cells: [], radius: 0, spanX: 1, spanY: 1, maxCount: 0, ...logged };
 
   let minX = xs[0];
   let maxX = xs[0];
@@ -92,20 +123,28 @@ export function hexBin(
   for (const { q, r, count } of counts.values()) {
     const cx = radius * SQRT3 * (q + r / 2);
     const cy = radius * 1.5 * r;
-    cells.push({ x: minX + cx * spanX, y: minY + cy * spanY, count });
+    cells.push({
+      x: fromScale(minX + cx * spanX, log.x),
+      y: fromScale(minY + cy * spanY, log.y),
+      count,
+    });
     maxCount = Math.max(maxCount, count);
   }
-  return { cells, radius, spanX, spanY, maxCount };
+  return { cells, radius, spanX, spanY, maxCount, ...logged };
 }
 
-/** The six vertices of a pointy-top hex around a centre, in data units. */
+/** The six vertices of a pointy-top hex around a centre, in data units (laid out in the axes' scales). */
 export function hexVertices(cell: HexCell, bins: HexBins): [number, number][] {
+  const log = bins.log ?? {};
+  // The centre in the axes' scales (cells are only where a log axis can draw).
+  const cx = log.x ? Math.log10(cell.x) : cell.x;
+  const cy = log.y ? Math.log10(cell.y) : cell.y;
   const out: [number, number][] = [];
   for (let k = 0; k < 6; k++) {
     const angle = (Math.PI / 180) * (60 * k - 30);
     out.push([
-      cell.x + bins.radius * Math.cos(angle) * bins.spanX,
-      cell.y + bins.radius * Math.sin(angle) * bins.spanY,
+      fromScale(cx + bins.radius * Math.cos(angle) * bins.spanX, log.x),
+      fromScale(cy + bins.radius * Math.sin(angle) * bins.spanY, log.y),
     ]);
   }
   return out;

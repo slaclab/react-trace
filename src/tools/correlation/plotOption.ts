@@ -7,6 +7,12 @@
 // visibility's one home.
 // Fade older points draws each Y as FADE_BUCKETS age buckets,
 // one scatter series per bucket with one opacity step, in large mode at every n.
+// Log axes: a point ≤ 0 on a log axis is left out of every series (ECharts
+// cannot place it, and one such value can empty the whole axis) and counted
+// by `logAxisOmitted` for the health line; the fit line and the density are
+// computed in the axes' scales (log10 on a log axis), so the line drawn is the
+// fit of what the plot shows; the split layout's linked X range is the
+// positive X.
 
 import { tooltipOption, type ReadoutDock } from '../../plot/readoutDock';
 import type { EChartsOption, SeriesOption } from 'echarts';
@@ -18,19 +24,41 @@ import {
   type CorrelationView,
 } from './query';
 import { densitySeries, hexBin } from './Density';
-import { fitStats, yColumns, type FrameLike, type PairStats } from './stats';
+import { fitStats, pairStats, yColumns, type FrameLike, type PairStats } from './stats';
 import type { AxisPlacement } from '../../plot/geometry';
 import { LEGEND_MENU_OPTION, quietLegendHover } from '../contextMenu';
 import { autoYColor } from '../shared/colors';
 import type { ChartDrawingTheme } from '../../annotationTheme';
 
-function scatterPoints(xCells: (number | null)[], yCells: (number | null)[]): [number, number][] {
+/** Which axes are logarithmic. */
+interface LogAxes {
+  x: boolean;
+  y: boolean;
+}
+
+function logAxesOf(
+  xScale: CorrelationAxisScale | undefined,
+  yScale: CorrelationAxisScale | undefined
+): LogAxes {
+  return { x: xScale?.log === true, y: yScale?.log === true };
+}
+
+/** Whether the axes can place (x, y): a log axis only places positive values. */
+function placeable(x: number, y: number, log: LogAxes): boolean {
+  return (!log.x || x > 0) && (!log.y || y > 0);
+}
+
+function scatterPoints(
+  xCells: (number | null)[],
+  yCells: (number | null)[],
+  log: LogAxes
+): [number, number][] {
   const out: [number, number][] = [];
   const len = Math.min(xCells.length, yCells.length);
   for (let i = 0; i < len; i++) {
     const x = xCells[i];
     const y = yCells[i];
-    if (x !== null && y !== null) out.push([x, y]);
+    if (x !== null && y !== null && placeable(x, y, log)) out.push([x, y]);
   }
   return out;
 }
@@ -45,7 +73,8 @@ export const FADE_BUCKETS = 5;
 function fadeBuckets(
   tsNs: readonly number[],
   xCells: (number | null)[],
-  yCells: (number | null)[]
+  yCells: (number | null)[],
+  log: LogAxes
 ): [number, number][][] {
   const buckets: [number, number][][] = Array.from({ length: FADE_BUCKETS }, () => []);
   const len = Math.min(xCells.length, yCells.length);
@@ -61,7 +90,7 @@ function fadeBuckets(
   for (let i = 0; i < len; i++) {
     const x = xCells[i];
     const y = yCells[i];
-    if (x === null || y === null) continue;
+    if (x === null || y === null || !placeable(x, y, log)) continue;
     const t = tsNs[i];
     // No usable span (one timestamp, or none): everything is newest.
     const k =
@@ -127,26 +156,48 @@ export function splitGeometry(count: number, width: number): SplitGeometry {
   return { columns, rows, rowHeight, height: SPLIT_TOP + rows * rowHeight + 4 };
 }
 
-// The X extent over all rows, so every split panel shows the same X range.
-function xExtent(xCells: (number | null)[]): { min: number; max: number } | null {
+// The X extent over all rows, so every split panel shows the same X range;
+// on a log X, over the positive X.
+function xExtent(xCells: (number | null)[], logX: boolean): { min: number; max: number } | null {
   let min = Infinity;
   let max = -Infinity;
   for (const x of xCells) {
-    if (x === null || !Number.isFinite(x)) continue;
+    if (x === null || !Number.isFinite(x) || (logX && x <= 0)) continue;
     if (x < min) min = x;
     if (x > max) max = x;
   }
   return min <= max ? { min, max } : null;
 }
 
+/** The cells in an axis's scale: log10 on a log axis, null where it cannot draw. */
+function inScale(cells: (number | null)[], log: boolean): (number | null)[] {
+  return log ? cells.map((v) => (v !== null && v > 0 ? Math.log10(v) : null)) : cells;
+}
+
+/** A value of an axis's scale back in data units. */
+function fromScale(v: number, log: boolean): number {
+  return log ? 10 ** v : v;
+}
+
+// The fit line: the fit in the axes' scales (`fit` itself on linear axes),
+// drawn as its two ends — a straight segment in those scales, which is how
+// the chart draws it.
 function fitLine(
-  fit: PairStats | undefined,
+  linearFit: PairStats | undefined,
+  cells: { x: (number | null)[]; y: (number | null)[] },
+  log: LogAxes,
   name: string,
   color: string,
   axes: { xAxisIndex?: number; yAxisIndex?: number }
 ): SeriesOption | null {
+  const fit =
+    log.x || log.y ? pairStats(inScale(cells.x, log.x), inScale(cells.y, log.y)) : linearFit;
   if (!fit || fit.slope === null || fit.intercept === null) return null;
   if (fit.xMin === null || fit.xMax === null) return null;
+  const end = (u: number): [number, number] => [
+    fromScale(u, log.x),
+    fromScale(fit.intercept! + fit.slope! * u, log.y),
+  ];
   return {
     type: 'line',
     name,
@@ -156,10 +207,7 @@ function fitLine(
     lineStyle: { width: 1.5 },
     tooltip: { show: false },
     ...axes,
-    data: [
-      [fit.xMin, fit.intercept + fit.slope * fit.xMin],
-      [fit.xMax, fit.intercept + fit.slope * fit.xMax],
-    ],
+    data: [end(fit.xMin), end(fit.xMax)],
   };
 }
 
@@ -292,6 +340,33 @@ export function correlationAxisPlacement(
   return { gridIndex: 0, xAxisIndex: 0, yAxisIndex: 0 };
 }
 
+/**
+ * How many points the chart leaves out because a log axis cannot show them
+ * (a finite value ≤ 0 on a log axis), counted once per drawn Y: the visible
+ * Ys of the scatter, the density Y of the density view.
+ */
+export function logAxisOmitted(
+  input: CorrelationAxisInput & Pick<PlotOptionInput, 'xScale' | 'yScale'>
+): number {
+  const log = logAxesOf(input.xScale, input.yScale);
+  if (!log.x && !log.y) return 0;
+  const { columns, densityIndex } = visibleYs(input);
+  const drawn = input.view === 'density' ? columns.slice(densityIndex, densityIndex + 1) : columns;
+  const xCells = input.frame?.table.columns.x ?? [];
+  let omitted = 0;
+  for (const column of drawn) {
+    const yCells = input.frame?.table.columns[column] ?? [];
+    const len = Math.min(xCells.length, yCells.length);
+    for (let i = 0; i < len; i++) {
+      const x = xCells[i];
+      const y = yCells[i];
+      if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+      if (!placeable(x, y, log)) omitted++;
+    }
+  }
+  return omitted;
+}
+
 // The chart option. The legend's selection is part of it: the chart is set
 // with `notMerge`, so a selection left out would be reset on every frame.
 // The density view always draws on one shared axis pair; `axes` lays
@@ -336,6 +411,7 @@ export function plotOption({
   });
   const xCells = frame?.table.columns.x ?? [];
   const statsByColumn = new Map(fitStats(frame).ys.map((row) => [row.column, row.stats]));
+  const log = logAxesOf(xScale, yScale);
   const series: SeriesOption[] = [];
 
   ys.forEach((column, i) => {
@@ -350,10 +426,10 @@ export function plotOption({
           ? { yAxisIndex: i }
           : {};
     if (view === 'density') {
-      series.push(densitySeries(hexBin(xCells, yCells), pv, color));
+      series.push(densitySeries(hexBin(xCells, yCells, undefined, log), pv, color));
     } else if (fade) {
       const marker = markerFields(markers[pv]);
-      fadeBuckets(frame?.table.tsNs ?? [], xCells, yCells).forEach((data, k) => {
+      fadeBuckets(frame?.table.tsNs ?? [], xCells, yCells, log).forEach((data, k) => {
         series.push({
           type: 'scatter',
           name: pv,
@@ -375,11 +451,11 @@ export function plotOption({
         color,
         ...markerFields(markers[pv]),
         ...on,
-        data: scatterPoints(xCells, yCells),
+        data: scatterPoints(xCells, yCells, log),
       });
     }
     if (!fit) return;
-    const line = fitLine(statsByColumn.get(column), pv, color, on);
+    const line = fitLine(statsByColumn.get(column), { x: xCells, y: yCells }, log, pv, color, on);
     if (line) series.push(line);
   });
 
@@ -464,7 +540,7 @@ export function plotOption({
     // axis gets the same explicit range (linked X).
     const geo = splitGeometry(pvs.length, width);
     const cellWidth = (width > 0 ? width : FALLBACK_WIDTH) / geo.columns;
-    const extent = xExtent(xCells);
+    const extent = xExtent(xCells, log.x);
     const cell = (i: number) => ({
       left: (i % geo.columns) * cellWidth,
       top: SPLIT_TOP + Math.floor(i / geo.columns) * geo.rowHeight,

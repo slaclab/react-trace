@@ -21,6 +21,8 @@
 // Hare is up); no data; trigger silent / stale; ok. Suffixes come from the
 // current id's latest result frame; the last one is the row rate (rows/s over
 // the trailing 10 s of the data clock, stats.ts `rowsPerSecond`) once known.
+// The tab adds one of its own (`withHealthSuffix`, before the row rate): the
+// points a log axis leaves out of the frame on screen.
 
 import {
   AlarmSeverity,
@@ -318,8 +320,28 @@ export function healthSuffixes(state: HealthState, ctx: HealthContext): string[]
     if (latest.totalRows > shown) out.push(`${shown} of ${latest.totalRows} rows shown`);
   }
   if (state.sub !== 'none' && ctx.pvs.status !== 'connected') out.push('PV status unavailable');
-  if (ctx.rowsPerS !== null) out.push(`${formatSig(ctx.rowsPerS)} rows/s`);
+  if (ctx.rowsPerS !== null) out.push(`${formatSig(ctx.rowsPerS)}${RATE_UNIT}`);
   return out;
+}
+
+const RATE_UNIT = ' rows/s';
+
+/** The suffix for points a log axis cannot show (plotOption.ts `logAxisOmitted`); null for none. */
+export function logAxisNote(omitted: number): string | null {
+  if (omitted <= 0) return null;
+  return `${omitted} ${omitted === 1 ? 'point' : 'points'} ≤ 0 not shown on a log axis`;
+}
+
+/**
+ * `line` with one more suffix, placed before the row rate (which stays
+ * last); `line` itself for no suffix, or a line that shows none.
+ */
+export function withHealthSuffix(line: HealthLine, suffix: string | null): HealthLine {
+  if (suffix === null || line.kind === 'none') return line;
+  const suffixes = [...line.suffixes];
+  const last = suffixes.at(-1);
+  suffixes.splice(last?.endsWith(RATE_UNIT) ? suffixes.length - 1 : suffixes.length, 0, suffix);
+  return { ...line, suffixes, line: [line.text, ...suffixes].join(' · ') };
 }
 
 const TEXT: Record<
