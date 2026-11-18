@@ -17,33 +17,27 @@ import { WithCanopy } from '../test/canopy';
 import { memoryStorage } from '../test/dom';
 import { setHostTheme, setupColorMode } from '../state/colorMode';
 import { DetachedWindow } from './DetachedWindow';
+import { chartStub } from '../test/chartStub';
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  const fakeInstance = {
-    getWidth: () => 800,
-    getHeight: () => 400,
-    isDisposed: () => false,
-    getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
-    getModel: () => null,
-    convertToPixel: () => 0,
-    convertFromPixel: () => 0,
-    getDataURL: () => '',
-    resize: () => {},
-    dispatchAction: () => {},
-    on: () => {},
-    off: () => {},
-  };
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+const fakeInstance = {
+  getWidth: () => 800,
+  getHeight: () => 400,
+  isDisposed: () => false,
+  getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
+  getModel: () => null,
+  convertToPixel: () => 0,
+  convertFromPixel: () => 0,
+  getDataURL: () => '',
+  resize: () => {},
+  dispatchAction: () => {},
+  on: () => {},
+  off: () => {},
+};
+
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
 
 import { TraceApp } from './TraceApp';
 

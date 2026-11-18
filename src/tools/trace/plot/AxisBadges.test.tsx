@@ -4,9 +4,8 @@
 // one click re-enables auto-scale with exactly one write and no min/max; plot
 // chrome (`data-axis-badge`, `data-drawing-rail`) never starts a Y-band
 // gesture; double-click on a Y band re-enables auto-scale; and capturePlotPng
-// still finds the ECharts instance as the wrapper's first child with badges
-// mounted. Mounts SinglePlot with the hoisted fake-instance pattern of
-// PlotArea.axisInteractions.test.tsx.
+// still captures the plot's chart with badges mounted. Mounts SinglePlot with
+// the hoisted fake-instance pattern of PlotArea.axisInteractions.test.tsx.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
@@ -17,6 +16,7 @@ import type { Axis, Plot } from '../../../types';
 import { AXIS_BADGE_SIZE, AxisBadges } from './AxisBadges';
 import { createProjectionStore, type Projection } from '../../../plot/geometry';
 import { projectionOf } from '../../../plot/testUtils';
+import { chartStub } from '../../../test/chartStub';
 
 // 800x400 canvas, grid insets top 40 / bottom 60 / left 70 / right 20 (one
 // left axis): the y-axis spans pixels 340 (value 0) to 40 (value 100).
@@ -38,29 +38,10 @@ const { fakeInstance } = vi.hoisted(() => {
   return { fakeInstance };
 });
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      return React.createElement('div', { 'data-mock-echarts': '' });
-    }
-  }
-  return { default: MockECharts };
-});
-
-// capturePlotPng resolves the instance from the `[data-chart-host] > div`; the
-// fake answers only for the element the (mocked) chart rendered.
-vi.mock('echarts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('echarts')>();
-  return {
-    ...actual,
-    getInstanceByDom: (el: HTMLElement) =>
-      el.hasAttribute('data-mock-echarts') ? fakeInstance : undefined,
-  };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../../../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
 
 function makeAxis(extra: Partial<Axis> = {}): Axis {
   return {
@@ -308,15 +289,14 @@ describe('double-click on a Y band', () => {
 });
 
 describe('PNG capture with badges mounted', () => {
-  it('capturePlotPng still finds the ECharts instance', async () => {
+  it('capturePlotPng still captures the chart', async () => {
     const plot = makePlot([MANUAL]);
     const { wrap, unmount } = mountPlot(plot);
     expect(wrap.querySelector('[data-axis-badge]')).not.toBeNull();
-    // Capture resolves the chart through [data-chart-host], not by position
-    //, so badge chrome around it cannot hide the instance.
-    expect(wrap.querySelector('[data-chart-host] > div')?.hasAttribute('data-mock-echarts')).toBe(
-      true
-    );
+    // The chart still renders in its [data-chart-host] slot, and capture reads
+    // the chart registered for the wrapper, not one found by position, so
+    // badge chrome around it cannot hide the instance.
+    expect(wrap.querySelector('[data-chart-host] > [data-testid="chart"]')).not.toBeNull();
     // Hide-all skips the overlay compose, which needs a decoding Image that
     // jsdom lacks (compose is covered in capture.test.ts); what is under test
     // here is that the instance is found.

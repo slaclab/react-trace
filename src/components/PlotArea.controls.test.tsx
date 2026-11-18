@@ -17,36 +17,30 @@ import {
 } from '../workbench/useCanvasActions';
 import { useTraceCanvasActions, type TraceActionsOptions } from '../tools/trace/actions';
 import { traceCapabilities } from '../tools/trace/capabilities';
+import { chartStub } from '../test/chartStub';
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  const fake = {
-    getWidth: () => 800,
-    getHeight: () => 400,
-    isDisposed: () => false,
-    getZr: () => ({ setCursorStyle: () => {} }),
-    getModel: () => ({
-      getComponent: () => ({ axis: { scale: { getExtent: (): [number, number] => [0, 100] } } }),
-    }),
-    convertToPixel: () => 0,
-    convertFromPixel: () => 0,
-    getOption: () => ({}),
-    setOption: () => {},
-    dispatchAction: () => {},
-    on: () => {},
-    off: () => {},
-    resize: () => {},
-  };
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return fake;
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+const fakeInstance = {
+  getWidth: () => 800,
+  getHeight: () => 400,
+  isDisposed: () => false,
+  getZr: () => ({ setCursorStyle: () => {} }),
+  getModel: () => ({
+    getComponent: () => ({ axis: { scale: { getExtent: (): [number, number] => [0, 100] } } }),
+  }),
+  convertToPixel: () => 0,
+  convertFromPixel: () => 0,
+  getOption: () => ({}),
+  setOption: () => {},
+  dispatchAction: () => {},
+  on: () => {},
+  off: () => {},
+  resize: () => {},
+};
+
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
 
 afterEach(() => {
   cleanup();

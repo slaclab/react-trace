@@ -22,6 +22,7 @@ import { allLoadedXAxis } from '../drawing/time';
 import type { Annotation } from '../../../annotations/model';
 import { ContextMenuProvider } from '../../../workbench/contextMenu/ContextMenuHost';
 import { AxisMenu, TimeBandMenu } from './menus';
+import { chartStub } from '../../../test/chartStub';
 
 const { fakeInstance } = vi.hoisted(() => {
   const fakeInstance = {
@@ -38,18 +39,10 @@ const { fakeInstance } = vi.hoisted(() => {
   return { fakeInstance };
 });
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../../../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
 
 const NOW_MS = 1_800_000_000_000;
 

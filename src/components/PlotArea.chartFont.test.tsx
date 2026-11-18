@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import type { Plot } from '../types';
+import { chartStub } from '../test/chartStub';
 
 interface Captured {
   textStyle?: { fontFamily?: string };
@@ -17,33 +18,28 @@ interface Captured {
 
 const { rendered } = vi.hoisted(() => ({ rendered: [] as Captured[] }));
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  const fakeInstance = {
-    getWidth: () => 800,
-    getHeight: () => 400,
-    isDisposed: () => false,
-    getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
-    getModel: () => null,
-    convertToPixel: () => 0,
-    convertFromPixel: () => 0,
-    getDataURL: () => '',
-    resize: () => {},
-    dispatchAction: () => {},
-    on: () => {},
-    off: () => {},
-  };
-  class MockECharts extends React.Component<{ option: Captured }> {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      rendered.push(this.props.option);
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+const fakeInstance = {
+  getWidth: () => 800,
+  getHeight: () => 400,
+  isDisposed: () => false,
+  getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
+  getModel: () => null,
+  convertToPixel: () => 0,
+  convertFromPixel: () => 0,
+  getDataURL: () => '',
+  resize: () => {},
+  dispatchAction: () => {},
+  on: () => {},
+  off: () => {},
+};
+
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
+chartStub.onRender = (props) => {
+  rendered.push(props.option as unknown as Captured);
+};
 
 import { SinglePlot } from './PlotArea';
 

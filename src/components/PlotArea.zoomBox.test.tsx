@@ -11,6 +11,7 @@ import { SinglePlot } from './PlotArea';
 import type { Axis, Plot } from '../types';
 import { msToNs, nsToMs, type TimeWindowNs } from '../api/time';
 import { fireMouse } from '../plot/testUtils';
+import { chartStub } from '../test/chartStub';
 
 // 800x400 canvas, grid x 70..780 (710 px), y 40..340 (300 px); every Y axis
 // maps [0, 100] up the grid.
@@ -29,18 +30,10 @@ const { fakeInstance } = vi.hoisted(() => {
   return { fakeInstance };
 });
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
 
 const FROM_MS = 1_000_000;
 const TO_MS = FROM_MS + 710 * 1000; // 1 px = 1 s

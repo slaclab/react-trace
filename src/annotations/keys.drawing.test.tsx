@@ -17,6 +17,7 @@ import type { Axis, Plot } from '../types';
 import { msToNs, type TimeWindowNs } from '../api/time';
 import { BUILTIN_CATALOG } from './catalog';
 import { toolKeysIn } from './keys';
+import { chartStub } from '../test/chartStub';
 
 // 800x400 canvas, one left manual axis; x maps WIN linearly, y maps [0, 100]
 // over px 340..40 (the AnnotationLayer.input fixture).
@@ -42,18 +43,10 @@ const { fakeInstance, WIN } = vi.hoisted(() => {
   return { fakeInstance, WIN };
 });
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
 
 let frames: Map<number, FrameRequestCallback>;
 let nextFrame: number;

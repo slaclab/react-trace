@@ -29,7 +29,6 @@ function trace(displayName: string): PVTrace {
     visible: true,
     axisId: 'ax1',
     useLive: false,
-    updateRate: '1s',
     useArchive: false,
     lineWidth: 1,
     lineType: 'direct',
@@ -87,7 +86,7 @@ function renderArea(activePlotId: string, viewMode: 'tabs' | 'grid') {
       detachedPlotIds={[]}
       onDetachPlot={vi.fn()}
       onReattachPlot={vi.fn()}
-      viewWindowByPlot={new Map()}
+      displayWindowByPlotId={new Map()}
       axisEndFor={() => Date.now()}
     />
   );
@@ -130,7 +129,7 @@ describe('PlotArea chart error boundaries', () => {
         detachedPlotIds={[]}
         onDetachPlot={vi.fn()}
         onReattachPlot={vi.fn()}
-        viewWindowByPlot={new Map()}
+        displayWindowByPlotId={new Map()}
         axisEndFor={() => Date.now()}
       />
     );

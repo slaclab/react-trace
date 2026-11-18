@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// Renders SinglePlot with echarts-for-react replaced by a recorder and checks
+// Renders SinglePlot with canopy-charts' CanopyChart replaced by a recorder and checks
 // the ECharts option it builds: canopy-charts' g10/g100 chart theme, the
 // plot-background override, trace's own sizing on top, and the canopy-charts
 // number formatters in the axis ticks and tooltip.
@@ -12,6 +12,7 @@ import { memoryStorage } from '../test/dom';
 import { setupColorMode } from '../state/colorMode';
 import { SinglePlot } from './PlotArea';
 import type { Plot, PVTrace } from '../types';
+import { chartStub } from '../test/chartStub';
 
 // Loose view of the option object; the tests only read a few fields.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -19,19 +20,14 @@ type Option = Record<string, any>;
 
 const h = vi.hoisted(() => ({ options: [] as Record<string, unknown>[] }));
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component<{ option: Record<string, unknown> }> {
-    getEchartsInstance() {
-      return undefined;
-    }
-    render() {
-      h.options.push(this.props.option);
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+// No instance: the chart never becomes ready, so SinglePlot's effects bail out
+// early without one.
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.onRender = (props) => {
+  h.options.push(props.option as Record<string, unknown>);
+};
 
 const lastOption = (): Option => h.options[h.options.length - 1] as Option;
 

@@ -20,34 +20,28 @@ import { parseShortcut, type KeyEventLike } from '../workbench/useCanvasActions'
 import { traceActions, type TraceActionHandlers } from '../tools/trace/actions';
 import { traceCapabilities } from '../tools/trace/capabilities';
 import { PAN_STEP, ZOOM_STEP, type KeyCommand, toolKeysIn, keyBindingsIn } from './keys';
+import { chartStub } from '../test/chartStub';
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  const fakeInstance = {
-    getWidth: () => 800,
-    getHeight: () => 400,
-    isDisposed: () => false,
-    getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
-    getModel: () => null,
-    convertToPixel: () => 0,
-    convertFromPixel: () => 0,
-    getDataURL: () => '',
-    getDom: () => document.createElement('div'),
-    resize: () => {},
-    dispatchAction: () => {},
-    on: () => {},
-    off: () => {},
-  };
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+const fakeInstance = {
+  getWidth: () => 800,
+  getHeight: () => 400,
+  isDisposed: () => false,
+  getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
+  getModel: () => null,
+  convertToPixel: () => 0,
+  convertFromPixel: () => 0,
+  getDataURL: () => '',
+  getDom: () => document.createElement('div'),
+  resize: () => {},
+  dispatchAction: () => {},
+  on: () => {},
+  off: () => {},
+};
+
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
 
 import { SinglePlot } from '../components/PlotArea';
 import { BUILTIN_CATALOG } from './catalog';

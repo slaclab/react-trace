@@ -14,6 +14,7 @@ import type { Axis, Plot } from '../types';
 import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs } from '../api/time';
 import { wheelFactor } from '../plot/geometry';
+import { chartStub } from '../test/chartStub';
 
 // 800x400 canvas, grid insets top 40 / bottom 60 / left 70 / right 20 (one
 // left axis): the interior spans x 70..780 (710 px) and y 40..340; the time
@@ -36,18 +37,10 @@ const { fakeInstance } = vi.hoisted(() => {
   return { fakeInstance };
 });
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
 
 const GRID_LEFT = 70;
 const GRID_WIDTH = 710;

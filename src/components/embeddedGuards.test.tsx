@@ -22,35 +22,29 @@ import { useTraceDefinition, type TraceModel, type TraceState } from '../tools/t
 import { createSelectionStore } from '../workbench/selection';
 import { TESTIDS } from '../workbench/testids';
 import { WorkbenchLayout } from '../workbench/WorkbenchLayout';
+import { chartStub } from '../test/chartStub';
 
 const { importFile } = vi.hoisted(() => ({ importFile: { current: null as File | null } }));
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  const fakeInstance = {
-    getWidth: () => 800,
-    getHeight: () => 400,
-    isDisposed: () => false,
-    getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
-    getModel: () => null,
-    convertToPixel: () => 0,
-    convertFromPixel: () => 0,
-    getDataURL: () => '',
-    resize: () => {},
-    dispatchAction: () => {},
-    on: () => {},
-    off: () => {},
-  };
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+const fakeInstance = {
+  getWidth: () => 800,
+  getHeight: () => 400,
+  isDisposed: () => false,
+  getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
+  getModel: () => null,
+  convertToPixel: () => 0,
+  convertFromPixel: () => 0,
+  getDataURL: () => '',
+  resize: () => {},
+  dispatchAction: () => {},
+  on: () => {},
+  off: () => {},
+};
+
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
 
 vi.mock('../io/download', async (orig) => {
   const actual = await orig<typeof import('../io/download')>();

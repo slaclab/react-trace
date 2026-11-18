@@ -9,6 +9,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import { createElement, type ComponentProps } from 'react';
 import type { Plot } from '../types';
 import { WithCanopy } from '../test/canopy';
+import { chartStub } from '../test/chartStub';
 
 type PlotAreaProps = ComponentProps<typeof import('./PlotArea').PlotArea>;
 
@@ -33,33 +34,26 @@ vi.mock('./PlotArea', async (importOriginal) => {
   return { ...actual, PlotArea };
 });
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  const fakeInstance = {
-    getWidth: () => 800,
-    getHeight: () => 400,
-    isDisposed: () => false,
-    getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
-    getModel: () => null,
-    convertToPixel: () => 0,
-    convertFromPixel: () => 0,
-    getDataURL: () => '',
-    getDom: () => document.createElement('div'),
-    resize: () => {},
-    dispatchAction: () => {},
-    on: () => {},
-    off: () => {},
-  };
-  class MockECharts extends React.Component<{ option: unknown }> {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+const fakeInstance = {
+  getWidth: () => 800,
+  getHeight: () => 400,
+  isDisposed: () => false,
+  getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
+  getModel: () => null,
+  convertToPixel: () => 0,
+  convertFromPixel: () => 0,
+  getDataURL: () => '',
+  getDom: () => document.createElement('div'),
+  resize: () => {},
+  dispatchAction: () => {},
+  on: () => {},
+  off: () => {},
+};
+
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
 
 const T0 = Date.UTC(2026, 9, 14, 12, 0, 0);
 

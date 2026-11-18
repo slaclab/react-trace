@@ -2,7 +2,7 @@
 // data. The chart (SinglePlot) and the Code tab both build it here, so what the
 // Code tab prints is what the chart draws.
 import { useMemo } from 'react';
-import type { LegendComponentOption, TooltipComponentOption } from 'echarts';
+import type { EChartsOption, LegendComponentOption, TooltipComponentOption } from 'echarts';
 import {
   baseChartOption,
   chartAxisStyle,
@@ -501,6 +501,9 @@ export function buildPlotOption({
   const axisLabel = { ...axisStyle.axisLabel, fontFamily };
   const nameTextStyle = { ...axisStyle.nameTextStyle, fontFamily };
 
+  // CanopyChart takes an EChartsOption. `satisfies` checks the option against
+  // it and types its literals and callbacks, while PlotOption keeps the exact
+  // shape built here for the Code tab and the tests.
   return {
     ...base,
     backgroundColor: effectiveBackground(plot.backgroundColor, theme),
@@ -779,9 +782,12 @@ export function buildPlotOption({
         snap: false,
         label: {
           ...baseTooltip.axisPointer?.label,
-          formatter: (
-            p: { value: number; axisDimension?: string } // X --> timestamp, Y --> raw value
-          ) => (p.axisDimension === 'y' ? formatValue(p.value) : formatCrosshairTime(p.value)),
+          // X --> timestamp, Y --> raw value. Both axes are numeric (time in ms,
+          // value or log), so the label value is always a number here.
+          formatter: (p) =>
+            p.axisDimension === 'y'
+              ? formatValue(Number(p.value))
+              : formatCrosshairTime(Number(p.value)),
         },
       },
       textStyle: { ...baseTooltip.textStyle, fontFamily, fontSize: 11 },
@@ -791,10 +797,12 @@ export function buildPlotOption({
       // closure captures `samples` and `visibleTraces` from the surrounding
       // render so each line shows the trace's nearest sample plus the time
       // offset between cursor and that sample.
-      formatter: (params: { axisValue: number }[] | { axisValue: number }) => {
-        const arr = Array.isArray(params) ? params : [params];
+      formatter: (params: unknown) => {
+        const arr: unknown[] = Array.isArray(params) ? params : [params];
         if (arr.length === 0) return '';
-        const cursorMs = arr[0]?.axisValue;
+        // Axis-triggered params carry the cursor's axis value, which ECharts'
+        // callback types leave out.
+        const cursorMs = (arr[0] as { axisValue?: unknown } | undefined)?.axisValue;
         if (typeof cursorMs !== 'number' || !Number.isFinite(cursorMs)) return '';
         const time = formatCrosshairTime(cursorMs);
         const lines: string[] = [];
@@ -824,7 +832,7 @@ export function buildPlotOption({
       show: plot.showLegend,
       bottom: 8,
       textStyle: { ...baseLegend.textStyle, fontFamily, fontSize: 11 },
-      data: visibleTraces.map((t) => labels.get(t.id)),
+      data: visibleTraces.map((t) => labels.get(t.id) ?? ''),
       // Always set, even when off: the legend is merged, not replaced, so an
       // absent formatter would leave the last one (and its stale values) on.
       formatter: (name: string) => {
@@ -835,7 +843,7 @@ export function buildPlotOption({
       // a left-click toggles nothing, as trace.visible is the Outline eye's.
       ...LEGEND_MENU_OPTION,
     },
-  };
+  } satisfies EChartsOption;
 }
 
 export type PlotOption = ReturnType<typeof buildPlotOption>;

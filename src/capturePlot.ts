@@ -1,4 +1,3 @@
-import { getInstanceByDom } from 'echarts';
 import { captureChartPng, chartThemeFor } from '@slaclab/canopy-charts';
 import type { Plot } from './types';
 import { effectiveBackground } from './plotBackground';
@@ -12,6 +11,22 @@ export interface CapturableChart {
   getDataURL(opts: { type: 'png'; pixelRatio: number; backgroundColor: string }): string;
   getWidth(): number;
   getHeight(): number;
+}
+
+// Each mounted plot's chart, keyed by its data-plot-id wrapper. SinglePlot
+// registers a proxy over the instance CanopyChart reported ready, so capture
+// never goes looking for an ECharts instance in the DOM.
+const chartSources = new WeakMap<Element, CapturableChart>();
+
+/**
+ * Make `chart` the chart captured for the plot wrapper `wrapper` (the element
+ * carrying data-plot-id). Returns the unregister function.
+ */
+export function registerPlotChart(wrapper: Element, chart: CapturableChart): () => void {
+  chartSources.set(wrapper, chart);
+  return () => {
+    chartSources.delete(wrapper);
+  };
 }
 
 /**
@@ -62,9 +77,10 @@ export async function composePlotCapture(
  * mounted (e.g. its chart crashed and an error boundary replaced it), the
  * result is null rather than the in-window copy hidden behind the overlay.
  *
- * The ECharts host is found through `[data-chart-host] > div`, not the
- * wrapper's first child, so chrome mounted ahead of the chart (a rail) does not
- * break capture. With `annotationsHidden` (hide all) no overlay is composed.
+ * The chart is the one registered for the wrapper (`registerPlotChart`), not
+ * one found in the DOM, so chrome mounted around the chart (a rail, badges)
+ * cannot hide it, and a wrapper with nothing registered yields null. With
+ * `annotationsHidden` (hide all) no overlay is composed.
  */
 export async function capturePlotPng(
   plot: Plot,
@@ -76,9 +92,7 @@ export async function capturePlotPng(
     fullscreen ? `[data-plot-id="${plot.id}"][data-fullscreen]` : `[data-plot-id="${plot.id}"]`
   );
   if (!root) return null;
-  const host = root.querySelector('[data-chart-host] > div');
-  if (!(host instanceof HTMLElement)) return null;
-  const chart = getInstanceByDom(host);
+  const chart = chartSources.get(root);
   if (!chart) return null;
   const background = effectiveBackground(plot.backgroundColor, chartThemeFor(colorMode));
   const dataUrl = await composePlotCapture(

@@ -20,38 +20,34 @@ import { CORRELATION_CATALOG, BUILTIN_CATALOG } from './catalog';
 import type { GridProjection } from './catalog/types';
 import { VALUE_X_AXIS, TIME_X_AXIS } from './catalog/xAxis';
 import { EMBEDDED_UNSAVED_HINT, embeddedHintFor, toolHintIn } from './statusHints';
+import { chartStub } from '../test/chartStub';
 
 const { rendered } = vi.hoisted(() => ({ rendered: [] as unknown[] }));
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  const fakeInstance = {
-    getWidth: () => 800,
-    getHeight: () => 400,
-    isDisposed: () => false,
-    getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
-    getModel: () => null,
-    convertToPixel: () => 0,
-    convertFromPixel: () => 0,
-    getDataURL: () => '',
-    getDom: () => document.createElement('div'),
-    resize: () => {},
-    dispatchAction: () => {},
-    on: () => {},
-    off: () => {},
-  };
-  class MockECharts extends React.Component<{ option: unknown }> {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      // One entry per render = one buildPlotOption result handed to the chart.
-      rendered.push(this.props.option);
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+const fakeInstance = {
+  getWidth: () => 800,
+  getHeight: () => 400,
+  isDisposed: () => false,
+  getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
+  getModel: () => null,
+  convertToPixel: () => 0,
+  convertFromPixel: () => 0,
+  getDataURL: () => '',
+  getDom: () => document.createElement('div'),
+  resize: () => {},
+  dispatchAction: () => {},
+  on: () => {},
+  off: () => {},
+};
+
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
+chartStub.onRender = (props) => {
+  // One entry per render = one buildPlotOption result handed to the chart.
+  rendered.push(props.option);
+};
 
 import { SinglePlot } from '../components/PlotArea';
 

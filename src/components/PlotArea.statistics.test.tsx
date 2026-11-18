@@ -10,6 +10,11 @@ import { newPlot, newTrace, unitAxis } from '../embed/plotConfig';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 import type { Plot } from '../types';
 
+// The plot's chart is canopy-charts' CanopyChart (stubbed out); the statistics
+// strips and the distribution still draw through echarts-for-react.
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
 vi.mock('echarts-for-react', () => ({
   default: () => <div data-testid="echarts" />,
 }));
@@ -87,7 +92,7 @@ function mount(plot: Plot, viewMode: 'tabs' | 'grid' = 'tabs', more: Plot[] = []
 describe('PlotArea statistics', () => {
   it('shows no panel by default', () => {
     mount(plotWith({}));
-    expect(screen.getByTestId('echarts')).toBeTruthy();
+    expect(screen.getByTestId('chart')).toBeTruthy();
     expect(screen.queryByTestId('stats-panel')).toBeNull();
   });
 

@@ -7,9 +7,9 @@ import {
   useRef,
   useState,
 } from 'react';
-import ReactECharts from 'echarts-for-react';
+import type { ECharts, EChartsOption } from 'echarts';
 import { ErrorBoundary, useChartFont, useColorMode } from '@slaclab/canopy-shell';
-import { useChartTheme } from '@slaclab/canopy-charts';
+import { CanopyChart, useChartTheme } from '@slaclab/canopy-charts';
 import { useDrawingTheme } from '../annotationTheme';
 import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
 import type { Axis, Plot } from '../types';
@@ -69,7 +69,12 @@ import { LegendMenu, quietLegendHover } from '../tools/contextMenu';
 import { TraceCursorContext, tracePointMenu } from '../tools/trace/menu';
 import { useElementWidth } from '../hooks/useElementWidth';
 import type { PngSource } from '../io/exportPlotImage';
-import { PLOT_CAPTURE_PIXEL_RATIO, composePlotCapture } from '../capturePlot';
+import {
+  PLOT_CAPTURE_PIXEL_RATIO,
+  composePlotCapture,
+  registerPlotChart,
+  type CapturableChart,
+} from '../capturePlot';
 import { StatisticsPanel } from '../statistics/StatisticsPanel';
 import { useStatistics } from '../statistics/useStatistics';
 import {
@@ -109,6 +114,29 @@ import { useFollowNow } from '../hooks/useFollowNow';
 
 /** The id of Trace's one X axis, the time window, as the gesture layer names it. */
 const TIME_AXIS_ID = 'time';
+
+// The slice of ECharts' chart model that axis reads use.
+type AxisModel = { axis?: { scale?: { getExtent: () => [number, number] } } };
+type ChartModel = { getComponent: (mainType: string, idx: number) => AxisModel | undefined };
+
+// The chart's model, or null while it has none: echarts-for-react's throwaway
+// measuring instance can fire events before its model exists, and dispose()
+// drops it. ECharts' typings keep getModel() private, so this is the one place
+// that reaches past them.
+function chartModel(chart: ECharts): ChartModel | null {
+  return (chart as unknown as { getModel: () => ChartModel | null | undefined }).getModel() ?? null;
+}
+
+// An axis's current computed [min, max], or null when the chart has no model
+// yet or no such axis.
+function getAxisExtent(
+  chart: ECharts,
+  axisType: 'xAxis' | 'yAxis',
+  idx: number
+): [number, number] | null {
+  const ext = chartModel(chart)?.getComponent(axisType, idx)?.axis?.scale?.getExtent();
+  return ext ? [ext[0], ext[1]] : null;
+}
 
 interface PlotAreaProps extends AnnotationChannel {
   plots: Plot[];
@@ -401,12 +429,24 @@ export function SinglePlot({
     };
   }, [archiveResults]);
 
-  const chartRef = useRef<ReactECharts>(null);
-  // Our own wrapper around the chart; the per-axis pointer listeners attach
-  // here because it survives echarts-for-react's dispose/recreate cycles.
-  // `wrapCallbackRef` attaches it and follows its width, which republishes the
-  // projection on a resize.
+  // The chart's ECharts instance. CanopyChart hands over each new instance
+  // through onReady (after the first render and after any re-init) but never
+  // reports a disposal, so reads go through liveChart(), which treats a
+  // disposed instance as no instance.
+  const chartRef = useRef<ECharts | null>(null);
+  const liveChart = useCallback((): ECharts | null => {
+    const chart = chartRef.current;
+    return chart && !chart.isDisposed() ? chart : null;
+  }, []);
+  // Our own wrapper around the chart. It carries data-plot-id for capture, and
+  // the per-axis pointer listeners attach here because it outlives any ECharts
+  // instance created under it. `wrapCallbackRef` attaches it and follows its
+  // width, which republishes the projection on a resize.
   const [wrapCallbackRef, width, wrapRef] = useElementWidth();
+  // The [data-chart-host] slot CanopyChart renders into. It holds the chart's
+  // DOM (and so its read-out box) at the wrapper's origin, for as long as the
+  // plot is mounted.
+  const chartHostRef = useRef<HTMLDivElement>(null);
   // The drawing rail stops pointerdown, so the wrapper's focus-on-press never
   // sees a rail press: arming focuses the root here.
   const focusPlotRoot = useCallback(() => {
@@ -419,14 +459,24 @@ export function SinglePlot({
 
   // Projection + cursor stores, one each per mount; the overlay, axis badges
   // and status line subscribe.
-  // The projection is rebuilt only from `finished` and the resize path, never
-  // during render, and each rebuild resolves the *live* instance because
-  // echarts-for-react disposes and recreates it. The layout it projects through
-  // (and its live-instance lookup) is installed as the store's source after
-  // each render. The cursor store is the drawing host's own (one per mount);
-  // the wrapper's mousemove writes it, so a pointer move
-  // re-renders only its readers.
+  // The projection is rebuilt only when a new chart is ready, from `finished`
+  // and from the resize path, never during render, and each rebuild resolves
+  // the *live* instance (liveChart), since a re-created chart leaves a
+  // disposed one behind. The layout it projects through (and its
+  // live-instance lookup) is installed as the store's source after each
+  // render. The cursor store is the drawing host's own (one per mount); the
+  // wrapper's mousemove writes it, so a pointer move re-renders only its
+  // readers.
   const [projectionStore] = useState(createProjectionStore);
+  // A new instance is laid out against the current option: republish, so the
+  // overlay and badges project through it without waiting for `finished`.
+  const handleReady = useCallback(
+    (chart: ECharts) => {
+      chartRef.current = chart;
+      projectionStore.bump();
+    },
+    [projectionStore]
+  );
   // The data read-out's dock (pinned: the top-right corner), and its grip.
   const [readoutDock] = useState(() =>
     createReadoutDock({ grid: projectionArea(projectionStore) })
@@ -434,8 +484,11 @@ export function SinglePlot({
   useLayoutEffect(() => {
     readoutDock.setPinned(plot.pinDataWindow === true);
   }, [readoutDock, plot.pinDataWindow]);
+  // The grip is wired on the chart host, not on the instance's DOM: the chart
+  // becomes ready only after mount, and the host already holds its DOM, and so
+  // the read-out box, at the same origin.
   useEffect(() => {
-    const dom = chartRef.current?.getEchartsInstance()?.getDom?.();
+    const dom = chartHostRef.current;
     return dom ? attachReadoutDrag(dom, readoutDock) : undefined;
   }, [readoutDock]);
 
@@ -524,11 +577,6 @@ export function SinglePlot({
     onCommitAnnotations,
     onAnnotationsHidden,
   });
-  const liveChart = useCallback(() => {
-    const inst = chartRef.current?.getEchartsInstance();
-    if (!inst || inst.isDisposed?.()) return null;
-    return inst;
-  }, []);
   const host = useDrawingHost(drawingConfig, drawingDocument, projectionStore, {
     axes: visibleAxes,
     theme,
@@ -576,54 +624,62 @@ export function SinglePlot({
     drawingRef.current = { host, canArm: onAnnotationPrefs !== undefined };
   });
 
-  // Publish a stable PngSource proxy up to the app for PNG capture; clear on
-  // unmount so a captured-but-gone plot (closed tab, reattached window) isn't
-  // stale. The proxy resolves the *live* ECharts instance on each call instead
-  // of capturing one at mount: echarts-for-react disposes and recreates its
-  // internal instance across some re-renders, so a snapshotted reference goes
-  // stale and getDataURL() silently returns undefined on the dead instance.
+  // Publish stable capture proxies for PNG capture: a PngSource up to the app
+  // (e-log attachments), and the chart against our wrapper for capturePlotPng
+  // (print, PNG export, copy). Clear both on unmount so a captured-but-gone
+  // plot (closed tab, reattached window) isn't stale. The proxies read the
+  // current ECharts instance on each call instead of capturing one at mount:
+  // the chart isn't ready at mount, and a re-created chart leaves a disposed
+  // instance behind that yields no image.
   useEffect(() => {
+    const chart: CapturableChart = {
+      getDataURL: (opts) => liveChart()?.getDataURL(opts) ?? '',
+      getWidth: () => liveChart()?.getWidth() ?? 0,
+      getHeight: () => liveChart()?.getHeight() ?? 0,
+    };
     const source: PngSource = {
       async getDataURL(opts) {
-        const inst = chartRef.current?.getEchartsInstance();
         const root = wrapRef.current;
-        if (!inst || !inst.getDom() || !root) return '';
+        if (!liveChart() || !root) return '';
         // The layer renders no svg while drawings are hidden, so none is composed.
         return composePlotCapture(
           root,
-          inst,
+          chart,
           opts?.backgroundColor ?? theme.bg,
           opts?.pixelRatio ?? PLOT_CAPTURE_PIXEL_RATIO
         );
       },
     };
     onChartInstance?.(source, true);
-    return () => onChartInstance?.(source, false);
+    const wrap = wrapRef.current;
+    const unregister = wrap ? registerPlotChart(wrap, chart) : undefined;
+    return () => {
+      onChartInstance?.(source, false);
+      unregister?.();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- register once per mount; the callback is stable
   }, []);
 
-  const handleFinished = useCallback(() => {
-    // Every finished layout republishes the projection, whoever else listens.
-    projectionStore.bump();
-    if (!onAxisRangesChange) return;
-    const inst = chartRef.current?.getEchartsInstance();
-    // `finished` can fire mid-mount or after disposal when the DOM and model
-    // aren't both ready; bail in those cases instead of crashing.
-    if (!inst || !inst.getDom()) return;
-    type AxisModel = { axis: { scale: { getExtent: () => [number, number] } } };
-    const model = (
-      inst as unknown as {
-        getModel: () => { getComponent: (n: string, i: number) => AxisModel } | undefined;
-      }
-    ).getModel();
-    if (!model) return;
-    const next = new Map<string, [number, number]>();
-    visibleAxes.forEach((axis, idx) => {
-      const ext = model.getComponent('yAxis', idx)?.axis?.scale?.getExtent();
-      if (ext) next.set(axis.id, [ext[0], ext[1]]);
-    });
-    onAxisRangesChange(next);
-  }, [onAxisRangesChange, visibleAxes, projectionStore]);
+  // Chart event handlers get the chart that fired the event. CanopyChart drops
+  // events from a disposed chart before they reach us; the handler also
+  // ignores a chart without a model (not built yet, or disposed), so it does
+  // not depend on that filter.
+  const handleFinished = useCallback(
+    (_params: unknown, chart: ECharts) => {
+      // Every finished layout republishes the projection, whoever else listens.
+      projectionStore.bump();
+      // Without a model there are no extents to report, and an empty map would
+      // wipe the ranges the app already has.
+      if (!onAxisRangesChange || !chartModel(chart)) return;
+      const next = new Map<string, [number, number]>();
+      visibleAxes.forEach((axis, idx) => {
+        const ext = getAxisExtent(chart, 'yAxis', idx);
+        if (ext) next.set(axis.id, ext);
+      });
+      onAxisRangesChange(next);
+    },
+    [onAxisRangesChange, visibleAxes, projectionStore]
+  );
 
   // Pointer position for the status line, in wrapper-local pixels. Its own
   // listener, kept out of the gesture effect: it only writes the cursor store.
@@ -651,40 +707,19 @@ export function SinglePlot({
   // Context menus and keys are Trace's and stay below.
   //
   // Listeners live on OUR wrapper div (and its window), never on the ECharts /
-  // zrender instance: echarts-for-react 3.x initializes asynchronously. It
-  // measures with a throwaway instance that it disposes right after the first
-  // `finished` event, then builds the real chart, and also disposes/rebuilds on
-  // some prop changes. Anything subscribed to a zrender instance at mount time
-  // dies within the first frame. The wrapper div is stable for the lifetime of
-  // this component, so each handler resolves the *live* instance on demand.
+  // zrender instance: CanopyChart initializes asynchronously through
+  // echarts-for-react, which measures with a throwaway instance that it
+  // disposes right after the first `finished` event, then builds the real
+  // chart, and re-creates it if the init options change. Anything subscribed
+  // to a zrender instance at mount time dies within the first frame. The
+  // wrapper div is stable for the lifetime of this component, so each handler
+  // resolves the *live* instance on demand (liveChart).
   //
-  // getModel() is left out of ECharts' typings and returns nothing while the
-  // chart has no model yet (echarts-for-react's throwaway measuring instance)
-  // or after dispose(), so every read through it is guarded.
-  type Ecm = {
-    convertFromPixel: (fh: { yAxisIndex: number }, px: number) => number;
-    convertToPixel: (fh: { yAxisIndex: number }, val: number) => number;
-    getModel: () =>
-      | {
-          getComponent: (
-            n: string,
-            i: number
-          ) => { axis?: { scale?: { getExtent: () => [number, number] } } } | undefined;
-        }
-      | null
-      | undefined;
-    getWidth: () => number;
-    getHeight: () => number;
-    getZr: () => { setCursorStyle: (cursor: string) => void };
-    isDisposed: () => boolean;
-  };
-  const liveEc = useCallback((): Ecm | null => {
-    const inst = chartRef.current?.getEchartsInstance() as unknown as Ecm | undefined;
-    return inst && !inst.isDisposed() ? inst : null;
-  }, []);
+  // Axis extents are read through getAxisExtent, which returns null while the
+  // chart has no model yet or after dispose().
 
   // Grid rectangle in canvas px (left/top/width/height).
-  const gridRectOf = (ec: Ecm) => {
+  const gridRectOf = (ec: ECharts) => {
     const g = gridBandRef.current;
     return {
       left: g.left,
@@ -796,13 +831,13 @@ export function SinglePlot({
     indexOf: new Map(),
   });
   const gestureSurface = useMemo<PlotGestureSurface>(() => {
-    const gridOf = (ec: Ecm): GestureGrid => {
+    const gridOf = (ec: ECharts): GestureGrid => {
       const { x, sides } = gestureAxesRef.current;
       return { rect: gridRectOf(ec), x, ys: sides.map((s) => s.axis) };
     };
     return {
       chart() {
-        const ec = liveEc();
+        const ec = liveChart();
         if (!ec) return null;
         return {
           getWidth: () => ec.getWidth(),
@@ -811,11 +846,11 @@ export function SinglePlot({
         };
       },
       grids() {
-        const ec = liveEc();
+        const ec = liveChart();
         return ec ? [gridOf(ec)] : [];
       },
       axisAt(x, y) {
-        const ec = liveEc();
+        const ec = liveChart();
         if (!ec) return null;
         return bandAt(x, y, gridOf(ec), gestureAxesRef.current.sides, AXIS_OFFSET);
       },
@@ -824,10 +859,10 @@ export function SinglePlot({
           const w = currentWindowMs();
           return { min: w.from, max: w.to };
         }
-        const ec = liveEc();
+        const ec = liveChart();
         const idx = gestureAxesRef.current.indexOf.get(axis.id);
         if (!ec || idx === undefined) return null;
-        const ext = ec.getModel()?.getComponent('yAxis', idx)?.axis?.scale?.getExtent();
+        const ext = getAxisExtent(ec, 'yAxis', idx);
         return ext ? { min: ext[0], max: ext[1] } : null;
       },
       valueAt(axis, grid, px) {
@@ -837,7 +872,7 @@ export function SinglePlot({
           const w = currentWindowMs();
           return w.from + ((px - grid.rect.left) / grid.rect.width) * (w.to - w.from);
         }
-        const ec = liveEc();
+        const ec = liveChart();
         const idx = gestureAxesRef.current.indexOf.get(axis.id);
         if (!ec || idx === undefined) return NaN;
         return ec.convertFromPixel({ yAxisIndex: idx }, px);
@@ -889,7 +924,7 @@ export function SinglePlot({
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     };
 
-    const hitTest = (ec: Ecm, x: number, y: number) =>
+    const hitTest = (ec: ECharts, x: number, y: number) =>
       hitTestAxis(x, y, ec.getWidth(), ec.getHeight(), gridBandRef.current, axisLayoutRef.current);
 
     // Right-click: a Y axis opens the AxisMenu, the time
@@ -897,7 +932,7 @@ export function SinglePlot({
     // The grid interior opens the PlotMenu; chrome keeps the native menu.
     const onContextMenu = (e: MouseEvent) => {
       if (isPlotChrome(e.target)) return;
-      const ec = liveEc();
+      const ec = liveChart();
       if (!ec) return;
       const { x, y } = toLocal(e);
       const target = wrap.ownerDocument.body;
@@ -946,7 +981,7 @@ export function SinglePlot({
     // the gesture layer then sees the claim and never pans.
     const onPointerDownMeasure = (e: PointerEvent) => {
       if (!e.shiftKey || e.button !== 0 || isPlotChrome(e.target)) return;
-      const ec = liveEc();
+      const ec = liveChart();
       if (!ec) return;
       const grid = gridRectOf(ec);
       if (grid.width <= 0 || grid.height <= 0) return;
@@ -1003,14 +1038,13 @@ export function SinglePlot({
   const layout = plotLayout(visibleAxes);
   const { axisIndexMap, sideIndexMap, gridLeft, gridRight } = layout;
 
-  // Install what the projection projects through (read on finished/resize).
+  // Install what the projection projects through (read on ready, finished and
+  // resize). ProjectionInstance names getModel(), which ECharts' typings keep
+  // private, hence the cast.
   useEffect(() => {
     projectionStore.setSource(() => {
-      const inst = chartRef.current?.getEchartsInstance() as unknown as
-        | ProjectionInstance
-        | undefined;
-      if (!inst || inst.isDisposed?.()) return null;
-      return buildProjection(inst, layout, visibleAxes);
+      const inst = liveChart() as unknown as ProjectionInstance | null;
+      return inst ? buildProjection(inst, layout, visibleAxes) : null;
     });
   });
 
@@ -1090,7 +1124,7 @@ export function SinglePlot({
     readoutDock,
   });
   // No curve highlights from its (selectable) legend entry (`LegendMenu`).
-  const option = { ...built, series: quietLegendHover(built.series as object[]) };
+  const option: EChartsOption = { ...built, series: quietLegendHover(built.series) };
   const missingPvs = notArchivedPvs(plot, archiveResults, liveResults);
   const plotView = tracePlotView(plot);
   // The axis an open AxisMenu edits, read fresh so its checkmarks track the
@@ -1134,11 +1168,11 @@ export function SinglePlot({
   const [legend] = useState(() => new LegendMenu((name, e) => legendMenu.current(name, e)));
   const chartEvents = legend.events;
   return (
-    // data-plot-id lets capturePlotPng find this chart's ECharts instance in
-    // the document (print snapshots). Detached plots live in another window's
-    // document, so they're naturally out of scope. data-fullscreen marks the
-    // popped-out copy so capture targets it over the in-window one, which
-    // shares the same data-plot-id.
+    // data-plot-id lets capturePlotPng find this plot's wrapper in the
+    // document (print snapshots, PNG export) and the chart registered for it.
+    // Detached plots live in another window's document, so they're naturally
+    // out of scope. data-fullscreen marks the popped-out copy so capture
+    // targets it over the in-window one, which shares the same data-plot-id.
     // The flex column puts the status line BELOW the wrapper: the wrapper
     // keeps the remaining height and still exactly overlays the canvas.
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
@@ -1156,16 +1190,16 @@ export function SinglePlot({
           outline: 'none',
         }}
       >
-        {/* data-chart-host: capturePlotPng resolves the ECharts host as its
-            child, wherever chrome mounts in the wrapper. */}
-        <div data-chart-host="" style={{ height: '100%', width: '100%' }}>
-          <ReactECharts
-            ref={chartRef}
+        {/* data-chart-host: the chart's own slot, wherever chrome mounts in
+            the wrapper; the read-out grip is wired on it. CanopyChart renders
+            the canvas (its default renderer) and binds each event once, so the
+            handlers may change identity on every render. */}
+        <div ref={chartHostRef} data-chart-host="" style={{ height: '100%', width: '100%' }}>
+          <CanopyChart
             option={option}
             replaceMerge={['series', 'yAxis']}
             onEvents={{ ...chartEvents, finished: handleFinished }}
-            style={{ height: '100%', width: '100%' }}
-            opts={{ renderer: 'canvas' }}
+            onReady={handleReady}
           />
         </div>
         {missingPvs.length > 0 && (
@@ -1188,8 +1222,8 @@ export function SinglePlot({
             ))}
           </div>
         )}
-        {/* Plot chrome mounts after the chart; capture finds
-            the chart through [data-chart-host], not by position. */}
+        {/* Plot chrome mounts after the chart; capture reads the chart
+            registered for this wrapper, not one found by position. */}
         <DrawingLayers host={host} />
         <AxisBadges
           projectionStore={projectionStore}

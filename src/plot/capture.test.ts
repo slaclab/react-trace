@@ -3,13 +3,8 @@
 // decoded from the data URL handed to the second Image.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const charts = vi.hoisted(() => new Map<Element, unknown>());
-vi.mock('echarts', () => ({
-  getInstanceByDom: (el: Element) => charts.get(el),
-}));
-
 import { composeOverlayPng } from './capture';
-import { capturePlotPng } from '../capturePlot';
+import { capturePlotPng, registerPlotChart } from '../capturePlot';
 import { capturePlots } from '../io/exportPlotImage';
 import { drawingThemeFor } from '../annotationTheme';
 import type { Plot } from '../types';
@@ -54,7 +49,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  charts.clear();
   document.body.innerHTML = '';
 });
 
@@ -158,7 +152,10 @@ function plot(id = 'p1'): Plot {
   return { id, title: 'Plot', traces: [] } as unknown as Plot;
 }
 
-/** A plot wrapper as SinglePlot renders it, with a rail div mounted first. */
+/**
+ * A plot wrapper as SinglePlot renders it, with a rail div mounted first, and
+ * its chart registered for capture as SinglePlot registers it.
+ */
 function mountPlot(
   id: string,
   { fullscreen = false, withOverlay = true, dataUrl = CHART_URL, secondGrid = false } = {}
@@ -178,12 +175,12 @@ function mountPlot(
   if (withOverlay && secondGrid) wrap.append(overlay(48, 110, 'ann-2'));
   document.body.append(wrap);
   const getDataURL = vi.fn(() => dataUrl);
-  charts.set(host, { getDataURL, getWidth: () => 300, getHeight: () => 200 });
+  registerPlotChart(wrap, { getDataURL, getWidth: () => 300, getHeight: () => 200 });
   return { getDataURL };
 }
 
 describe('capturePlotPng', () => {
-  it('captures through [data-chart-host] even with a rail div first, composing the overlay', async () => {
+  it('captures the registered chart even with a rail div first, composing the overlay', async () => {
     const { getDataURL } = mountPlot('p1');
     await expect(capturePlotPng(plot('p1'), 'dark')).resolves.toBe(COMPOSED_URL);
     expect(getDataURL).toHaveBeenCalledWith(

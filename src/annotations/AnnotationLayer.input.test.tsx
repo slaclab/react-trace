@@ -17,6 +17,7 @@ import type { Axis, Plot } from '../types';
 import { msToNs, type TimeWindowNs } from '../api/time';
 import { BUILTIN_CATALOG } from './catalog';
 import { TIME_X_AXIS } from './catalog/xAxis';
+import { chartStub } from '../test/chartStub';
 
 const TRACE_LAYER = { catalog: BUILTIN_CATALOG, xAxis: TIME_X_AXIS };
 
@@ -46,18 +47,10 @@ const { fakeInstance, WIN } = vi.hoisted(() => {
   return { fakeInstance, WIN };
 });
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
 
 let frames: Map<number, FrameRequestCallback>;
 let nextFrame: number;

@@ -14,6 +14,7 @@ import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs, relativeSpanFor } from '../api/time';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import { stretchFactorX } from '../plot/geometry';
+import { chartStub } from '../test/chartStub';
 
 // 800x400 canvas, grid insets top 40 / bottom 60 / left 70 / right 20: the
 // time band is the tick-label strip y 340..366 over x 70..780.
@@ -32,18 +33,10 @@ const { fakeInstance } = vi.hoisted(() => {
   return { fakeInstance };
 });
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
 
 const BAND_Y = 350;
 const NOW_MS = 1_800_000_000_000;

@@ -8,6 +8,7 @@ import { act, render } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
 import { PlotArea } from './PlotArea';
 import type { Plot } from '../types';
+import { chartStub } from '../test/chartStub';
 
 // Same fake chart geometry as PlotArea.axisInteractions.test.tsx: the left
 // y-axis band spans pixels 340 (value 0) to 40 (value 100).
@@ -35,18 +36,10 @@ const { fakeInstance } = vi.hoisted(() => {
   return { fakeInstance };
 });
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
 
 function makePlot(id: string): Plot {
   return {

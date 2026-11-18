@@ -6,8 +6,8 @@
 // t, the dashed now-extension follows the rules in src/components/traceGaps.ts, and the
 // tooltip never reports a null marker as a sample.
 //
-// echarts-for-react is mocked to capture each rendered option. The archive
-// store is replaced by a fixed snapshot so useArchiveSeries' coverToNs
+// canopy-charts' CanopyChart is stubbed to capture each rendered option. The
+// archive store is replaced by a fixed snapshot so useArchiveSeries' coverToNs
 // passthrough is exercised; the live path runs the real liveStore over a mock
 // WebSocket.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,6 +15,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import type { Axis, Plot, PVTrace } from '../types';
 import type { ArchiveEntry } from '../state/archiveStore';
 import type { PVValueDTO } from '@slaclab/canopy-client';
+import { chartStub } from '../test/chartStub';
 
 type Series = { id?: string; data: [number, number | null][] };
 type ChartOption = {
@@ -38,33 +39,28 @@ const { rendered, archive } = vi.hoisted(() => {
   return { rendered: [] as ChartOption[], archive };
 });
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  const fakeInstance = {
-    getWidth: () => 800,
-    getHeight: () => 400,
-    isDisposed: () => false,
-    getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
-    getModel: () => null,
-    convertToPixel: () => 0,
-    convertFromPixel: () => 0,
-    getDataURL: () => '',
-    resize: () => {},
-    dispatchAction: () => {},
-    on: () => {},
-    off: () => {},
-  };
-  class MockECharts extends React.Component<{ option: ChartOption }> {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      rendered.push(this.props.option);
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+const fakeInstance = {
+  getWidth: () => 800,
+  getHeight: () => 400,
+  isDisposed: () => false,
+  getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
+  getModel: () => null,
+  convertToPixel: () => 0,
+  convertFromPixel: () => 0,
+  getDataURL: () => '',
+  resize: () => {},
+  dispatchAction: () => {},
+  on: () => {},
+  off: () => {},
+};
+
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
+chartStub.onRender = (props) => {
+  rendered.push(props.option as unknown as ChartOption);
+};
 
 vi.mock('../state/archiveStore', () => ({
   DEFAULT_OPTIMIZED_BINS: 1000,

@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 //
 // Projection + cursor stores.
-// SinglePlot owns one projection store per mount and republishes it from the
-// ECharts `finished` event and the resize path, never during render; the
-// cursor store is written by the wrapper's mousemove and must not re-render
-// the plot. Uses the hoisted fake-instance pattern of
-// PlotArea.axisInteractions.test.tsx, extended to capture `onEvents`.
+// SinglePlot owns one projection store per mount and republishes it when a
+// chart instance becomes ready, from the ECharts `finished` event and from the
+// resize path, never during render; the cursor store is written by the
+// wrapper's mousemove and must not re-render the plot. Uses the hoisted
+// fake-instance pattern of PlotArea.axisInteractions.test.tsx, extended to
+// capture `onEvents`.
 import { act, render, renderHook } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,6 +24,9 @@ import {
   type ProjectionStore,
 } from './geometry';
 import { projectionOf } from './testUtils';
+import { chartStub } from '../test/chartStub';
+import type { ECharts } from 'echarts';
+import type { ChartEventHandler } from '@slaclab/canopy-charts';
 
 // 800x400 canvas, grid insets top 40 / bottom 60 / left 70 / right 20: the
 // grid is x 70..780 for times T0..T1 and y 340..40 for values 0..100.
@@ -31,7 +35,7 @@ const { fakeInstance, chart, T0, T1 } = vi.hoisted(() => {
   const T1 = 1_710_000;
   const chart = {
     renders: 0,
-    onEvents: undefined as Record<string, () => void> | undefined,
+    onEvents: undefined as Record<string, ChartEventHandler> | undefined,
     disposed: false,
   };
   const isX = (f: unknown) => typeof f === 'object' && f !== null && 'xAxisIndex' in f;
@@ -52,20 +56,14 @@ const { fakeInstance, chart, T0, T1 } = vi.hoisted(() => {
   return { fakeInstance, chart, T0, T1 };
 });
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  class MockECharts extends React.Component<{ onEvents?: Record<string, () => void> }> {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      chart.renders++;
-      chart.onEvents = this.props.onEvents;
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
+chartStub.onRender = (props) => {
+  chart.renders++;
+  chart.onEvents = props.onEvents;
+};
 
 // Capture the stores SinglePlot creates, without widening its props.
 const created = vi.hoisted(() => ({
@@ -132,8 +130,10 @@ function mountPlot(onAxisRangesChange?: () => void) {
   return { wrap, projection: created.projection[0], cursor: created.cursor[0], unmount };
 }
 
+// `finished` from the chart, as CanopyChart delivers it. Called directly, so a
+// disposed chart's event still reaches the handler (CanopyChart would drop it).
 function fireFinished() {
-  act(() => chart.onEvents!.finished());
+  act(() => chart.onEvents!.finished({}, fakeInstance as unknown as ECharts));
 }
 
 beforeEach(() => {
@@ -164,6 +164,15 @@ describe('SinglePlot projection store', () => {
     expect(p!.vToY(50, 'ax1')).toBe(190);
     expect(p!.yToV(40, 'ax1')).toBe(100);
     expect(p!.gridRect).toEqual({ left: 70, top: 40, width: 710, height: 300 });
+  });
+
+  it('republishes when CanopyChart reports a new instance ready', () => {
+    const { projection } = mountPlot();
+    const seen = vi.fn();
+    projection.subscribe(seen);
+    act(() => chartStub.props!.onReady!(fakeInstance as unknown as ECharts));
+    expect(seen).toHaveBeenCalledTimes(1);
+    expect(projection.get()!.tToX(T0)).toBe(70);
   });
 
   it('bumps on finished even when no one listens for axis ranges', () => {

@@ -21,6 +21,7 @@ import { reassignUnknownAxes, withAnnotations } from '../tools/trace/drawing/plo
 import { removeAxis } from '../tools/trace/schema/axis';
 import { serializeWorkspace } from '../io/serialize';
 import { WithCanopy } from '../test/canopy';
+import { chartStub } from '../test/chartStub';
 
 type PlotAreaProps = ComponentProps<typeof import('./PlotArea').PlotArea>;
 type State = { plots: Plot[]; activePlotId: string };
@@ -63,33 +64,26 @@ vi.mock('../workbench/WorkbenchLayout', async (importOriginal) => {
   return { ...actual, WorkbenchLayout };
 });
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  const fakeInstance = {
-    getWidth: () => 800,
-    getHeight: () => 400,
-    isDisposed: () => false,
-    getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
-    getModel: () => null,
-    convertToPixel: () => 0,
-    convertFromPixel: () => 0,
-    getDataURL: () => '',
-    getDom: () => document.createElement('div'),
-    resize: () => {},
-    dispatchAction: () => {},
-    on: () => {},
-    off: () => {},
-  };
-  class MockECharts extends React.Component<{ option: unknown }> {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+const fakeInstance = {
+  getWidth: () => 800,
+  getHeight: () => 400,
+  isDisposed: () => false,
+  getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
+  getModel: () => null,
+  convertToPixel: () => 0,
+  convertFromPixel: () => 0,
+  getDataURL: () => '',
+  getDom: () => document.createElement('div'),
+  resize: () => {},
+  dispatchAction: () => {},
+  on: () => {},
+  off: () => {},
+};
+
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
 
 const T0 = Date.UTC(2026, 9, 18, 12, 0, 0);
 

@@ -15,6 +15,7 @@ import { drawingThemeFor } from '../annotationTheme';
 import { msToNs, nsToMs, resolveTimeWindow } from '../api/time';
 import { newTrace } from '../embed/plotConfig';
 import type { LinePoint } from '../components/traceGaps';
+import { chartStub } from '../test/chartStub';
 
 type Captured = {
   option: { xAxis: { min: number; max: number }; dataZoom?: unknown };
@@ -22,34 +23,29 @@ type Captured = {
 };
 const { rendered } = vi.hoisted(() => ({ rendered: [] as Captured[] }));
 
-vi.mock('echarts-for-react', async () => {
-  const React = await import('react');
-  const fakeInstance = {
-    getWidth: () => 800,
-    getHeight: () => 400,
-    isDisposed: () => false,
-    getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
-    getModel: () => null,
-    convertToPixel: () => 0,
-    convertFromPixel: () => 0,
-    getDataURL: () => '',
-    getDom: () => document.createElement('div'),
-    resize: () => {},
-    dispatchAction: () => {},
-    on: () => {},
-    off: () => {},
-  };
-  class MockECharts extends React.Component<Captured> {
-    getEchartsInstance() {
-      return fakeInstance;
-    }
-    render() {
-      rendered.push({ option: this.props.option, onEvents: this.props.onEvents });
-      return React.createElement('div');
-    }
-  }
-  return { default: MockECharts };
-});
+const fakeInstance = {
+  getWidth: () => 800,
+  getHeight: () => 400,
+  isDisposed: () => false,
+  getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
+  getModel: () => null,
+  convertToPixel: () => 0,
+  convertFromPixel: () => 0,
+  getDataURL: () => '',
+  getDom: () => document.createElement('div'),
+  resize: () => {},
+  dispatchAction: () => {},
+  on: () => {},
+  off: () => {},
+};
+
+vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
+  (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
+);
+chartStub.instance = fakeInstance;
+chartStub.onRender = (props) => {
+  rendered.push({ option: props.option, onEvents: props.onEvents } as unknown as Captured);
+};
 
 import { SinglePlot } from './PlotArea';
 import { buildPlotOption } from './plotOption';
