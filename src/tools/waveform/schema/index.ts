@@ -8,7 +8,9 @@
 //                           off, Log scale; X axis: Plot against (Element # /
 //                           X axis PV), Auto-scale, Min / Max (in the drawn
 //                           X's units)
-//             Display     — Legend, Grid, Crosshair, Data tooltip, Mouse drag
+//             Display     — Legend, Grid, Crosshair, Data tooltip, Mouse drag,
+//                           Drawing tools (`rail=0`), Drawings (the `ui`
+//                           hide-all)
 //             Statistics  — the shared statistics fields
 //             Code        — the chart option without series
 //   Section   Live        — under Signals; no fields of its own (its axis is
