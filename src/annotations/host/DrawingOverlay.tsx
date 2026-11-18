@@ -4,7 +4,7 @@
 //     renders one svg per grid and holds the gesture behind the host's
 //     overlay ref);
 //   - `<DrawingRailFor host>`: the rail over the host's catalog, with the
-//     shared strip toggles.
+//     shared strip toggles; nothing while the host's drawing tools are off.
 // The in-place note editor needs no part of its own: the layer renders it as
 // the svgs' sibling (never part of the PNG capture), since it edits the
 // gesture the layer holds.
@@ -66,10 +66,11 @@ export interface DrawingRailForProps {
 /**
  * The drawing rail over the host's catalog. The hide-all toggle is offered
  * only when the document has a hide-all writer, the view toggles only with a
- * view and its writer.
+ * view and its writer. Nothing while the host's drawing tools are off.
  */
 export function DrawingRailFor({ host, focusRoot, view, onView }: DrawingRailForProps) {
   const { document: doc, config } = host;
+  if (host.toolsOff) return null;
   return (
     <DrawingRail
       prefs={doc.prefs}

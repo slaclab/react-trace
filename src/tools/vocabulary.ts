@@ -54,6 +54,8 @@ export const LABELS = Object.freeze({
   crosshair: 'Crosshair',
   tooltip: 'Data tooltip',
   drag: 'Mouse drag',
+  drawingTools: 'Drawing tools',
+  drawings: 'Drawings',
 } as const);
 
 /** Dash patterns by wire value, worded the same in every tool. */

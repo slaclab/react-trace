@@ -17,6 +17,12 @@
 // inputs through a ref. A frame bump therefore commits nothing here or in the
 // overlay.
 //
+// Drawing tools off (`options.toolsOff`, the plot's Display › Drawing tools):
+// the rail is not rendered (`DrawingRailFor` renders nothing), an armed tool
+// goes back to the cursor, and an arm command (Alt+<letter>) is not consumed.
+// Existing drawings stay: they render, select, edit, delete (Esc, Delete) and
+// open their menus as before.
+//
 // `useDrawingPlotMenu(host, own)` is the plot context menu: the workbench's
 // point menu, joined by one "Add … here" entry per catalog tool with a
 // `menuAdd`, placed at the clicked point on the axis `ownerAxisAt` names
@@ -99,6 +105,8 @@ export interface DrawingHost extends DrawingHandle {
   /** Forwards the pointer to the chart's tooltip (wrapper-local px). */
   showTip(x: number, y: number): void;
   menu: PlotMenuStore;
+  /** The plot's drawing tools are off: no rail, no arming. */
+  toolsOff: boolean;
 }
 
 export interface DrawingHostOptions {
@@ -109,6 +117,12 @@ export interface DrawingHostOptions {
   chart?: () => ChartTipTarget | null | undefined;
   /** The plot's cursor store (the status line's readout); the host makes one when absent. */
   cursorStore?: CursorStore;
+  /**
+   * The plot's drawing tools are off (Display › Drawing tools): the rail is
+   * not rendered, an armed tool is disarmed, and arm keys are not consumed.
+   * Absent means on.
+   */
+  toolsOff?: boolean;
 }
 
 function createPlotMenuStore(): PlotMenuStore {
@@ -147,6 +161,7 @@ export function useDrawingHost(
   options: DrawingHostOptions
 ): DrawingHost {
   const { axes, theme, chart, cursorStore: cursorProp } = options;
+  const toolsOff = options.toolsOff === true;
   const overlayRef = useRef<OverlayHandle | null>(null);
   // The hook's own cursor store, made on first need: never while the plot
   // passes one (Trace does), and the same one should the prop come and go.
@@ -155,17 +170,23 @@ export function useDrawingHost(
   const cursorStore = cursorProp ?? ownCursor();
   // The latest inputs for the handle's methods; mirrored after each commit,
   // before any event can reach them.
-  const latest = useRef({ config, document, chart });
+  const latest = useRef({ config, document, chart, toolsOff });
   useLayoutEffect(() => {
-    latest.current = { config, document, chart };
+    latest.current = { config, document, chart, toolsOff };
   });
+  // Tools off: an armed tool goes back to the cursor.
+  const armed = document.prefs.tool !== 'cursor';
+  const { setPrefs } = document;
+  useEffect(() => {
+    if (toolsOff && armed) setPrefs({ tool: 'cursor' });
+  }, [toolsOff, armed, setPrefs]);
 
   const handle = useMemo<DrawingHandle & Pick<DrawingHost, 'showTip'>>(
     () => ({
       handleDrawingKey(cmd) {
         if (cmd.kind === 'arm') {
-          const { config: cfg, document: doc } = latest.current;
-          if (!cfg.catalog.byKind(cmd.tool)) return false;
+          const { config: cfg, document: doc, toolsOff: off } = latest.current;
+          if (off || !cfg.catalog.byKind(cmd.tool)) return false;
           doc.setPrefs({ tool: cmd.tool });
           return true;
         }
@@ -200,8 +221,9 @@ export function useDrawingHost(
       theme,
       overlayRef,
       menu,
+      toolsOff,
     }),
-    [handle, config, document, projectionStore, cursorStore, axes, theme, menu]
+    [handle, config, document, projectionStore, cursorStore, axes, theme, menu, toolsOff]
   );
 }
 
