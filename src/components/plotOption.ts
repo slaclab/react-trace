@@ -550,42 +550,49 @@ export function buildPlotOption({
         },
       },
     },
-    yAxis: visibleAxes.map((axis, axisIdx) => ({
-      // Intentionally no `id`: with replaceMerge, ECharts matches by id and
-      // would pin a surviving axis back to its old slot index, leaving a
-      // hole at the deleted slot. Series then point to that hole and ECharts
-      // throws "yAxis 0 not found". Index-based mapping fills slots cleanly.
-      type: axis.logScale ? 'log' : 'value',
-      name: axisTitle(axis),
-      ...axisStyle,
-      nameTextStyle: { ...nameTextStyle, fontSize: 11 },
-      // Run the title vertically alongside its own axis line so titles never
-      // collide when multiple axes share a side. nameGap clears the labels.
-      nameLocation: 'middle',
-      nameRotate: 90,
-      nameGap: 65,
-      position: axis.orientation,
-      offset: (sideIndexMap.get(axis.id) ?? 0) * AXIS_OFFSET,
-      min: axis.autoScale ? undefined : axis.min,
-      max: axis.autoScale ? undefined : axis.max,
-      scale: axis.autoScale,
-      axisLabel: { ...axisLabel, fontSize: plot.tickFontSize, formatter: formatAxisTick },
-      // ECharts hides axisLine on secondary y-axes by default; force it on so
-      // every stacked axis shows its own vertical line next to its labels.
-      axisLine: { ...axisStyle.axisLine, show: true },
-      splitLine: {
-        // Horizontal gridlines are a property of the grid, not each axis: with
-        // multiple Y axes on differing scales their ticks fall at different
-        // heights, so drawing more than one set overlaps into a broken-looking
-        // grid. Draw only the primary (first visible) axis's lines.
-        show: plot.showYGridlines && axisIdx === 0,
-        lineStyle: {
-          ...axisStyle.splitLine.lineStyle,
-          type: plot.gridStyle,
-          opacity: plot.gridOpacity,
-        },
-      },
-    })),
+    // With every Y axis hidden there is still one, hidden: ECharts pairs the
+    // time axis with a Y axis to build the grid, and a time axis left alone
+    // (`yAxis: []`, applied with PlotArea's replaceMerge) throws while it is
+    // drawn. No series sits on it, since hidden axes' traces are left out.
+    yAxis:
+      visibleAxes.length === 0
+        ? [{ type: 'value', show: false }]
+        : visibleAxes.map((axis, axisIdx) => ({
+            // Intentionally no `id`: with replaceMerge, ECharts matches by id and
+            // would pin a surviving axis back to its old slot index, leaving a
+            // hole at the deleted slot. Series then point to that hole and ECharts
+            // throws "yAxis 0 not found". Index-based mapping fills slots cleanly.
+            type: axis.logScale ? 'log' : 'value',
+            name: axisTitle(axis),
+            ...axisStyle,
+            nameTextStyle: { ...nameTextStyle, fontSize: 11 },
+            // Run the title vertically alongside its own axis line so titles never
+            // collide when multiple axes share a side. nameGap clears the labels.
+            nameLocation: 'middle',
+            nameRotate: 90,
+            nameGap: 65,
+            position: axis.orientation,
+            offset: (sideIndexMap.get(axis.id) ?? 0) * AXIS_OFFSET,
+            min: axis.autoScale ? undefined : axis.min,
+            max: axis.autoScale ? undefined : axis.max,
+            scale: axis.autoScale,
+            axisLabel: { ...axisLabel, fontSize: plot.tickFontSize, formatter: formatAxisTick },
+            // ECharts hides axisLine on secondary y-axes by default; force it on so
+            // every stacked axis shows its own vertical line next to its labels.
+            axisLine: { ...axisStyle.axisLine, show: true },
+            splitLine: {
+              // Horizontal gridlines are a property of the grid, not each axis: with
+              // multiple Y axes on differing scales their ticks fall at different
+              // heights, so drawing more than one set overlaps into a broken-looking
+              // grid. Draw only the primary (first visible) axis's lines.
+              show: plot.showYGridlines && axisIdx === 0,
+              lineStyle: {
+                ...axisStyle.splitLine.lineStyle,
+                type: plot.gridStyle,
+                opacity: plot.gridOpacity,
+              },
+            },
+          })),
     series: (() => {
       const total = orderedTraces.length;
       return orderedTraces.flatMap((trace, i) => {
