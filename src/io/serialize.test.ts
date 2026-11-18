@@ -528,13 +528,14 @@ describe('deserializeWorkspace — legacy .trc background', () => {
 });
 
 describe('deserializeWorkspace — crosshair and drag defaults', () => {
-  it('reads a plot without the crosshair flag as off, and an explicit flag as written', () => {
+  it('reads a plot without the crosshair flag as on, as main does (C5), and an explicit flag as written', () => {
     const missing = plot('p', []) as Partial<Plot>;
     delete missing.showCrosshair;
-    expect(deserializeWorkspace(oldFile([missing])).plots[0].showCrosshair).toBe(false);
+    expect(deserializeWorkspace(oldFile([missing])).plots[0].showCrosshair).toBe(true);
     expect(
-      deserializeWorkspace(oldFile([plot('p', [], { showCrosshair: true })])).plots[0].showCrosshair
-    ).toBe(true);
+      deserializeWorkspace(oldFile([plot('p', [], { showCrosshair: false })])).plots[0]
+        .showCrosshair
+    ).toBe(false);
   });
 
   it('keeps a stored pan and drops a stored zoom (the default)', () => {

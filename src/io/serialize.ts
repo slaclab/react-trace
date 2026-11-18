@@ -264,8 +264,9 @@ function rehydratePlot(p: Plot, catalog: Catalog): Plot {
     ...p,
     // Older saved workspaces predate showLegend; default to shown.
     showLegend: p.showLegend ?? true,
-    // Older saved workspaces predate the crosshair flag; default to Trace's (off).
-    showCrosshair: p.showCrosshair ?? false,
+    // Older saved workspaces predate the crosshair flag; default to on, as
+    // main reads them.
+    showCrosshair: p.showCrosshair ?? true,
     showXGridlines: p.showXGridlines ?? legacy.showGridlines ?? true,
     showYGridlines: p.showYGridlines ?? legacy.showGridlines ?? true,
     gridOpacity: p.gridOpacity ?? 1,

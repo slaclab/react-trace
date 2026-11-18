@@ -98,7 +98,7 @@ export interface PlotConfig {
   dragMode?: DragMode;
   showXGridlines?: boolean;
   showYGridlines?: boolean;
-  /** Off by default, written only when on (a written `false` still reads). */
+  /** On by default, as on main; written only when off (a written `true` still reads). */
   showCrosshair?: boolean;
   gridStyle?: Plot['gridStyle'];
   gridOpacity?: number;
@@ -127,7 +127,7 @@ export const PLOT_DEFAULTS = {
   showLegend: true,
   showXGridlines: true,
   showYGridlines: true,
-  showCrosshair: false,
+  showCrosshair: true,
   gridStyle: 'solid',
   gridOpacity: 1,
   tickFontSize: 11,

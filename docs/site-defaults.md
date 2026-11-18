@@ -107,7 +107,7 @@ Takes the `plot` keys above as well.
 
 | Key                                | Built in  | Meaning                                                                                                                                                            |
 | ---------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `showCrosshair`                    | `false`   | Crosshair.                                                                                                                                                         |
+| `showCrosshair`                    | `true`    | Crosshair.                                                                                                                                                         |
 | `dragMode`                         | `zoom`    | A left-drag in the plot: `zoom` (a zoom box) or `pan`.                                                                                                             |
 | `showLegend`                       | `true`    | Legend.                                                                                                                                                            |
 | `showXGridlines`, `showYGridlines` | `true`    | Gridlines.                                                                                                                                                         |

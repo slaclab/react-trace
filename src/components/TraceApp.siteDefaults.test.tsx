@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // The whole TraceApp opens with the site defaults: the fresh tab's plot and
-// an added plot both take them (here the crosshair, on at this site).
+// an added plot both take them (here the crosshair, off at this site).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
@@ -46,7 +46,7 @@ describe('TraceApp with site defaults', () => {
       'fetch',
       vi.fn(() => Promise.reject(new Error('offline')))
     );
-    setSiteConfig({ trace: { plot: { showCrosshair: true } } });
+    setSiteConfig({ trace: { plot: { showCrosshair: false } } });
   });
 
   afterEach(() => {
@@ -58,10 +58,10 @@ describe('TraceApp with site defaults', () => {
   it('opens the fresh tab’s plot and an added plot with them', () => {
     render(<TraceApp />, { wrapper: WithCanopy });
     openPlotSection('display');
-    expect(crosshair()).toBe('true');
+    expect(crosshair()).toBe('false');
     fireEvent.click(screen.getByTitle('Add plot'));
     // The Display section stays open for the new plot.
     expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Plot 2');
-    expect(crosshair()).toBe('true');
+    expect(crosshair()).toBe('false');
   });
 });

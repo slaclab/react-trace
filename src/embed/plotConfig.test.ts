@@ -536,19 +536,19 @@ describe('creation builders', () => {
 });
 
 describe('crosshair and drag defaults', () => {
-  it('opens a plot with the crosshair off and no stored drag mode (zoom)', () => {
+  it('opens a plot with the crosshair on (C5) and no stored drag mode (zoom)', () => {
     const plot = newPlot('p', 0);
-    expect(PLOT_DEFAULTS.showCrosshair).toBe(false);
-    expect(plot.showCrosshair).toBe(false);
+    expect(PLOT_DEFAULTS.showCrosshair).toBe(true);
+    expect(plot.showCrosshair).toBe(true);
     expect(plot.dragMode).toBeUndefined();
   });
 
-  it('writes the crosshair only when on and the drag mode only as pan', () => {
+  it('writes the crosshair only when off and the drag mode only as pan', () => {
     const base = opened([A]);
     expect(plotConfigOf(base, palette)).toBeUndefined();
-    expect(plotConfigOf({ ...base, showCrosshair: true }, palette)).toEqual({
+    expect(plotConfigOf({ ...base, showCrosshair: false }, palette)).toEqual({
       v: PLOT_CONFIG_VERSION,
-      showCrosshair: true,
+      showCrosshair: false,
     });
     expect(plotConfigOf({ ...base, dragMode: 'pan' }, palette)).toEqual({
       v: PLOT_CONFIG_VERSION,
@@ -558,19 +558,19 @@ describe('crosshair and drag defaults', () => {
     expect(plotConfigOf({ ...base, dragMode: 'zoom' }, palette)).toBeUndefined();
   });
 
-  it('reads a link without the keys as the defaults', () => {
+  it('reads a link without the keys as the defaults: the crosshair on (C5)', () => {
     const plot = applyPlotConfig(opened([A]), parsePlotConfig('{"v":1,"title":"Old"}')!);
-    expect(plot.showCrosshair).toBe(false);
+    expect(plot.showCrosshair).toBe(true);
     expect(plot.dragMode).toBeUndefined();
   });
 
   it('still reads an explicit crosshair and an old "zoom" drag mode', () => {
-    const on = applyPlotConfig(opened([A]), parsePlotConfig('{"v":1,"showCrosshair":true}')!);
-    expect(on.showCrosshair).toBe(true);
-    const off = applyPlotConfig(
-      { ...opened([A]), showCrosshair: true },
-      parsePlotConfig('{"v":1,"showCrosshair":false}')!
+    const on = applyPlotConfig(
+      { ...opened([A]), showCrosshair: false },
+      parsePlotConfig('{"v":1,"showCrosshair":true}')!
     );
+    expect(on.showCrosshair).toBe(true);
+    const off = applyPlotConfig(opened([A]), parsePlotConfig('{"v":1,"showCrosshair":false}')!);
     expect(off.showCrosshair).toBe(false);
     const zoom = applyPlotConfig(opened([A]), parsePlotConfig('{"v":1,"dragMode":"zoom"}')!);
     expect(zoom).not.toHaveProperty('dragMode');

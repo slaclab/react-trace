@@ -23,7 +23,7 @@ import {
 const SITE = {
   trace: {
     plot: {
-      showCrosshair: true,
+      showCrosshair: false,
       dragMode: 'pan',
       showLegend: false,
       gridStyle: 'dotted',
@@ -66,7 +66,7 @@ describe('with a site’s defaults', () => {
     const plot = newSitePlot('p', 1);
     expect(plot).toMatchObject({
       title: 'Plot 2',
-      showCrosshair: true,
+      showCrosshair: false,
       dragMode: 'pan',
       showLegend: false,
       gridStyle: 'dotted',
@@ -107,10 +107,10 @@ describe('with a site’s defaults', () => {
   it('opens a fresh tab and a fresh link with them; a link’s range wins', () => {
     setSiteConfig(SITE);
     const [tab] = initialTracePlots('');
-    expect(tab).toMatchObject({ showCrosshair: true, xAxis: { timeRange: '-30m' } });
+    expect(tab).toMatchObject({ showCrosshair: false, xAxis: { timeRange: '-30m' } });
     const [link] = initialTracePlots('?pv=A&pv=B&range=-2h&embedded=true');
     expect(link).toMatchObject({
-      showCrosshair: true,
+      showCrosshair: false,
       dragMode: 'pan',
       archiver: 'arch-b',
       palette: 'viridis',
@@ -136,10 +136,10 @@ describe('with a site’s defaults', () => {
   });
 
   it('writes the empty plot= for a plot at the baseline, and nothing extra otherwise', () => {
-    setSiteConfig({ trace: { plot: { showCrosshair: true } } });
+    setSiteConfig({ trace: { plot: { showCrosshair: false } } });
     const [fresh] = initialTracePlots('?pv=A');
-    expect(linkPlotConfig(fresh)).toEqual({ v: 1, showCrosshair: true });
-    const atBaseline = { ...fresh, showCrosshair: false };
+    expect(linkPlotConfig(fresh)).toEqual({ v: 1, showCrosshair: false });
+    const atBaseline = { ...fresh, showCrosshair: true };
     expect(plotConfigOf(atBaseline)).toBeUndefined();
     expect(linkPlotConfig(atBaseline)).toEqual({ v: 1 });
     // A site palette or archiver makes a fresh link differ too.
@@ -150,8 +150,8 @@ describe('with a site’s defaults', () => {
   });
 
   it('reads the defaults at call time', () => {
-    expect(traceCreation().plot.showCrosshair).toBe(false);
-    setSiteConfig(SITE);
     expect(traceCreation().plot.showCrosshair).toBe(true);
+    setSiteConfig(SITE);
+    expect(traceCreation().plot.showCrosshair).toBe(false);
   });
 });

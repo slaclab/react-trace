@@ -268,7 +268,8 @@ function everything(): Plot {
     dragMode: 'pan',
     showXGridlines: false,
     showYGridlines: false,
-    showCrosshair: true,
+    // Off its default: the crosshair is on by default (C5).
+    showCrosshair: false,
     gridStyle: 'dashed',
     gridOpacity: 0.4,
     tickFontSize: 14,

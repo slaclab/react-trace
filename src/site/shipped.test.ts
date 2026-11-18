@@ -7,6 +7,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { BUILTIN_CATALOG } from '../annotations/catalog';
 import { resolveKeyIn } from '../annotations/keys';
+import { plotConfigOf } from '../embed/plotConfig';
+import { deserializeWorkspace } from '../io/serialize';
 import { DRAG_MODES } from '../plot/plotToggles';
 import { initialTracePlots, newSitePlot } from '../tools/trace/defaults';
 import { tracePlotView } from '../tools/trace/plotView';
@@ -56,5 +58,32 @@ describe('C4: a double-click in the plot resets every axis', () => {
     expect(BUILTIN_DEFAULTS.trace.plot.doubleClick).toBe('reset');
     expect(BUILTIN_DEFAULTS.correlation.plot.doubleClick).toBe('reset');
     expect(BUILTIN_DEFAULTS.waveform.plot.doubleClick).toBe('reset');
+  });
+});
+
+describe('C5: the crosshair is on in new plots, and on for a link or file that does not say', () => {
+  it('ships the crosshair on, and every new plot opens with it', () => {
+    expect(BUILTIN_DEFAULTS.trace.plot.showCrosshair).toBe(true);
+    expect(newSitePlot('p', 0).showCrosshair).toBe(true);
+    expect(initialTracePlots('?pv=A')[0].showCrosshair).toBe(true);
+  });
+
+  it('opens a link with plot= but no crosshair key with the crosshair on', () => {
+    const query = `?pv=A&range=-1h&plot=${encodeURIComponent('{"v":1,"title":"Old"}')}`;
+    expect(initialTracePlots(query)[0].showCrosshair).toBe(true);
+  });
+
+  it('opens a .trc.json plot without the crosshair key with it on, as main does', () => {
+    const [plot] = initialTracePlots('?pv=A');
+    const { showCrosshair: _omitted, ...rest } = plot;
+    void _omitted;
+    const file = JSON.stringify({ schemaVersion: 1, theme: 'dark', plots: [rest] });
+    expect(deserializeWorkspace(file).plots[0].showCrosshair).toBe(true);
+  });
+
+  it('writes the crosshair only when it is off', () => {
+    const [plot] = initialTracePlots('?pv=A');
+    expect(plotConfigOf(plot)).toBeUndefined();
+    expect(plotConfigOf({ ...plot, showCrosshair: false })).toEqual({ v: 1, showCrosshair: false });
   });
 });

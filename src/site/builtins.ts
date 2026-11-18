@@ -38,7 +38,8 @@ export const BUILTIN_DEFAULTS: SiteDefaults = deepFreeze({
   trace: {
     plot: {
       ...tracePlot,
-      showCrosshair: false,
+      // The crosshair on in new plots, as on main (C5).
+      showCrosshair: true,
       dragMode: 'zoom',
       showLegend: true,
       showXGridlines: true,

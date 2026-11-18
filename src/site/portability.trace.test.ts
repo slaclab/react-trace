@@ -24,7 +24,7 @@ import { setSiteConfig } from './testing';
 const EVERY_KEY = {
   trace: {
     plot: {
-      showCrosshair: true,
+      showCrosshair: false,
       dragMode: 'pan',
       showLegend: false,
       showXGridlines: false,
@@ -41,7 +41,7 @@ const EVERY_KEY = {
     trace: { lineWidth: 3, lineType: 'direct', showSymbol: true },
   },
 };
-const ONE_KEY = { trace: { plot: { showCrosshair: true } } };
+const ONE_KEY = { trace: { plot: { showCrosshair: false } } };
 const OTHER_SITE = {
   trace: {
     plot: { showLegend: false, dragMode: 'pan', tickFontSize: 9, palette: 'rainbow' },
@@ -177,7 +177,7 @@ describe('a link with PVs and no plot settings', () => {
     atSite(EVERY_KEY);
     const [here] = initialTracePlots(query);
     expect(settingsOf(here)).toMatchObject({
-      showCrosshair: true,
+      showCrosshair: false,
       dragMode: 'pan',
       palette: 'viridis',
       archiver: 'arch-b',

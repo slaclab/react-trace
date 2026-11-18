@@ -20,7 +20,7 @@
       "$comment": "What a new Trace plot opens with: Add plot, a fresh tab, and a link or host query that names PVs or a range but carries no plot settings. Also takes the plot-behaviour keys; Trace's own built-in values for them are below. timeRange is a relative range (-1h, -30m). archiver is the plot's default archiver; null means Canopy's default, and a name that does not exist leaves every new plot without archive data. palette is a palette id; a user's own palette pick wins.",
       "wheel": "x",
       "yAxisDrag": "pan",
-      "showCrosshair": false,
+      "showCrosshair": true,
       "dragMode": "zoom",
       "showLegend": true,
       "showXGridlines": true,
