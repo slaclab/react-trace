@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   attachReadoutDrag,
   cornerAt,
@@ -167,5 +167,61 @@ describe('readout grip', () => {
     const tl = cornerAt('tl', [120, 50], GRID);
     expect(box.style.transform).toBe(`translate3d(${tl.x}px, ${tl.y}px, 0px)`);
     detach();
+  });
+});
+
+describe('readout grip hover cost', () => {
+  /** `n` plots, each a frame holding a chart dom with a read-out box at (100, 50), 120 × 50. */
+  function mountPlots(n: number) {
+    const plots = Array.from({ length: n }, () => {
+      const frame = document.createElement('div');
+      const container = document.createElement('div');
+      const box = document.createElement('div');
+      box.className = READOUT_CLASS;
+      container.appendChild(box);
+      frame.appendChild(container);
+      document.body.appendChild(frame);
+      container.getBoundingClientRect = () => new DOMRect(0, 0, 760, 400);
+      const rect = vi.fn(() => new DOMRect(100, 50, 120, 50));
+      box.getBoundingClientRect = rect;
+      const detach = attachReadoutDrag(container, createReadoutDock({ grid: () => GRID }));
+      return { frame, container, box, rect, detach };
+    });
+    const outside = document.createElement('div');
+    document.body.appendChild(outside);
+    return { plots, outside };
+  }
+  const move = (el: Element, x: number, y: number) =>
+    el.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: x, clientY: y }));
+
+  it('a pointer moving elsewhere reads no style or layout of any plot', () => {
+    const { plots, outside } = mountPlots(3);
+    const style = vi.spyOn(window, 'getComputedStyle');
+    for (let i = 0; i < 20; i += 1) move(outside, 105 + i, 60);
+    expect(style).not.toHaveBeenCalled();
+    for (const p of plots) expect(p.rect).not.toHaveBeenCalled();
+    for (const p of plots) p.detach();
+    vi.restoreAllMocks();
+  });
+
+  it('moves over a plot hit-test the grip at most once per frame, and leaving clears the hover', () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => frames.push(cb));
+    const { plots } = mountPlots(2);
+    const [a, b] = plots;
+    const style = vi.spyOn(window, 'getComputedStyle');
+    for (let i = 0; i < 20; i += 1) move(a.container, 105, 60 + i);
+    expect(a.rect).not.toHaveBeenCalled();
+    expect(frames).toHaveLength(1);
+    for (const cb of frames.splice(0)) cb(0);
+    expect(a.rect).toHaveBeenCalledTimes(1);
+    expect(style).toHaveBeenCalledTimes(1);
+    expect(b.rect).not.toHaveBeenCalled();
+    const hover = `${READOUT_CLASS}-grip-hover`;
+    expect(a.container.classList.contains(hover)).toBe(true);
+    a.frame.dispatchEvent(new MouseEvent('pointerleave', { clientX: 900, clientY: 900 }));
+    expect(a.container.classList.contains(hover)).toBe(false);
+    for (const p of plots) p.detach();
+    vi.restoreAllMocks();
   });
 });

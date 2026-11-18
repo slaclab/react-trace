@@ -229,6 +229,12 @@ function showing(box: HTMLElement): boolean {
  * position, in the capture phase on the document: a press in the grip column
  * of the box on screen drags it, a double-click there puts it back, and
  * neither reaches the plot or the drawings. Returns the cleanup.
+ *
+ * The grip's hover look costs nothing while the pointer is elsewhere: it is
+ * tracked on the plot's frame (the container's parent, which also holds the
+ * drawing layers over the chart), and hit-tested at most once per animation
+ * frame, when the browser lays out anyway. A drag's moves are tracked on the
+ * document only while it runs.
  */
 export function attachReadoutDrag(container: HTMLElement, dock: ReadoutDock): () => void {
   const doc = container.ownerDocument;
@@ -251,41 +257,85 @@ export function attachReadoutDrag(container: HTMLElement, dock: ReadoutDock): ()
     dx: number;
     dy: number;
     size: [number, number];
+    /** The container's viewport origin, read once at the press. */
+    origin: { left: number; top: number };
   } | null = null;
-  const origin = () => container.getBoundingClientRect();
+  const opts = { capture: true };
 
+  // The grip's hover look, while the pointer is over the plot: the latest
+  // pointer position, hit-tested in the next animation frame.
+  const win = doc.defaultView;
+  const frame = container.parentElement ?? container;
+  const hoverClass = `${READOUT_CLASS}-grip-hover`;
+  let hovering = false;
+  let hoverAt: { clientX: number; clientY: number } | null = null;
+  let hoverFrame: number | null = null;
+  const setHover = (on: boolean) => {
+    if (on === hovering) return;
+    hovering = on;
+    container.classList.toggle(hoverClass, on);
+  };
+  const testHover = () => {
+    hoverFrame = null;
+    const at = hoverAt;
+    hoverAt = null;
+    if (at && !drag) setHover(gripBox(at) !== null);
+  };
+  const cancelHover = () => {
+    if (hoverFrame !== null) win?.cancelAnimationFrame(hoverFrame);
+    hoverFrame = null;
+    hoverAt = null;
+  };
+  const onHover = (e: PointerEvent) => {
+    if (drag) return;
+    hoverAt = { clientX: e.clientX, clientY: e.clientY };
+    if (hoverFrame !== null) return;
+    if (win) hoverFrame = win.requestAnimationFrame(testHover);
+    else testHover();
+  };
+  const onLeave = () => {
+    cancelHover();
+    setHover(false);
+  };
+
+  const onMove = (e: PointerEvent) => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    e.stopPropagation();
+    const o = drag.origin;
+    const p = dock.drop(e.clientX - o.left - drag.dx, e.clientY - o.top - drag.dy, drag.size);
+    placeBox(drag.box, p.x, p.y);
+  };
+  const endDrag = () => {
+    if (!drag) return;
+    drag.box.classList.remove(`${READOUT_CLASS}--dragging`);
+    drag = null;
+    doc.removeEventListener('pointermove', onMove, opts);
+  };
   const onDown = (e: PointerEvent) => {
     if (e.button !== 0) return;
     const box = gripBox(e);
     if (!box) return;
     e.stopPropagation();
     e.preventDefault();
+    endDrag();
+    cancelHover();
     const r = box.getBoundingClientRect();
+    const o = container.getBoundingClientRect();
     drag = {
       box,
       pointerId: e.pointerId,
       dx: e.clientX - r.left,
       dy: e.clientY - r.top,
       size: [r.width, r.height],
+      origin: { left: o.left, top: o.top },
     };
     box.classList.add(`${READOUT_CLASS}--dragging`);
-  };
-  const onMove = (e: PointerEvent) => {
-    if (!drag) {
-      container.classList.toggle(`${READOUT_CLASS}-grip-hover`, gripBox(e) !== null);
-      return;
-    }
-    if (e.pointerId !== drag.pointerId) return;
-    e.stopPropagation();
-    const o = origin();
-    const p = dock.drop(e.clientX - o.left - drag.dx, e.clientY - o.top - drag.dy, drag.size);
-    placeBox(drag.box, p.x, p.y);
+    doc.addEventListener('pointermove', onMove, opts);
   };
   const onUp = (e: PointerEvent) => {
     if (!drag || e.pointerId !== drag.pointerId) return;
     e.stopPropagation();
-    drag.box.classList.remove(`${READOUT_CLASS}--dragging`);
-    drag = null;
+    endDrag();
   };
   // The presses on the grip, and every move of a drag, never reach the plot:
   // its hover would re-place the box, or hide it as the pointer crosses the
@@ -306,9 +356,7 @@ export function attachReadoutDrag(container: HTMLElement, dock: ReadoutDock): ()
     const p = dock.current([r.width, r.height]);
     if (p) placeBox(box, p.x, p.y);
   };
-  const opts = { capture: true };
   doc.addEventListener('pointerdown', onDown, opts);
-  doc.addEventListener('pointermove', onMove, opts);
   doc.addEventListener('pointerup', onUp, opts);
   doc.addEventListener('pointercancel', onUp, opts);
   doc.addEventListener('mousedown', onMouse, opts);
@@ -316,9 +364,12 @@ export function attachReadoutDrag(container: HTMLElement, dock: ReadoutDock): ()
   doc.addEventListener('mouseup', onMouse, opts);
   doc.addEventListener('click', onMouse, opts);
   doc.addEventListener('dblclick', onDouble, opts);
+  frame.addEventListener('pointermove', onHover, opts);
+  frame.addEventListener('pointerleave', onLeave);
   return () => {
+    endDrag();
+    cancelHover();
     doc.removeEventListener('pointerdown', onDown, opts);
-    doc.removeEventListener('pointermove', onMove, opts);
     doc.removeEventListener('pointerup', onUp, opts);
     doc.removeEventListener('pointercancel', onUp, opts);
     doc.removeEventListener('mousedown', onMouse, opts);
@@ -326,7 +377,9 @@ export function attachReadoutDrag(container: HTMLElement, dock: ReadoutDock): ()
     doc.removeEventListener('mouseup', onMouse, opts);
     doc.removeEventListener('click', onMouse, opts);
     doc.removeEventListener('dblclick', onDouble, opts);
-    container.classList.remove(`${READOUT_CLASS}-grip-hover`);
+    frame.removeEventListener('pointermove', onHover, opts);
+    frame.removeEventListener('pointerleave', onLeave);
+    container.classList.remove(hoverClass);
   };
 }
 
