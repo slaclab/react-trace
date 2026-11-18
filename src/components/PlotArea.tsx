@@ -45,6 +45,7 @@ import { PlotTabName } from './PlotTabName';
 import { AxisMenu, TimeBandMenu } from '../tools/trace/plot/menus';
 import { BUILTIN_CATALOG } from '../annotations/catalog';
 import { DrawingLayers, DrawingRailFor } from '../annotations/host/DrawingOverlay';
+import { isEmbedded } from '../embed/embedded';
 import { DrawingStatusLine } from '../annotations/host/DrawingStatusLine';
 import {
   useDrawingHost,
@@ -394,6 +395,11 @@ interface SinglePlotProps {
   onAnnotationsHidden?: (on: boolean) => void;
   /** Patches this plot's view settings from the strip (tooltip, drag mode). */
   onPlotView?: (patch: Partial<PlotView>) => void;
+  /**
+   * This plot's position in the plot list. Embedded, only the first plot is
+   * saved in the tile; the status line of any other says so.
+   */
+  plotIndex?: number;
 }
 
 /**
@@ -425,11 +431,14 @@ export function SinglePlot({
   onCommitAnnotations,
   onAnnotationsHidden,
   onPlotView,
+  plotIndex,
 }: SinglePlotProps) {
   // The canopy-charts theme of the current canopy-shell colour mode, with
   // the drawing colours layered on (annotationTheme.ts).
   const { colorMode } = useColorMode();
   const theme = useDrawingTheme();
+  // Embedded in a host tile (the page query does not change while mounted).
+  const [embedded] = useState(isEmbedded);
   const visibleAxes = plot.axes.filter((a) => a.visible);
   // One line-data map per result change, shared by the option builder and the
   // drawing overlay instead of recomputed on every render; the samples feed the
@@ -1345,7 +1354,9 @@ export function SinglePlot({
           />
         )}
       </div>
-      {plot.showStatusLine !== false && <DrawingStatusLine host={host} />}
+      {plot.showStatusLine !== false && (
+        <DrawingStatusLine host={host} plotIndex={plotIndex} embedded={embedded} />
+      )}
     </div>
   );
 }
@@ -1602,6 +1613,7 @@ export function PlotArea({
             <ErrorBoundary key={activePlot.id} resetKeys={[activePlot]}>
               <PlotWithStatistics
                 plot={activePlot}
+                plotIndex={plots.indexOf(activePlot)}
                 archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
                 liveResults={liveResultsByPlot.get(activePlot.id) ?? EMPTY_LIVE_RESULTS}
                 formulaResults={formulaResultsByPlot.get(activePlot.id) ?? EMPTY_FORMULA_RESULTS}
@@ -1696,6 +1708,7 @@ export function PlotArea({
                   <ErrorBoundary resetKeys={[plot]}>
                     <PlotWithStatistics
                       plot={plot}
+                      plotIndex={plots.indexOf(plot)}
                       archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
                       liveResults={liveResultsByPlot.get(plot.id) ?? EMPTY_LIVE_RESULTS}
                       formulaResults={formulaResultsByPlot.get(plot.id) ?? EMPTY_FORMULA_RESULTS}

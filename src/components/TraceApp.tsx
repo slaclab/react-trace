@@ -1468,6 +1468,7 @@ export function TraceApp() {
                   <ErrorBoundary>
                     <PlotWithStatistics
                       plot={plot}
+                      plotIndex={plots.indexOf(plot)}
                       fullscreen
                       archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
                       liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
@@ -1587,6 +1588,7 @@ export function TraceApp() {
                 <ErrorBoundary>
                   <PlotWithStatistics
                     plot={plot}
+                    plotIndex={plots.indexOf(plot)}
                     archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
                     liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
                     formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
