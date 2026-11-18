@@ -94,6 +94,7 @@ export const REASONS = [
   '@media print',
   'widget prop default',
   'Carbon danger pair',
+  'not a style literal',
 ];
 
 /**

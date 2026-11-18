@@ -108,9 +108,10 @@ lines it found.
 | `@media print`        | a print stylesheet, where the theme variables do not apply                                   |
 | `widget prop default` | the default of a widget prop that takes a colour, before a host sets it                      |
 | `Carbon danger pair`  | the text colour paired with a Carbon danger background token, which has no contract variable |
+| `not a style literal` | a string the guard reads as a colour or font that is not one (an id, a label, sample data)   |
 
-A line that is not really a style (a string that only looks like a colour) is
-better rewritten so that the guard no longer sees it than exempted.
+A line that is not really a style is better rewritten so that the guard no
+longer sees it than exempted. Use `not a style literal` only when it can't be.
 
 ## Documentation
 

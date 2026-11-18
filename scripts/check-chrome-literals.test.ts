@@ -115,13 +115,19 @@ describe('parseAllow', () => {
     expect(() => parseAllow('src/App.css document background\n')).toThrow(/malformed/);
   });
 
-  it('keeps the vocabulary closed to the four reasons', () => {
+  it('keeps the vocabulary closed to the five reasons', () => {
     expect(REASONS).toEqual([
       'document background',
       '@media print',
       'widget prop default',
       'Carbon danger pair',
+      'not a style literal',
     ]);
+  });
+
+  it('accepts "not a style literal" as an allow-file reason', () => {
+    const allow = parseAllow('src/workbench/Example.tsx: not a style literal: 1\n');
+    expect([...allow]).toEqual([['src/workbench/Example.tsx: not a style literal', 1]]);
   });
 });
 
