@@ -66,7 +66,7 @@ Two different files are named `config.json`:
   bundle resource only the native proxy reads; it is never served to the
   webview.
 - `dist/config.json` holds the site defaults every page reads at startup
-  (`docs/site-defaults.md`): no secrets, just behaviour choices such as the
+  (`docs/site-defaults.md`): no secrets, just behavior choices such as the
   header prefix or what a new plot opens with. The build copies it from
   `public/config.json`, and the proxy serves it beside the pages. A desktop
   build for a site edits `public/config.json` before `pnpm tauri:build`.
