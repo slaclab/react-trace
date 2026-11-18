@@ -8,12 +8,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { BUILTIN_CATALOG } from '../annotations/catalog';
 import { resolveKeyIn } from '../annotations/keys';
 import { plotConfigOf } from '../embed/plotConfig';
-import { deserializeWorkspace } from '../io/serialize';
+import { deserializeWorkspace, serializeWorkspace } from '../io/serialize';
 import { DRAG_MODES } from '../plot/plotToggles';
-import { initialTracePlots, newSitePlot } from '../tools/trace/defaults';
+import { LIVE_RETENTION_MAX_MS, resolveLiveRetentionMs } from '../state/liveStore';
+import { initialTracePlots, newSitePlot, newSiteTrace } from '../tools/trace/defaults';
 import { tracePlotView } from '../tools/trace/plotView';
 import { BUILTIN_DEFAULTS } from './builtins';
 import { resetSiteDefaults } from './store';
+import { SITE_KEYS } from './validate';
 
 afterEach(() => resetSiteDefaults());
 
@@ -85,5 +87,27 @@ describe('C5: the crosshair is on in new plots, and on for a link or file that d
     const [plot] = initialTracePlots('?pv=A');
     expect(plotConfigOf(plot)).toBeUndefined();
     expect(plotConfigOf({ ...plot, showCrosshair: false })).toEqual({ v: 1, showCrosshair: false });
+  });
+});
+
+describe('C6: live retention follows the plot span, at most 30 min; a curve may pin its own', () => {
+  it('stamps no retention on a new curve: it is automatic', () => {
+    expect(newSiteTrace('t', 'A', 'ax', '#123456', []).liveRetentionMs).toBeUndefined();
+    expect(initialTracePlots('?pv=A')[0].traces[0].liveRetentionMs).toBeUndefined();
+    expect(SITE_KEYS).not.toContain('trace.trace.liveRetentionS');
+  });
+
+  it('follows the span up to 1800 s, and a curve’s own value wins', () => {
+    expect(LIVE_RETENTION_MAX_MS).toBe(1_800_000);
+    expect(resolveLiveRetentionMs(undefined, undefined, 600_000)).toBe(600_000);
+    expect(resolveLiveRetentionMs(undefined, undefined, 7_200_000)).toBe(1_800_000);
+    expect(resolveLiveRetentionMs(60_000, undefined, 7_200_000)).toBe(60_000);
+  });
+
+  it('loads a curve’s saved retention (R9)', () => {
+    const [plot] = initialTracePlots('?pv=A');
+    plot.traces = [{ ...plot.traces[0], liveRetentionMs: 900_000 }];
+    const file = serializeWorkspace({ theme: 'dark', plots: [plot] });
+    expect(deserializeWorkspace(file).plots[0].traces[0].liveRetentionMs).toBe(900_000);
   });
 });
