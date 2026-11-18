@@ -626,6 +626,7 @@ function useCorrelationDrawingHost({
     axes,
     theme: chartTheme,
     chart: liveChart,
+    toolsOff: state.drawingTools === false,
   });
   const point = useCallback(
     (p: PlotPoint) => correlationPointMenu(p, state, unitsOf),

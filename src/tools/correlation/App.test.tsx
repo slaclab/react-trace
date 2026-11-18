@@ -655,3 +655,84 @@ describe('CorrelationApp drawings', () => {
     expect(drawn()).toBe(0);
   });
 });
+
+describe('CorrelationApp Display › Drawing tools and Drawings', () => {
+  const box = () => document.querySelector('.correlation-plot__box') as HTMLDivElement;
+  const rail = () => document.querySelector('[data-drawing-rail]');
+  const hideButton = () =>
+    document.querySelector<HTMLButtonElement>('[data-drawing-toggle="hide"]');
+  const armed = () =>
+    [...document.querySelectorAll('[data-drawing-tool]')].filter(
+      (b) => b.getAttribute('aria-pressed') === 'true'
+    );
+  const key = (target: EventTarget, init: KeyboardEventInit) => {
+    const ev = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+    act(() => {
+      target.dispatchEvent(ev);
+    });
+    return ev;
+  };
+  /** Opens Display and its More; the plot-wide sections start closed. */
+  const openDisplayMore = () => {
+    const display = document.querySelector<HTMLElement>(
+      '.wb-plot-section[data-section="display"]'
+    )!;
+    fireEvent.click(display.querySelector('.wb-plot-section__head')!);
+    fireEvent.click(within(display).getByRole('button', { name: 'More' }));
+  };
+  const toggle = (id: string) => document.getElementById(id) as HTMLButtonElement;
+  async function ready(query = TIMER) {
+    await mount(query);
+    act(() => engine.result(table(10, 'seeded')));
+    act(() => finished.current?.());
+  }
+
+  it('Drawing tools hides and shows the rail', async () => {
+    await ready();
+    expect(rail()).not.toBeNull();
+    openDisplayMore();
+    expect(toggle('drawing-tools').getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(toggle('drawing-tools'));
+    expect(rail()).toBeNull();
+    fireEvent.click(toggle('drawing-tools'));
+    expect(rail()).not.toBeNull();
+  });
+
+  it('turning the tools off disarms an armed tool; its keys are inert while off', async () => {
+    await ready();
+    expect(key(box(), { key: '√', code: 'KeyV', altKey: true }).defaultPrevented).toBe(true);
+    expect(armed()).toHaveLength(1);
+    openDisplayMore();
+    fireEvent.click(toggle('drawing-tools'));
+    expect(key(box(), { key: '√', code: 'KeyV', altKey: true }).defaultPrevented).toBe(false);
+    // Back on: nothing is armed, so the off-time key armed nothing either.
+    fireEvent.click(toggle('drawing-tools'));
+    expect(rail()).not.toBeNull();
+    expect(armed()).toHaveLength(0);
+  });
+
+  it('opens a link with rail=0 without the rail', async () => {
+    await ready(`${TIMER}&rail=0`);
+    expect(rail()).toBeNull();
+    expect(box().querySelector('svg[data-annotation-layer]')).not.toBeNull();
+  });
+
+  it('Drawings and the rail’s hide-all agree in both directions', async () => {
+    await ready();
+    openDisplayMore();
+    const drawings = () => toggle('drawings-shown');
+    expect(drawings().getAttribute('aria-checked')).toBe('true');
+    expect(hideButton()?.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(hideButton()!);
+    expect(hideButton()?.getAttribute('aria-pressed')).toBe('true');
+    expect(drawings().getAttribute('aria-checked')).toBe('false');
+
+    fireEvent.click(drawings());
+    expect(drawings().getAttribute('aria-checked')).toBe('true');
+    expect(hideButton()?.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(drawings());
+    expect(hideButton()?.getAttribute('aria-pressed')).toBe('true');
+  });
+});

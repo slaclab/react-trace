@@ -30,6 +30,8 @@
 //                        the tool-level toggles, written only off their default
 //                        (`tip` is the hover read-out, on by default)
 //   drag=pan             a left-drag in the plot pans (default: draws a zoom box)
+//   rail=0               the drawing tools off: no drawing rail, no arm keys
+//                        (default: on; `rail=1` reads as on and is never written)
 //   m=<token>            one statistics metric (repeated, in column order):
 //                        a preset id or a custom "label=expr[=unit]", with a
 //                        leading "-" when it is not a table column and "~"
@@ -230,6 +232,11 @@ export interface CorrelationState {
   tooltip: boolean;
   /** What a left-drag in the plot does; a zoom box by default. */
   drag: DragMode;
+  /**
+   * The drawing tools (the drawing rail and its arm keys); present only as
+   * `false` (off), absent means on. Written as `rail=0`.
+   */
+  drawingTools?: false;
   /** Trigger edge, PV mode only; absent = Every update. */
   fire?: CorrelationFire;
   /** The X axis scale; absent = automatic. */
@@ -440,6 +447,7 @@ export function normalizeCorrelationState(
   if (state.trigger.mode === 'pv' && CORRELATION_FIRE.includes(state.fire as CorrelationFire)) {
     next.fire = state.fire;
   }
+  if (state.drawingTools === false) next.drawingTools = false;
   const xScale = normalizeScale(state.xScale);
   if (xScale !== undefined) next.xScale = xScale;
   const yScale = normalizeScale(state.yScale);
@@ -666,6 +674,14 @@ function parseSettings(params: URLSearchParams, state: CorrelationState, invalid
   if (drag !== null) {
     if (isDragMode(drag)) state.drag = drag;
     else invalid.push('drag');
+  }
+
+  // The drawing tools: only off is kept; `rail=1` is the default.
+  const rail = params.get('rail');
+  if (rail !== null) {
+    const flag = parseFlag(rail);
+    if (flag === null) invalid.push('rail');
+    else if (!flag) state.drawingTools = false;
   }
 
   const fire = params.get('fire');
@@ -979,6 +995,7 @@ export function serializeCorrelationQueryWithShed(
     }
   }
   if (isDragMode(state.drag) && state.drag !== defaults.drag) settings.push(`drag=${state.drag}`);
+  if (state.drawingTools === false) settings.push('rail=0');
   // The metric tokens, all or none: the list is written only off the default.
   const metrics = normalizeMetrics(CORRELATION_METRICS, state.metrics);
   const metricParts = metricsAreDefault(CORRELATION_METRICS, metrics)

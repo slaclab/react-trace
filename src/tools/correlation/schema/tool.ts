@@ -140,6 +140,33 @@ export function toolSchema<
         if (isDragMode(value)) ctx.update((state) => apply(state, (s) => ({ ...s, drag: value })));
       },
     },
+    {
+      // The drawing rail and its arm keys; only off is stored (`rail=0`).
+      id: 'drawing-tools',
+      label: LABELS.drawingTools,
+      kind: 'toggle',
+      tab: displayTab,
+      level: 'L3',
+      get: (ctx) => ctx.state.drawingTools !== false,
+      set: (ctx, on) =>
+        ctx.update((state) =>
+          apply(state, (s) => ({ ...s, drawingTools: on ? undefined : false }))
+        ),
+    },
+    {
+      // The plot's hide-all: the rail's hide button and the Annotations
+      // eye, on the `ui` record (session only, never in the link).
+      id: 'drawings-shown',
+      label: LABELS.drawings,
+      kind: 'toggle',
+      tab: displayTab,
+      level: 'L3',
+      get: (ctx) => (ctx.ui as CorrelationUi | undefined)?.drawingsHidden !== true,
+      set: (ctx, on) =>
+        (ctx.ui as CorrelationUi | undefined)?.setUi?.((ui) =>
+          (ui.drawingsHidden === true) === !on ? ui : { ...ui, drawingsHidden: !on }
+        ),
+    },
   ];
 
   // The metric list is required state (always present, no dot); Reset metrics
