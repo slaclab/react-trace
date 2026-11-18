@@ -41,6 +41,7 @@ import { PaletteControl } from '../fields/palette';
 import { TimeRangeControl, type TimeRangeValue } from '../fields/timeRange';
 import { TRACE_DEFAULT_DRAG } from '../plotView';
 import { DEFAULT_PALETTE_ID, withPalette } from '../../../palettes';
+import { rememberPaletteId } from '../../../state/paletteStore';
 import { effectiveBackground } from '../../../plotBackground';
 import { createElement } from 'react';
 import { statisticsFields } from '../../../statistics/fields';
@@ -402,11 +403,14 @@ export function createPlotSchema<
       tab: PLOT_TABS.display,
       level: 'L3',
       // The plot's own palette. A pick recolours, by slot, every curve
-      // still at a colour of the old palette; user-set colours stay.
+      // still at a colour of the old palette; user-set colours stay. It is
+      // also remembered as the user's palette, which added plots and a fresh
+      // tab open in (`rememberPaletteId`).
       get: (ctx): string => read(ctx, (p) => p.palette ?? DEFAULT_PALETTE_ID, DEFAULT_PALETTE_ID),
       set: (ctx, paletteId: string) => {
         const target = ctx.target;
         ctx.update((state) => updateBoundPlot(state, target, (p) => withPalette(p, paletteId)));
+        rememberPaletteId(paletteId);
       },
       ...plotPaletteDot<S, M, U>(),
       render: ({ value, onChange, id }) =>

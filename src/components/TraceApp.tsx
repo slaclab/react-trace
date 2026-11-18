@@ -48,7 +48,7 @@ import type { TimeWindowNs } from '../api/time';
 import { relativeRangeMs, resolveTimeWindow } from '../api/time';
 import { useHostThemeId } from '../state/colorMode';
 import { readLegacyPaletteId } from '../state/paletteStore';
-import { getPalette, colorForIndex, paletteOf, DEFAULT_PALETTE_ID } from '../palettes';
+import { getPalette, colorForIndex, paletteOf, withPalette, DEFAULT_PALETTE_ID } from '../palettes';
 import { withFilePalette } from '../io/paletteInference';
 import { downloadBlob, downloadDataUrl, pickFile } from '../io/download';
 import {
@@ -256,8 +256,8 @@ export function TraceApp() {
   // Opening state comes from the page query (the CANOPY workspace names PVs
   // and a range); without one Trace opens a single empty plot.
   const [initial] = useState(() => {
-    // A fresh tab (no `plot=`) opens in the legacy per-user palette when it
-    // names a valid one; the key is only read, never written.
+    // A fresh tab (no `plot=`) opens in the user's remembered palette when it
+    // names a valid one (`rememberPaletteId` writes it on a pick).
     const seeded = buildInitialPlots(
       window.location.search,
       getPalette(readLegacyPaletteId() ?? DEFAULT_PALETTE_ID)
@@ -758,7 +758,8 @@ export function TraceApp() {
 
   const addPlot = () => {
     const id = makeId('plot');
-    const plot = newPlot(id, plots.length);
+    // A new plot opens in the user's remembered palette, as on main.
+    const plot = withPalette(newPlot(id, plots.length), readLegacyPaletteId());
     setTool((s) => ({ ...s, plots: [...s.plots, plot], activePlotId: id }));
   };
 

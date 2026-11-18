@@ -1,13 +1,14 @@
 import { isPaletteId } from '../palettes';
 
-// The legacy per-user palette. Before palettes became per plot, Trace
-// stored the user's palette pick under this localStorage key. It is now only
-// read, as one branch of the opening rule: a fresh tab (no `plot=`) opens in
-// the palette it names when that is a known palette. Trace never writes it.
+// The user's palette, as on main: the palette last picked in a plot's Palette
+// field, kept under this localStorage key. Palettes are per plot, and this is
+// the one a fresh tab (no `plot=`) and every added plot open in. Only an
+// explicit pick writes it: a file's palette, a link's or a reset of a plot's
+// Palette dot leave the user's choice as it was.
 
 export const LEGACY_PALETTE_KEY = 'trace.palette';
 
-/** The palette id the legacy per-user key names, when it is a known palette. */
+/** The palette id the per-user key names, when it is a known palette. */
 export function readLegacyPaletteId(): string | undefined {
   if (typeof window === 'undefined') return undefined;
   let stored: string | null;
@@ -17,4 +18,14 @@ export function readLegacyPaletteId(): string | undefined {
     return undefined;
   }
   return isPaletteId(stored) ? stored : undefined;
+}
+
+/** Remember `id` as the user's palette; an unknown id, or no storage, is ignored. */
+export function rememberPaletteId(id: string): void {
+  if (typeof window === 'undefined' || !isPaletteId(id)) return;
+  try {
+    window.localStorage.setItem(LEGACY_PALETTE_KEY, id);
+  } catch {
+    // Storage blocked (private window, quota): the pick still applies to the plot.
+  }
 }
