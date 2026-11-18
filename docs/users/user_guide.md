@@ -152,13 +152,13 @@ Zooming or panning the plot stops it from following the current time and turns *
 
 **Mouse controls:**
 
-- **Scroll inside the plot** — zoom time and every Y-axis around the pointer. **Shift** + scroll moves along the time axis.
+- **Scroll inside the plot** — zoom time around the pointer; auto-scaled Y-axes refit. **Alt** + scroll zooms the Y-axes too; **Shift** + scroll moves along the time axis.
 - **Drag inside the plot** — draw a zoom box; the plot zooms to it when you let go. Set **Mouse drag** in **Display** to **Pan** to move along the time axis instead.
 - **Scroll over a Y-axis** (②) — zoom only that axis, around the mouse pointer.
-- **Drag up or down on a Y-axis** — zoom only that axis in or out.
-- **Double-click inside the plot** — show everything loaded and auto-scale every Y-axis.
+- **Drag up or down on a Y-axis** — move only that axis. **Shift** + drag zooms it in or out instead.
+- **Double-click inside the plot** — go back to the plot's time range (for example the last hour) and auto-scale every Y-axis.
 
-See [Moving through time](../drawing-tools.md#navigation) and [Scaling the Y axes](../drawing-tools.md#axes) for every gesture. Zooming or panning time stops following the current time (see [Returning to the Full Range](#returning-to-the-full-range)). Zooming a Y-axis switches it from **Auto-scale** to fixed limits; double-click the axis to undo it.
+See [Moving through time](../drawing-tools.md#navigation) and [Scaling the Y axes](../drawing-tools.md#axes) for every gesture. Zooming or panning time stops following the current time (see [Returning to the Full Range](#returning-to-the-full-range)). Zooming or moving a Y-axis switches it from **Auto-scale** to fixed limits; double-click the axis to undo it.
 
 Move the mouse over the plot to see the data tooltip (①) with each trace's value at that time. Each value is the sample nearest the pointer, and the time in parentheses shows how far that sample is from the pointer (for example **+2s**). The tooltip follows the pointer; turn **Dock data tooltip** on in **Display** to keep it in a corner of the plot instead, where its grip moves it. Crosshair lines are on in a new plot; turn **Crosshair** off in **Display** to hide them, or **Data tooltip** off to hide the tooltip.
 

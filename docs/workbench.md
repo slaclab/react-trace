@@ -188,6 +188,8 @@ Each copy is confirmed at the bottom of the tool for two seconds.
 
 ## Defaults
 
-All three tools open the same way: the **crosshair is off** and a **mouse
-drag zooms** (a zoom box). Change either in **Display**, or with the drag
-toggle on the plot's tool strip.
+A **mouse drag zooms** (a zoom box) in all three tools; change it in
+**Display**, or with the drag toggle on the plot's tool strip. A new Trace
+plot shows the **crosshair**; Correlation and Waveform open with it off.
+Change it in **Display**. A deployment can choose other defaults for new
+plots and views ([Site defaults](site-defaults.md)).

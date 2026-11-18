@@ -23,20 +23,22 @@ Waveform](#other-plots) for what differs there.
 The plot shows a _view window_ of time. Any gesture that moves it stops the
 plot from following live data; **Now** (below) turns following back on.
 
-- **Wheel** over the plot zooms time and every Y axis around the cursor.
-- **Shift + wheel**, or a mostly sideways trackpad scroll, pans time.
+- **Wheel** over the plot zooms time around the cursor; auto-scaled Y axes
+  refit to what is visible. **Alt + wheel** zooms time and every Y axis.
+- **Shift + wheel**, or a mostly sideways trackpad scroll, pans time; so do
+  the **←** and **→** keys while the plot has focus.
 - **Drag** the plot with the left button to draw a zoom box; the plot zooms to
   it when you let go, and a thin box zooms only time or only the Y axes. With
   the rail's drag toggle set to pan, the drag pans time instead: every Y axis
   you have scaled by hand moves with it, auto-scaled axes refit to what is
   visible.
-- **Double-click** the plot shows everything loaded and turns auto-scale back
-  on for every Y axis.
+- **Double-click** the plot returns time to the plot's range (for example the
+  last hour) and turns auto-scale back on for every Y axis.
 - **Wheel** over the time axis labels zooms time around the cursor.
 - **Drag** along the time axis labels stretches time with the right edge
   held still: drag right to zoom in, left to zoom out. When the right edge is
   at now, the plot keeps following live data with the new span.
-- **Double-click** the time axis labels shows everything loaded (**All**).
+- **Double-click** the time axis labels returns time to the plot's range.
 - **Right-click** the time axis labels for a **Time range** menu: _All_ and
   every preset of the Time range field.
 
@@ -52,11 +54,12 @@ detached window) carries the range controls:
 
 ## Scaling the Y axes { #axes }
 
-- **Drag** a Y axis up to zoom in about its centre, down to zoom out. The
-  axis stops auto-scaling.
+- **Drag** a Y axis up or down to move that axis alone. **Shift + drag** (or
+  **Alt + drag**) zooms it instead: up to zoom in about its centre, down to
+  zoom out. Either way the axis stops auto-scaling.
 - **Wheel** over a Y axis zooms it around the value under the cursor.
-- **Alt + wheel** over the plot zooms the first visible Y axis around the
-  cursor value.
+- **Alt + wheel** over the plot zooms time and every Y axis around the
+  cursor.
 - **Double-click** a Y axis, or click the **A** badge that appears above a
   hand-scaled axis, to turn auto-scale back on.
 - **Right-click** a Y axis for its options menu: _Auto-scale_, _Logarithmic_,
@@ -96,9 +99,11 @@ are the same in every plot tool:
 - **Keep drawing** keeps the tool armed after drawing, so you can place
   several in a row.
 - **Data tooltip** shows the values under the cursor (on by default). The
-  crosshair has its own setting. The tooltip sits in a corner of the plot,
-  away from the cursor. Drag its grip (⋮⋮) to put it anywhere in the plot;
-  double-click the grip to send it back to its corner.
+  crosshair has its own setting. In Trace the tooltip follows the cursor;
+  turn on **Dock data tooltip** in **Display** to keep it in a corner of the
+  plot, away from the cursor, as Correlation and Waveform always do. A
+  docked tooltip has a grip (⋮⋮): drag it to put the tooltip anywhere in the
+  plot; double-click it to send the tooltip back to its corner.
 - **Hide all drawings** hides every drawing of the plot (click again to show
   them). Hidden drawings also stay out of exported images.
 - **Zoom box** sets what a left-drag in the plot does: draw a zoom box
@@ -175,9 +180,13 @@ Click a drawing's card (or select the drawing on the plot) and it offers:
 ## Drawing in Correlation and Waveform { #other-plots }
 
 Correlation and Waveform offer the same rail, toggles, editing, keys and
-properties panel as Trace, and the same wheel, drag and double-click
-gestures on both axes (a left-drag draws a zoom box by default, as in Trace;
-a zoom sets the X and Y scale in **Axes**). The differences:
+properties panel as Trace, and the same drag and double-click gestures on
+both axes (a left-drag draws a zoom box by default, as in Trace; a zoom sets
+the X and Y scale in **Axes**). The differences:
+
+- The wheel over the plot zooms both axes (**Alt + wheel**: the Y axis
+  alone), and dragging a Y axis zooms it (**Shift + drag**: moves it). A
+  site can change these ([Site defaults](site-defaults.md)).
 
 - Their x axis is a value, not time, so there is no **Time range** tool
   (Alt+R does nothing) and x reads as a value in labels and the status line.
@@ -248,7 +257,9 @@ value under the cursor, and, while a tool is armed, what to do next. Turn it
 off with **Status line** in the plot's **Display** section.
 
 **Pin data window**, also in **Display**, fixes the hover readout at the plot's
-top-right, so it never covers what is under the pointer.
+top-right, so it never covers what is under the pointer. **Dock data
+tooltip** keeps it in a corner of the plot instead, moving out of the
+cursor's way.
 
 ## Saving { #saving }
 
