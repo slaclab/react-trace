@@ -70,9 +70,11 @@ import {
   useDroppable,
   useSensor,
   useSensors,
+  type Announcements,
   type CollisionDetection,
   type DraggableAttributes,
   type DraggableSyntheticListeners,
+  type DragCancelEvent,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
@@ -834,35 +836,71 @@ export function Outline<S, M, U extends ToolUi = ToolUi>(props: OutlineProps<S, 
     },
     [source]
   );
+  // Moves are announced in the Outline's own polite live region, by card
+  // label and section title; @dnd-kit's assertive region (raw ids) is kept
+  // silent. A refused section's reason is its own status line.
+  const [announcement, setAnnouncement] = useState('');
+  const titleOf = useCallback(
+    (sectionId: string) =>
+      outlineRef.current.sections.find((section) => section.id === sectionId)?.title ?? sectionId,
+    []
+  );
+  /** The section last announced as under the card; it starts at home. */
+  const announcedOver = useRef<string | null>(null);
   const onDragStart = useCallback((event: DragStartEvent) => {
-    setDragging((event.active.data.current as RowDrag | undefined) ?? null);
+    const from = (event.active.data.current as RowDrag | undefined) ?? null;
+    setDragging(from);
     setDropTarget(null);
+    announcedOver.current = from?.sectionId ?? null;
+    if (from !== null) setAnnouncement(`Picked up ${from.label}.`);
   }, []);
   const onDragOver = useCallback(
     (event: DragOverEvent) => {
-      setDropTarget(
-        targetOf(
-          event.active.data.current as RowDrag | undefined,
-          event.over?.data.current as SectionDrop | undefined
-        )
+      const from = event.active.data.current as RowDrag | undefined;
+      const over = event.over?.data.current as SectionDrop | undefined;
+      setDropTarget(targetOf(from, over));
+      const overId = over?.sectionId ?? null;
+      if (from === undefined || overId === announcedOver.current) return;
+      announcedOver.current = overId;
+      setAnnouncement(
+        over === undefined
+          ? `${from.label} is not over a section.`
+          : `${from.label} is over ${titleOf(over.sectionId)}.`
       );
     },
-    [targetOf]
+    [targetOf, titleOf]
   );
   const endDrag = useCallback(() => {
     setDragging(null);
     setDropTarget(null);
   }, []);
+  const onDragCancel = useCallback(
+    (event: DragCancelEvent) => {
+      endDrag();
+      const from = event.active.data.current as RowDrag | undefined;
+      if (from !== undefined) setAnnouncement(`Move cancelled. ${from.label} not moved.`);
+    },
+    [endDrag]
+  );
   const onDragEnd = useCallback(
     (event: DragEndEvent) => {
       endDrag();
       const from = event.active.data.current as RowDrag | undefined;
       const target = targetOf(from, event.over?.data.current as SectionDrop | undefined);
+      if (from === undefined) return;
       // Asked again at the drop: the state may have moved since the last hover.
-      if (from === undefined || target === null || target.refusal !== null) return;
+      if (target === null) {
+        setAnnouncement(`${from.label} not moved.`);
+        return;
+      }
+      if (target.refusal !== null) {
+        setAnnouncement(`${from.label} not moved: ${target.refusal}`);
+        return;
+      }
       source.definition.binding.ops.move(from.itemId, target.sectionId);
+      setAnnouncement(`${from.label} moved to ${titleOf(target.sectionId)}.`);
     },
-    [endDrag, source, targetOf]
+    [endDrag, source, targetOf, titleOf]
   );
 
   const schema = definition.schema;
@@ -996,7 +1034,8 @@ export function Outline<S, M, U extends ToolUi = ToolUi>(props: OutlineProps<S, 
         onDragStart={onDragStart}
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
-        onDragCancel={endDrag}
+        onDragCancel={onDragCancel}
+        accessibility={{ announcements: SILENT }}
       >
         {groups.map((group) => (
           <div key={group.sections[0].id} className="wb-group" data-group={slug(group.title)}>
@@ -1017,6 +1056,9 @@ export function Outline<S, M, U extends ToolUi = ToolUi>(props: OutlineProps<S, 
         </DragOverlay>
       </DndContext>
       <OutlineFooter actions={binding.footer ?? NO_ACTIONS} />
+      <div className="wb-outline__announce" role="status" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </div>
     </div>
   );
 }
@@ -1049,6 +1091,14 @@ function firstFocusable(root: Element | null): HTMLElement | null {
   }
   return null;
 }
+
+/** @dnd-kit's own announcements, silenced: the Outline announces by label. */
+const SILENT: Announcements = {
+  onDragStart: () => undefined,
+  onDragOver: () => undefined,
+  onDragEnd: () => undefined,
+  onDragCancel: () => undefined,
+};
 
 const NO_FIELDS: never[] = [];
 const NO_SLOTS: RowSlots<never, never, never> = {};

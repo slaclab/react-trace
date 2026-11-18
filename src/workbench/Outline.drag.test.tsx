@@ -256,3 +256,44 @@ describe('card clicks', () => {
     expect(tool.calls.move).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------- announcements --
+
+describe('announcements', () => {
+  /** The Outline's own polite live region. */
+  const polite = () => document.querySelector<HTMLElement>('.wb-outline [aria-live="polite"]');
+  /** Everything @dnd-kit's own (assertive) live region has said. */
+  const assertive = () =>
+    Array.from(document.querySelectorAll('[aria-live="assertive"]'))
+      .map((el) => el.textContent)
+      .join('');
+
+  it('names the card and the sections, politely', () => {
+    mount();
+    startDrag('c');
+    expect(polite()?.textContent).toBe('Picked up STUB:C.');
+    moveTo(SIGNALS);
+    expect(polite()?.textContent).toBe('STUB:C is over Signals.');
+    drop(SIGNALS);
+    expect(polite()?.textContent).toBe('STUB:C moved to Signals.');
+    expect(assertive()).toBe('');
+  });
+
+  it('says when a refused drop moves nothing', () => {
+    mount();
+    startDrag('a');
+    moveTo(LOCKED);
+    drop(LOCKED);
+    expect(polite()?.textContent).toBe('STUB:A not moved: ' + STUB_LOCKED_REFUSAL);
+    expect(assertive()).toBe('');
+  });
+
+  it('says when a drop outside every section moves nothing', () => {
+    mount();
+    startDrag('c');
+    moveTo(OUTSIDE);
+    expect(polite()?.textContent).toBe('STUB:C is not over a section.');
+    drop(OUTSIDE);
+    expect(polite()?.textContent).toBe('STUB:C not moved.');
+  });
+});
