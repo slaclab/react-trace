@@ -11,16 +11,20 @@ import { CanopyProvider } from '@slaclab/canopy-react';
 import { canopyConnection } from '../../api/connection';
 import { CorrelationApp } from './App';
 import { hareServiceOptions } from '../shared/canopyServices';
+import { startPage } from '../../site/load';
 
 // The instance's one Hare connection, opened once per page (outside React so
 // StrictMode's double mount does not open a second socket).
 const hare = new HarePVService(hareServiceOptions());
 hare.connect();
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <CanopyProvider connection={canopyConnection}>
-      <CorrelationApp hare={hare} />
-    </CanopyProvider>
-  </StrictMode>
+// The site defaults first (src/site), so the first render opens with them.
+void startPage(() =>
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <CanopyProvider connection={canopyConnection}>
+        <CorrelationApp hare={hare} />
+      </CanopyProvider>
+    </StrictMode>
+  )
 );

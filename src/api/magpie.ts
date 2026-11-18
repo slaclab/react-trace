@@ -6,6 +6,9 @@ import type { ConfigDTO, PagedResult } from './types';
 // that handshake — trace can only ever read/write trace configs.
 const APP = 'trace';
 const BASE = `/magpie/v1/configs/${APP}`;
+// The site settings document: one for the whole build (Trace, Correlation and
+// Waveform), the same shape as `config.json` (docs/site-defaults.md).
+const SETTINGS = `/magpie/v1/settings/${APP}`;
 
 export interface SaveConfigMeta {
   name?: string;
@@ -61,4 +64,17 @@ export async function updateConfig(
 /** Delete a config. Magpie returns a bare `true` on success. */
 export async function deleteConfig(slug: string): Promise<void> {
   await canopyFetch<boolean>(`${BASE}/${encodeURIComponent(slug)}`, { method: 'DELETE' });
+}
+
+/**
+ * The site settings document (src/site), or null when there is none: magpie
+ * answers 404 while it is unset, and any other failure (an error status, no
+ * Canopy, an abort) counts as none too.
+ */
+export async function getSiteSettings(signal?: AbortSignal): Promise<unknown> {
+  try {
+    return await canopyFetch<unknown>(SETTINGS, { signal });
+  } catch {
+    return null;
+  }
 }
