@@ -9,7 +9,9 @@
 //   selection;
 // - the plot-wide sections are Acquisition, Axes, Display, Statistics and the
 //   chart source;
-// - row status dots replace the struck header counts;
+// - row status dots replace the struck header counts; an error dot's hover
+//   text names each failing source (archive errors by their short names) with
+//   its full detail;
 // - each axis section's add row adds a PV onto that axis through async
 //   `ops.add`, then the unit lookup re-assigns it as today — the cases of
 //   `LeftPanel.addTrace.test.tsx`, ported;
@@ -491,6 +493,96 @@ describe('Trace row status dots', () => {
     expect(statusOf(rowEl('t1'))).toBe('Status: Archive: HTTP_500');
     expect(statusOf(rowEl('t2'))).toBe('Status: ok');
     expect(statusOf(rowEl('f1'))).toBe('Status: ok');
+  });
+});
+
+describe('Trace row hover: short names and full detail', () => {
+  const both = () => curve('c', 'TEST:X', 'ax1', { useLive: true, useArchive: true });
+  const okLive: LiveSeriesResult = {
+    status: 'connected',
+    connected: true,
+    severity: null,
+    latest: null,
+    error: null,
+    points: [],
+    breaks: [],
+  };
+  const failed = (code: string, detail: string): ArchiveSeriesResult => ({
+    status: 'error',
+    mean: [],
+    band: [],
+    error: { code, detail },
+  });
+
+  it.each([
+    ['archiver_unavailable', 'Archiver down'],
+    ['archiver_timeout', 'Timeout'],
+    ['archiver_bad_response', 'Bad response'],
+    ['archiver_not_configured', 'No archiver'],
+    ['pv_not_found_in_archiver', 'Not archived'],
+    ['invalid_api_key', 'Auth error'],
+    ['insufficient_read_access', 'Auth error'],
+    ['network_error', 'Offline'],
+  ])('names archive error %s %j, then its detail', (code, label) => {
+    expect(curveRowStatus(both(), { live: okLive, archive: failed(code, '') })).toEqual({
+      status: 'error',
+      refusal: label,
+    });
+    expect(
+      curveRowStatus(both(), { live: okLive, archive: failed(code, 'What the archiver said') })
+    ).toEqual({ status: 'error', refusal: `${label} — What the archiver said` });
+  });
+
+  it('keeps the code for an archive error with no short name', () => {
+    expect(
+      curveRowStatus(both(), { live: okLive, archive: failed('pv_not_found', 'Squirrel says no') })
+    ).toEqual({ status: 'error', refusal: 'Archive: pv_not_found — Squirrel says no' });
+  });
+
+  it('adds the live connection error to the live line, and joins both sources', () => {
+    const down: LiveSeriesResult = {
+      ...okLive,
+      status: 'disconnected',
+      connected: false,
+      error: { code: 'ws_disconnected', message: 'Live connection error.' },
+    };
+    expect(
+      curveRowStatus(both(), { live: down, archive: { status: 'ready', mean: [], band: [] } })
+    ).toEqual({ status: 'error', refusal: 'Live: Disconnected — Live connection error.' });
+    expect(
+      curveRowStatus(both(), {
+        live: down,
+        archive: failed('network_error', 'Failed to fetch'),
+      })
+    ).toEqual({
+      status: 'error',
+      refusal: 'Live: Disconnected — Live connection error. · Offline — Failed to fetch',
+    });
+  });
+
+  it('shows the full detail on the dot of the Signals row', () => {
+    const s = opening();
+    const p1 = plotOf(s, 'p1');
+    archiveResults.set(
+      't1',
+      failed('archiver_unavailable', "Archiver 'main' returned HTTP 503 Service Unavailable")
+    );
+    mount({
+      ...s,
+      plots: [
+        {
+          ...p1,
+          traces: p1.traces.map((t) =>
+            t.kind === 'formula' ? t : { ...t, useArchive: true, useLive: false }
+          ),
+        },
+        plotOf(s, 'p2'),
+      ],
+    });
+    const dot = rowEl('t1').querySelector('.wb-outline-row__status')!;
+    const text = "Archiver down — Archiver 'main' returned HTTP 503 Service Unavailable";
+    expect(dot.getAttribute('title')).toBe(text);
+    expect(dot.getAttribute('aria-label')).toBe(`Status: ${text}`);
   });
 });
 

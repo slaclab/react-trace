@@ -28,6 +28,7 @@ const MIN_NAME_CH = 6;
 
 const LONG_PV = 'SIM:LONG:PV:NAME:FOR:LAYER:ROW';
 const ARCHIVE_ERROR = 'archiver_unavailable';
+const ARCHIVE_DETAIL = 'The mocked archiver is down.';
 
 test.use({ viewport: VIEWPORT });
 
@@ -84,7 +85,7 @@ test('a narrow Outline row shows the PV name beside its failed status dot', asyn
     (route) =>
       route.fulfill({
         status: 503,
-        json: { code: ARCHIVE_ERROR, detail: 'The mocked archiver is down.' },
+        json: { code: ARCHIVE_ERROR, detail: ARCHIVE_DETAIL },
       })
   );
   await seedArrangement(page, { widthPx: SIDEBAR_WIDTH_PX });
@@ -102,7 +103,9 @@ test('a narrow Outline row shows the PV name beside its failed status dot', asyn
   // The dot reads pending until the archive request fails; measure after.
   const status = row.locator('.wb-outline-row__status');
   await expect(status).toHaveClass(/wb-outline-row__status--error/);
-  await expect(status).toHaveAttribute('aria-label', new RegExp(`Archive: ${ARCHIVE_ERROR}`));
+  // The failure by its short name, then the archiver's detail.
+  await expect(status).toHaveAttribute('aria-label', `Status: Archiver down — ${ARCHIVE_DETAIL}`);
+  await expect(status).toHaveAttribute('title', `Archiver down — ${ARCHIVE_DETAIL}`);
   await expect(status).toBeVisible();
   const statusBox = await status.boundingBox();
   expect(statusBox!.width).toBeGreaterThan(0);

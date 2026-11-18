@@ -18,6 +18,8 @@ const notFound = () =>
   new CanopyError('pv_not_found_in_archiver', 404, `PV '${PV}' not in archiver 'test' (HTTP 404)`);
 const unavailable = () =>
   new CanopyError('archiver_unavailable', 503, 'Appliance returned HTTP 503');
+const notConfigured = () =>
+  new CanopyError('archiver_not_configured', 404, `No archiver is configured for '${PV}'.`);
 
 function rawDto(params: FetchDataParams): ArchiverDataDTO {
   return {
@@ -313,6 +315,72 @@ describe('archiveStore: PV not in the archiver', () => {
     await drift(h, { spanS: 30, steps: 600 });
     expect(h.fetchData).toHaveBeenCalledTimes(1);
     expect(h.store.getSnapshot().get('t1')?.error?.code).toBe('pv_not_found_in_archiver');
+  });
+});
+
+// Archive errors are split by code. `archiver_not_configured`
+// comes from Canopy's archiver registry and is never asked again by itself;
+// `pv_not_found_in_archiver` is asked again when the span or the archiver
+// changes (the tests above); every other code keeps the backoff schedule
+// (`archiveStore: other failures back off`).
+describe('archiveStore: no archiver configured', () => {
+  it('fetches once through drift, bins changes and span changes', async () => {
+    const h = setup(async () => {
+      throw notConfigured();
+    });
+    await drift(h, { spanS: 30, steps: 300 });
+    h.store.request('t1', {
+      pv: PV,
+      archiver: undefined,
+      bins: 100,
+      window: windowAt(h.now(), 30),
+    });
+    await flush();
+    // New range: 30 s → 1 h, then 10 s. A not-archived PV would ask again here.
+    await drift(h, { spanS: 3600, steps: 300 });
+    await drift(h, { spanS: 10, steps: 300 });
+    await idle(h, 60_000);
+
+    expect(h.fetchData).toHaveBeenCalledTimes(1);
+    const entry = h.store.getSnapshot().get('t1')!;
+    expect(entry.status).toBe('error');
+    expect(entry.error?.code).toBe('archiver_not_configured');
+    expect(loadingAfterFirstError(h.published.t1)).toBe(0);
+  });
+
+  it('adopts the verdict on a new trace without asking', async () => {
+    const h = setup(async () => {
+      throw notConfigured();
+    });
+    await drift(h, { spanS: 30, steps: 20 });
+    await drift(h, { spanS: 3600, steps: 20, traceId: 't2' });
+    expect(h.fetchData).toHaveBeenCalledTimes(1);
+    expect(h.store.getSnapshot().get('t2')?.error?.code).toBe('archiver_not_configured');
+  });
+
+  it('asks again for another archiver, and after a manual refresh', async () => {
+    const h = setup(async () => {
+      throw notConfigured();
+    });
+    await drift(h, { spanS: 30, steps: 20 });
+    await drift(h, { spanS: 30, steps: 20, archiver: 'other' });
+    expect(h.fetchData.mock.calls.map((c) => c[1].archiver)).toEqual([undefined, 'other']);
+
+    h.store.refetchAll();
+    await flush();
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+    await drift(h, { spanS: 3600, steps: 100, archiver: 'other' });
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
+  });
+
+  it('a not-archived PV, by contrast, asks again once on a span change', async () => {
+    const h = setup(async () => {
+      throw notFound();
+    });
+    await drift(h, { spanS: 30, steps: 50 });
+    await drift(h, { spanS: 3600, steps: 50 });
+    await drift(h, { spanS: 10, steps: 50 });
+    expect(h.fetchData).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -649,6 +717,15 @@ describe('archiveStore: other failures back off', () => {
       { spanS: 10 }
     );
     expect(times).toEqual(SCHEDULE);
+  });
+
+  it("retries pv_not_found (Squirrel's code, not an archive verdict) on the same schedule", async () => {
+    const { h, times } = await failureTimes(
+      () => new CanopyError('pv_not_found', 404, `PV '${PV}' is not archived.`),
+      { spanS: 30 }
+    );
+    expect(times).toEqual(SCHEDULE);
+    expect(h.store.getNotArchived(PV, undefined)).toBeUndefined();
   });
 
   it('retries a static window too (not blocked by the same-window dedup)', async () => {

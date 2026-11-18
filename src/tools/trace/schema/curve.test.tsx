@@ -2,8 +2,10 @@
 //
 // Trace's PV-curve item schema, rendered as an open card of the properties
 // panel:
-// - Signal, Style and Data blocks, each within the L1 budget; Live/Archive
-//   status sit in the Status group, outside it;
+// - Signal, Style and Data blocks, each within the L1 budget; the Status
+//   group (Data points, Live status, Severity, Live error, Archive status,
+//   Source, Archive error) sits outside it, each line shown only while it has
+//   something to say, archive errors under their short names;
 // - the PV name commits through `#pv-name` and a changed PV re-assigns the
 //   curve to its unit's axis (a re-commit of the same PV does not);
 // - Data's More shows Live retention only with Live on, and Archiver, Min/max
@@ -131,6 +133,29 @@ function makePlot(axes: Axis[], traces: PVTrace[], id = 'p1'): Plot {
 
 let liveResults = new Map<string, LiveSeriesResult>();
 let archiveResults = new Map<string, ArchiveSeriesResult>();
+
+const LIVE_ERROR = { code: 'ws_disconnected', message: 'Live connection error.' };
+
+function liveResult(patch: Partial<LiveSeriesResult>): LiveSeriesResult {
+  return {
+    status: 'connected',
+    connected: true,
+    severity: null,
+    latest: null,
+    error: null,
+    points: [],
+    breaks: [],
+    ...patch,
+  };
+}
+
+function archiveError(code: string, detail: string): ArchiveSeriesResult {
+  return { status: 'error', mean: [], band: [], error: { code, detail } };
+}
+
+function points(n: number): LiveSeriesResult['points'] {
+  return Array.from({ length: n }, (_, i) => ({ time: i * 1000, value: i, severity: 'NO_ALARM' }));
+}
 
 function fragmentInput(plot: Plot): TraceFragmentInput {
   return {
@@ -348,9 +373,14 @@ describe('PV-curve schema — shape', () => {
     ]);
     const data = pvCurveSchema.tabs.find((t) => t.id === 'data')!;
     const status = data.fields.filter((f) => f.group === 'status');
-    expect(status.map((f) => [f.id, f.kind])).toEqual([
-      ['live-status', 'readonly'],
-      ['archive-status', 'readonly'],
+    expect(status.map((f) => [f.id, f.kind, f.label])).toEqual([
+      ['data-points', 'readonly', 'Data points'],
+      ['live-status', 'readonly', 'Live status'],
+      ['live-severity', 'readonly', 'Severity'],
+      ['live-error', 'readonly', 'Live error'],
+      ['archive-status', 'readonly', 'Archive status'],
+      ['archive-source', 'readonly', 'Source'],
+      ['archive-error', 'readonly', 'Archive error'],
     ]);
   });
 
@@ -462,6 +492,163 @@ describe('PV-curve schema — Status group', () => {
     expect(archiveStatusLabel(on, { status: 'ready', mode: 'raw', decimated: true } as never)).toBe(
       'Loaded (raw) · decimated'
     );
+  });
+
+  it.each([
+    ['archiver_unavailable', 'Archiver down'],
+    ['archiver_timeout', 'Timeout'],
+    ['archiver_bad_response', 'Bad response'],
+    ['archiver_not_configured', 'No archiver'],
+    ['pv_not_found_in_archiver', 'Not archived'],
+    ['invalid_api_key', 'Auth error'],
+    ['insufficient_read_access', 'Auth error'],
+    ['network_error', 'Offline'],
+  ])('reads archive error %s as %j', (code, label) => {
+    archiveResults.set('t1', archiveError(code, 'detail'));
+    mount();
+    expect(byId('archive-status')?.textContent).toBe(label);
+  });
+
+  it('reads an unknown archive error as its code', () => {
+    archiveResults.set('t1', archiveError('pv_not_found', ''));
+    mount();
+    expect(byId('archive-status')?.textContent).toBe('pv_not_found');
+  });
+
+  it('shows the Status lines in the old panel order', () => {
+    liveResults.set('t1', liveResult({ severity: 'MINOR', error: LIVE_ERROR }));
+    archiveResults.set('t1', archiveError('archiver_unavailable', 'Appliance returned HTTP 503'));
+    mount();
+    const status = screen.getByRole('region', { name: 'Status' });
+    const lines = Array.from(status.querySelectorAll('output')).map((o) => [
+      o.id,
+      o.getAttribute('aria-label'),
+      o.textContent,
+    ]);
+    expect(lines).toEqual([
+      ['data-points', 'Data points', '0'],
+      ['live-status', 'Live status', 'Connected'],
+      ['live-severity', 'Severity', 'MINOR'],
+      ['live-error', 'Live error', 'Live connection error.'],
+      ['archive-status', 'Archive status', 'Archiver down'],
+      ['archive-error', 'Archive error', 'Appliance returned HTTP 503'],
+    ]);
+  });
+});
+
+describe('PV-curve schema — Status details', () => {
+  const lines = () =>
+    Array.from(
+      screen.getByRole('region', { name: 'Status' }).querySelectorAll<HTMLElement>('output')
+    ).map((o) => o.id);
+
+  it('Data points counts the archive buffer while Archive is on', () => {
+    liveResults.set('t1', liveResult({ points: points(5) }));
+    archiveResults.set('t1', {
+      status: 'ready',
+      mode: 'raw',
+      mean: points(3),
+      band: [],
+    } as never);
+    mount();
+    expect(byId('data-points')?.textContent).toBe('3');
+  });
+
+  it('Data points counts the live buffer with Archive off, else the curve data', () => {
+    liveResults.set('t1', liveResult({ points: points(5) }));
+    mount([makeTrace({ useArchive: false })]);
+    expect(byId('data-points')?.textContent).toBe('5');
+    cleanup();
+    mount([makeTrace({ useArchive: false, useLive: false, data: points(2) as never })]);
+    expect(byId('data-points')?.textContent).toBe('2');
+  });
+
+  it('Data points and Severity follow the result maps as they change', () => {
+    liveResults.set('t1', liveResult({ points: points(1), severity: 'NO_ALARM' }));
+    const store = mount([makeTrace({ useArchive: false })]);
+    expect(byId('data-points')?.textContent).toBe('1');
+    expect(byId('live-severity')?.textContent).toBe('NO_ALARM');
+    liveResults.set('t1', liveResult({ points: points(4), severity: 'MAJOR' }));
+    act(() => store.update((s) => ({ ...s })));
+    expect(byId('data-points')?.textContent).toBe('4');
+    expect(byId('live-severity')?.textContent).toBe('MAJOR');
+  });
+
+  it('Severity shows only while Live is on and the PV is connected', () => {
+    liveResults.set('t1', liveResult({ connected: false, severity: 'MINOR' }));
+    mount();
+    expect(byId('live-severity')).toBeNull();
+    cleanup();
+    liveResults.set('t1', liveResult({ severity: null }));
+    mount();
+    expect(byId('live-severity')).toBeNull();
+    cleanup();
+    liveResults.set('t1', liveResult({ severity: 'INVALID' }));
+    mount([makeTrace({ useLive: false })]);
+    expect(byId('live-severity')).toBeNull();
+  });
+
+  it('Live error shows the live connection error, also Hare error frames, while Live is on', () => {
+    liveResults.set(
+      't1',
+      liveResult({ status: 'disconnected', connected: false, error: LIVE_ERROR })
+    );
+    mount();
+    expect(byId('live-status')?.textContent).toBe('Disconnected');
+    expect(byId('live-error')?.textContent).toBe('Live connection error.');
+    cleanup();
+    liveResults.set(
+      't1',
+      liveResult({
+        status: 'disconnected',
+        connected: false,
+        error: { code: 'ws_terminal_close', message: 'Invalid API key' },
+      })
+    );
+    mount();
+    expect(byId('live-error')?.textContent).toBe('Invalid API key');
+    cleanup();
+    mount([makeTrace({ useLive: false })]);
+    expect(byId('live-error')).toBeNull();
+    cleanup();
+    liveResults.set('t1', liveResult({}));
+    mount();
+    expect(byId('live-error')).toBeNull();
+  });
+
+  it('Source names the archiver that answered, while Archive is on', () => {
+    archiveResults.set('t1', {
+      status: 'ready',
+      mode: 'raw',
+      mean: [],
+      band: [],
+      archiver: 'arch-a',
+    } as never);
+    mount();
+    expect(byId('archive-source')?.textContent).toBe('arch-a');
+    cleanup();
+    mount([makeTrace({ useArchive: false })]);
+    expect(byId('archive-source')).toBeNull();
+    cleanup();
+    archiveResults.set('t1', { status: 'ready', mode: 'raw', mean: [], band: [] } as never);
+    mount();
+    expect(byId('archive-source')).toBeNull();
+  });
+
+  it('Archive error shows the full detail of a failed archive only', () => {
+    archiveResults.set('t1', archiveError('archiver_timeout', 'No answer within 30 s'));
+    mount();
+    expect(byId('archive-status')?.textContent).toBe('Timeout');
+    expect(byId('archive-error')?.textContent).toBe('No answer within 30 s');
+    cleanup();
+    archiveResults.set('t1', archiveError('archiver_timeout', ''));
+    mount();
+    expect(byId('archive-error')).toBeNull();
+    cleanup();
+    archiveResults.set('t1', archiveError('archiver_timeout', 'No answer within 30 s'));
+    mount([makeTrace({ useArchive: false })]);
+    expect(byId('archive-error')).toBeNull();
+    expect(lines()).toEqual(['data-points', 'live-status', 'archive-status']);
   });
 });
 

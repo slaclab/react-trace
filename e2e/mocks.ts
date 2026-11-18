@@ -514,7 +514,7 @@ export async function mockMole(page: Page): Promise<void> {
       }
       if (resource === 'data' || resource === 'metadata') {
         if (pv !== MOLE_PV) {
-          return moleError(route, 404, 'pv_not_found', `PV '${pv}' is not archived.`);
+          return moleError(route, 404, 'pv_not_found_in_archiver', `PV '${pv}' is not archived.`);
         }
         return route.fulfill({
           json:

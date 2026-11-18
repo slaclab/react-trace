@@ -12,7 +12,11 @@
 // waiting for a value, Archive loading: pending; Live disconnected, Archive
 // error: error — and a curve with no PV yet is pending. A formula is pending
 // until evaluated and error when the evaluation failed. An error row carries
-// the source's status line as its text.
+// each failing source's line with its full detail as its text, which the dot
+// shows on hover (`../curveStatus`): "Live: Disconnected — <message>", an
+// archive error's short name ("Archiver down", "Timeout", "Bad response",
+// "Auth error", "Offline", "Not archived", "No archiver") or else
+// "Archive: <code>", then "— <detail>".
 //
 // Ops. `add(axisId, pv)` appends a curve with that PV onto that axis of the
 // active plot, coloured by its position in the palette, and resolves at once;
@@ -51,7 +55,6 @@ import { TIME_X_AXIS } from '../../annotations/catalog/xAxis';
 import { hasValueAxisIn } from '../../annotations/model';
 import { DRAWING_STAYS_REASON } from '../shared/drawingOutline';
 import { makeId } from '../../id';
-import { archiveErrorNotice } from '../../api/archiveErrors';
 import { colorForIndex } from '../../palettes';
 import type { PvSearch } from '../../pvSearch';
 import { traceLabel } from '../../traceLabel';
@@ -67,14 +70,13 @@ import type {
   ToolBinding,
 } from '../../workbench/types';
 import { sameOutline } from '../../workbench/outlineCompare';
+import { archiveRowText, liveRowText } from './curveStatus';
 import { activePlot, type TraceDotState } from './dots';
 import { removeAnnotation } from './schema/annotation';
 import { AXIS_SECTION_KIND } from './schema/axis';
 import {
   PV_CURVE_ITEM_KIND,
-  archiveStatusLabel,
   assignCurveToUnitAxis,
-  liveStatusLabel,
   patchCurve,
   plotHoldingCurve,
   UnitLookups,
@@ -249,17 +251,12 @@ export function curveRowStatus(
   if (curve.useLive) {
     const live = liveStatus(results.live);
     status = worst(status, live);
-    if (live === 'error') errors.push(`Live: ${liveStatusLabel(curve, results.live)}`);
+    if (live === 'error') errors.push(liveRowText(curve, results.live));
   }
   if (curve.useArchive) {
     const archive = archiveStatus(results.archive);
     status = worst(status, archive);
-    if (archive === 'error') {
-      errors.push(
-        archiveErrorNotice(results.archive?.error?.code) ??
-          `Archive: ${archiveStatusLabel(curve, results.archive)}`
-      );
-    }
+    if (archive === 'error') errors.push(archiveRowText(results.archive));
   }
   return errors.length > 0 ? { status, refusal: errors.join(' · ') } : { status };
 }

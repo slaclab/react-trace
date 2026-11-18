@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 //
 // The not-archived notice: when every visible curve's archive fetch came back
-// with a not-archived code (`pv_not_found`, the e2e Mole mock's 404 for an
-// unarchived PV; `archiver_not_configured`, no archiver for the PV; or
-// `pv_not_found_in_archiver`, Mole's 404 for a PV its archiver does not hold)
-// and no live data is plotted, SinglePlot lays a non-interactive overlay over
+// with a not-archived code (`archiver_not_configured`, no archiver for the
+// PV; or `pv_not_found_in_archiver`, Mole's 404 for a PV its archiver does not
+// hold) and no live data is plotted, SinglePlot lays a non-interactive overlay over
 // the chart reading "Not archived: <PV>" ("No archiver: <PV>" for
 // `archiver_not_configured`), one line per PV. Any other state
-// draws nothing.
+// draws nothing, `pv_not_found` (Squirrel's code, never sent by archive
+// routes) included.
 //
 // canopy-charts' CanopyChart is stubbed; the archive results are passed
 // straight in, so the archive store itself is not involved.
@@ -76,13 +76,13 @@ function curve(id: string, pv: string, over: Partial<PVTrace> = {}): PVTrace {
   return { ...newTrace(id, pv, AXIS.id, '#0f62fe', []), useArchive: true, ...over };
 }
 
-/** What the archive store holds after the e2e mock's 404 `pv_not_found`. */
+/** What the archive store holds after Mole's 404 for a PV its archiver does not hold. */
 function notFound(pv: string): ArchiveSeriesResult {
   return {
     status: 'error',
     mean: [],
     band: [],
-    error: { code: 'pv_not_found', detail: `PV '${pv}' is not archived.` },
+    error: { code: 'pv_not_found_in_archiver', detail: `PV '${pv}' is not archived.` },
   };
 }
 
@@ -157,14 +157,14 @@ const notice = () => screen.queryByTestId('archive-empty-notice');
 afterEach(cleanup);
 
 describe('empty-archive notice', () => {
-  it('shows "Not archived: <PV>" when the only curve is pv_not_found', () => {
+  it('shows "Not archived: <PV>" when the only curve is not archived', () => {
     renderPlot([curve('t1', PV_A)], [['t1', notFound(PV_A)]]);
     const el = notice();
     expect(el).not.toBeNull();
     expect(el?.textContent).toBe(`Not archived: ${PV_A}`);
   });
 
-  it('lists one line per PV when every curve is pv_not_found', () => {
+  it('lists one line per PV when every curve is not archived', () => {
     renderPlot(
       [curve('t1', PV_A), curve('t2', PV_B)],
       [
@@ -184,7 +184,7 @@ describe('empty-archive notice', () => {
     expect(notice()?.textContent).toBe(`No archiver: ${PV_A}`);
   });
 
-  it('lists every PV when curves mix pv_not_found and archiver_not_configured', () => {
+  it('lists every PV when curves mix not archived and archiver_not_configured', () => {
     renderPlot(
       [curve('t1', PV_A), curve('t2', PV_B)],
       [
@@ -204,21 +204,21 @@ describe('empty-archive notice', () => {
     expect(notice()?.textContent).toBe(`Not archived: ${PV_A}`);
   });
 
-  it('lists every PV when curves mix all three empty-archive codes', () => {
+  it('draws nothing for pv_not_found, which is not an archive code', () => {
+    const squirrel: ArchiveSeriesResult = {
+      status: 'error',
+      mean: [],
+      band: [],
+      error: { code: 'pv_not_found', detail: `PV '${PV_C}' is not archived.` },
+    };
     renderPlot(
-      [curve('t1', PV_A), curve('t2', PV_B), curve('t3', PV_C)],
+      [curve('t1', PV_A), curve('t3', PV_C)],
       [
         ['t1', notInArchiver(PV_A)],
-        ['t2', notConfigured(PV_B)],
-        ['t3', notFound(PV_C)],
+        ['t3', squirrel],
       ]
     );
-    const lines = Array.from(notice()?.children ?? []);
-    expect(lines.map((l) => l.textContent)).toEqual([
-      `Not archived: ${PV_A}`,
-      `No archiver: ${PV_B}`,
-      `Not archived: ${PV_C}`,
-    ]);
+    expect(notice()).toBeNull();
   });
 
   it('draws nothing for pv_not_found_in_archiver when live data is plotted', () => {

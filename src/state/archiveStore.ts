@@ -1,4 +1,4 @@
-import { archiveErrorNotice } from '../api/archiveErrors';
+import { archiveErrorNotice, archiveRetry } from '../api/archiveErrors';
 import { fetchData as defaultFetchData } from '../api/mole';
 import type { AlarmSeverity, ArchiverDataDTO, BinnedPointDTO, SampleDTO } from '../api/types';
 import type { TimeWindowNs } from '../api/time';
@@ -60,6 +60,9 @@ export { archiveErrorInfo, type ArchiveErrorInfo };
 // Mole's code for "the archiver doesn't have this PV". With the other codes of
 // `NOT_ARCHIVED_CODES` it's a property of the (pv, archiver) pair, not of the
 // time window, so it's remembered rather than retried as the window moves.
+// It is asked again once when the span changes; `archiver_not_configured` is
+// not (`archiveRetry` in api/archiveErrors.ts). Either is asked again for
+// another archiver (another pair) and after `refetchAll()`.
 export const NOT_ARCHIVED_CODE = 'pv_not_found_in_archiver';
 
 // Every other failure (5xx, timeout, network, auth, ...) is retried on the
@@ -591,10 +594,12 @@ export class ArchiveStore {
    * - Identity change (pv/archiver) wipes the buffer — different signal, nothing
    *   to keep showing.
    * - The archiver doesn't have this (pv, archiver): no fetch, whatever the
-   *   window does. Asked again once when the span changes (a new time range or
-   *   a zoom), or after `refetchAll()` / `forgetNotArchived()`. If asking
-   *   again fails some other way (a 503, a timeout), it backs off and retries
-   *   until the archiver answers.
+   *   window does. `pv_not_found_in_archiver` is asked again once when the
+   *   span changes (a new time range or a zoom); `archiver_not_configured`,
+   *   which only a Canopy restart changes, is not. Both are asked again after
+   *   `refetchAll()` / `forgetNotArchived()`. If asking again fails some other
+   *   way (a 503, a timeout), it backs off and retries until the archiver
+   *   answers.
    * - Same identity, same fetch signature, buffer already covers the window:
    *   free render, no fetch. A window tracking "now" counts as covered until
    *   it's DRIFT_MIN_INTERVAL_MS (or 1% of the span, if longer) ahead. A zoom
@@ -650,7 +655,9 @@ export class ArchiveStore {
       if (known) {
         if (failure?.notArchived) {
           // Sticky: window drift, bins and raw/binned flips don't change the
-          // verdict. A new span does: fall through and ask once more.
+          // verdict. A new span does, unless the code is never asked again:
+          // fall through and ask once more.
+          if (archiveRetry(failure.code) === 'never') return;
           if (!spanChanged(failure.spanNs, opts.window)) return;
         } else if (existing.controller) {
           // A fetch is in flight; its answer settles it.

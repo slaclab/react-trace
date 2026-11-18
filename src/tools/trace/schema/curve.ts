@@ -8,11 +8,13 @@
 //           Markers (`#show-symbols`) · Marker · Marker size (L1; Marker and
 //           Marker size only while Markers is on) · Extend to now · Alarm
 //           colouring (L2)
-//   Data    Live · Archive; Status (read-only, outside the budget) Live status
-//           · Archive status; (L2) actions Inspect data · Create formula from
-//           this curve; More (L3): Live
-//           retention only while Live is on; Archiver, Min/max band, Optimized
-//           bins only while Archive is on
+//   Data    Live · Archive; Status (read-only, outside the budget) Data
+//           points · Live status · Severity · Live error · Archive status ·
+//           Source · Archive error (Severity, the error lines and Source only
+//           while they have something to say; wording in `../curveStatus`);
+//           (L2) actions Inspect data · Create formula from this curve; More
+//           (L3): Live retention only while Live is on; Archiver, Min/max
+//           band, Optimized bins only while Archive is on
 //
 // Update rate is struck: no field, and `plot=` and the .trc conversion
 // do not write it.
@@ -30,11 +32,8 @@ import { canopyConnection } from '../../../api/connection';
 import { ArchiverPicker } from '../../../components/ArchiverPicker';
 import { LINE_STYLE_OPTIONS, LINE_TYPE_OPTIONS, SYMBOL_OPTIONS } from '../../../curveStyle';
 import { unitAxis } from '../../../embed/plotConfig';
-import type { ArchiveSeriesResult } from '../../../hooks/useArchiveSeries';
 import { DEFAULT_OPTIMIZED_BINS } from '../../../hooks/useArchiveSeries';
-import type { LiveSeriesResult } from '../../../hooks/useLiveSeries';
 import { makeId } from '../../../id';
-import { archiveErrorNotice } from '../../../api/archiveErrors';
 import { LIVE_RETENTION_MAX_S } from '../../../state/liveStore';
 import type { Plot, PVTrace } from '../../../types';
 import type {
@@ -46,6 +45,15 @@ import type {
   ToolUi,
 } from '../../../workbench/types';
 import { CARD_BLOCKS, LABELS } from '../../vocabulary';
+import {
+  archiveErrorText,
+  archiveSourceText,
+  archiveStatusLabel,
+  dataPointCount,
+  liveErrorText,
+  liveSeverityText,
+  liveStatusLabel,
+} from '../curveStatus';
 import { curveColourDot, curveOptional, type TraceDotModel, type TraceDotState } from '../dots';
 import { PvNameControl } from '../fields/pvName';
 import type { TracePlotModel } from './plot';
@@ -198,33 +206,8 @@ export function assignCurveToUnitAxis<S extends TraceDotState>(
 
 // ------------------------------------------------------------------ status --
 
-/** The Live status line (today's Properties panel wording). */
-export function liveStatusLabel(
-  trace: Pick<PVTrace, 'useLive'>,
-  result: Pick<LiveSeriesResult, 'status' | 'connected'> | undefined
-): string {
-  if (!trace.useLive) return 'Disabled';
-  const status = result?.status ?? 'idle';
-  if (status === 'connecting') return 'Connecting…';
-  if (status === 'connected') return result?.connected ? 'Connected' : 'Waiting for value';
-  return 'Disconnected';
-}
-
-/** The Archive status line (today's Properties panel wording). */
-export function archiveStatusLabel(
-  trace: Pick<PVTrace, 'useArchive'>,
-  result: Pick<ArchiveSeriesResult, 'status' | 'mode' | 'decimated' | 'error'> | undefined
-): string {
-  if (!trace.useArchive) return 'Disabled';
-  if (!result || result.status === 'idle') return 'Idle';
-  if (result.status === 'loading') return 'Loading…';
-  if (result.status === 'error') {
-    // The PV is known (it may well be live); only the archiver lacks it.
-    return archiveErrorNotice(result.error?.code) ?? result.error?.code ?? 'Error';
-  }
-  const mode = result.mode === 'binned' ? ' (binned)' : ' (raw)';
-  return `Loaded${mode}${result.decimated ? ' · decimated' : ''}`;
-}
+// The Live and Archive status lines; their wording lives in `../curveStatus`.
+export { archiveStatusLabel, liveStatusLabel };
 
 // ---------------------------------------------------------- shared fields --
 
@@ -466,6 +449,29 @@ export function createPvCurveSchema<
     const plot = plotHoldingCurve(ctx.state, ctx.target.id);
     return plot ? ctx.model.fragmentInput(plot) : undefined;
   };
+  const liveOf = (ctx: C) => results(ctx)?.liveResults.get(ctx.target.id);
+  const archiveOf = (ctx: C) => results(ctx)?.archiveResults.get(ctx.target.id);
+  // A Status line that is shown only while `text` has something to say.
+  const statusLine = (
+    id: string,
+    label: string,
+    text: (trace: PVTrace, ctx: C) => string | undefined
+  ): Field => ({
+    id,
+    label,
+    kind: 'readonly',
+    tab: CURVE_TABS.data,
+    level: 'L1',
+    group: 'status',
+    when: (ctx) => {
+      const trace = curve(ctx);
+      return trace !== undefined && text(trace, ctx) !== undefined;
+    },
+    get: (ctx) => {
+      const trace = curve(ctx);
+      return (trace && text(trace, ctx)) ?? '';
+    },
+  });
 
   // One unit lookup in flight per curve: a newer PV aborts the older lookup,
   // so a stale answer never lands after the newer one. The owner's registry
@@ -553,30 +559,21 @@ export function createPvCurveSchema<
       get: (ctx) => curve(ctx)?.useArchive ?? false,
       set: (ctx, useArchive) => patch(ctx, { useArchive }),
     },
-    {
-      id: 'live-status',
-      label: 'Live status',
-      kind: 'readonly',
-      tab: CURVE_TABS.data,
-      level: 'L1',
-      group: 'status',
-      get: (ctx) => {
-        const trace = curve(ctx);
-        return trace ? liveStatusLabel(trace, results(ctx)?.liveResults.get(trace.id)) : '';
-      },
-    },
-    {
-      id: 'archive-status',
-      label: 'Archive status',
-      kind: 'readonly',
-      tab: CURVE_TABS.data,
-      level: 'L1',
-      group: 'status',
-      get: (ctx) => {
-        const trace = curve(ctx);
-        return trace ? archiveStatusLabel(trace, results(ctx)?.archiveResults.get(trace.id)) : '';
-      },
-    },
+    statusLine('data-points', 'Data points', (trace, ctx) =>
+      String(dataPointCount(trace, liveOf(ctx), archiveOf(ctx)))
+    ),
+    statusLine('live-status', 'Live status', (trace, ctx) => liveStatusLabel(trace, liveOf(ctx))),
+    statusLine('live-severity', 'Severity', (trace, ctx) => liveSeverityText(trace, liveOf(ctx))),
+    statusLine('live-error', 'Live error', (trace, ctx) => liveErrorText(trace, liveOf(ctx))),
+    statusLine('archive-status', 'Archive status', (trace, ctx) =>
+      archiveStatusLabel(trace, archiveOf(ctx))
+    ),
+    statusLine('archive-source', 'Source', (trace, ctx) =>
+      archiveSourceText(trace, archiveOf(ctx))
+    ),
+    statusLine('archive-error', 'Archive error', (trace, ctx) =>
+      archiveErrorText(trace, archiveOf(ctx))
+    ),
     {
       id: 'inspect-data',
       label: 'Inspect data',
