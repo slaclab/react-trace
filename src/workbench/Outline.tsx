@@ -737,7 +737,8 @@ export function Outline<S, M, U extends ToolUi = ToolUi>(props: OutlineProps<S, 
   );
   // Remove unmounts the card that holds focus: once it is gone, focus goes
   // to the next card head, else the previous one, else into its section
-  // (the add row first). Only when focus was in the card and was dropped.
+  // (the add row first), else into the Outline. Only when focus was in the
+  // card and was dropped.
   const rootRef = useRef<HTMLDivElement>(null);
   const refocus = useRef<RemovedCard | null>(null);
   const onRemove = useCallback(
@@ -774,7 +775,9 @@ export function Outline<S, M, U extends ToolUi = ToolUi>(props: OutlineProps<S, 
       byAttr(root, 'data-row-id', pending.next) ??
       byAttr(root, 'data-row-id', pending.prev) ??
       firstFocusable(section?.querySelector('.wb-outline-add') ?? null) ??
-      firstFocusable(section);
+      firstFocusable(section) ??
+      // The section went with its last card (Trace's Drawings).
+      firstFocusable(root);
     target?.focus();
   });
   const add = useCallback(

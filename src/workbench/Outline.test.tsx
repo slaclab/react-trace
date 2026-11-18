@@ -759,3 +759,27 @@ describe('focus after remove', () => {
     expect(document.activeElement).toBe(document.body);
   });
 });
+
+describe('focus after remove, when the section goes too', () => {
+  /** A tool whose outline drops a section once it has no rows. */
+  const dropsEmpty = (tool: StubTool): StubDefinition => ({
+    ...tool.definition,
+    binding: {
+      ...tool.definition.binding,
+      outline: (state, model) => {
+        const outline = tool.definition.binding.outline(state, model);
+        return { ...outline, sections: outline.sections.filter((s) => s.rows.length > 0) };
+      },
+    },
+  });
+
+  it('stays in the Outline', () => {
+    mount({ definition: dropsEmpty });
+    const remove = within(rowEl('c')).getByRole('button', { name: 'Remove STUB:C' });
+    remove.focus();
+    fireEvent.click(remove);
+    expect(sectionEl('locked')).toBeNull();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.querySelector('.wb-outline')!.contains(document.activeElement)).toBe(true);
+  });
+});
