@@ -14,6 +14,7 @@ import {
   defaultFiles,
   isLiteral,
   keyOf,
+  kindOf,
   parseAllow,
   scan,
   stripComments,
@@ -393,5 +394,192 @@ describe('command line', () => {
     const result = cli(path.join(ROOT, 'scripts', 'chrome-literals.allow'));
     expect(result.status).toBe(0);
     expect(result.stdout).toBe('0 exempt\n');
+  });
+});
+
+// Ordinary TypeScript and CSS must not be mistaken for a style literal; a real
+// one must still be found. `scan` is given the syntax of the file, as `check`
+// does from its extension.
+const lit = (text: string, kind: string, fontSize = false) =>
+  scan(text, { kind, fontSize }).hits.map((hit: { line: number }) => hit.line);
+
+describe('kindOf', () => {
+  it('reads the syntax from the extension', () => {
+    expect(kindOf('a/App.css')).toBe('css');
+    expect(kindOf('a/Panel.tsx')).toBe('tsx');
+    expect(kindOf('a/Panel.jsx')).toBe('tsx');
+    expect(kindOf('a/model.ts')).toBe('ts');
+    expect(kindOf('a/script.mjs')).toBe('ts');
+    expect(kindOf('scripts/chrome-literals.allow')).toBeUndefined();
+  });
+});
+
+describe('TypeScript: only string literals and style objects are scanned', () => {
+  it.each([
+    ['a type annotation', 'interface X { font: string; fontFamily: string }'],
+    ['a font size type', 'interface X { fontSize: number }'],
+    ['a ternary', 'const f = bold ? font : other;'],
+    ['a chart option number', 'const o = { textStyle: { fontSize: 12 } };'],
+    ['an object key named like a font', "const label = { fontSize: 'inherit' };"],
+    ['a string that only names a property', "const label = 'fontSize: 12';"],
+    ['a fragment link', 'const a = <a href="#a11">top</a>;'],
+    ['an aria reference', 'const a = <div aria-controls="#feed" id="#abc" />;'],
+    ['a selector lookup', "document.querySelector('#abc');"],
+    ['a selector list', "el.closest('#add, #bad');"],
+    ['an element lookup', "document.getElementById('#fade');"],
+    ['an id selector in matches', "el.matches('#dad');"],
+    ['a private field', 'class A { #bad = 1; get() { return this.#bad; } }'],
+    ['an issue number in an error', "throw new Error('see issue #123');"],
+    ['an issue number in prose', "const note = 'see issue #123 for details';"],
+    ['a hex-like object key', "const m = { '#fed': 1 };"],
+    ['a hex-like lookup key', "const v = m['#fed'];"],
+    ['a string literal type', "type Id = '#abc' | '#fed';"],
+    ['an import path', "import x from './pages/#abc';"],
+    ['a character entity', 'const s = <span>&#160;</span>;'],
+    ['a console message', "console.warn('colour #fff is not allowed');"],
+    ['JSX text', 'const p = <p>use #fff or #000</p>;'],
+  ])('passes %s', (_name, code) => {
+    expect(lit(code, 'tsx', true)).toEqual([]);
+  });
+
+  it('ignores a comment after an apostrophe in JSX text', () => {
+    expect(lit("const p = <p>Don't</p>; /* was #fff */\n", 'tsx')).toEqual([]);
+  });
+
+  it('ignores a comment after a backtick inside a regular expression', () => {
+    expect(lit('const r = /`/;\n// colour was #fff\nconst z = 1;\n', 'ts')).toEqual([]);
+  });
+
+  it('ignores a hex colour in a comment', () => {
+    expect(lit('// #fff\n/* #000 */\nconst a = 1;\n', 'ts')).toEqual([]);
+  });
+
+  it.each([
+    ['a colour string', "const c = '#ff0000';"],
+    ['a colour key', "const o = { color: '#fff' };"],
+    ['a JSX colour attribute', 'const a = <rect fill="#fff" />;'],
+    ['a style object', "const a = <i style={{ borderColor: '#da1e28' }} />;"],
+    ['a colour in a value', "const o = { border: '1px solid #525252' };"],
+    ['a colour inside a template', 'const o = `1px solid #525252 ${x}`;'],
+    ['a var fallback', "const o = { color: 'var(--cds-layer, #262626)' };"],
+    ['a colour in a JSON string', 'const j = \'{"color":"#fff"}\';'],
+    ['a CSS declaration in a string', "const css = 'color: #fff; margin: 0';"],
+    ['a font family', "const o = { fontFamily: 'IBM Plex Sans' };"],
+    ['a font shorthand', "const o = { font: '12px sans-serif' };"],
+    ['a font family in a CSS string', "const css = 'font-family: Arial';"],
+  ])('flags %s', (_name, code) => {
+    expect(lit(code, 'tsx')).toEqual([1]);
+  });
+
+  it('flags a font size or font family that is not a contract value, in a style object', () => {
+    expect(lit('const a = <i style={{ fontSize: 12 }} />;', 'tsx', true)).toEqual([1]);
+    expect(lit('const a = <i style={{ fontFamily: FONT }} />;', 'tsx')).toEqual([1]);
+    expect(lit("const o = { fontSize: '12px' };", 'ts', true)).toEqual([1]);
+    expect(lit("const o = { fontSize: '12px' };", 'ts')).toEqual([]);
+  });
+
+  it('passes the contract fonts and sizes, and inherit', () => {
+    const code = [
+      "const a = <i style={{ fontFamily: 'var(--canopy-font-mono)', fontSize: 'var(--canopy-text-sm)' }} />;",
+      "const b = { font: 'inherit', fontFamily: `var(--canopy-font-sans), ${x}` };",
+    ].join('\n');
+    expect(lit(code, 'tsx', true)).toEqual([]);
+  });
+
+  it('reports the line of a literal inside a multi-line template', () => {
+    expect(lit('const css = `\n  a {\n    color: #fff;\n  }\n`;\n', 'ts')).toEqual([3]);
+  });
+
+  it('honours the marker on the line before', () => {
+    const code = "// canopy-allow-literal: Carbon danger pair\nconst c = '#da1e28';\n";
+    expect(scan(code, { kind: 'ts' })).toEqual({
+      hits: [],
+      exempt: [{ line: 2, reason: 'Carbon danger pair' }],
+    });
+  });
+});
+
+describe('CSS: only declaration values are scanned', () => {
+  it.each([
+    ['an id selector', '#feed {\n  margin: 0;\n}\n'],
+    ['an id selector with a pseudo-class', 'a#add:hover,\n#bad > .x {\n  margin: 0;\n}\n'],
+    ['a fragment reference', '.m {\n  mask: url(#fade);\n  filter: url(#dad);\n}\n'],
+    ['a quoted string', '.m::after {\n  content: "#fed";\n}\n'],
+    ['a contract colour', '.m {\n  color: var(--canopy-text-primary);\n}\n'],
+  ])('passes %s', (_name, css) => {
+    expect(lit(css, 'css')).toEqual([]);
+  });
+
+  it('flags a hex colour in a declaration, and in a one-line rule', () => {
+    expect(lit('.a {\n  color: #da1e28;\n}\n', 'css')).toEqual([2]);
+    expect(lit('#feed { color: #fff }\n', 'css')).toEqual([1]);
+    expect(lit('.a {\n  --accent: #0f62fe;\n}\n', 'css')).toEqual([2]);
+  });
+
+  it('flags a hex colour fallback and a value that spans lines', () => {
+    expect(lit('.a {\n  color: var(--cds-text, #262626);\n}\n', 'css')).toEqual([2]);
+    expect(
+      lit('.a {\n  box-shadow:\n    0 0 1px var(--x),\n    0 0 2px #000;\n}\n', 'css')
+    ).toEqual([4]);
+  });
+
+  it('flags a non-contract font, and a font size only where it is gated', () => {
+    expect(lit('.a {\n  font-family: Arial;\n}\n', 'css')).toEqual([2]);
+    expect(lit('.a {\n  font-size: 12px;\n}\n', 'css')).toEqual([]);
+    expect(lit('.a {\n  font-size: 12px;\n}\n', 'css', true)).toEqual([2]);
+    expect(
+      lit('.a {\n  font: inherit;\n  font-family: var(--canopy-font-mono);\n}\n', 'css', true)
+    ).toEqual([]);
+  });
+
+  it('ignores a comment', () => {
+    expect(lit('/* color: #fff */\n.a { margin: 0; } /* #000 */\n', 'css')).toEqual([]);
+  });
+});
+
+describe('check reads the syntax from the extension', () => {
+  const files: Record<string, string> = {
+    'Link.tsx': 'export const A = () => <a href="#a11">top</a>;\n',
+    'Dot.tsx': "export const c = '#ff0000';\n",
+    'ids.css': '#feed {\n  margin: 0;\n}\n',
+  };
+  const go = (name: string) =>
+    check([fixture(name)], {
+      full: false,
+      allowText: '',
+      read: (file: string) => files[path.basename(file)],
+    });
+
+  it('passes a fragment link and an id selector', () => {
+    expect(go('Link.tsx').errors).toEqual([]);
+    expect(go('ids.css').errors).toEqual([]);
+  });
+
+  it('fails a colour string', () => {
+    expect(go('Dot.tsx').errors).toEqual(["fixtures/Dot.tsx:1: export const c = '#ff0000';"]);
+  });
+});
+
+describe('command line, by file type', () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'chrome-literals-cli-'));
+    writeFileSync(path.join(dir, 'ok.tsx'), 'export const A = () => <a href="#a11">top</a>;\n');
+    writeFileSync(path.join(dir, 'bad.tsx'), "export const c = '#ff0000';\n");
+    writeFileSync(path.join(dir, 'ids.css'), '#feed {\n  margin: 0;\n}\n');
+    writeFileSync(path.join(dir, 'bad.css'), '.a {\n  color: #da1e28;\n}\n');
+  });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const cli = (name: string) =>
+    spawnSync(process.execPath, [SCRIPT, path.join(dir, name)], { encoding: 'utf8', cwd: '/' });
+
+  it('exits 0 for an id fragment and an id selector', () => {
+    expect(cli('ok.tsx').status).toBe(0);
+    expect(cli('ids.css').status).toBe(0);
+  });
+
+  it('exits 1 for a hex colour in a string and in a declaration', () => {
+    expect(cli('bad.tsx').status).toBe(1);
+    expect(cli('bad.css').status).toBe(1);
   });
 });
