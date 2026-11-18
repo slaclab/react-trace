@@ -24,6 +24,14 @@
 //
 // Pause is client-side: nothing is sent. Frames keep arriving and the newest
 // is kept; the drawn frame stays frozen and Resume shows the newest at once.
+//
+// Back-pressure: every result is a whole table, so frames are coalesced before
+// the plot sees them. The first frame of a window is handed over at once; the
+// frames after it only replace the pending one, and the newest is handed over
+// when the window closes — the next animation frame, or no sooner than
+// LARGE_FRAME_INTERVAL_MS for a frame of LARGE_FRAME_ROWS rows or more (near
+// the 10,000-row cap one draw costs more than an animation frame). Health
+// sees every arrival at once.
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
@@ -64,6 +72,31 @@ export const SPEC_DEBOUNCE_MS = 300;
 export const HIDDEN_LONG_MS = 10_000;
 /** The health line is re-evaluated this often. */
 export const HEALTH_TICK_MS = 1000;
+/** A frame this many rows or larger keeps the next hand-over at least LARGE_FRAME_INTERVAL_MS away. */
+export const LARGE_FRAME_ROWS = 2000;
+export const LARGE_FRAME_INTERVAL_MS = 250;
+
+/**
+ * Calls `flush` once, on the first animation frame at least `delayMs` from
+ * now; returns its cancel.
+ */
+export type FrameScheduler = (flush: () => void, delayMs: number) => () => void;
+
+/** `requestAnimationFrame` after `delayMs`; a 16 ms timer where there is no animation frame. */
+export const animationFrameScheduler: FrameScheduler = (flush, delayMs) => {
+  let frame: number | undefined;
+  const nextFrame = () => {
+    if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(flush);
+    else timer = setTimeout(flush, 16);
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined =
+    delayMs > 0 ? setTimeout(nextFrame, delayMs) : undefined;
+  if (delayMs <= 0) nextFrame();
+  return () => {
+    if (timer !== undefined) clearTimeout(timer);
+    if (frame !== undefined) cancelAnimationFrame(frame);
+  };
+};
 
 /** What the controller needs of the SDK `FormulaEngineService`. */
 export interface FormulaEngineTableService {
@@ -121,11 +154,18 @@ export class TableController {
   private current: TableSpec | null = null;
   private latest: PlotFrame | null = null;
   private shown: PlotFrame | null = null;
+  /** Cancels the open coalescing window; null while none is open. */
+  private window: (() => void) | null = null;
+  /** A frame newer than `shown` waits for the window to close. */
+  private pendingFrame = false;
   private paused = false;
   private snapshot: TableSnapshot;
   private readonly listeners = new Set<() => void>();
 
-  constructor() {
+  private readonly schedule: FrameScheduler;
+
+  constructor(schedule: FrameScheduler = animationFrameScheduler) {
+    this.schedule = schedule;
     this.snapshot = this.build();
   }
 
@@ -160,6 +200,9 @@ export class TableController {
     if (this.timer !== undefined) clearTimeout(this.timer);
     this.timer = undefined;
     this.queued = null;
+    this.window?.();
+    this.window = null;
+    this.pendingFrame = false;
     this.detach();
   }
 
@@ -254,8 +297,25 @@ export class TableController {
     this.dispatch({ type: 'result', id, table, now: Date.now() });
     const spec = this.current;
     this.latest = { id, table, columnPvs: spec?.columnPvs ?? {} };
-    if (!this.paused) this.shown = this.latest;
+    if (this.window === null) this.handOver();
+    else this.pendingFrame = true;
     this.emit();
+  }
+
+  // Show the newest frame (unless paused) and open a coalescing window.
+  private handOver(): void {
+    this.pendingFrame = false;
+    if (!this.paused) this.shown = this.latest;
+    const rows = this.latest?.table.tsNs.length ?? 0;
+    this.window = this.schedule(
+      () => {
+        this.window = null;
+        if (!this.pendingFrame) return;
+        this.handOver();
+        this.emit();
+      },
+      rows >= LARGE_FRAME_ROWS ? LARGE_FRAME_INTERVAL_MS : 0
+    );
   }
 
   private onError(id: number, error: FormulaEngineError): void {
