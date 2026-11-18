@@ -4,7 +4,10 @@
 // external font CDN (IBM's s81c.com, which the precompiled Carbon CSS uses,
 // or Google Fonts). Every @font-face must also declare `font-display: swap`,
 // so text shows in a fallback font while IBM Plex loads instead of staying
-// invisible. Run after `vite build`; exits non-zero on any problem.
+// invisible. No .woff file may ship either: every browser and WebView Trace
+// targets loads woff2, so a .woff fallback is dead weight in the container
+// image and the Tauri bundle. Run after `vite build`; exits non-zero on any
+// problem.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -25,6 +28,11 @@ export function findFontFaces(css) {
 /** The @font-face blocks in `css` that do not declare `font-display: swap`. */
 export function facesWithoutSwap(css) {
   return findFontFaces(css).filter((face) => !/font-display\s*:\s*swap\b/.test(face));
+}
+
+/** The paths in `paths` that are `.woff` fonts (`.woff2` is fine). */
+export function findWoffFiles(paths) {
+  return paths.filter((path) => /\.woff$/i.test(path));
 }
 
 function* walk(dir) {
@@ -74,6 +82,12 @@ function main() {
   // would then pass without checking anything.
   if (faces === 0) {
     console.error('check-dist: no @font-face rules in the built CSS; IBM Plex is not self-hosted');
+    failed = true;
+  }
+  const woff = findWoffFiles(files.map((file) => relative(distDir, file)));
+  if (woff.length > 0) {
+    console.error('check-dist: .woff fonts in the build output (woff2 only is expected):');
+    for (const path of woff) console.error(`  ${path}`);
     failed = true;
   }
   if (noSwap.length > 0) {

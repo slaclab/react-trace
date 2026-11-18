@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { FORBIDDEN, facesWithoutSwap, findFontFaces, findHits } from './check-dist.mjs';
+import {
+  FORBIDDEN,
+  facesWithoutSwap,
+  findFontFaces,
+  findHits,
+  findWoffFiles,
+} from './check-dist.mjs';
 
 describe('FORBIDDEN', () => {
   it('lists the IBM and Google font hosts', () => {
@@ -72,5 +78,22 @@ describe('facesWithoutSwap', () => {
     expect(facesWithoutSwap(SWAP_FACE.replace('font-display:swap', 'font-display: swap'))).toEqual(
       []
     );
+  });
+});
+
+describe('findWoffFiles', () => {
+  it('flags .woff fonts and keeps .woff2', () => {
+    expect(
+      findWoffFiles([
+        'assets/IBMPlexSans-Regular-Latin1.woff2',
+        'assets/IBMPlexSans-Regular.woff',
+        'assets/IBMPlexMono-Italic.WOFF',
+        'assets/index.css',
+      ])
+    ).toEqual(['assets/IBMPlexSans-Regular.woff', 'assets/IBMPlexMono-Italic.WOFF']);
+  });
+
+  it('returns nothing for a woff2-only build', () => {
+    expect(findWoffFiles(['index.html', 'assets/IBMPlexSans-Light-Pi.woff2'])).toEqual([]);
   });
 });
