@@ -12,7 +12,8 @@
 //               Y axes follow as the axis sections' sub-blocks
 //   Display     Title (stamped dot) · Legend · Live value in legend · X/Y
 //               gridlines · Crosshair · Data tooltip (L1); Mouse drag ·
-//               Status line · Pin data window (L2); More: Grid style ·
+//               Status line · Pin data window (L2); More: Drawing tools ·
+//               Drawings (session: the plot's hide-all) · Grid style ·
 //               Grid opacity · Tick font size · Background colour · Palette
 //               (custom, `plot.palette`)
 //   Statistics  Show statistics · Metrics · Reset metrics — the shared fields
@@ -82,6 +83,12 @@ export function withPaletteColours(plot: Plot): Plot {
     return { ...t, color };
   });
   return changed ? { ...plot, traces } : plot;
+}
+
+/** The slice of Trace's `ui` record the Drawings toggle reads (structurally `TraceUi`). */
+interface HiddenUi {
+  annotationsHidden?: ReadonlySet<string>;
+  setAnnotationsHidden?(plotId: string, on: boolean): void;
 }
 
 /** What the plot schema reads from Trace's model: the palette and the chart source's input. */
@@ -347,6 +354,37 @@ export function createPlotSchema<
       get: (ctx) => read(ctx, (p) => p.pinDataWindow === true, false),
       set: (ctx, on) => patch(ctx, { pinDataWindow: on ? true : undefined }),
       ...plotOptional<S, M, U>('pinDataWindow'),
+    },
+    {
+      // ✚ The drawing rail and its arm keys. On by default, so only "off"
+      // (false) is stored; turning it back on clears the key. Saved in
+      // `.trc.json` and the config store, not in the link's `plot=`.
+      id: 'show-drawing-tools',
+      label: LABELS.drawingTools,
+      kind: 'toggle',
+      tab: PLOT_TABS.display,
+      level: 'L3',
+      get: (ctx) => read(ctx, (p) => p.showDrawingTools !== false, true),
+      set: (ctx, on) => patch(ctx, { showDrawingTools: on ? undefined : false }),
+      ...plotOptional<S, M, U>('showDrawingTools'),
+    },
+    {
+      // The plot's drawings shown: the rail's hide-all and the Drawings
+      // section's eye, on the tool's `ui` record (session only, never saved).
+      id: 'show-drawings',
+      label: LABELS.drawings,
+      kind: 'toggle',
+      tab: PLOT_TABS.display,
+      level: 'L3',
+      get: (ctx) => {
+        const plotId = boundPlot(ctx.state, ctx.target)?.id;
+        if (plotId === undefined) return true;
+        return !((ctx.ui as HiddenUi).annotationsHidden?.has(plotId) ?? false);
+      },
+      set: (ctx, on) => {
+        const plotId = boundPlot(ctx.state, ctx.target)?.id;
+        if (plotId !== undefined) (ctx.ui as HiddenUi).setAnnotationsHidden?.(plotId, !on);
+      },
     },
     {
       id: 'grid-style',

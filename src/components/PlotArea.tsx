@@ -603,6 +603,7 @@ export function SinglePlot({
     axes: visibleAxes,
     theme,
     chart: liveChart,
+    toolsOff: plot.showDrawingTools === false,
   });
   const { cursorStore } = host;
   // The cursor's time while it is inside the plot: "Copy value at cursor"
@@ -1275,8 +1276,9 @@ export function SinglePlot({
           onUpdateAxis={onUpdateAxis}
         />
         {/* The rail mounts only with a writer; without a prefs writer its
-            tools stay disabled and only hide-all is live. */}
-        {onAnnotationPrefs ? (
+            tools stay disabled and only hide-all is live. Display › Drawing
+            tools off mounts neither. */}
+        {plot.showDrawingTools === false ? null : onAnnotationPrefs ? (
           <DrawingRailFor
             host={host}
             focusRoot={focusPlotRoot}

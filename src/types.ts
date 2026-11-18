@@ -115,6 +115,10 @@ export interface Plot {
   // The hover read-out (the chart tooltip). On when undefined; only "off"
   // (false) is stored.
   showTooltip?: boolean;
+  // ✚ Drawing tools: the drawing rail and its arm keys. On when undefined;
+  // only "off" (false) is stored. Off leaves the plot's drawings drawn and
+  // editable from their cards and menus.
+  showDrawingTools?: boolean;
   // What a left-drag in the plot area does. Pan when undefined; only "zoom"
   // is stored.
   dragMode?: DragMode;

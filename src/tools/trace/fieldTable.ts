@@ -46,6 +46,7 @@ const drawing = (slot: DrawingSlot): FieldClass => ({ class: 'drawing', slot });
 const SESSION_STATE = 'session state: not serialized, every opening tracks now';
 const FILE_ONLY = 'file-only in .trc.json';
 const NO_SETTING = 'holds no setting';
+const HIDE_ALL = "session state: the plot's hide-all, never serialized";
 
 /** Every Trace schema field id → what it rides in. Keyed by id: shared fields appear once. */
 export const TRACE_FIELD_TABLE: Readonly<Record<string, FieldClass>> = {
@@ -63,6 +64,10 @@ export const TRACE_FIELD_TABLE: Readonly<Record<string, FieldClass>> = {
   'show-status-line': plot('plot', 'showStatusLine'),
   'show-tooltip': plot('plot', 'showTooltip'),
   'drag-mode': plot('plot', 'dragMode'),
+  // Not in `plot=`: the table's round trip pins every CHECKS key in its
+  // fixture, so the key rides `.trc.json` and the config store only.
+  'show-drawing-tools': session(FILE_ONLY),
+  'show-drawings': session(HIDE_ALL),
   'show-x-gridlines': plot('plot', 'showXGridlines'),
   'show-y-gridlines': plot('plot', 'showYGridlines'),
   'grid-style': plot('plot', 'gridStyle'),

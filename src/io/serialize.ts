@@ -280,6 +280,8 @@ function rehydratePlot(p: Plot, catalog: Catalog): Plot {
   };
   // The drag mode is stored only off Trace's default.
   if (plot.dragMode === TRACE_DEFAULT_DRAG) delete plot.dragMode;
+  // Drawing tools are stored only off (false); anything else is on.
+  if (plot.showDrawingTools !== false) delete plot.showDrawingTools;
   return withAnnotations(plot, rehydrateAnnotations(p.annotations, plot.axes ?? [], catalog));
 }
 
