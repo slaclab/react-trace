@@ -24,18 +24,38 @@ import { TRACE_DEFAULT_DRAG } from '../tools/trace/plotView';
 //   - Background: the writer writes the resolved background (a theme default
 //     when automatic); the reader takes a theme-default value as automatic.
 //     Old and new readers therefore draw the same thing.
-//   - Live retention: a pinned retention is written under
-//     `LIVE_RETENTION_PIN_KEY`, a key the pre-workbench format never used; the
-//     legacy `liveRetentionMs` key is never written and is always read as
-//     automatic (old writers stamped it on every curve). An old reader ignores
-//     the new key and keeps it on re-save, because its rehydrate spreads.
+//   - Live retention: a pinned retention is written under `liveRetentionMs`,
+//     main's key, so main honours it too. Main stamped its default, 300 s, on
+//     every curve, so that value reads as automatic, as does one outside the
+//     field's 5–1800 s. A pin of exactly 300 s therefore goes under
+//     `LIVE_RETENTION_PIN_KEY` instead, a key main never used: main ignores
+//     it (and keeps it on re-save, its rehydrate spreads) and applies its own
+//     300 s default, the same value. Reading, an in-range `liveRetentionMs`
+//     other than 300 s wins, then the pin key; anything else is automatic.
 export const SCHEMA_VERSION = 1;
 
-/** The `.trc.json` curve key a pinned live retention (ms) is stored under. */
+/** The `.trc.json` curve key a pinned live retention of main's default (300 s) is stored under. */
 export const LIVE_RETENTION_PIN_KEY = 'liveRetentionPinMs';
 
-/** A curve as written to `.trc.json`: no `liveRetentionMs`, maybe the pin key. */
-export type WireTrace = Omit<PVTrace, 'liveRetentionMs'> & { [LIVE_RETENTION_PIN_KEY]?: number };
+/** A curve as written to `.trc.json`: `liveRetentionMs` and maybe the pin key. */
+export type WireTrace = PVTrace & { [LIVE_RETENTION_PIN_KEY]?: number };
+
+// Main's default retention, stamped on every curve it saved: automatic here.
+const STAMPED_RETENTION_MS = 300_000;
+// The Live retention field's range (5–1800 s); outside it, a saved value is automatic.
+const RETENTION_MIN_MS = 5_000;
+const RETENTION_MAX_MS = 1_800_000;
+
+/** Whether a saved `liveRetentionMs` is a per-curve pin (not main's stamp, in range). */
+function isPinnedLegacyRetention(ms: unknown): ms is number {
+  return (
+    typeof ms === 'number' &&
+    Number.isFinite(ms) &&
+    ms !== STAMPED_RETENTION_MS &&
+    ms >= RETENTION_MIN_MS &&
+    ms <= RETENTION_MAX_MS
+  );
+}
 
 /** A plot as written to `.trc.json`: background resolved, wire curves. */
 export type WirePlot = Omit<Plot, 'traces' | 'backgroundColor'> & {
@@ -81,7 +101,9 @@ function toWirePlot(plot: Plot, theme: ColorMode): WirePlot {
 function toWireTrace(trace: PVTrace): WireTrace {
   const { liveRetentionMs, ...rest } = trace;
   const out: WireTrace = { ...rest, data: [] };
-  if (liveRetentionMs !== undefined) out[LIVE_RETENTION_PIN_KEY] = liveRetentionMs;
+  if (liveRetentionMs === undefined) return out;
+  if (isPinnedLegacyRetention(liveRetentionMs)) out.liveRetentionMs = liveRetentionMs;
+  else out[LIVE_RETENTION_PIN_KEY] = liveRetentionMs;
   return out;
 }
 
@@ -272,16 +294,17 @@ function automaticBackground(bg: unknown): string | undefined {
   return bg;
 }
 
-// The legacy `liveRetentionMs` key is always automatic; only the pin key
-// pins, and only with a positive finite number.
+// Live retention: an in-range `liveRetentionMs` other than main's stamped
+// 300 s pins, as on main; else the pin key, with a positive finite number;
+// else automatic.
 function rehydrateTrace(t: PVTrace): PVTrace {
   const wire = t as PVTrace & { [LIVE_RETENTION_PIN_KEY]?: unknown };
-  const { [LIVE_RETENTION_PIN_KEY]: pin, ...rest } = wire;
+  const { [LIVE_RETENTION_PIN_KEY]: pin, liveRetentionMs: legacy, ...rest } = wire;
   // `data` is regenerated at runtime, never read from a file: a sample there
   // would reach the chart and its read-out unchecked.
   const out: PVTrace = { ...rest, data: [] };
-  delete out.liveRetentionMs;
-  if (typeof pin === 'number' && Number.isFinite(pin) && pin > 0) out.liveRetentionMs = pin;
+  if (isPinnedLegacyRetention(legacy)) out.liveRetentionMs = legacy;
+  else if (typeof pin === 'number' && Number.isFinite(pin) && pin > 0) out.liveRetentionMs = pin;
   return out;
 }
 

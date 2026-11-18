@@ -307,11 +307,15 @@ describe('serializeWorkspace / deserializeWorkspace — automatic value rules', 
 
   describe('an old-format file opens with a dot only where it differs from automatic', () => {
     it('theme-default backgrounds, stamped retention and default-palette colours open automatic', () => {
+      // R9: a saved retention loads again, as on main. Main's stamped default
+      // (300 s) and an out-of-range value (3600 s) open automatic; an
+      // in-range value (600 s) is that curve's pin.
       const text = oldFile([
         {
           ...plot('plot-1', [
             curve(0, { liveRetentionMs: 600_000 }),
             curve(1, { liveRetentionMs: 3_600_000 }),
+            curve(2, { liveRetentionMs: 300_000 }),
           ]),
           backgroundColor: '#161616',
         },
@@ -323,10 +327,15 @@ describe('serializeWorkspace / deserializeWorkspace — automatic value rules', 
         expect(p.backgroundColor).toBeUndefined(); // no Background dot
         expect(p.palette).toBeUndefined(); // no Palette dot
         for (const t of p.traces) {
-          expect(t.liveRetentionMs).toBeUndefined(); // no Retention dot
           expect(paletteSlot(t.color, DEFAULT)).toBeGreaterThanOrEqual(0); // no Colour dot
         }
       }
+      expect(plots[0].traces.map((t) => t.liveRetentionMs)).toEqual([
+        600_000,
+        undefined,
+        undefined,
+      ]);
+      expect(plots[1].traces[0].liveRetentionMs).toBe(600_000);
     });
 
     it('a custom background stays pinned and a non-default palette is inferred', () => {
@@ -343,7 +352,8 @@ describe('serializeWorkspace / deserializeWorkspace — automatic value rules', 
       const [p] = deserializeWorkspace(text).plots;
       expect(p.backgroundColor).toBe('#123456');
       expect(p.palette).toBe('viridis');
-      expect(p.traces.every((t) => t.liveRetentionMs === undefined)).toBe(true);
+      // R9: the saved 600 s is curve 0's pin; curve 1 has none.
+      expect(p.traces.map((t) => t.liveRetentionMs)).toEqual([600_000, undefined]);
     });
 
     it('the legacy liveRetentionMs key is read as automatic even beside nothing else', () => {
@@ -366,14 +376,31 @@ describe('serializeWorkspace / deserializeWorkspace — automatic value rules', 
       expect(light.plots.map((p: Plot) => p.backgroundColor)).toEqual(['#f4f4f4', '#abcdef']);
     });
 
-    it('never writes liveRetentionMs; a pin goes under the new key', () => {
-      const plots = [plot('plot-1', [curve(0), curve(1, { liveRetentionMs: 900_000 })])];
+    it('never writes liveRetentionMs; a pin goes under the new key (only a 300 s pin, R9)', () => {
+      // R9: a pin is written under main's key, so main honours it; only a pin
+      // of main's stamped default (300 s), which that key reads as automatic,
+      // goes under the new key. An automatic curve writes neither.
+      const plots = [
+        plot('plot-1', [
+          curve(0),
+          curve(1, { liveRetentionMs: 900_000 }),
+          curve(2, { liveRetentionMs: 300_000 }),
+        ]),
+      ];
       const text = serializeWorkspace({ theme: 'dark', plots });
-      expect(text).not.toContain('"liveRetentionMs"');
       expect(LIVE_RETENTION_PIN_KEY).not.toBe('liveRetentionMs');
       const ws = JSON.parse(text);
+      expect('liveRetentionMs' in ws.plots[0].traces[0]).toBe(false);
       expect(LIVE_RETENTION_PIN_KEY in ws.plots[0].traces[0]).toBe(false);
-      expect(ws.plots[0].traces[1][LIVE_RETENTION_PIN_KEY]).toBe(900_000);
+      expect(ws.plots[0].traces[1].liveRetentionMs).toBe(900_000);
+      expect(LIVE_RETENTION_PIN_KEY in ws.plots[0].traces[1]).toBe(false);
+      expect('liveRetentionMs' in ws.plots[0].traces[2]).toBe(false);
+      expect(ws.plots[0].traces[2][LIVE_RETENTION_PIN_KEY]).toBe(300_000);
+      expect(deserializeWorkspace(text).plots[0].traces.map((t) => t.liveRetentionMs)).toEqual([
+        undefined,
+        900_000,
+        300_000,
+      ]);
     });
 
     it('the new key name is no field of the app types', () => {
@@ -393,21 +420,57 @@ describe('serializeWorkspace / deserializeWorkspace — automatic value rules', 
     it('opens a new file: keeps its background and ignores the new key', () => {
       const old = baseLoad(text);
       expect(old.plots.map((p) => p.backgroundColor)).toEqual(['#f4f4f4', '#abcdef']);
-      // The old reader has no retention pin: the curve's retention is its own default.
-      expect(old.plots[0].traces[1].liveRetentionMs).toBeUndefined();
+      // R9: the pin is written under main's key, so the old reader honours it.
+      expect(old.plots[0].traces[1].liveRetentionMs).toBe(900_000);
+      expect(old.plots[0].traces[0].liveRetentionMs).toBeUndefined();
     });
 
     it('re-saving keeps the new key, and this Trace still reads the pin', () => {
       const old = baseLoad(text);
       const resaved = baseSave(old.theme, old.plots);
       const ws = JSON.parse(resaved);
-      expect(ws.plots[0].traces[1][LIVE_RETENTION_PIN_KEY]).toBe(900_000);
+      // R9: the pin rides main's key through the old reader and writer.
+      expect(ws.plots[0].traces[1].liveRetentionMs).toBe(900_000);
       const back = deserializeWorkspace(resaved).plots;
       expect(back[0].traces[1].liveRetentionMs).toBe(900_000);
       expect(back[0].traces[0].liveRetentionMs).toBeUndefined();
       expect(back[0].backgroundColor).toBeUndefined();
       expect(back[1].backgroundColor).toBe('#abcdef');
     });
+  });
+
+  it('a 300 s pin survives an older Trace: it keeps the new key on re-save (R9)', () => {
+    const text = serializeWorkspace({
+      theme: 'dark',
+      plots: [plot('plot-1', [curve(0, { liveRetentionMs: 300_000 })])],
+    });
+    const old = baseLoad(text);
+    // The old reader ignores the new key and applies its own 300 s default.
+    expect(old.plots[0].traces[0].liveRetentionMs).toBeUndefined();
+    const resaved = JSON.parse(baseSave(old.theme, old.plots));
+    expect(resaved.plots[0].traces[0][LIVE_RETENTION_PIN_KEY]).toBe(300_000);
+    expect(deserializeWorkspace(JSON.stringify(resaved)).plots[0].traces[0].liveRetentionMs).toBe(
+      300_000
+    );
+  });
+
+  it('a value main changed wins over a stale new key (R9)', () => {
+    // Saved here with a 300 s pin, then changed to 60 s on main, which writes
+    // its key and keeps the new one on re-save.
+    const text = JSON.stringify({
+      schemaVersion: 1,
+      savedAt: '2026-11-01T00:00:00Z',
+      theme: 'dark',
+      plots: [
+        plot('plot-1', [
+          {
+            ...curve(0, { liveRetentionMs: 60_000 }),
+            [LIVE_RETENTION_PIN_KEY]: 300_000,
+          } as PVTrace,
+        ]),
+      ],
+    });
+    expect(deserializeWorkspace(text).plots[0].traces[0].liveRetentionMs).toBe(60_000);
   });
 
   it('formula curves, further plots, pins and palettes round-trip', () => {
