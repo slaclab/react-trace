@@ -163,14 +163,10 @@ describe('.trc.json workspaces (base fixtures)', () => {
 
       vi.useFakeTimers();
       vi.setSystemTime(new Date(w.savedAt));
-      // The writer resolves an automatic background to the theme's: a light
-      // file's pre-g10 `#ffffff` comes back as canopy-charts' g10 light
-      // background, which every reader also takes as the theme default.
-      const expected =
-        w.theme === 'light'
-          ? w.file.replaceAll('"backgroundColor": "#ffffff"', '"backgroundColor": "#f4f4f4"')
-          : w.file;
-      expect(serializeWorkspace({ theme: w.theme, plots: back.plots })).toBe(expected);
+      // R11: a light file's pre-g10 `#ffffff` still reads as automatic, but
+      // the writer puts it back as read, as main did, so the file comes back
+      // byte for byte in every theme.
+      expect(serializeWorkspace({ theme: w.theme, plots: back.plots })).toBe(w.file);
     }
   );
 });

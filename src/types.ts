@@ -96,6 +96,10 @@ export interface Plot {
   // background (`effectiveBackground`). A value pins it; openings and new
   // plots leave it undefined.
   backgroundColor?: string;
+  // File-only: a background a loaded file stated that reads as automatic but
+  // no chart theme has as its own (`#ffffff`), kept so a re-save writes it
+  // back as read (src/io/serialize.ts). Never drawn.
+  savedBackground?: string;
   showLegend: boolean;
   // ✚ Live value in the legend: append each live curve's latest value,
   // at its precision and with its units, to its legend entry. Off when

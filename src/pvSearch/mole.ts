@@ -29,7 +29,9 @@ export function moleSearchPattern(text: string): string {
 
 /**
  * The regex for a search pattern the user typed as a glob (the Search PVs
- * dialog). The Archiver Appliance matches it against the whole PV name, so a
+ * dialog, and Trace's PV name field and Add PV rows, as on main; other
+ * tools' PV fields use `moleSearchPattern`). The Archiver Appliance matches it
+ * against the whole PV name, so a
  * bare glob such as `SIM:BPM2*:X` would be read as "BPM" followed by any
  * number of 2s and match nothing. Follow the Python Trace search dialog
  * instead: `*` and `%` stand for any run of characters, `?` for one, and the

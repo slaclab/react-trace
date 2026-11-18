@@ -3,7 +3,7 @@ import type { Plot, PVTrace, Axis } from '../types';
 import type { ColorMode } from '@slaclab/canopy-shell/color-mode';
 import { getPalette, colorForIndex, DEFAULT_PALETTE_ID } from '../palettes';
 import { parseSpanMs, toDatetimeLocal } from '../api/time';
-import { chartThemeFor } from '@slaclab/canopy-charts';
+import { CHART_THEMES, chartThemeFor } from '@slaclab/canopy-charts';
 import { effectiveBackground, isThemeDefaultBackground } from '../plotBackground';
 import { withFilePalette } from './paletteInference';
 import { BUILTIN_CATALOG } from '../annotations/catalog';
@@ -23,7 +23,10 @@ import { TRACE_DEFAULT_DRAG } from '../tools/trace/plotView';
 // without a marker:
 //   - Background: the writer writes the resolved background (a theme default
 //     when automatic); the reader takes a theme-default value as automatic.
-//     Old and new readers therefore draw the same thing.
+//     Old and new readers therefore draw the same thing. A theme default no
+//     chart theme has as its own (`#ffffff`, the pre-g10 light default) is
+//     kept as read (`Plot.savedBackground`) and written back while the plot
+//     stays automatic, so a re-save is lossless, as on main.
 //   - Live retention: a pinned retention is written under `liveRetentionMs`,
 //     main's key, so main honours it too. Main stamped its default, 300 s, on
 //     every curve, so that value reads as automatic, as does one outside the
@@ -58,7 +61,7 @@ function isPinnedLegacyRetention(ms: unknown): ms is number {
 }
 
 /** A plot as written to `.trc.json`: background resolved, wire curves. */
-export type WirePlot = Omit<Plot, 'traces' | 'backgroundColor'> & {
+export type WirePlot = Omit<Plot, 'traces' | 'backgroundColor' | 'savedBackground'> & {
   backgroundColor: string;
   traces: WireTrace[];
 };
@@ -91,9 +94,13 @@ export function serializeWorkspace(args: { theme: ColorMode; plots: Plot[] }): s
 // new one does. Drawings ride on the spread; `withAnnotations`
 // keeps an empty list off the wire, so add-then-delete saves byte-equal.
 function toWirePlot(plot: Plot, theme: ColorMode): WirePlot {
+  const { savedBackground, ...rest } = withAnnotations(plot, plot.annotations ?? []);
   return {
-    ...withAnnotations(plot, plot.annotations ?? []),
-    backgroundColor: effectiveBackground(plot.backgroundColor, chartThemeFor(theme)),
+    ...rest,
+    backgroundColor:
+      plot.backgroundColor === undefined && savedBackground !== undefined
+        ? savedBackground
+        : effectiveBackground(plot.backgroundColor, chartThemeFor(theme)),
     traces: plot.traces.map(toWireTrace),
   };
 }
@@ -264,6 +271,7 @@ function rehydratePlot(p: Plot, catalog: Catalog): Plot {
     gridOpacity: p.gridOpacity ?? 1,
     tickFontSize: p.tickFontSize ?? 11,
     backgroundColor: automaticBackground(p.backgroundColor),
+    savedBackground: keptBackground(p.backgroundColor),
     showStats: p.showStats === true ? true : undefined,
     showDist: p.showDist === true ? true : undefined,
     // A saved list is kept only off the default (DESIGN S8).
@@ -292,6 +300,14 @@ function rehydrateAnnotations(raw: unknown, axes: readonly Axis[], catalog: Cata
 function automaticBackground(bg: unknown): string | undefined {
   if (typeof bg !== 'string' || isThemeDefaultBackground(bg)) return undefined;
   return bg;
+}
+
+// A theme-default background no chart theme has as its own (`#ffffff`): read
+// as automatic, but kept to be written back as read. The chart themes' own
+// defaults are written resolved to the current theme anyway.
+function keptBackground(bg: unknown): string | undefined {
+  if (typeof bg !== 'string' || !isThemeDefaultBackground(bg)) return undefined;
+  return bg === CHART_THEMES.dark.bg || bg === CHART_THEMES.light.bg ? undefined : bg;
 }
 
 // Live retention: an in-range `liveRetentionMs` other than main's stamped
@@ -513,6 +529,7 @@ function convertLegacyTrc(obj: Record<string, unknown>): DeserializeResult {
     title: typeof legacyPlot.title === 'string' ? legacyPlot.title : 'Imported',
     // A theme-default or missing background is automatic.
     backgroundColor: automaticBackground(legacyPlot.backgroundColor),
+    savedBackground: keptBackground(legacyPlot.backgroundColor),
     showLegend: legacyPlot.legend !== false,
     showXGridlines: legacyPlot.xGrid === true,
     showYGridlines: legacyPlot.yGrid === true,
