@@ -1534,7 +1534,10 @@ export function PlotArea({
           ) : (
             // Each chart has its own boundary, so a crash leaves the plot tabs and
             // view controls usable (switch to another plot, remove or detach this one).
-            <ErrorBoundary key={activePlot.id}>
+            // Any change to the plot's settings retries it, so undoing the change
+            // that broke it recovers without "Try again". Data lives in the
+            // stores, not the plot, so new samples don't retry it.
+            <ErrorBoundary key={activePlot.id} resetKeys={[activePlot]}>
               <PlotWithStatistics
                 plot={activePlot}
                 archiveResults={archiveResultsByPlot.get(activePlot.id) ?? EMPTY_RESULTS}
@@ -1627,7 +1630,7 @@ export function PlotArea({
                     onReattach={() => onReattachPlot(plot.id)}
                   />
                 ) : (
-                  <ErrorBoundary>
+                  <ErrorBoundary resetKeys={[plot]}>
                     <PlotWithStatistics
                       plot={plot}
                       archiveResults={archiveResultsByPlot.get(plot.id) ?? EMPTY_RESULTS}
