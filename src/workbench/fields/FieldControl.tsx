@@ -263,11 +263,14 @@ function NumberControl({
   // input: a number input sanitises "-" to ""); only a parsable value inside
   // the bounds is written. A new value from outside (a reset, another
   // selection) replaces the text.
-  const [text, setText] = useState(value === null ? '' : String(value));
-  const [prevValue, setPrevValue] = useState(value);
-  if (value !== prevValue) {
-    setPrevValue(value);
-    if (parseNumber(text) !== value) setText(value === null ? '' : String(value));
+  // A value that is not a finite number (NaN from a getter) shows as empty
+  // and compares as null: NaN !== NaN would reset the text on every render.
+  const current = value !== null && Number.isFinite(value) ? value : null;
+  const [text, setText] = useState(current === null ? '' : String(current));
+  const [prevValue, setPrevValue] = useState(current);
+  if (current !== prevValue) {
+    setPrevValue(current);
+    if (parseNumber(text) !== current) setText(current === null ? '' : String(current));
   }
   const invalid = parseNumber(text, { min, max }) === undefined;
   return (

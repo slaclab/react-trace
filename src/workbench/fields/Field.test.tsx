@@ -563,3 +563,11 @@ describe('focus after reset', () => {
     expect(document.activeElement).toBe(input);
   });
 });
+
+describe('number: a NaN value', () => {
+  it('renders as an empty input without a render loop', () => {
+    const field = { ...gainField, get: () => Number.NaN } as StubField;
+    const { container } = mount(field);
+    expect(container.querySelector<HTMLInputElement>('#stub-gain')!.value).toBe('');
+  });
+});
