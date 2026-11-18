@@ -1,8 +1,11 @@
 // Trace's Palette custom field: the bound
 // plot's own palette. The control is a picker and a swatch strip; the field
 // (schema/plot.ts) owns the value, the write rule (recolour by slot) and the
-// optional-path dot. There is no "Apply to …" action: a pick recolours every
-// curve still at a palette colour by itself.
+// optional-path dot. A pick recolours every curve still at a palette colour by
+// itself. The swatch strip is a button that re-picks the current palette,
+// which puts every curve back at its palette colour, user-set ones included
+// (main's "Apply to all traces"): a native select fires nothing when its
+// current option is chosen again.
 
 import type { ReactNode } from 'react';
 import { Select, SelectItem } from '@carbon/react';
@@ -30,15 +33,28 @@ export function PaletteControl({ id, value, onChange }: PaletteControlProps): Re
           <SelectItem key={p.id} value={p.id} text={p.label} />
         ))}
       </Select>
-      <div
+      <button
+        type="button"
         className="trace-palette__swatches"
         data-testid="palette-swatches"
-        style={{ display: 'flex', gap: 1, marginTop: 6 }}
+        aria-label="Re-pick this palette"
+        title="Re-pick this palette: every curve back to its palette colour"
+        onClick={() => onChange(value)}
+        style={{
+          display: 'flex',
+          gap: 1,
+          marginTop: 6,
+          width: '100%',
+          padding: 0,
+          border: 'none',
+          background: 'none',
+          cursor: 'pointer',
+        }}
       >
         {getPalette(value).colors.map((c, i) => (
-          <div key={`${c}-${i}`} title={c} style={{ flex: 1, height: 14, backgroundColor: c }} />
+          <span key={`${c}-${i}`} title={c} style={{ flex: 1, height: 14, backgroundColor: c }} />
         ))}
-      </div>
+      </button>
     </div>
   );
 }

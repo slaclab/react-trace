@@ -40,7 +40,7 @@ import { ArchiverControl } from '../fields/archiver';
 import { PaletteControl } from '../fields/palette';
 import { TimeRangeControl, type TimeRangeValue } from '../fields/timeRange';
 import { TRACE_DEFAULT_DRAG } from '../plotView';
-import { DEFAULT_PALETTE_ID, withPalette } from '../../../palettes';
+import { DEFAULT_PALETTE_ID, colorForIndex, paletteOf, withPalette } from '../../../palettes';
 import { rememberPaletteId } from '../../../state/paletteStore';
 import { effectiveBackground } from '../../../plotBackground';
 import { createElement } from 'react';
@@ -65,6 +65,24 @@ import type {
   ToolContext,
   ToolUi,
 } from '../../../workbench/types';
+
+/**
+ * `plot` with every curve back at its own palette's colour by position (the
+ * k-th curve at slot k), user-set colours included, as main's "Apply to all
+ * traces" did: what a re-pick of the current palette does. Unchanged (same
+ * object) when every curve already is.
+ */
+export function withPaletteColours(plot: Plot): Plot {
+  const palette = paletteOf(plot);
+  let changed = false;
+  const traces = plot.traces.map((t, i) => {
+    const color = colorForIndex(palette, i);
+    if (t.color === color) return t;
+    changed = true;
+    return { ...t, color };
+  });
+  return changed ? { ...plot, traces } : plot;
+}
 
 /** What the plot schema reads from Trace's model: the palette and the chart source's input. */
 export interface TracePlotModel extends TraceDotModel {
@@ -403,13 +421,21 @@ export function createPlotSchema<
       tab: PLOT_TABS.display,
       level: 'L3',
       // The plot's own palette. A pick recolours, by slot, every curve
-      // still at a colour of the old palette; user-set colours stay. It is
-      // also remembered as the user's palette, which added plots and a fresh
-      // tab open in (`rememberPaletteId`).
+      // still at a colour of the old palette; user-set colours stay. A
+      // re-pick of the current palette (the control's swatch strip) puts
+      // every curve back at its palette colour, user-set ones included. A
+      // pick is also remembered as the user's palette, which added plots and
+      // a fresh tab open in (`rememberPaletteId`).
       get: (ctx): string => read(ctx, (p) => p.palette ?? DEFAULT_PALETTE_ID, DEFAULT_PALETTE_ID),
       set: (ctx, paletteId: string) => {
         const target = ctx.target;
-        ctx.update((state) => updateBoundPlot(state, target, (p) => withPalette(p, paletteId)));
+        ctx.update((state) =>
+          updateBoundPlot(state, target, (p) =>
+            (p.palette ?? DEFAULT_PALETTE_ID) === paletteId
+              ? withPaletteColours(p)
+              : withPalette(p, paletteId)
+          )
+        );
         rememberPaletteId(paletteId);
       },
       ...plotPaletteDot<S, M, U>(),
