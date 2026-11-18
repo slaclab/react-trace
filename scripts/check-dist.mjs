@@ -2,7 +2,9 @@
 // Build-output guard: Trace must be fully self-hosted. It is served on
 // networks without internet access, so no file in dist/ may point at an
 // external font CDN (IBM's s81c.com, which the precompiled Carbon CSS uses,
-// or Google Fonts). Run after `vite build`; exits non-zero on any hit.
+// or Google Fonts). Every @font-face must also declare `font-display: swap`,
+// so text shows in a fallback font while IBM Plex loads instead of staying
+// invisible. Run after `vite build`; exits non-zero on any problem.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -13,6 +15,16 @@ export const FORBIDDEN = ['s81c.com', 'fonts.googleapis', 'fonts.gstatic'];
 /** The FORBIDDEN entries that occur in `text`, in list order. */
 export function findHits(text) {
   return FORBIDDEN.filter((needle) => text.includes(needle));
+}
+
+/** The `@font-face { ... }` blocks in `css`, in order. */
+export function findFontFaces(css) {
+  return css.match(/@font-face\s*\{[^}]*\}/g) ?? [];
+}
+
+/** The @font-face blocks in `css` that do not declare `font-display: swap`. */
+export function facesWithoutSwap(css) {
+  return findFontFaces(css).filter((face) => !/font-display\s*:\s*swap\b/.test(face));
 }
 
 function* walk(dir) {
@@ -39,17 +51,37 @@ function main() {
   }
 
   const hits = [];
+  const noSwap = [];
+  let faces = 0;
   for (const file of files) {
     // latin1 keeps binary files (fonts, images) scannable byte-for-byte.
     const text = readFileSync(file, 'latin1');
     for (const needle of findHits(text)) hits.push(`${relative(distDir, file)}: ${needle}`);
+    if (file.endsWith('.css')) {
+      faces += findFontFaces(text).length;
+      const missing = facesWithoutSwap(text).length;
+      if (missing > 0) noSwap.push(`${relative(distDir, file)}: ${missing} @font-face rules`);
+    }
   }
 
+  let failed = false;
   if (hits.length > 0) {
     console.error('check-dist: external font references found in the build output:');
     for (const hit of hits) console.error(`  ${hit}`);
-    process.exit(1);
+    failed = true;
   }
+  // Zero faces means the self-hosted fonts were dropped; the swap check below
+  // would then pass without checking anything.
+  if (faces === 0) {
+    console.error('check-dist: no @font-face rules in the built CSS; IBM Plex is not self-hosted');
+    failed = true;
+  }
+  if (noSwap.length > 0) {
+    console.error('check-dist: @font-face rules without font-display: swap:');
+    for (const line of noSwap) console.error(`  ${line}`);
+    failed = true;
+  }
+  if (failed) process.exit(1);
   console.log(`check-dist: ${files.length} files clean`);
 }
 
