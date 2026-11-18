@@ -950,11 +950,10 @@ export function SinglePlot({
           if (zone) zone.autoScale = true;
           return;
         }
-        // The time band's All: earliest loaded sample to now as a relative
-        // span, applied whenever it exists.
-        const { results, visibleTraceIds } = loadedRef.current;
-        const all = allLoadedXAxis(xAxisRef.current, results, visibleTraceIds, Date.now());
-        if (all) onApplyXAxisRef.current?.(all);
+        // The time range the user picked ("Last 1 h", a custom range): the
+        // plot's own `xAxis`, re-applied as Reset view does, so a zoom or pan
+        // window is dropped and a relative range follows now again (C4).
+        onApplyXAxisRef.current?.({ ...xAxisRef.current });
       },
       dragMode: () => dragModeRef.current,
       claimsPointer: (e) => drawingRef.current.host.claimsPointer(e),

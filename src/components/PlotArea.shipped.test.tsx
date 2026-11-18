@@ -97,6 +97,7 @@ afterEach(() => {
 function mountPlot(plot: Plot = makePlot(), viewWindowNs: TimeWindowNs = WINDOW) {
   const onUpdateAxis = vi.fn();
   const onViewWindowChange = vi.fn();
+  const onApplyXAxis = vi.fn();
   const element = (w: TimeWindowNs) => (
     <SinglePlot
       plot={plot}
@@ -106,6 +107,7 @@ function mountPlot(plot: Plot = makePlot(), viewWindowNs: TimeWindowNs = WINDOW)
       onUpdateAxis={onUpdateAxis}
       viewWindowNs={w}
       onViewWindowChange={onViewWindowChange}
+      onApplyXAxis={onApplyXAxis}
     />
   );
   const { container, unmount, rerender } = render(element(viewWindowNs));
@@ -114,6 +116,7 @@ function mountPlot(plot: Plot = makePlot(), viewWindowNs: TimeWindowNs = WINDOW)
     wrap,
     onUpdateAxis,
     onViewWindowChange,
+    onApplyXAxis,
     unmount,
     rerender: (w: TimeWindowNs) => rerender(element(w)),
   };
@@ -204,5 +207,34 @@ describe('C3: dragging a Y axis pans that axis', () => {
     const { min, max } = onUpdateAxis.mock.calls.at(-1)![1] as { min: number; max: number };
     expect((min + max) / 2).toBeCloseTo(50, 9);
     expect(max - min).toBeGreaterThan(100);
+  });
+});
+
+describe('C4: a double-click resets every axis, time to the range the user picked', () => {
+  it('returns a manual Y to auto-scale and re-applies the plot’s own range', () => {
+    const plot = {
+      ...makePlot([{ ...axis('ax1', 'left'), autoScale: false, min: 10, max: 20 }]),
+      xAxis: { timeRange: '-1h' },
+    };
+    const { wrap, onUpdateAxis, onApplyXAxis, onViewWindowChange } = mountPlot(plot);
+    // A zoom first: the window narrows, the picked range stays "-1h".
+    wheel(wrap, { clientX: 400, clientY: 200, deltaY: -100 });
+    flushFrames();
+    expect(onViewWindowChange).toHaveBeenCalledTimes(1);
+    wrap.dispatchEvent(
+      new MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 400, clientY: 200 })
+    );
+    expect(onUpdateAxis).toHaveBeenCalledWith('ax1', { autoScale: true });
+    expect(onApplyXAxis).toHaveBeenCalledTimes(1);
+    expect(onApplyXAxis).toHaveBeenCalledWith({ timeRange: '-1h' });
+  });
+
+  it('keeps a custom range the user picked', () => {
+    const xAxis = { timeRange: 'custom', timeFrom: '2026-01-01T00:00', timeTo: '2026-01-02T00:00' };
+    const { wrap, onApplyXAxis } = mountPlot({ ...makePlot(), xAxis });
+    wrap.dispatchEvent(
+      new MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 400, clientY: 200 })
+    );
+    expect(onApplyXAxis).toHaveBeenCalledWith(xAxis);
   });
 });

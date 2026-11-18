@@ -50,3 +50,11 @@ describe('C3: dragging a Trace Y axis pans it; the other tools keep stretching',
     expect(BUILTIN_DEFAULTS.waveform.plot.yAxisDrag).toBe('stretch');
   });
 });
+
+describe('C4: a double-click in the plot resets every axis', () => {
+  it('ships doubleClick reset for every tool', () => {
+    expect(BUILTIN_DEFAULTS.trace.plot.doubleClick).toBe('reset');
+    expect(BUILTIN_DEFAULTS.correlation.plot.doubleClick).toBe('reset');
+    expect(BUILTIN_DEFAULTS.waveform.plot.doubleClick).toBe('reset');
+  });
+});

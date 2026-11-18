@@ -299,7 +299,7 @@ describe('time-band clicks', () => {
     unmount();
   });
 
-  it('dblclick on a frozen, panned-back window applies the all-loaded span once', () => {
+  it('dblclick on a frozen, panned-back window re-applies the picked range once (C4)', () => {
     const earliest = NOW_MS - 7_200_000; // 2 h of loaded data
     const archive = new Map<string, ArchiveSeriesResult>([
       [
@@ -325,17 +325,15 @@ describe('time-band clicks', () => {
     mouse(wrap, 'dblclick', { clientX: 400, clientY: BAND_Y, button: 0 });
     flushFrames();
     expect(onApplyXAxis).toHaveBeenCalledTimes(1);
-    expect(onApplyXAxis).toHaveBeenCalledWith({
-      timeRange: relativeSpanFor({ from: earliest, to: NOW_MS }, 'up'),
-    });
+    expect(onApplyXAxis).toHaveBeenCalledWith({ timeRange: '10m' });
     expect(onViewWindowChange).not.toHaveBeenCalled();
     unmount();
   });
 
-  it('dblclick with nothing loaded is a no-op', () => {
+  it('dblclick with nothing loaded re-applies the picked range too (C4)', () => {
     const { wrap, onViewWindowChange, onApplyXAxis, unmount } = mountPlot(FROZEN);
     mouse(wrap, 'dblclick', { clientX: 400, clientY: BAND_Y, button: 0 });
-    expect(onApplyXAxis).not.toHaveBeenCalled();
+    expect(onApplyXAxis).toHaveBeenCalledWith({ timeRange: '10m' });
     expect(onViewWindowChange).not.toHaveBeenCalled();
     unmount();
   });
