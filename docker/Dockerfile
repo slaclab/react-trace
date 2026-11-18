@@ -1,9 +1,12 @@
-FROM node:24-alpine AS build
+# Node LTS majors only (even numbers): odd majors get about eight months of support.
+FROM node:26-alpine AS build
 
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
+# Node 25 and later don't bundle corepack, so install it from npm. Corepack then
+# runs the pnpm version that package.json's packageManager names.
+RUN npm install -g corepack@0.36.0 && corepack enable && pnpm install --frozen-lockfile
 
 COPY . .
 
@@ -19,7 +22,7 @@ ENV VITE_DOCS_URL=$VITE_DOCS_URL
 
 RUN pnpm build
 
-FROM nginx:1.29-alpine
+FROM nginx:1.31-alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY docker/nginx.conf.template /app/nginx.conf.template
