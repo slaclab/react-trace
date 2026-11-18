@@ -6,8 +6,13 @@
 // - INVALID samples (invalidGaps.ts) break the line the same way: the first
 //   INVALID sample of a run becomes `[t, null]` and the rest of the run is left
 //   out, so the next good sample starts a new segment.
-// - Archive (the recorder writes on a fixed grid): `[t_prev + 1 ms, null]` is
-//   inserted wherever the spacing to the next sample exceeds
+// - Archive, by default: no spacing rule, as on main. An archived PV is often
+//   recorded on change, so a long silence is a held value, not an outage; the
+//   line breaks only at INVALID samples. (The Appliance's disconnect marker,
+//   `cnxlostepsecs`, would be another, but Mole's samples do not carry it.)
+// - Archive, opted in (`breakOnGaps`, never on a Step curve): for a recorder
+//   that writes on a fixed grid, `[t_prev + 1 ms, null]` is inserted wherever
+//   the spacing to the next sample exceeds
 //   `max(30 s, 3 × median of the ≤ 11 spacings centred on it)` (upper middle
 //   for an even count; the global median under 5 points, the 30 s floor alone
 //   under 3). The min/max band goes through the same rules, so its nulls sit
@@ -19,14 +24,15 @@
 //   read-outs and snapping also read) leaves them out. Only the chart's line
 //   and its extension add them (`withLiveResumes`), as a point the line
 //   resumes from, until the first real sample after the break.
-// - Seam: when the archive's covered window ends more than the tail threshold
-//   after its last sample, live data that follows is separated by
-//   `[t_last_archive + 1 ms, null]`.
+// - Seam (opted in only): when the archive's covered window ends more than
+//   the tail threshold after its last sample, live data that follows is
+//   separated by `[t_last_archive + 1 ms, null]`.
 // - The dashed now-extension anchors on the last non-null point. A live trace
 //   with live samples draws it only while connected with no open break (a
 //   resume closes one); one live has sent nothing for draws it from its
-//   archive's last sample. An archive-only trace drops it when its covered
-//   window ends more than the tail threshold after its last sample.
+//   archive's last sample. An archive-only trace opted in to gap breaks
+//   drops it when its covered window ends more than the tail threshold after
+//   its last sample.
 // - `traceSamples` is the same merge as plain samples, INVALID ones included
 //   with their severity: the tooltip and the INVALID markers read it.
 
@@ -120,6 +126,15 @@ function withArchiveGaps<P extends Sampled>(points: readonly P[], y: (p: P) => n
   return toLineData(points, y, gapIndices(points.map((p) => p.time)));
 }
 
+/**
+ * Whether `trace`'s archive line breaks on sample spacing: only when opted in
+ * (`breakOnGaps`) and never on a Step curve, whose samples hold their value
+ * until the next one.
+ */
+export function breaksOnGaps(trace: PVTrace): boolean {
+  return trace.breakOnGaps === true && trace.lineType !== 'step';
+}
+
 /** Archive points with `[t_prev + 1 ms, null]` at every outage. */
 export function insertArchiveGaps(points: readonly [number, number][]): LinePoint[] {
   return withArchiveGaps(
@@ -129,18 +144,20 @@ export function insertArchiveGaps(points: readonly [number, number][]): LinePoin
 }
 
 // Archive arrays are replaced (not mutated) on every fetch, so caching by
-// array identity keeps the gap scan off the per-frame render path.
+// array identity keeps the INVALID and gap scans off the per-frame render
+// path. One cache per rule: with and without spacing gaps.
 const meanCache = new WeakMap<readonly ArchivePlotPoint[], LinePoint[]>();
-const bandCache = new WeakMap<
-  readonly ArchiveBandPoint[],
-  { min: LinePoint[]; max: LinePoint[] }
->();
+const heldMeanCache = new WeakMap<readonly ArchivePlotPoint[], LinePoint[]>();
+type BandLines = { min: LinePoint[]; max: LinePoint[] };
+const bandCache = new WeakMap<readonly ArchiveBandPoint[], BandLines>();
+const heldBandCache = new WeakMap<readonly ArchiveBandPoint[], BandLines>();
 
-function archiveLine(mean: readonly ArchivePlotPoint[]): LinePoint[] {
-  let cached = meanCache.get(mean);
+function archiveLine(mean: readonly ArchivePlotPoint[], gaps: boolean): LinePoint[] {
+  const cache = gaps ? meanCache : heldMeanCache;
+  let cached = cache.get(mean);
   if (!cached) {
-    cached = withArchiveGaps(mean, (p) => p.value);
-    meanCache.set(mean, cached);
+    cached = gaps ? withArchiveGaps(mean, (p) => p.value) : toLineData(mean, (p) => p.value);
+    cache.set(mean, cached);
   }
   return cached;
 }
@@ -148,18 +165,19 @@ function archiveLine(mean: readonly ArchivePlotPoint[]): LinePoint[] {
 /**
  * Stacked band series data: `min` as is and `max` as `max − min`, with nulls
  * at the same t in both (and in the mean, which shares the band's times).
+ * `gaps`: whether spacing gaps break it (`breaksOnGaps` of its curve); INVALID
+ * samples always do.
  */
-export function bandLineData(band: readonly ArchiveBandPoint[]): {
-  min: LinePoint[];
-  max: LinePoint[];
-} {
-  let cached = bandCache.get(band);
+export function bandLineData(band: readonly ArchiveBandPoint[], gaps = true): BandLines {
+  const cache = gaps ? bandCache : heldBandCache;
+  let cached = cache.get(band);
   if (!cached) {
+    const line = gaps ? withArchiveGaps : toLineData;
     cached = {
-      min: withArchiveGaps(band, (p) => p.min),
-      max: withArchiveGaps(band, (p) => p.max - p.min),
+      min: line(band, (p) => p.min),
+      max: line(band, (p) => p.max - p.min),
     };
-    bandCache.set(band, cached);
+    cache.set(band, cached);
   }
   return cached;
 }
@@ -261,8 +279,9 @@ export function traceLineData(
   }
   // Archive feeds the past, live the present; with both on, archive runs up to
   // its last sample and live takes over afterwards (de-duped at the seam).
+  const gaps = breaksOnGaps(trace);
   const archivePts =
-    trace.useArchive && archive && archive.mean.length > 0 ? archiveLine(archive.mean) : null;
+    trace.useArchive && archive && archive.mean.length > 0 ? archiveLine(archive.mean, gaps) : null;
   const livePts = trace.useLive && live && live.points.length > 0 ? liveLine(live) : null;
 
   if (archivePts && livePts) {
@@ -270,7 +289,7 @@ export function traceLineData(
     let head = 0;
     while (head < livePts.length && livePts[head][0] <= seamMs) head++;
     const rest = livePts.slice(head);
-    if (rest.length > 0 && rest[0][1] !== null && archiveTailStale(archive)) {
+    if (gaps && rest.length > 0 && rest[0][1] !== null && archiveTailStale(archive)) {
       return [...archivePts, [seamMs + 1, null], ...rest];
     }
     return archivePts.concat(rest);
@@ -314,8 +333,8 @@ export function traceSamples(
 /**
  * The point the dashed now-extension starts from, or undefined when none is
  * drawn: the last non-null point, provided no gap or INVALID run follows it, a
- * live trace with live samples is connected, and an archive-only trace's tail
- * is not stale. A Live-on trace without a live sample anchors as-is. The
+ * live trace with live samples is connected, and the tail of an archive-only
+ * trace opted in to gap breaks is not stale. A Live-on trace without a live sample anchors as-is. The
  * chart passes the drawn line (`withLiveResumes`), so a live trace that
  * resumed after its last break anchors on the resume point.
  */
@@ -333,7 +352,12 @@ export function extensionAnchor(
       // sent nothing for (connecting, archive-only PV, service down at load)
       // extends its archive line from the last sample, as main does.
       if (!live?.connected) return undefined;
-    } else if (!trace.useLive && trace.useArchive && archiveTailStale(archive)) {
+    } else if (
+      !trace.useLive &&
+      trace.useArchive &&
+      breaksOnGaps(trace) &&
+      archiveTailStale(archive)
+    ) {
       return undefined;
     }
   }

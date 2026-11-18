@@ -28,6 +28,10 @@ export interface PVTrace {
   showArchiveBand?: boolean;
   // Per-curve archiver override; undefined means "use the global selection".
   archiver?: string;
+  // Opt-in: break the archive line where samples are more than 3× their usual
+  // spacing apart (30 s at least), for recorders on a fixed grid. Never on a
+  // Step curve. Off when undefined; only "on" is stored.
+  breakOnGaps?: boolean;
   // ── Formula curves (kind === 'formula') ──────────────────────────────────
   // Formula Engine expression with {var} placeholders, e.g. "{x1} + {x2}".
   expression?: string;

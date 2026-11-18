@@ -151,13 +151,26 @@ describe('traceLineData', () => {
     expect(extensionAnchor(t, data, undefined, l)).toEqual([now - 600 * S, 1]);
   });
 
-  it('stale archive + live from now gives one null at the seam', () => {
+  it('stale archive + live from now gives one null at the seam (only when opted in)', () => {
+    // R1: no seam null by default (a long archive silence is a held value);
+    // only a Line curve opted in to gap breaks gets one, never a Step curve.
     const t = trace({ useLive: true, useArchive: true });
     const times = grid(T0, 10 * S, 100);
     const last = times.at(-1)!;
     const a = archive(times, now);
     const data = traceLineData(t, a, live([now - 2 * S, now - S]), undefined);
-    expect(nulls(data)).toEqual([last + 1]);
+    expect(nulls(data)).toEqual([]);
+    const stepOptIn = trace({ useLive: true, useArchive: true, breakOnGaps: true });
+    expect(nulls(traceLineData(stepOptIn, a, live([now - 2 * S, now - S]), undefined))).toEqual([]);
+    const optIn = trace({
+      useLive: true,
+      useArchive: true,
+      lineType: 'direct',
+      breakOnGaps: true,
+    });
+    expect(nulls(traceLineData(optIn, a, live([now - 2 * S, now - S]), undefined))).toEqual([
+      last + 1,
+    ]);
   });
 
   it('healthy archive + a live change 45 s later gives no null', () => {
@@ -182,13 +195,22 @@ describe('traceLineData', () => {
     expect(extensionAnchor(t, data, a, undefined)).toEqual([last, 1]);
   });
 
-  it('archive-only stale tail drops the extension', () => {
+  it('archive-only stale tail drops the extension (only when opted in)', () => {
+    // R1: by default the extension is drawn from the last sample, as on main;
+    // only a Line curve opted in to gap breaks drops it, never a Step curve.
     const t = trace({ useArchive: true });
     const times = grid(T0, 10 * S, 60);
-    const a = archive(times, times.at(-1)! + 120 * S);
+    const last = times.at(-1)!;
+    const a = archive(times, last + 120 * S);
     const data = traceLineData(t, a, undefined, undefined);
     expect(archiveTailStale(a)).toBe(true);
-    expect(extensionAnchor(t, data, a, undefined)).toBeUndefined();
+    expect(extensionAnchor(t, data, a, undefined)).toEqual([last, 1]);
+    const stepOptIn = trace({ useArchive: true, breakOnGaps: true });
+    expect(extensionAnchor(stepOptIn, data, a, undefined)).toEqual([last, 1]);
+    const optIn = trace({ useArchive: true, lineType: 'direct', breakOnGaps: true });
+    expect(
+      extensionAnchor(optIn, traceLineData(optIn, a, undefined, undefined), a, undefined)
+    ).toBeUndefined();
   });
 
   it('a recorded live break becomes one null and an open break drops the extension', () => {
@@ -366,5 +388,67 @@ describe('extension for a Live-on curve with no live sample yet', () => {
     const data = traceLineData(t, a, l, undefined);
     expect(data.at(-1)).toEqual([last + 30 * S, null]);
     expect(extensionAnchor(t, data, a, l)).toBeUndefined();
+  });
+});
+
+describe('archive lines hold an on-change PV (R1)', () => {
+  // An archived PV recorded on change (like TEST:SPARSE): steps hours apart.
+  // By default the line breaks only at INVALID samples and disconnects, so the
+  // value holds from each step to the next and on to now.
+  const H = 3_600 * S;
+  const steps = [T0, T0 + 4 * H, T0 + 11 * H];
+  const now = T0 + 13 * H;
+  const sparse = (): ArchiveSeriesResult => ({
+    ...archive(steps, now),
+    mean: steps.map((t, i) => ({ time: t, value: [11.8, 53.2, 36.7][i], severity: 'NO_ALARM' })),
+  });
+
+  it('holds each value across the window with no break, and extends to now', () => {
+    for (const lineType of ['step', 'direct'] as const) {
+      const t = trace({ useArchive: true, lineType });
+      const a = sparse();
+      const data = traceLineData(t, a, undefined, undefined);
+      expect(data).toEqual([
+        [T0, 11.8],
+        [T0 + 4 * H, 53.2],
+        [T0 + 11 * H, 36.7],
+      ]);
+      expect(extensionAnchor(t, data, a, undefined)).toEqual([T0 + 11 * H, 36.7]);
+    }
+  });
+
+  it('two samples minutes apart draw one line', () => {
+    const t = trace({ useArchive: true });
+    const a = archive([now - 4 * 60 * S, now], now);
+    expect(nulls(traceLineData(t, a, undefined, undefined))).toEqual([]);
+  });
+
+  it('with Live on, the first live change follows with no seam break', () => {
+    const t = trace({ useArchive: true, useLive: true });
+    const data = traceLineData(t, sparse(), live([now - 60 * S]), undefined);
+    expect(nulls(data)).toEqual([]);
+    expect(data.at(-1)).toEqual([now - 60 * S, 1]);
+  });
+
+  // A fixed-grid recorder (10 s) with a 5 min hole: what the opt-in is for.
+  const before = grid(T0, 10 * S, 30);
+  const holeStart = before.at(-1)!;
+  const holed = [...before, ...grid(holeStart + 300 * S, 10 * S, 30)];
+
+  it('a Step curve ignores the opt-in; a Line curve breaks with it', () => {
+    const a = archive(holed, holed.at(-1)! + 5 * S);
+    for (const t of [trace({ useArchive: true }), trace({ useArchive: true, breakOnGaps: true })]) {
+      expect(nulls(traceLineData(t, a, undefined, undefined))).toEqual([]);
+    }
+    const lineOptIn = trace({ useArchive: true, lineType: 'direct', breakOnGaps: true });
+    expect(nulls(traceLineData(lineOptIn, a, undefined, undefined))).toEqual([holeStart + 1]);
+  });
+
+  it('the band follows the curve: held by default, broken with the opt-in', () => {
+    const band = holed.map((t) => ({ time: t, min: 1, max: 3, severity: 'NO_ALARM' as const }));
+    expect(nulls(bandLineData(band, false).min)).toEqual([]);
+    expect(nulls(bandLineData(band, false).max)).toEqual([]);
+    expect(nulls(bandLineData(band, true).min)).toEqual([holeStart + 1]);
+    expect(nulls(bandLineData(band, true).max)).toEqual([holeStart + 1]);
   });
 });

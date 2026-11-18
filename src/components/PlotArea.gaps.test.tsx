@@ -250,15 +250,26 @@ function grid(start: number, step: number, count: number): number[] {
 }
 
 describe('SinglePlot gap markers', () => {
-  it('breaks the mean and both band series at the same t over an archive hole', () => {
+  it('breaks the mean and both band series at the same t over an archive hole (only when opted in)', () => {
+    // R1: the hole is a silence with no INVALID sample and no disconnect, so
+    // by default the line and band hold across it, as on main. A Line curve
+    // opted in to gap breaks breaks all three at the same t.
     const now = Date.now();
     const before = grid(now - 50 * 60 * S, 10 * S, 60);
     const holeStart = before.at(-1)!;
     const times = [...before, ...grid(holeStart + 300 * S, 10 * S, 60)];
     const trace = makeTrace({ useArchive: true });
     archive.snapshot = new Map([['t1', archiveEntry(times, times.at(-1)! + 5 * S, 'binned')]]);
-    render(<ArchivePlot plot={makePlot([trace])} />);
-    const option = lastOption();
+    const { unmount } = render(<ArchivePlot plot={makePlot([trace])} />);
+    let option = lastOption();
+    expect(nullTimes(seriesById(option, 't1'))).toEqual([]);
+    expect(nullTimes(seriesById(option, 't1-band-min'))).toEqual([]);
+    expect(nullTimes(seriesById(option, 't1-band-max'))).toEqual([]);
+    unmount();
+
+    const optIn = makeTrace({ useArchive: true, lineType: 'direct', breakOnGaps: true });
+    render(<ArchivePlot plot={makePlot([optIn])} />);
+    option = lastOption();
     expect(nullTimes(seriesById(option, 't1'))).toEqual([holeStart + 1]);
     expect(nullTimes(seriesById(option, 't1-band-min'))).toEqual([holeStart + 1]);
     expect(nullTimes(seriesById(option, 't1-band-max'))).toEqual([holeStart + 1]);
@@ -278,13 +289,36 @@ describe('SinglePlot gap markers', () => {
     expect(seriesPoints(ext!.data)[0]).toEqual([last, 2]);
   });
 
-  it('archive-only stale tail draws no extension', () => {
+  it('archive-only stale tail draws no extension (only when opted in)', () => {
+    // R1: by default the extension runs from the last sample, as on main.
     const now = Date.now();
     const times = grid(now - 20 * 60 * S, 10 * S, 60);
     const trace = makeTrace({ useArchive: true });
     archive.snapshot = new Map([['t1', archiveEntry(times, now)]]);
-    render(<ArchivePlot plot={makePlot([trace])} />);
+    const { unmount } = render(<ArchivePlot plot={makePlot([trace])} />);
+    const ext = seriesById(lastOption(), 't1-extension');
+    expect(ext).toBeDefined();
+    expect(seriesPoints(ext!.data)[0]).toEqual([times.at(-1)!, 2]);
+    unmount();
+
+    const optIn = makeTrace({ useArchive: true, lineType: 'direct', breakOnGaps: true });
+    render(<ArchivePlot plot={makePlot([optIn])} />);
     expect(seriesById(lastOption(), 't1-extension')).toBeUndefined();
+  });
+
+  it('an on-change PV with two samples minutes apart draws one held line to now', () => {
+    // R1 (TEST:SPARSE in a -20m window): no spacing break, and the held value
+    // extends to now.
+    const now = Date.now();
+    const times = [now - 16 * 60 * S, now - 12 * 60 * S];
+    const trace = makeTrace({ useArchive: true });
+    archive.snapshot = new Map([['t1', archiveEntry(times, now)]]);
+    render(<ArchivePlot plot={makePlot([trace])} />);
+    const option = lastOption();
+    expect(nullTimes(seriesById(option, 't1'))).toEqual([]);
+    const ext = seriesById(option, 't1-extension');
+    expect(ext).toBeDefined();
+    expect(seriesPoints(ext!.data)[0]).toEqual([times[1], 2]);
   });
 
   it('a recorded Hare break flows liveStore → useLiveSeries → one null, then resumes', async () => {

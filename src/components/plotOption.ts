@@ -27,6 +27,7 @@ import { traceLabel } from '../traceLabel';
 import { AXIS_OFFSET } from './axisHitTest';
 import {
   bandLineData,
+  breaksOnGaps,
   extensionAnchor,
   isResumePoint,
   nearestSample,
@@ -614,7 +615,7 @@ export function buildPlotOption({
         ) {
           const stackId = `band-${trace.id}`;
           // Same gap and INVALID rules as the mean, so the band breaks at the same t.
-          const bandData = bandLineData(archive.band);
+          const bandData = bandLineData(archive.band, breaksOnGaps(trace));
           series.push({
             id: `${trace.id}-band-min`,
             name: `${labels.get(trace.id)} (min)`,
@@ -737,8 +738,9 @@ export function buildPlotOption({
 
         if (trace.showExtensionLine !== false && trace.lineStyle !== 'none') {
           // Anchors on the last non-null point (a resume point included);
-          // none while a live trace is disconnected, an archive-only tail is
-          // stale or the curve ends INVALID (traceGaps.ts). The x axis spans
+          // none while a live trace with live samples is disconnected, the
+          // tail of an archive-only trace opted in to gap breaks is stale, or
+          // the curve ends INVALID (traceGaps.ts). The x axis spans
           // exactly the window, so the line's two ends are its whole data.
           const last = extensionAnchor(trace, drawn, archive, liveResults.get(trace.id));
           if (last && last[0] < xAxisMax) {
