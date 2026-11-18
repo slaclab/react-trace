@@ -452,3 +452,29 @@ describe('archive lines hold an on-change PV (R1)', () => {
     expect(nulls(bandLineData(band, true).max)).toEqual([holeStart + 1]);
   });
 });
+
+describe('opted-in gap breaks with Live on but nothing from live (R1)', () => {
+  // An archive-only PV (TEST:GAP) keeps Live on by default; live sends
+  // nothing, so the line is the archive's and its stale tail drops the
+  // extension for an opted-in Line curve, as with Live off.
+  const times = grid(T0, 10 * S, 60);
+  const last = times.at(-1)!;
+  const a = archive(times, last + 120 * S);
+  const idle: LiveSeriesResult = { ...live([], [], false), status: 'connecting' };
+
+  it('an opted-in Line curve draws no extension after a stale tail', () => {
+    const t = trace({ useArchive: true, useLive: true, lineType: 'direct', breakOnGaps: true });
+    const data = traceLineData(t, a, idle, undefined);
+    expect(extensionAnchor(t, data, a, idle)).toBeUndefined();
+  });
+
+  it('by default, or on a Step curve, it still extends from the last sample', () => {
+    for (const t of [
+      trace({ useArchive: true, useLive: true }),
+      trace({ useArchive: true, useLive: true, breakOnGaps: true }),
+    ]) {
+      const data = traceLineData(t, a, idle, undefined);
+      expect(extensionAnchor(t, data, a, idle)).toEqual([last, 1]);
+    }
+  });
+});

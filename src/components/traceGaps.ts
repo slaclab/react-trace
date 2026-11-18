@@ -352,12 +352,9 @@ export function extensionAnchor(
       // sent nothing for (connecting, archive-only PV, service down at load)
       // extends its archive line from the last sample, as main does.
       if (!live?.connected) return undefined;
-    } else if (
-      !trace.useLive &&
-      trace.useArchive &&
-      breaksOnGaps(trace) &&
-      archiveTailStale(archive)
-    ) {
+    } else if (trace.useArchive && breaksOnGaps(trace) && archiveTailStale(archive)) {
+      // Drawn from the archive alone (Live off, or nothing from live yet): an
+      // opted-in curve drops it after a stale tail.
       return undefined;
     }
   }
