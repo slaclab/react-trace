@@ -8,8 +8,8 @@
 //            Display     — Plot as (Scatter / Density), Density Y
 //                          (`#density-y`, density view only), Fit line, Fade
 //                          older points, Legend, Grid, Crosshair, Data
-//                          tooltip, Mouse drag; More: Drawing tools
-//                          (`rail=0`), Drawings (the `ui` hide-all)
+//                          tooltip, Mouse drag, Drawing tools (`rail=0`),
+//                          Drawings (the `ui` hide-all)
 //            Statistics  — the shared statistics fields (`readout`, metrics)
 //            Code        — the chart option without series
 //   Section  Y           — Signals; no fields (its axis is Axes › Y axis)

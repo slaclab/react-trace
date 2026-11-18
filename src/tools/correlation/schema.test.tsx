@@ -269,6 +269,8 @@ describe('Correlation schema — plot sections', () => {
       'crosshair',
       'tooltip',
       'drag',
+      'drawing-tools',
+      'drawings-shown',
     ]);
     const display = plotSection('display');
     expect(within(display).getByRole('radiogroup', { name: 'Plot as' })).toBeTruthy();

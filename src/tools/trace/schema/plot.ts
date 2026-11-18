@@ -12,8 +12,8 @@
 //               Y axes follow as the axis sections' sub-blocks
 //   Display     Title (stamped dot) · Legend · Live value in legend · X/Y
 //               gridlines · Crosshair · Data tooltip (L1); Mouse drag ·
-//               Status line · Pin data window (L2); More: Drawing tools ·
-//               Drawings (session: the plot's hide-all) · Grid style ·
+//               Status line · Pin data window · Drawing tools · Drawings
+//               (session: the plot's hide-all) (L2); More: Grid style ·
 //               Grid opacity · Tick font size · Background colour · Palette
 //               (custom, `plot.palette`)
 //   Statistics  Show statistics · Metrics · Reset metrics — the shared fields
@@ -363,7 +363,7 @@ export function createPlotSchema<
       label: LABELS.drawingTools,
       kind: 'toggle',
       tab: PLOT_TABS.display,
-      level: 'L3',
+      level: 'L2',
       get: (ctx) => read(ctx, (p) => p.showDrawingTools !== false, true),
       set: (ctx, on) => patch(ctx, { showDrawingTools: on ? undefined : false }),
       ...plotOptional<S, M, U>('showDrawingTools'),
@@ -375,7 +375,7 @@ export function createPlotSchema<
       label: LABELS.drawings,
       kind: 'toggle',
       tab: PLOT_TABS.display,
-      level: 'L3',
+      level: 'L2',
       get: (ctx) => {
         const plotId = boundPlot(ctx.state, ctx.target)?.id;
         if (plotId === undefined) return true;

@@ -107,7 +107,7 @@ are the same in every plot tool:
 ### Hiding the rail { #hiding-the-rail }
 
 Turn off **Drawing tools** in the plot's **Display** section to hide the
-rail (in Trace and Correlation it is under **More**). While it is off, an
+rail. While it is off, an
 armed tool goes back to the pointer and the drawing keys (Alt+H … Alt+M)
 do nothing. The drawings you already have stay on the plot: open them from
 their cards under **Drawings**, or right-click one, to edit, lock or delete

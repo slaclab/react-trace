@@ -240,7 +240,13 @@ describe('plot schema — sections, levels, summaries', () => {
       'show-crosshair',
       'show-tooltip',
     ];
-    const second = ['drag-mode', 'show-status-line', 'pin-data-window'];
+    const second = [
+      'drag-mode',
+      'show-status-line',
+      'pin-data-window',
+      'show-drawing-tools',
+      'show-drawings',
+    ];
     expect(fieldsIn('display')).toEqual([...main, ...second]);
     for (const id of main) expect(fieldEl(id)?.getAttribute('data-level')).toBe('L1');
     for (const id of second) expect(fieldEl(id)?.getAttribute('data-level')).toBe('L2');

@@ -171,11 +171,6 @@ function mount(plot: Plot, prefs: Partial<AnnotationToolPrefs> = {}) {
   const wrap = utils.container.querySelector('[data-plot-id]') as HTMLElement;
   const rail = () => wrap.querySelector('[data-drawing-rail]');
   const hideButton = () => wrap.querySelector<HTMLButtonElement>('[data-drawing-toggle="hide"]');
-  const openMore = () => {
-    const display = document.querySelector('.wb-plot-section[data-section="display"]')!;
-    const more = [...display.querySelectorAll('button')].find((b) => b.textContent === 'More')!;
-    fireEvent.click(more);
-  };
   const toggle = (id: string) => document.getElementById(id) as HTMLButtonElement;
   const key = (init: KeyboardEventInit) => {
     const ev = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
@@ -184,14 +179,13 @@ function mount(plot: Plot, prefs: Partial<AnnotationToolPrefs> = {}) {
     });
     return ev;
   };
-  return { live, rail, hideButton, openMore, toggle, key };
+  return { live, rail, hideButton, toggle, key };
 }
 
 describe('Trace: Display › Drawing tools', () => {
   it('hides and shows the plot rail, storing only the off value', () => {
-    const { live, rail, openMore, toggle } = mount(makePlot());
+    const { live, rail, toggle } = mount(makePlot());
     expect(rail()).not.toBeNull();
-    openMore();
     const tools = toggle('show-drawing-tools');
     expect(tools.getAttribute('aria-checked')).toBe('true');
     act(() => {
@@ -207,9 +201,8 @@ describe('Trace: Display › Drawing tools', () => {
   });
 
   it('disarms an armed tool and leaves the arm keys inert while off', () => {
-    const { live, openMore, toggle, key } = mount(makePlot(), { tool: 'hline' });
+    const { live, toggle, key } = mount(makePlot(), { tool: 'hline' });
     expect(live.prefs.tool).toBe('hline');
-    openMore();
     act(() => {
       fireEvent.click(toggle('show-drawing-tools'));
     });
@@ -227,8 +220,7 @@ describe('Trace: Display › Drawing tools', () => {
 
 describe('Trace: Display › Drawings and the rail’s hide-all', () => {
   it('agree in both directions', () => {
-    const { live, hideButton, openMore, toggle } = mount(makePlot());
-    openMore();
+    const { live, hideButton, toggle } = mount(makePlot());
     const drawings = () => toggle('show-drawings');
     expect(drawings().getAttribute('aria-checked')).toBe('true');
     expect(hideButton()?.getAttribute('aria-pressed')).toBe('false');
@@ -256,9 +248,8 @@ describe('Trace: Display › Drawings and the rail’s hide-all', () => {
   });
 
   it('keeps hiding drawings possible while the rail is hidden', () => {
-    const { live, rail, openMore, toggle } = mount(makePlot({ showDrawingTools: false }));
+    const { live, rail, toggle } = mount(makePlot({ showDrawingTools: false }));
     expect(rail()).toBeNull();
-    openMore();
     act(() => {
       fireEvent.click(toggle('show-drawings'));
     });

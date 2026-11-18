@@ -146,7 +146,7 @@ export function toolSchema<
       label: LABELS.drawingTools,
       kind: 'toggle',
       tab: displayTab,
-      level: 'L3',
+      level: 'L2',
       get: (ctx) => ctx.state.drawingTools !== false,
       set: (ctx, on) =>
         ctx.update((state) =>
@@ -160,7 +160,7 @@ export function toolSchema<
       label: LABELS.drawings,
       kind: 'toggle',
       tab: displayTab,
-      level: 'L3',
+      level: 'L2',
       get: (ctx) => (ctx.ui as CorrelationUi | undefined)?.drawingsHidden !== true,
       set: (ctx, on) =>
         (ctx.ui as CorrelationUi | undefined)?.setUi?.((ui) =>

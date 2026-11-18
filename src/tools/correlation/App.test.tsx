@@ -672,13 +672,12 @@ describe('CorrelationApp Display › Drawing tools and Drawings', () => {
     });
     return ev;
   };
-  /** Opens Display and its More; the plot-wide sections start closed. */
-  const openDisplayMore = () => {
+  /** Opens Display; the plot-wide sections start closed. */
+  const openDisplay = () => {
     const display = document.querySelector<HTMLElement>(
       '.wb-plot-section[data-section="display"]'
     )!;
     fireEvent.click(display.querySelector('.wb-plot-section__head')!);
-    fireEvent.click(within(display).getByRole('button', { name: 'More' }));
   };
   const toggle = (id: string) => document.getElementById(id) as HTMLButtonElement;
   async function ready(query = TIMER) {
@@ -690,7 +689,7 @@ describe('CorrelationApp Display › Drawing tools and Drawings', () => {
   it('Drawing tools hides and shows the rail', async () => {
     await ready();
     expect(rail()).not.toBeNull();
-    openDisplayMore();
+    openDisplay();
     expect(toggle('drawing-tools').getAttribute('aria-checked')).toBe('true');
     fireEvent.click(toggle('drawing-tools'));
     expect(rail()).toBeNull();
@@ -702,7 +701,7 @@ describe('CorrelationApp Display › Drawing tools and Drawings', () => {
     await ready();
     expect(key(box(), { key: '√', code: 'KeyV', altKey: true }).defaultPrevented).toBe(true);
     expect(armed()).toHaveLength(1);
-    openDisplayMore();
+    openDisplay();
     fireEvent.click(toggle('drawing-tools'));
     expect(key(box(), { key: '√', code: 'KeyV', altKey: true }).defaultPrevented).toBe(false);
     // Back on: nothing is armed, so the off-time key armed nothing either.
@@ -719,7 +718,7 @@ describe('CorrelationApp Display › Drawing tools and Drawings', () => {
 
   it('Drawings and the rail’s hide-all agree in both directions', async () => {
     await ready();
-    openDisplayMore();
+    openDisplay();
     const drawings = () => toggle('drawings-shown');
     expect(drawings().getAttribute('aria-checked')).toBe('true');
     expect(hideButton()?.getAttribute('aria-pressed')).toBe('false');
