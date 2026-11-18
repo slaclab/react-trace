@@ -56,13 +56,14 @@ import {
 } from '../curveStatus';
 import { curveColourDot, curveOptional, type TraceDotModel, type TraceDotState } from '../dots';
 import { PvNameControl } from '../fields/pvName';
+import type { TraceAxisModel } from './axis';
 import type { TracePlotModel } from './plot';
 
 /** The item kind Trace's PV curves render under (`schema.items.curve`). */
 export const PV_CURVE_ITEM_KIND = 'curve';
 
 /** What the curve schema reads from Trace's model beyond the plot schema's slice. */
-export interface TraceCurveModel extends TracePlotModel {
+export interface TraceCurveModel extends TracePlotModel, TraceAxisModel {
   /** Open the data inspector on the curve. */
   inspect(traceId: string): void;
   /** Add a formula curve seeded with this one as `{x1}`, and select it. */

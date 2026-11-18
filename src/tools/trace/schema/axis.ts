@@ -91,10 +91,20 @@ export function removeAxis<S extends TraceDotState>(state: S, axisId: string): S
 
 // ------------------------------------------------------------------ schema --
 
+/**
+ * What the axis schema reads from the model, when the owner provides it: the
+ * Y range the chart last drew for an axis of a plot (the owner tracks it from
+ * the chart's `finished` event). Absent, or undefined for an axis not drawn
+ * yet, Auto-scale off seeds nothing.
+ */
+export interface TraceAxisModel {
+  shownAxisRange?(plotId: string, axisId: string): readonly [number, number] | undefined;
+}
+
 /** Trace's Y-axis section schema; call once at module level. */
 export function traceAxisSchema<
   S extends TraceDotState,
-  M,
+  M extends TraceAxisModel,
   U extends ToolUi = ToolUi,
 >(): SectionSchema<S, M, U> {
   type Ctx = ToolContext<S, M, U>;
@@ -159,8 +169,22 @@ export function traceAxisSchema<
       tab: AXIS_TAB,
       level: 'L1',
       get: (ctx) => axis(ctx)?.autoScale ?? true,
-      // Turning it off keeps any min/max already set (the schema has no live range).
-      set: (ctx, autoScale) => patch(ctx, { autoScale }),
+      // Turning it off keeps the range on screen, as main did: an axis with
+      // no min/max yet is seeded from the range the chart last drew, so it
+      // freezes where it was instead of jumping to include zero. Limits
+      // already set are kept.
+      set: (ctx, autoScale) => {
+        const current = axis(ctx);
+        if (!autoScale && current?.min === undefined && current?.max === undefined) {
+          const plot = plotHolding(ctx.state, ctx.target.id);
+          const shown = plot && ctx.model.shownAxisRange?.(plot.id, ctx.target.id);
+          if (shown) {
+            patch(ctx, { autoScale: false, min: shown[0], max: shown[1] });
+            return;
+          }
+        }
+        patch(ctx, { autoScale });
+      },
     },
     {
       id: 'axis-min',

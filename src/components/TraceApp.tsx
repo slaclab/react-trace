@@ -754,6 +754,17 @@ export function TraceApp() {
     []
   );
 
+  // The Y range each plot's chart last drew, per axis (its `finished` event):
+  // what Auto-scale off seeds Min and Max from, as main did. A ref, not state:
+  // nothing renders from it.
+  const axisRangesRef = useRef(new Map<string, Map<string, [number, number]>>());
+  const handleAxisRangesChange = useCallback(
+    (plotId: string, ranges: Map<string, [number, number]>) => {
+      axisRangesRef.current.set(plotId, ranges);
+    },
+    []
+  );
+
   // ── Plot operations ─────────────────────────────────────────────────────────
 
   const addPlot = () => {
@@ -924,6 +935,7 @@ export function TraceApp() {
     }
     setViewWindowByPlot(new Map());
     setFetchWindowByPlot(new Map());
+    axisRangesRef.current.clear();
     setDetachedPlotIds([]);
     setPoppedOutPlot(null);
     setAnnotationsHiddenSet(new Set());
@@ -1175,6 +1187,7 @@ export function TraceApp() {
     inspect: (traceId) => openInsight(traceId),
     createFormula: (traceId) => createFormulaFromTrace(traceId),
     unitLookups,
+    shownAxisRange: (plotId, axisId) => axisRangesRef.current.get(plotId)?.get(axisId),
   };
   const definition = useTraceDefinition({
     state: tool,
@@ -1307,6 +1320,7 @@ export function TraceApp() {
                   onApplyXAxis={handleApplyXAxis}
                   lastRelativeSpanFor={lastRelativeSpanFor}
                   onChartInstance={handleChartInstance}
+                  onAxisRangesChange={handleAxisRangesChange}
                   statsWindowByPlotId={statsWindowByPlotId}
                   hostBar={standardOptions.hostBar}
                   {...annotationChannel}
@@ -1443,6 +1457,8 @@ export function TraceApp() {
                       following={followingFor(plot.id)}
                       statsWindowNs={statsWindowByPlotId.get(plot.id)}
                       onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
+                      // eslint-disable-next-line react-hooks/refs -- ref is written on the chart's finished event, not during render
+                      onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
                       onApplyXAxis={(x) => handleApplyXAxis(plot.id, x)}
                       // Registered as the fullscreen copy, which e-log capture
                       // prefers while it is mounted (see createChartRegistry).
@@ -1557,6 +1573,7 @@ export function TraceApp() {
                     following={followingFor(plot.id)}
                     statsWindowNs={statsWindowByPlotId.get(plot.id)}
                     onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
+                    onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
                     onApplyXAxis={(x) => handleApplyXAxis(plot.id, x)}
                     onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
                     {...annotationMountProps(plot.id, annotationChannel)}
