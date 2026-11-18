@@ -509,6 +509,21 @@ const TRACE_CHECKS: Record<string, Check> = {
   symbolSize: between(1, 50),
 };
 
+/**
+ * Whether `value` is a valid `plot=` value of plot field `key`: the link's own
+ * check, which the site defaults (src/site) apply to the keys they share.
+ */
+export function isPlotFieldValue(key: keyof PlotConfig, value: unknown): boolean {
+  const check = PLOT_CHECKS[key];
+  return check !== undefined && check(value);
+}
+
+/** Whether `value` is a valid `plot=` value of trace field `key` (as {@link isPlotFieldValue}). */
+export function isTraceFieldValue(key: keyof TraceConfig, value: unknown): boolean {
+  const check = TRACE_CHECKS[key];
+  return check !== undefined && check(value);
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }

@@ -116,8 +116,9 @@ export const DEFAULT_DT_S = 1;
 export const MIN_DT_S = 0.1;
 export const DEFAULT_LOOKBACK = '1h';
 
-const MIN_LOOKBACK_MS = 60 * 1000;
-const MAX_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+/** The lookback range, [1m, 24h]: a longer or shorter span is clamped to it. */
+export const MIN_LOOKBACK_MS = 60 * 1000;
+export const MAX_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 const MIN_LOOKBACK = '1m';
 const MAX_LOOKBACK = '24h';
 
