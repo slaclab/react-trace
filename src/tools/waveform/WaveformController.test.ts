@@ -6,7 +6,13 @@
 import { describe, expect, it } from 'vitest';
 import { FakeHare, type FakeValue } from '../shared/fakeHare.test-util';
 import { setHidden, setSnapshot, setVisible } from './edit';
-import { META_MISSING, META_WAITING, NOT_IN_SNAPSHOT, STRING_WAVEFORM } from './model';
+import {
+  META_MISSING,
+  META_WAITING,
+  NOT_IN_SNAPSHOT,
+  STRING_WAVEFORM,
+  historyLimitChip,
+} from './model';
 import { defaultWaveformState, type WaveformState } from './query';
 import { WAVEFORM_META_TIMEOUT_MS, WaveformController } from './WaveformController';
 
@@ -33,7 +39,9 @@ interface Harness {
   modelEmits(): number;
 }
 
-function harness(opts: { visible?: boolean; wanted?: boolean } = {}): Harness {
+function harness(
+  opts: { visible?: boolean; wanted?: boolean; ringSampleBudget?: number } = {}
+): Harness {
   const hare = new FakeHare();
   const clock = { t: 1000 };
   const frames: Harness['frames'] = [];
@@ -668,5 +676,63 @@ describe('string waveforms', () => {
     const [good, str] = h.ctl.getModel().live;
     expect(good).toMatchObject({ status: 'ok', drawable: true });
     expect(str).toMatchObject({ status: 'error', chip: STRING_WAVEFORM, drawable: false });
+  });
+});
+
+describe('ring memory budget', () => {
+  const WF = 'TEST:WAVEFORM';
+  const WF2 = 'DEMO:WAVEFORM_2';
+  const push = (h: Harness, pv: string, n: number, length: number) => {
+    for (let i = 0; i < n; i++) {
+      h.clock.t += 100;
+      h.hare.diff([[pv, wf(...Array.from({ length }, () => i))]]);
+    }
+    h.flush();
+  };
+
+  it('trims the history of long arrays and says so on the row', () => {
+    // 12 samples for the live rings: 3-element frames keep 4 of the 8 asked.
+    const h = harness({ ringSampleBudget: 12 });
+    h.ctl.setState(state({ pvs: [WF], persist: 8 }));
+    initial(h, [WF], wf(0, 0, 0));
+    push(h, WF, 10, 3);
+    expect(h.ctl.getFrames().live[WF]!.trails).toHaveLength(3);
+    expect(h.ctl.getModel().live[0]).toMatchObject({
+      status: 'ok',
+      drawable: true,
+      chip: historyLimitChip(4),
+      historyLimit: 4,
+    });
+
+    // An unrelated edit keeps the trim.
+    h.ctl.setState(state({ pvs: [WF], persist: 8, hz: 5 }));
+    push(h, WF, 4, 3);
+    expect(h.ctl.getFrames().live[WF]!.trails).toHaveLength(3);
+
+    // A second curve halves each one's share.
+    h.ctl.setState(state({ pvs: [WF, WF2], persist: 8 }));
+    initial(h, [WF2], wf(0, 0, 0));
+    push(h, WF, 4, 3);
+    expect(h.ctl.getFrames().live[WF]!.trails).toHaveLength(1);
+    expect(h.ctl.getModel().live[1].chip).toBe(historyLimitChip(2));
+  });
+
+  it('gives the full history back when the frames get short enough', () => {
+    const h = harness({ ringSampleBudget: 12 });
+    h.ctl.setState(state({ pvs: [WF], persist: 8 }));
+    initial(h, [WF], wf(0, 0, 0));
+    expect(h.ctl.getModel().live[0].chip).toBe(historyLimitChip(4));
+    push(h, WF, 10, 1);
+    expect(h.ctl.getFrames().live[WF]!.trails).toHaveLength(7);
+    expect(h.ctl.getModel().live[0]).toMatchObject({ chip: null, drawable: true });
+  });
+
+  it('leaves short arrays alone under the default budget', () => {
+    const h = harness();
+    h.ctl.setState(state({ pvs: [WF], persist: 64, avg: 64 }));
+    initial(h, [WF], wf(0, 0, 0));
+    push(h, WF, 70, 32);
+    expect(h.ctl.getFrames().live[WF]!.trails).toHaveLength(63);
+    expect(h.ctl.getModel().live[0].chip).toBeNull();
   });
 });

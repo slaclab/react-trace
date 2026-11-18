@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { FrameRing, ringCapacity, toFrame } from './frames';
+import {
+  FrameRing,
+  RING_SAMPLE_BUDGET,
+  budgetedRingCapacity,
+  ringCapacity,
+  toFrame,
+} from './frames';
 
 describe('toFrame', () => {
   it('turns null and non-numeric elements into NaN', () => {
@@ -141,5 +147,24 @@ describe('FrameRing', () => {
     ring.push([], 1);
     expect(ring.frameLength).toBe(0);
     expect(ring.size).toBe(1);
+  });
+});
+
+describe('budgetedRingCapacity', () => {
+  it('keeps what persistence and average ask while the curves fit the sample budget', () => {
+    expect(budgetedRingCapacity(64, 32, 8)).toBe(64);
+    expect(budgetedRingCapacity(64, null, 8)).toBe(64);
+  });
+
+  it('bounds the total samples across the live curves by element count × history', () => {
+    // 8 curves of 1 M elements may not keep 64 frames each.
+    const cap = budgetedRingCapacity(64, 1_000_000, 8);
+    expect(cap).toBeLessThan(64);
+    expect(cap * 1_000_000 * 8).toBeLessThanOrEqual(RING_SAMPLE_BUDGET);
+    expect(budgetedRingCapacity(64, 100, 2, 1000)).toBe(5);
+  });
+
+  it('always keeps one frame', () => {
+    expect(budgetedRingCapacity(64, 10_000_000, 8, 1000)).toBe(1);
   });
 });

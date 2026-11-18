@@ -3,8 +3,9 @@
 // that array is the ring's storage; nothing downstream copies it again (trails
 // are returned by identity). A ring holds frames of one length: a frame of a
 // different length resets it, as do a reconnect and the curve no longer being
-// wanted (page wanted && curve Visible). Capacity is max(persistence, average);
-// a capacity change keeps every frame the new capacity can hold. The reset
+// wanted (page wanted && curve Visible). Capacity is max(persistence, average),
+// within the live curves' memory budget (`budgetedRingCapacity`); a capacity
+// change keeps every frame the new capacity can hold. The reset
 // epoch is the time of the ring's last reset, so a snapshot taken before it is
 // known not to belong to the frames now held.
 //
@@ -32,6 +33,28 @@ export function toFrame(values: ArrayLike<unknown>): Float64Array {
 export function ringCapacity(persistence: number, average: number): number {
   const n = Math.max(1, Math.floor(persistence) || 0, Math.floor(average) || 0);
   return n;
+}
+
+/** The most samples the live curves' rings hold together: 64 MB of Float64. */
+export const RING_SAMPLE_BUDGET = 8 * 1024 * 1024;
+
+/**
+ * The frames one live curve's ring keeps: `requested` (max(persistence,
+ * average)), within an equal share of `budget` samples among `curves` live
+ * curves, so element count × history summed over the curves stays within the
+ * budget. At least one frame; a ring holding no frame yet (`length` null)
+ * keeps what was asked.
+ */
+export function budgetedRingCapacity(
+  requested: number,
+  length: number | null,
+  curves: number,
+  budget: number = RING_SAMPLE_BUDGET
+): number {
+  const asked = Math.max(1, Math.floor(requested) || 1);
+  if (length === null) return asked;
+  const share = budget / Math.max(1, curves);
+  return Math.max(1, Math.min(asked, Math.floor(share / Math.max(1, length))));
 }
 
 /** A fixed-capacity ring of one-length frames, with an arrival stamp per frame. */

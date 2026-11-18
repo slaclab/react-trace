@@ -1,7 +1,8 @@
 // The Waveform canvas health line: one line on the
 // canvas for the Hare connection status, on Correlation's pattern. Per-PV
 // status (disconnected, empty, refused, length mismatch) stays on the Outline
-// rows; this line only says whether the page's live data path is up.
+// rows; this line says whether the page's live data path is up, plus an
+// optional page-wide notice (a history trimmed by the memory budget).
 
 import type { HareConnectionStatus } from '@slaclab/canopy-client';
 
@@ -19,9 +20,11 @@ function healthText(status: HareConnectionStatus): string {
 
 export interface WaveformHealthLineProps {
   status: HareConnectionStatus;
+  /** Shown after the connection text; null or absent for none. */
+  notice?: string | null;
 }
 
-export function WaveformHealthLine({ status }: WaveformHealthLineProps) {
+export function WaveformHealthLine({ status, notice }: WaveformHealthLineProps) {
   return (
     <p
       className="waveform-health"
@@ -31,6 +34,7 @@ export function WaveformHealthLine({ status }: WaveformHealthLineProps) {
       data-testid="waveform-health"
     >
       {healthText(status)}
+      {notice ? ` · ${notice}` : null}
     </p>
   );
 }

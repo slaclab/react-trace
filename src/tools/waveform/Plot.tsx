@@ -78,7 +78,7 @@ import {
   type WaveformDrawingData,
   waveformSwatches,
 } from './measure';
-import type { WaveformModel } from './model';
+import { historyLimitNotice, type WaveformModel } from './model';
 import {
   WaveformPlotBuffers,
   renderedXSource,
@@ -463,7 +463,7 @@ export function WaveformPlot({
 
   return (
     <div className="waveform-plot stats-canvas" data-testid="waveform-plot">
-      <WaveformHealthLine status={hare} />
+      <WaveformHealthLine status={hare} notice={historyLimitNotice(model)} />
       <div className="waveform-plot__stage stats-canvas__stage" ref={stage}>
         <div className="waveform-plot__chart" ref={host} data-testid="waveform-chart" />
         {canvas.kind !== 'ready' && (

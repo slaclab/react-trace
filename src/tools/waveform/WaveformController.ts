@@ -21,6 +21,12 @@
 // that bypasses `hz` and Pause (paused, the live frames stay frozen), so the
 // Snapshot click re-zeroes Δ at once.
 //
+// Memory: a live curve's ring keeps max(persistence, average) frames, within
+// an equal share of `RING_SAMPLE_BUDGET` samples among the live curves
+// (`budgetedRingCapacity`). The cap follows each ring's frame length, so it is
+// re-applied when a frame of a new length arrives and on every state change;
+// a trimmed curve carries `historyLimit` in its summary, and the model says so.
+//
 // Metadata: each live and reference PV has its own window
 // (`WAVEFORM_META_TIMEOUT_MS`), armed when it joins the state and ended by
 // its metadata, by a disconnected report without metadata, or by the timer.
@@ -43,7 +49,15 @@
 import { HarePVService, type PVData, type PVListener } from '@slaclab/canopy-client';
 import { hareServiceOptions } from '../shared/canopyServices';
 import type { SnapshotInput } from './edit';
-import { CurveBuffers, FrameRing, RollingWindow, ringCapacity, type RollingFrame } from './frames';
+import {
+  CurveBuffers,
+  FrameRing,
+  RING_SAMPLE_BUDGET,
+  RollingWindow,
+  budgetedRingCapacity,
+  ringCapacity,
+  type RollingFrame,
+} from './frames';
 import {
   deriveWaveformModel,
   sameData,
@@ -80,6 +94,8 @@ export interface WaveformControllerOptions {
   /** Timers, for the metadata timeout only. */
   setTimer?: (cb: () => void, ms: number) => unknown;
   clearTimer?: (handle: unknown) => void;
+  /** Samples the live curves' rings may hold together (`RING_SAMPLE_BUDGET` by default). */
+  ringSampleBudget?: number;
   /** The page is visible at construction (default true). */
   visible?: boolean;
   /** The page is wanted at construction (default true). */
@@ -143,6 +159,7 @@ export class WaveformController {
   private readonly cancelFrame: (handle: number) => void;
   private readonly setTimer: (cb: () => void, ms: number) => unknown;
   private readonly clearTimer: (handle: unknown) => void;
+  private readonly ringSampleBudget: number;
 
   private state: WaveformState = defaultWaveformState();
   private pageWanted: boolean;
@@ -188,6 +205,7 @@ export class WaveformController {
     this.setTimer = options.setTimer ?? ((cb, ms) => setTimeout(cb, ms));
     this.clearTimer =
       options.clearTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
+    this.ringSampleBudget = options.ringSampleBudget ?? RING_SAMPLE_BUDGET;
     this.visible = options.visible ?? true;
     this.pageWanted = options.wanted ?? true;
     this.model = this.derive();
@@ -325,29 +343,44 @@ export class WaveformController {
 
   // ── Listeners ────────────────────────────────────────────────────────────
 
-  /** The PVs to listen to now, each with its ring capacity. */
+  /** The live PVs listened to (visible, page wanted): the curves that share the ring budget. */
+  private liveCurves(): Set<string> {
+    const out = new Set<string>();
+    if (!this.pageWanted || this.disposed) return out;
+    const s = this.state;
+    for (const pv of s.pvs) if (pv !== '' && s.hidden[pv] !== true) out.add(pv);
+    return out;
+  }
+
+  /** The PVs to listen to now, each with the ring capacity asked of it (before the budget). */
   private wantedPvs(): Map<string, number> {
     const out = new Map<string, number>();
     if (!this.pageWanted || this.disposed) return out;
     const s = this.state;
     const liveCap = ringCapacity(s.persist, s.avg);
-    for (const pv of s.pvs) if (pv !== '' && s.hidden[pv] !== true) out.set(pv, liveCap);
+    for (const pv of this.liveCurves()) out.set(pv, liveCap);
     const ref = refPvOf(s);
     if (ref !== '' && s.hidden[ref] !== true && !out.has(ref)) out.set(ref, 1);
     if (s.xs !== '' && !out.has(s.xs)) out.set(s.xs, 1);
     return out;
   }
 
+  /** `asked` within a live curve's share of the ring budget, for frames of `length`. */
+  private budgeted(asked: number, length: number | null, curves: number): number {
+    return budgetedRingCapacity(asked, length, curves, this.ringSampleBudget);
+  }
+
   private sync(): void {
     const wanted = this.wantedPvs();
+    const curves = this.liveCurves().size;
     for (const [pv, entry] of this.entries) {
       if (!wanted.has(pv)) this.release(pv, entry);
     }
     if (wanted.size > 0) this.owned?.connect();
-    for (const [pv, cap] of wanted) {
+    for (const [pv, asked] of wanted) {
       const entry = this.entries.get(pv);
-      if (entry === undefined) this.listen(pv, cap);
-      else entry.ring.setCapacity(cap);
+      if (entry === undefined) this.listen(pv, asked);
+      else entry.ring.setCapacity(this.budgeted(asked, entry.ring.frameLength, curves));
     }
     for (const pv of [...this.buffers.keys()]) if (!wanted.has(pv)) this.buffers.delete(pv);
     this.syncRolling();
@@ -433,13 +466,23 @@ export class WaveformController {
       const value = data.value;
       if (Array.isArray(value)) {
         entry.numeric = isNumericValue(value);
+        const length = entry.ring.frameLength;
         const frame = entry.ring.push(value, at);
+        if (entry.ring.frameLength !== length) this.fitRing(pv, entry);
         if (frame !== null) entry.rolling?.push(frame, at);
         this.dirty = true;
         this.schedule();
       }
     }
     this.updateModel();
+  }
+
+  /** A live curve's frames changed length: fit its ring to its share of the budget. */
+  private fitRing(pv: string, entry: Entry): void {
+    const curves = this.liveCurves();
+    if (!curves.has(pv)) return;
+    const asked = ringCapacity(this.state.persist, this.state.avg);
+    entry.ring.setCapacity(this.budgeted(asked, entry.ring.frameLength, curves.size));
   }
 
   // ── Metadata windows ────────────────────────────────────────────────
@@ -489,15 +532,19 @@ export class WaveformController {
 
   private summaries(): Record<string, WaveformRingSummary> {
     const out: Record<string, WaveformRingSummary> = {};
+    const asked = ringCapacity(this.state.persist, this.state.avg);
+    const live = this.liveCurves();
     for (const [pv, entry] of this.entries) {
       if (!entry.reported) continue;
-      out[pv] = {
+      const summary: WaveformRingSummary = {
         connected: entry.connected,
         length: entry.ring.frameLength,
         resetEpoch: entry.ring.resetEpoch,
         arrival: entry.ring.latestArrival(),
         numeric: entry.numeric,
       };
+      if (live.has(pv) && entry.ring.capacity < asked) summary.historyLimit = entry.ring.capacity;
+      out[pv] = summary;
     }
     return out;
   }

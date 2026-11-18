@@ -14,6 +14,8 @@ import {
   clockTime,
   deltaWaitingMessage,
   deriveWaveformModel,
+  historyLimitChip,
+  historyLimitNotice,
   stringWaveformMessage,
   unitMessage,
   type WaveformMetaMap,
@@ -619,5 +621,36 @@ describe('string waveforms', () => {
     // Δ against it waits: the reference holds no numeric frame.
     expect(m.delta.waiting).not.toBeNull();
     expect(m.live[0].drawable).toBe(false);
+  });
+});
+
+describe('history limit', () => {
+  const WF = 'TEST:WAVEFORM';
+
+  it('marks a curve whose ring was trimmed by the memory budget, and names it for the health line', () => {
+    const s = state({ pvs: [WF], persist: 16, avg: 64 });
+    const m = deriveWaveformModel(
+      input({
+        state: s,
+        meta: { [WF]: none },
+        rings: { [WF]: ring(1_000_000, { historyLimit: 8 }) },
+      })
+    );
+    expect(m.live[0]).toMatchObject({
+      status: 'ok',
+      drawable: true,
+      chip: historyLimitChip(8),
+      historyLimit: 8,
+    });
+    expect(m.live[0].message).toContain('8 of 64');
+    expect(historyLimitNotice(m)).toBe(`history limited to 8 frames for ${WF}`);
+  });
+
+  it('has no notice when no curve is trimmed', () => {
+    const m = deriveWaveformModel(
+      input({ state: state({ pvs: [WF] }), meta: { [WF]: none }, rings: { [WF]: ring(32) } })
+    );
+    expect(m.live[0].chip).toBeNull();
+    expect(historyLimitNotice(m)).toBeNull();
   });
 });

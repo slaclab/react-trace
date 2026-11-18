@@ -71,6 +71,12 @@ describe('WaveformHealthLine', () => {
     expect(line.textContent).toBe('Live data connected');
   });
 
+  it('adds a notice, such as a trimmed history, after the connection text', () => {
+    render(<WaveformHealthLine status="connected" notice="history limited for TEST:WAVEFORM" />);
+    const line = screen.getByTestId('waveform-health');
+    expect(line.textContent).toBe('Live data connected · history limited for TEST:WAVEFORM');
+  });
+
   it('keeps its text and role while the connection is lost', () => {
     render(<WaveformHealthLine status="disconnected" />);
     const line = screen.getByTestId('waveform-health');

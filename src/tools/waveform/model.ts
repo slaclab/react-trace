@@ -39,6 +39,7 @@
 //     yet or the unit undecided, "waiting for data".
 
 import type { RowStatus } from '../../workbench/types';
+import { ringCapacity } from './frames';
 import type { WaveformState } from './query';
 
 /**
@@ -79,6 +80,11 @@ export interface WaveformRingSummary {
    * refuses the PV in every role: live, PV reference and X source.
    */
   numeric?: boolean;
+  /**
+   * Live curves only: the frames the ring keeps when the memory budget holds
+   * it below max(persistence, average); absent when it keeps what was asked.
+   */
+  historyLimit?: number;
 }
 
 /** A PV's metadata once it arrived; absent while it has not. */
@@ -115,6 +121,8 @@ export interface WaveformLiveRow {
   hidden: boolean;
   /** Drawn on the canvas. */
   drawable: boolean;
+  /** The frames the memory budget lets the curve keep, when below what was asked. */
+  historyLimit?: number;
 }
 
 export interface WaveformReferenceRow {
@@ -194,6 +202,25 @@ export const STRING_WAVEFORM = "string waveform — can't be plotted";
 
 export function stringWaveformMessage(pv: string): string {
   return `${pv} holds strings; string waveforms can't be plotted.`;
+}
+
+export function historyLimitChip(frames: number): string {
+  return `history limited to ${frames} frames`;
+}
+
+export function historyLimitMessage(length: number, frames: number, asked: number): string {
+  return (
+    `${length} elements per frame: Average and Persistence use ${frames} of ${asked} ` +
+    'frames, to keep the history within the memory budget.'
+  );
+}
+
+/** The health line's note on trimmed histories; null when no drawn curve is trimmed. */
+export function historyLimitNotice(model: WaveformModel): string | null {
+  const rows = model.live.filter((r) => r.drawable && r.historyLimit !== undefined);
+  if (rows.length === 0) return null;
+  const frames = Math.min(...rows.map((r) => r.historyLimit!));
+  return `history limited to ${frames} frames for ${rows.map((r) => r.pv).join(', ')}`;
 }
 
 export function metaMissingMessage(pv: string): string {
@@ -429,6 +456,12 @@ export function deriveWaveformModel(input: WaveformModelInput): WaveformModel {
       }
     }
     row.drawable = true;
+    if (summary.historyLimit !== undefined) {
+      const asked = ringCapacity(state.persist, state.avg);
+      row.historyLimit = summary.historyLimit;
+      row.chip = historyLimitChip(summary.historyLimit);
+      row.message = historyLimitMessage(length, summary.historyLimit, asked);
+    }
     return row;
   });
 
