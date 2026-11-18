@@ -25,7 +25,8 @@
 // end on release and on a lost release (`buttons === 0`). Escape and blur
 // cancel a drag instead: a zoom box is dropped unapplied, a pan or stretch
 // puts its axes back as they were at the press (an axis it froze returns to
-// auto-scale), and an Escape that cancels a drag is consumed there, so it
+// auto-scale), an X-band drag the surface runs is undone by its own
+// `cancel`, and an Escape that cancels a drag is consumed there, so it
 // never also disarms a tool or leaves fullscreen. Every drag
 // coalesces its writes to one per animation frame and runs off the extents
 // captured at press, never the live ones a write re-renders. The first write
@@ -100,6 +101,8 @@ export interface XBandDrag {
   move(dx: number): void;
   /** `commit`: deliver what is pending; false on cleanup. */
   end(commit: boolean): void;
+  /** Escape or blur: undo the drag, back to the press. Absent, it ends uncommitted. */
+  cancel?(): void;
 }
 
 /** What a plot tool hands the gesture layer. */
@@ -344,6 +347,12 @@ export function installPlotGestures(
     xDrag = null;
     d?.drag.end(commit);
   };
+  const cancelXDrag = () => {
+    const d = xDrag;
+    xDrag = null;
+    if (d?.drag.cancel) d.drag.cancel();
+    else d?.drag.end(false);
+  };
 
   // Pan: the X axis and the grid's manual Y axes follow the pointer.
   let pan: {
@@ -474,7 +483,8 @@ export function installPlotGestures(
   /**
    * Ends every drag without applying it, undoing what its frames wrote.
    * Returns true when a drag past the threshold was cancelled. A surface's
-   * X-band drag ends uncommitted (its own `end(false)`).
+   * X-band drag is undone by its own `cancel`, or ends uncommitted
+   * (`end(false)`) when it has none.
    */
   const cancelAll = (): boolean => {
     const cancelled = !!(pan?.active || stretch?.active || xDrag?.active || box?.active);
@@ -482,7 +492,7 @@ export function installPlotGestures(
     const st = stretch;
     endPan(false);
     endStretch(false);
-    endXDrag(false);
+    cancelXDrag();
     endBox(false);
     if (p?.x?.wrote) restore(p.x.axis, p.x.captured, p.x.wasAuto);
     if (p?.wroteYs) for (const { axis, captured } of p.ys) write(axis, captured, false);

@@ -351,3 +351,77 @@ describe('time-band clicks', () => {
     unmount();
   });
 });
+
+describe('time-band drag cancelled by Escape or blur', () => {
+  // Escape or a blur cancels a drag (src/plot/gestures.ts): the time band
+  // goes back to the window at the press, with no final time-range write.
+  const escape = () =>
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    );
+  const blur = () => window.dispatchEvent(new Event('blur'));
+
+  it.each([
+    ['Escape', escape],
+    ['blur', blur],
+  ])('%s on a frozen window writes the press window back and applies no xAxis', (_name, cancel) => {
+    const { wrap, onViewWindowChange, onApplyXAxis, unmount } = mountPlot(FROZEN);
+    down(wrap, 400);
+    move(450);
+    flushFrames();
+    expect(onViewWindowChange).toHaveBeenCalledTimes(1);
+    expect(windowMs(onViewWindowChange.mock.calls[0])).not.toEqual(FROZEN);
+    cancel();
+    expect(onViewWindowChange).toHaveBeenCalledTimes(2);
+    const back = windowMs(onViewWindowChange.mock.calls[1]);
+    expect(back.from).toBeCloseTo(FROZEN.from, -1);
+    expect(back.to).toBeCloseTo(FROZEN.to, -1);
+    // A later release or move writes nothing more.
+    move(500);
+    up(500);
+    flushFrames();
+    expect(onViewWindowChange).toHaveBeenCalledTimes(2);
+    expect(onApplyXAxis).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it.each([
+    ['Escape', escape],
+    ['blur', blur],
+  ])('%s on a live window re-applies its own range, not the stretched span', (_name, cancel) => {
+    const { wrap, onViewWindowChange, onApplyXAxis, unmount } = mountPlot(LIVE);
+    down(wrap, 400);
+    move(500);
+    flushFrames();
+    expect(onViewWindowChange).toHaveBeenCalledTimes(1);
+    cancel();
+    expect(onApplyXAxis).toHaveBeenCalledTimes(1);
+    expect(onApplyXAxis).toHaveBeenCalledWith({ timeRange: '10m' });
+    up(500);
+    flushFrames();
+    expect(onApplyXAxis).toHaveBeenCalledTimes(1);
+    expect(onViewWindowChange).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it('Escape is consumed by the cancel, so it does nothing else', () => {
+    const { wrap, unmount } = mountPlot(FROZEN);
+    down(wrap, 400);
+    move(450);
+    flushFrames();
+    const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    unmount();
+  });
+
+  it('a press that has not moved cancels nothing and writes nothing', () => {
+    const { wrap, onViewWindowChange, onApplyXAxis, unmount } = mountPlot(LIVE);
+    down(wrap, 400);
+    escape();
+    up(400);
+    expect(onViewWindowChange).not.toHaveBeenCalled();
+    expect(onApplyXAxis).not.toHaveBeenCalled();
+    unmount();
+  });
+});

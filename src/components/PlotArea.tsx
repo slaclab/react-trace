@@ -851,6 +851,19 @@ export function SinglePlot({
         if (span && apply) apply({ ...xAxisRef.current, timeRange: span });
         else onViewWindowChangeRef.current?.(windowMsToNs(latest));
       },
+      // Escape or blur: back to the window at the press, with no final
+      // time-range write. A frozen window gets the press window back. A live
+      // one had only display frames: its own range is re-applied unchanged,
+      // so it follows now again, never the stretched span.
+      cancel() {
+        cancelFrame();
+        pendingDx = null;
+        if (!active || !latest) return;
+        const apply = onApplyXAxisRef.current;
+        if (follow && apply) apply({ ...xAxisRef.current });
+        else
+          onViewWindowChangeRef.current?.(windowMsToNs(captured), follow ? { follow } : undefined);
+      },
     };
   }, [wrapRef, currentWindowMs]);
 
