@@ -246,13 +246,15 @@ describe('time-band drag on a live window', () => {
     unmount();
   });
 
-  it('a window blur ends a follow drag with exactly one xAxis', () => {
+  it('a window blur ends a follow drag with one xAxis write of its unchanged range', () => {
     const { wrap, onApplyXAxis, unmount } = mountPlot(LIVE);
     down(wrap, 400);
     move(440);
     flushFrames();
     window.dispatchEvent(new Event('blur'));
     expect(onApplyXAxis).toHaveBeenCalledTimes(1);
+    // A blur cancels the drag: the plot's own range, not the stretched span.
+    expect(onApplyXAxis).toHaveBeenCalledWith({ timeRange: '10m' });
     up(440);
     expect(onApplyXAxis).toHaveBeenCalledTimes(1);
     unmount();
