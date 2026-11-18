@@ -358,7 +358,7 @@ export function createPlotSchema<
     {
       // ✚ The drawing rail and its arm keys. On by default, so only "off"
       // (false) is stored; turning it back on clears the key. Saved in
-      // `.trc.json` and the config store, not in the link's `plot=`.
+      // `.trc.json`, the config store and the link's `plot=`.
       id: 'show-drawing-tools',
       label: LABELS.drawingTools,
       kind: 'toggle',

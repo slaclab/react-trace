@@ -32,6 +32,9 @@ import {
   serializeWorkspace,
 } from '../../io/serialize';
 import type { Plot } from '../../types';
+import { buildInitialPlots } from '../../embed/initialPlots';
+import { parsePlotConfig, plotConfigOf } from '../../embed/plotConfig';
+import { serializeTraceQuery } from '../../embed/query';
 import { PanelHarness } from '../../workbench/__fixtures__/PanelHarness';
 import { SelectionProvider, createSelectionStore } from '../../workbench/selection';
 import type { ToolDefinition } from '../../workbench/types';
@@ -283,5 +286,36 @@ describe('Trace: showDrawingTools in .trc.json and the config store', () => {
     expect(deserializeConfigData(wire).plots[0].showDrawingTools).toBeUndefined();
     wire.plots[0].showDrawingTools = true;
     expect('showDrawingTools' in deserializeConfigData(wire).plots[0]).toBe(false);
+  });
+});
+
+describe('Trace: showDrawingTools in the link', () => {
+  const palette = getPalette(DEFAULT_PALETTE_ID);
+  const opened = (search: string): Plot => buildInitialPlots(search, palette)[0];
+  const queryOf = (plot: Plot): string =>
+    serializeTraceQuery(plot.traces, plot.xAxis, plotConfigOf(plot, palette));
+
+  it('round-trips the off value through plot=', () => {
+    const plot = { ...opened('?pv=TEST:SINE&range=-1h'), showDrawingTools: false };
+    expect(plotConfigOf(plot, palette)?.showDrawingTools).toBe(false);
+    const back = opened(`?${queryOf(plot)}`);
+    expect(back.showDrawingTools).toBe(false);
+    expect(queryOf(back)).toBe(queryOf(plot));
+  });
+
+  it('writes nothing while on; a link without the key opens with the tools on', () => {
+    const plot = opened('?pv=TEST:SINE&range=-1h');
+    expect(plotConfigOf(plot, palette)).toBeUndefined();
+    expect(queryOf(plot)).not.toContain('showDrawingTools');
+    expect(plot.showDrawingTools).toBeUndefined();
+  });
+
+  it('reads a written true as on and keeps no key', () => {
+    const config = parsePlotConfig(JSON.stringify({ v: 1, showDrawingTools: true }));
+    expect(config?.showDrawingTools).toBe(true);
+    const plot = opened(
+      `?pv=TEST:SINE&range=-1h&plot=${encodeURIComponent(JSON.stringify({ v: 1, showDrawingTools: true }))}`
+    );
+    expect('showDrawingTools' in plot).toBe(false);
   });
 });

@@ -64,9 +64,7 @@ export const TRACE_FIELD_TABLE: Readonly<Record<string, FieldClass>> = {
   'show-status-line': plot('plot', 'showStatusLine'),
   'show-tooltip': plot('plot', 'showTooltip'),
   'drag-mode': plot('plot', 'dragMode'),
-  // Not in `plot=`: the table's round trip pins every CHECKS key in its
-  // fixture, so the key rides `.trc.json` and the config store only.
-  'show-drawing-tools': session(FILE_ONLY),
+  'show-drawing-tools': plot('plot', 'showDrawingTools'),
   'show-drawings': session(HIDE_ALL),
   'show-x-gridlines': plot('plot', 'showXGridlines'),
   'show-y-gridlines': plot('plot', 'showYGridlines'),

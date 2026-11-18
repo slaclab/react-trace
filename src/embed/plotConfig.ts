@@ -92,6 +92,8 @@ export interface PlotConfig {
   showStatusLine?: boolean;
   /** Hover read-out; on by default, written only when off. */
   showTooltip?: boolean;
+  /** ✚ Drawing tools (the drawing rail); on by default, written only when off. */
+  showDrawingTools?: boolean;
   /** Left-drag in the plot; zoom by default, written only as "pan" ("zoom" still reads). */
   dragMode?: DragMode;
   showXGridlines?: boolean;
@@ -254,6 +256,7 @@ export interface PlotConfigSource {
   pinDataWindow?: boolean;
   showStatusLine?: boolean;
   showTooltip?: boolean;
+  showDrawingTools?: boolean;
   dragMode?: DragMode;
   showXGridlines?: boolean;
   showYGridlines?: boolean;
@@ -359,6 +362,7 @@ export function plotConfigOf(
   if (plot.pinDataWindow === true) config.pinDataWindow = true;
   if (plot.showStatusLine === false) config.showStatusLine = false;
   if (plot.showTooltip === false) config.showTooltip = false;
+  if (plot.showDrawingTools === false) config.showDrawingTools = false;
   if (plot.dragMode !== undefined && plot.dragMode !== TRACE_DEFAULT_DRAG) {
     config.dragMode = plot.dragMode;
   }
@@ -452,6 +456,7 @@ const PLOT_CHECKS: Record<string, Check> = {
   pinDataWindow: bool,
   showStatusLine: bool,
   showTooltip: bool,
+  showDrawingTools: bool,
   dragMode: oneOf(DRAG_MODES),
   showXGridlines: bool,
   showYGridlines: bool,
@@ -621,6 +626,8 @@ export function applyPlotConfig(
   let out: Plot = { ...plot, ...fields, axes, traces };
   // The drag mode is stored only off Trace's default.
   if (out.dragMode === TRACE_DEFAULT_DRAG) delete out.dragMode;
+  // Drawing tools are stored only off.
+  if (out.showDrawingTools !== false) delete out.showDrawingTools;
   // Raw tuples never reach the Plot: decoded against the rebuilt axes and traces.
   if (drawings !== undefined) {
     out = withAnnotations(

@@ -268,8 +268,9 @@ Correlation and Waveform links keep drawings as described in [Drawings in
 the link](#link-notices).
 
 **Drawing tools** off is saved with the plot: in Trace, in the **.trc.json**
-workspace and the config store (not in an embedded tile's URL); in
-Correlation and Waveform, as `rail=0` in the link. Without that key a plot
+workspace, the config store and the link's `plot=` settings (as
+`"showDrawingTools":false`); in Correlation and Waveform, as `rail=0` in the
+link. Without that key a plot
 opens with the rail shown. **Drawings** (hide all) is not saved.
 
 ## For developers { #developers }

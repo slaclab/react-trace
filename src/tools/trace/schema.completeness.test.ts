@@ -264,6 +264,7 @@ function everything(): Plot {
     pinDataWindow: true,
     showStatusLine: false,
     showTooltip: false,
+    showDrawingTools: false,
     dragMode: 'pan',
     showXGridlines: false,
     showYGridlines: false,
