@@ -274,3 +274,91 @@ describe('double-click', () => {
     expect(f.resets).toEqual([]);
   });
 });
+
+describe('cancelling a drag: Escape and blur', () => {
+  const escape = (target: EventTarget = wrap) => {
+    const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    target.dispatchEvent(ev);
+    return ev;
+  };
+  const flush = () => frames.splice(0).forEach((cb) => cb(0));
+
+  it('a window blur drops a half-drawn zoom box and writes nothing', () => {
+    const f = fake();
+    mount(f);
+    fireMouse(wrap, 'mousedown', { x: 200, y: 100 });
+    fireMouse(window, 'mousemove', { x: 300, y: 200 });
+    expect(wrap.querySelector('[data-zoom-box]')).not.toBeNull();
+    window.dispatchEvent(new Event('blur'));
+    expect(wrap.querySelector('[data-zoom-box]')).toBeNull();
+    fireMouse(window, 'mouseup', { x: 300, y: 200 });
+    expect(f.writes).toEqual([]);
+    expect(f.x.auto).toBe(true);
+  });
+
+  it('Escape drops a zoom box, is consumed, and the rest of the drag writes nothing', () => {
+    const f = fake();
+    mount(f);
+    const outer = vi.fn();
+    document.addEventListener('keydown', outer);
+    fireMouse(wrap, 'mousedown', { x: 200, y: 100 });
+    fireMouse(window, 'mousemove', { x: 300, y: 200 });
+    const ev = escape();
+    expect(ev.defaultPrevented).toBe(true);
+    expect(outer).not.toHaveBeenCalled();
+    expect(wrap.querySelector('[data-zoom-box]')).toBeNull();
+    fireMouse(window, 'mousemove', { x: 320, y: 220 });
+    fireMouse(window, 'mouseup', { x: 320, y: 220 });
+    flush();
+    expect(f.writes).toEqual([]);
+    expect(wrap.querySelector('[data-zoom-box]')).toBeNull();
+    document.removeEventListener('keydown', outer);
+  });
+
+  it('Escape puts a panned manual Y back and returns a frozen X to auto-scale', () => {
+    const f = fake({ yAuto: false });
+    f.setMode('pan');
+    mount(f);
+    fireMouse(wrap, 'mousedown', { x: 200, y: 100 });
+    fireMouse(window, 'mousemove', { x: 240, y: 140 });
+    flush();
+    expect(f.writes).toHaveLength(2);
+    expect(escape().defaultPrevented).toBe(true);
+    expect(f.writes.slice(2)).toEqual([
+      { id: 'y', extent: { min: 0, max: 10 }, freeze: false, wheel: false },
+    ]);
+    expect(f.resets).toEqual(['x']);
+    expect(f.x.auto).toBe(true);
+    fireMouse(window, 'mousemove', { x: 260, y: 160 });
+    fireMouse(window, 'mouseup', { x: 260, y: 160 });
+    flush();
+    expect(f.writes).toHaveLength(3);
+  });
+
+  it('a blur mid-stretch puts the axis back as it was', () => {
+    const f = fake({ yAuto: false });
+    mount(f);
+    // The Y band: left of the grid, inside its height.
+    fireMouse(wrap, 'mousedown', { x: 80, y: 150 });
+    fireMouse(window, 'mousemove', { x: 80, y: 190 });
+    flush();
+    expect(f.writes).toHaveLength(1);
+    window.dispatchEvent(new Event('blur'));
+    expect(f.writes.slice(1)).toEqual([
+      { id: 'y', extent: { min: 0, max: 10 }, freeze: false, wheel: false },
+    ]);
+    expect(f.resets).toEqual([]);
+  });
+
+  it('Escape with no drag, or on a press that has not moved, is left alone', () => {
+    const f = fake();
+    mount(f);
+    expect(escape().defaultPrevented).toBe(false);
+    fireMouse(wrap, 'mousedown', { x: 200, y: 100 });
+    expect(escape().defaultPrevented).toBe(false);
+    // The press is still live: the drag goes on and zooms on release.
+    fireMouse(window, 'mousemove', { x: 300, y: 200 });
+    fireMouse(window, 'mouseup', { x: 300, y: 200 });
+    expect(f.writes).toHaveLength(2);
+  });
+});

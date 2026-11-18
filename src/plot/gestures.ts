@@ -22,7 +22,11 @@
 //
 // A press on plot chrome, or one the drawing layer claims, is never a
 // gesture. Drags track on the plot's own window (a detached plot's too) and
-// end on release, on a lost release (`buttons === 0`) and on blur. Every drag
+// end on release and on a lost release (`buttons === 0`). Escape and blur
+// cancel a drag instead: a zoom box is dropped unapplied, a pan or stretch
+// puts its axes back as they were at the press (an axis it froze returns to
+// auto-scale), and an Escape that cancels a drag is consumed there, so it
+// never also disarms a tool or leaves fullscreen. Every drag
 // coalesces its writes to one per animation frame and runs off the extents
 // captured at press, never the live ones a write re-renders. The first write
 // to an auto-scaled axis freezes it, and the layer marks the axis manual at
@@ -310,6 +314,10 @@ export function installPlotGestures(
     captured: Extent;
     start: number;
     freeze: boolean;
+    /** The axis was auto-scaled at the press. */
+    wasAuto: boolean;
+    /** A frame wrote the axis. */
+    wrote: boolean;
     active: boolean;
   } | null = null;
   const stretchFrames = coalesce<number>((d) => {
@@ -319,7 +327,9 @@ export function installPlotGestures(
     // A factor-1 frame would only re-commit the capture (and freeze for nothing).
     if (factor === 1) return;
     const next = stretchExtent(s.captured, factor, s.axis.log);
-    if (write(s.axis, next, s.freeze) && s.freeze) s.freeze = false;
+    if (!write(s.axis, next, s.freeze)) return;
+    s.wrote = true;
+    s.freeze = false;
   });
   const endStretch = (commit: boolean) => {
     if (commit) stretchFrames.flush();
@@ -340,8 +350,16 @@ export function installPlotGestures(
     grid: GestureGrid;
     startX: number;
     startY: number;
-    x: { axis: GestureAxis; captured: Extent; freeze: boolean } | null;
+    x: {
+      axis: GestureAxis;
+      captured: Extent;
+      freeze: boolean;
+      wasAuto: boolean;
+      wrote: boolean;
+    } | null;
     ys: { axis: GestureAxis; captured: Extent }[];
+    /** A frame wrote the Y axes. */
+    wroteYs: boolean;
     active: boolean;
   } | null = null;
   const panFrames = coalesce<{ dx: number; dy: number }>(({ dx, dy }) => {
@@ -352,14 +370,19 @@ export function installPlotGestures(
       const { axis, captured } = p.x;
       const span = toS(captured.max, axis.log) - toS(captured.min, axis.log);
       const next = panExtentBy(captured, -(dx / width) * span, axis.log);
-      if (write(axis, next, p.x.freeze) && p.x.freeze) p.x.freeze = false;
+      if (write(axis, next, p.x.freeze)) {
+        p.x.wrote = true;
+        p.x.freeze = false;
+      }
     }
     if (dy === 0) return;
     for (const { axis, captured } of p.ys) {
       // Screen y grows downward, S upward: a drag down shifts the extent up
       // so the value under the pointer stays under it.
       const span = toS(captured.max, axis.log) - toS(captured.min, axis.log);
-      write(axis, panExtentBy(captured, (dy / height) * span, axis.log), false);
+      if (write(axis, panExtentBy(captured, (dy / height) * span, axis.log), false)) {
+        p.wroteYs = true;
+      }
     }
   });
   const endPan = (commit: boolean) => {
@@ -436,6 +459,38 @@ export function installPlotGestures(
     endBox(commit);
   };
 
+  // ── Cancel (Escape, blur) ─────────────────────────────────────────────────
+
+  // An axis a cancelled drag wrote goes back as it was at the press: an
+  // auto-scaled one to auto-scale, a manual one to its captured extent.
+  const restore = (axis: GestureAxis, captured: Extent, wasAuto: boolean) => {
+    if (wasAuto) {
+      getSurface().reset(axis);
+      axis.auto = true;
+    } else {
+      write(axis, captured, false);
+    }
+  };
+  /**
+   * Ends every drag without applying it, undoing what its frames wrote.
+   * Returns true when a drag past the threshold was cancelled. A surface's
+   * X-band drag ends uncommitted (its own `end(false)`).
+   */
+  const cancelAll = (): boolean => {
+    const cancelled = !!(pan?.active || stretch?.active || xDrag?.active || box?.active);
+    const p = pan;
+    const st = stretch;
+    endPan(false);
+    endStretch(false);
+    endXDrag(false);
+    endBox(false);
+    if (p?.x?.wrote) restore(p.x.axis, p.x.captured, p.x.wasAuto);
+    if (p?.wroteYs) for (const { axis, captured } of p.ys) write(axis, captured, false);
+    if (st?.wrote) restore(st.axis, st.captured, st.wasAuto);
+    if (cancelled) setCursor('default');
+    return cancelled;
+  };
+
   // ── Press ─────────────────────────────────────────────────────────────────
 
   const startInterior = (
@@ -455,7 +510,7 @@ export function installPlotGestures(
     const xExt = xAxis ? s.extent(xAxis, grid) : null;
     const xPart =
       xAxis && isUsable(xExt, xAxis.log)
-        ? { axis: xAxis, captured: xExt, freeze: xAxis.auto }
+        ? { axis: xAxis, captured: xExt, freeze: xAxis.auto, wasAuto: xAxis.auto, wrote: false }
         : null;
     const ys: { axis: GestureAxis; captured: Extent }[] = [];
     for (const axis of grid.ys) {
@@ -465,7 +520,7 @@ export function installPlotGestures(
     }
     if (!xPart && ys.length === 0) return false;
     endPan(false);
-    pan = { grid, startX: x, startY: y, x: xPart, ys, active: false };
+    pan = { grid, startX: x, startY: y, x: xPart, ys, wroteYs: false, active: false };
     return true;
   };
 
@@ -502,6 +557,8 @@ export function installPlotGestures(
       captured: ext,
       start: hit.axis.dim === 'y' ? y : x,
       freeze: hit.axis.auto,
+      wasAuto: hit.axis.auto,
+      wrote: false,
       active: false,
     };
   };
@@ -553,8 +610,18 @@ export function installPlotGestures(
   };
 
   const onWindowMouseUp = () => endAll(true);
-  // Focus leaving the plot's window drops the release with it.
-  const onWindowBlur = () => endAll(true);
+  // Focus leaving the plot's window drops the release with it: cancel, so a
+  // half-drawn box or drag is never applied where the pointer happened to be.
+  const onWindowBlur = () => void cancelAll();
+  // Escape cancels a drag in progress and is consumed there, before any
+  // other keymap sees it. With no drag past the threshold it is left alone.
+  const onWindowKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    if (!pan?.active && !stretch?.active && !xDrag?.active && !box?.active) return;
+    cancelAll();
+    e.preventDefault();
+    e.stopPropagation();
+  };
 
   // ── Hover cursor ──────────────────────────────────────────────────────────
 
@@ -730,6 +797,7 @@ export function installPlotGestures(
   win.addEventListener('mousemove', onWindowMouseMove);
   win.addEventListener('mouseup', onWindowMouseUp);
   win.addEventListener('blur', onWindowBlur);
+  win.addEventListener('keydown', onWindowKeyDown, { capture: true });
 
   return () => {
     wrap.removeEventListener('mousedown', onMouseDown);
@@ -739,6 +807,7 @@ export function installPlotGestures(
     win.removeEventListener('mousemove', onWindowMouseMove);
     win.removeEventListener('mouseup', onWindowMouseUp);
     win.removeEventListener('blur', onWindowBlur);
+    win.removeEventListener('keydown', onWindowKeyDown, { capture: true });
     endAll(false);
   };
 }
