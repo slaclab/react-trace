@@ -106,6 +106,8 @@ describe('Auto-scale off keeps the shown Y range', () => {
     });
     act(() => {
       fireEvent.change(byId('axis-min')!, { target: { value: '-5' } });
+      // Number fields commit on blur or Enter.
+      fireEvent.blur(byId('axis-min')!);
     });
     act(() => {
       fireEvent.click(byId('axis-autoscale')!);
