@@ -478,7 +478,7 @@ export function createPlotSchema<
     },
     {
       id: 'plot-background',
-      label: 'Background colour',
+      label: 'Background color',
       kind: 'colour',
       tab: PLOT_TABS.display,
       level: 'L3',

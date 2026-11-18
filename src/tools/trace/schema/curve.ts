@@ -422,7 +422,7 @@ export function curveStyleTab<
         // the field shows on PV curves only. Undefined is off; only "on" is
         // stored, so the dot means "on".
         id: 'alarm-coloring',
-        label: 'Alarm colouring',
+        label: 'Alarm coloring',
         kind: 'toggle',
         tab: CURVE_TABS.style,
         level: 'L2',

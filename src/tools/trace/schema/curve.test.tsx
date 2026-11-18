@@ -799,10 +799,10 @@ describe('PV-curve schema — Signal and Data edits', () => {
       ],
       { curveId: 't1' }
     );
-    expect(dot('Colour')).not.toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Reset Colour' }));
+    expect(dot('Color')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Color' }));
     expect(curveIn(store, 't1')?.color).toBe(colorForIndex(PALETTE, 1));
-    expect(dot('Colour')).toBeNull();
+    expect(dot('Color')).toBeNull();
   });
 });
 

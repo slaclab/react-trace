@@ -37,7 +37,7 @@ export const LABELS = Object.freeze({
   label: 'Label',
   plotOn: 'Plot on',
   visible: 'Visible',
-  colour: 'Colour',
+  colour: 'Color',
   line: 'Line',
   width: 'Width',
   dash: 'Dash',

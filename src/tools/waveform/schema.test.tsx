@@ -641,7 +641,7 @@ describe('Waveform schema — Live cards', () => {
 
   it('Colour: automatic is the positional colour; picking it still pins it', () => {
     const store = mount(makeState(), item('live', B));
-    expect(dot('Colour')).toBeNull();
+    expect(dot('Color')).toBeNull();
     expect(screen.getByTestId('trace-color-swatch')).toBeTruthy();
     const colour = fieldOf('live', 'colour');
     if (colour.kind !== 'colour') throw new Error('no colour field');
@@ -653,8 +653,8 @@ describe('Waveform schema — Live cards', () => {
     expect(colour.get(ctx)).toBe(autoYColor(1));
     act(() => colour.set(ctx, autoYColor(1)));
     expect(store.getState().styles[B]).toEqual({ color: autoYColor(1) });
-    expect(dot('Colour')).not.toBeNull();
-    reset('Colour');
+    expect(dot('Color')).not.toBeNull();
+    reset('Color');
     expect(store.getState().styles[B]).toBeUndefined();
   });
 

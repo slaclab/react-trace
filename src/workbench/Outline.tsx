@@ -968,7 +968,7 @@ export function Outline<S, M, U extends ToolUi = ToolUi>(props: OutlineProps<S, 
     (event: DragCancelEvent) => {
       endDrag();
       const from = event.active.data.current as RowDrag | undefined;
-      if (from !== undefined) setAnnouncement(`Move cancelled. ${from.label} not moved.`);
+      if (from !== undefined) setAnnouncement(`Move canceled. ${from.label} not moved.`);
     },
     [endDrag]
   );

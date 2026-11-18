@@ -119,7 +119,7 @@ describe('Drawing tab: shape', () => {
     expect(FIELDS.map((f) => [f.label, f.kind])).toEqual([
       ['Kind', 'readonly'],
       ['Label', 'text'],
-      ['Colour', 'colour'],
+      ['Color', 'colour'],
       ['Width', 'select'],
       ['Style', 'select'],
       ['Axis', 'select'],

@@ -38,7 +38,7 @@ export function PaletteControl({ id, value, onChange }: PaletteControlProps): Re
         className="trace-palette__swatches"
         data-testid="palette-swatches"
         aria-label="Re-pick this palette"
-        title="Re-pick this palette: every curve back to its palette colour"
+        title="Re-pick this palette: every curve back to its palette color"
         onClick={() => onChange(value)}
         style={{
           display: 'flex',

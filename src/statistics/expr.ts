@@ -643,7 +643,7 @@ export const FUNCTION_REFERENCE: readonly ReferenceEntry[] = [
   entry('median', 'median(v)', 'Middle value; mean of the two middle ones for even counts.'),
   entry('std', 'std(v)', 'Sample standard deviation, ddof = 1 (needs 2 values).'),
   entry('var', 'var(v)', 'Sample variance, ddof = 1 (needs 2 values).'),
-  entry('rms', 'rms(v)', 'Root mean square, sqrt(mean(v²)); not centred.'),
+  entry('rms', 'rms(v)', 'Root mean square, sqrt(mean(v²)); not centered.'),
   entry('ptp', 'ptp(v)', 'Peak to peak: max(v) − min(v).'),
   entry('first', 'first(v)', 'The oldest value.'),
   entry('last', 'last(v)', 'The newest value.'),

@@ -192,7 +192,7 @@ export function createDrawingSchema<S, M, U extends ToolUi = ToolUi>(
     {
       ...base,
       id: 'annotation-color',
-      label: 'Colour',
+      label: 'Color',
       kind: 'colour',
       row: 'swatch',
       get: (ctx) => {

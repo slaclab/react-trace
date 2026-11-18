@@ -745,14 +745,14 @@ describe('Correlation schema — Y card', () => {
     const store = mount(makeState(), item('y', 'Y:B'));
     const input = cardBody().querySelector('input[type="color"]') as HTMLInputElement;
     expect(input.value).toBe(autoYColor(1));
-    expect(dot('Colour')).toBeNull();
+    expect(dot('Color')).toBeNull();
     fireEvent.change(input, { target: { value: '#123456' } });
     expect(store.getState().colors).toEqual({ 'Y:B': '#123456' });
     // Back to the positional colour: still pinned (unlike Trace's palette rule).
     fireEvent.change(input, { target: { value: autoYColor(1) } });
     expect(store.getState().colors).toEqual({ 'Y:B': autoYColor(1) });
-    expect(dot('Colour')).not.toBeNull();
-    fireEvent.click(within(cardBody()).getByRole('button', { name: 'Reset Colour' }));
+    expect(dot('Color')).not.toBeNull();
+    fireEvent.click(within(cardBody()).getByRole('button', { name: 'Reset Color' }));
     expect(store.getState().colors).toEqual({});
   });
 

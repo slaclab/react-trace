@@ -477,7 +477,7 @@ describe('formula-curve schema — Colour (card swatch)', () => {
     mount([makePv(), makeFormula({ color: '#abcdef', displayName: 'Sum' })]);
     const row = document.querySelector('[data-row-id="f1"]') as HTMLElement;
     expect(row).not.toBeNull();
-    const swatch = within(row).getByRole('button', { name: 'Colour' });
+    const swatch = within(row).getByRole('button', { name: 'Color' });
     expect(swatch.style.backgroundColor).toBe('rgb(171, 205, 239)');
     // A pinned (non-palette) colour shows the row's modified mark.
     expect(row.querySelector('.wb-outline-row__modified')).not.toBeNull();
@@ -486,9 +486,9 @@ describe('formula-curve schema — Colour (card swatch)', () => {
   it('shows the body swatch and resets a pinned colour to its palette slot', () => {
     const store = mount([makePv(), makeFormula({ color: '#123456' })]);
     expect(within(cardBody()).getByTestId('trace-color-swatch')).toBeTruthy();
-    expect(dot('Colour')).not.toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Reset Colour' }));
+    expect(dot('Color')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Color' }));
     expect(curveIn(store)?.color).toBe(colorForIndex(PALETTE, 1));
-    expect(dot('Colour')).toBeNull();
+    expect(dot('Color')).toBeNull();
   });
 });

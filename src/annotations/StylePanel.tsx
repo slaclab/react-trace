@@ -176,7 +176,7 @@ export function StylePanel({
         type="button"
         aria-label="Style"
         aria-expanded={open}
-        title="Style: colour and line"
+        title="Style: color and line"
         data-style-chip=""
         style={chipStyle(cx, cy, open)}
         onClick={() => setOpen((v) => !v)}
@@ -193,10 +193,10 @@ export function StylePanel({
           data-style-panel=""
         >
           <div>
-            <div style={ROW_LABEL}>Colour</div>
+            <div style={ROW_LABEL}>Color</div>
             <div
               role="radiogroup"
-              aria-label="Colour"
+              aria-label="Color"
               style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}
             >
               {row.map((s) => (
