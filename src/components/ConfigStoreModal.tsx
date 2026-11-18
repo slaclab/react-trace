@@ -220,10 +220,15 @@ export function ConfigStoreModal({
     setDeleteTarget(null);
   }, [setDeleteTarget]);
 
-  // Claim the slot for `op`. Returns the session it runs in, or null if another
-  // operation holds the slot.
+  // Claim the slot for `op`. Returns the session it runs in, or null if `op`
+  // can't start now.
   const begin = (op: BusyOp): number | null => {
     if (busyRef.current) return null;
+    // While the delete confirmation is open, only its own Delete can start. The
+    // store's buttons behind it stay enabled, and an operation started there
+    // would show its error under the confirmation's "Could not delete config",
+    // and a Load would close the store, confirmation and all, on success.
+    if (deleteTargetRef.current && op.kind !== 'delete') return null;
     setBusy(op);
     setError(null);
     return sessionRef.current;
@@ -315,9 +320,10 @@ export function ConfigStoreModal({
         ].join('\n'),
         timeout: result.warnings.length > 0 ? 0 : undefined,
       });
-      // Like requestClose, end the session before the parent sees the close.
-      endSession();
-      onClose();
+      // Close the way X, Escape and the backdrop do. requestClose can't refuse
+      // here: this Load holds the slot, and begin() turns a Load away while the
+      // delete confirmation is open.
+      requestClose();
     } catch (err) {
       // A stale session also covers the AbortError from closing.
       if (session === sessionRef.current) setError(errText(err));
@@ -328,8 +334,8 @@ export function ConfigStoreModal({
   };
 
   const handleRename = async (config: ConfigDTO) => {
-    // Don't prompt for an action that can't start.
-    if (busyRef.current) return;
+    // Don't prompt for an action that can't start (see begin).
+    if (busyRef.current || deleteTargetRef.current) return;
     const next = window.prompt('Rename config', config.name ?? '');
     if (next === null) return;
     // No-op a blank rename (Save likewise omits empty names) or an unchanged one.
@@ -352,8 +358,9 @@ export function ConfigStoreModal({
 
   // A row's Delete opens the confirmation; only its Delete button deletes.
   const askDelete = (config: ConfigDTO, trigger: HTMLButtonElement) => {
-    // Don't ask about an action that can't start.
-    if (busyRef.current) return;
+    // Don't ask about an action that can't start, or switch an open
+    // confirmation to another config.
+    if (busyRef.current || deleteTargetRef.current) return;
     deleteTriggerRef.current = trigger;
     setError(null);
     setDeleteTarget(config);

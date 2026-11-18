@@ -692,6 +692,62 @@ describe('ConfigStoreModal: the delete confirmation', () => {
   });
 });
 
+// In a browser the confirmation's overlay covers the store, but the store's
+// buttons stay enabled in the DOM, so these click them directly.
+describe('ConfigStoreModal: nothing else starts while the delete confirmation is open', () => {
+  async function confirmDeleteOfB() {
+    await mount();
+    fireEvent.click(rowButton('Config B', 'Delete'));
+    expect(confirmOpen()).toBe(true);
+  }
+
+  // The confirmation is still about B, and its own Delete still deletes B.
+  async function expectConfirmationStillDeletesB() {
+    expect(confirmOpen()).toBe(true);
+    expect(within(confirmModal()!).getByText('Config B')).toBeTruthy();
+    expect(confirmDeleteButton().disabled).toBe(false);
+    fireEvent.click(confirmDeleteButton());
+    expect(api.deleteConfig.mock.calls).toEqual([[B.slug]]);
+    await settle(() => deletes[0].resolve());
+    expect(confirmOpen()).toBe(false);
+    expect(parentClose).not.toHaveBeenCalled();
+  }
+
+  it("does not start another row's Load, so the store stays open", async () => {
+    await confirmDeleteOfB();
+    fireEvent.click(rowButton('Config A', 'Load'));
+    await settle();
+    expect(api.getConfig).not.toHaveBeenCalled();
+    expect(onLoaded).not.toHaveBeenCalled();
+    expect(parentClose).not.toHaveBeenCalled();
+    await expectConfirmationStillDeletesB();
+  });
+
+  it("does not prompt for or start another row's Rename", async () => {
+    await confirmDeleteOfB();
+    fireEvent.click(rowButton('Config A', 'Rename'));
+    await settle();
+    expect(window.prompt).not.toHaveBeenCalled();
+    expect(api.updateConfig).not.toHaveBeenCalled();
+    await expectConfirmationStillDeletesB();
+  });
+
+  it('does not start a Save', async () => {
+    await confirmDeleteOfB();
+    fireEvent.click(saveButton());
+    await settle();
+    expect(api.saveConfig).not.toHaveBeenCalled();
+    await expectConfirmationStillDeletesB();
+  });
+
+  it("does not switch the confirmation to another row's Delete", async () => {
+    await confirmDeleteOfB();
+    fireEvent.click(rowButton('Config A', 'Delete'));
+    await settle();
+    await expectConfirmationStillDeletesB();
+  });
+});
+
 describe('ConfigStoreModal: focus around the delete confirmation', () => {
   // The store's scrolling body, which Carbon makes focusable. Carbon up to 1.108
   // names it by its aria-label ("Config store contents"), later versions by the
