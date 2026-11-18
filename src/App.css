@@ -23,6 +23,17 @@
   overflow: hidden;
 }
 
+/* A pane's error fallback (canopy-shell ErrorBoundary around Signals and
+   Properties) is a Carbon inline notification plus two buttons, wider than
+   the sidebar; let both wrap to the pane instead of being cut off. */
+.wb-sidebar__pane .canopy-error-fallback .cds--inline-notification {
+  min-width: 0;
+}
+
+.wb-sidebar__pane .canopy-error-fallback__actions {
+  flex-wrap: wrap;
+}
+
 /* The docked Data Insight fallback's extra "Close Data Insight" action. */
 .insight-fallback > .cds--btn {
   margin: 0 1rem 1rem;

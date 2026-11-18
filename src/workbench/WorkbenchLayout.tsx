@@ -22,6 +22,11 @@
 // reaches its slot through a small store and a new canvas element renders the
 // canvas alone.
 //
+// Pane wrapper. A tool may wrap each half of the panel (`wrapPane`), e.g. in
+// an error boundary, so a crash in one half leaves the other, the pane's
+// header and the canvas working. The wrapper gets the selection's key for
+// its reset keys.
+//
 // Root Escape, after every inner consumer (a React bubbling handler on the
 // root): go to tool level (a reset, which reveals nothing) and move the focus
 // to Properties only when that pane is visible. It does
@@ -126,6 +131,21 @@ function useQuickOpenShortcut(): void {
   }, []);
 }
 
+/** The two halves of the properties panel: the top block (`Outline`) and the plot-wide sections. */
+export type WorkbenchPane = 'signals' | 'properties';
+
+/**
+ * Wraps one pane's content, e.g. in an error boundary. `selectionKey` names
+ * the current selection (`tool`, or `level:kind:id`). The layout memoizes the
+ * panel on this function, so its identity should change only when what it
+ * renders changes (a boundary's reset keys), never on every render.
+ */
+export type WorkbenchPaneWrapper = (
+  pane: WorkbenchPane,
+  content: ReactNode,
+  selectionKey: string
+) => ReactNode;
+
 export interface WorkbenchLayoutProps<S, M, U extends ToolUi = ToolUi> {
   definition: ToolDefinition<S, M, U>;
   state: S;
@@ -147,6 +167,11 @@ export interface WorkbenchLayoutProps<S, M, U extends ToolUi = ToolUi> {
   toolId?: string;
   /** Under the host bar: the tool's one-line state for the host's tile bar (e.g. `live`, `paused`). */
   hostState?: string;
+  /**
+   * Wraps each pane of the properties panel, inside the panel (its header and
+   * collapse stay outside). Absent, the panes render as they are.
+   */
+  wrapPane?: WorkbenchPaneWrapper;
   /** The canvas (the plot surface). */
   children?: ReactNode;
 }
@@ -567,6 +592,10 @@ export function WorkbenchLayout<S, M, U extends ToolUi = ToolUi>(
     [shared, state, plotModel, ui, update, capabilities, toolId]
   );
   const [memory] = useState(() => new OpenMemory());
+  const { wrapPane } = props;
+  // Only a wrapper reads the selection key, so without one a selection
+  // renders the panel no more often than before.
+  const selectionKey = wrapPane ? targetKey(current.selection ?? TOOL_TARGET) : '';
   const panel = useMemo(
     () => (
       <div
@@ -576,12 +605,12 @@ export function WorkbenchLayout<S, M, U extends ToolUi = ToolUi>(
         aria-label="Plot properties"
       >
         <OpenMemoryProvider memory={memory}>
-          {outlinePane}
-          {plotPane}
+          {wrapPane ? wrapPane('signals', outlinePane, selectionKey) : outlinePane}
+          {wrapPane ? wrapPane('properties', plotPane, selectionKey) : plotPane}
         </OpenMemoryProvider>
       </div>
     ),
-    [memory, outlinePane, plotPane]
+    [memory, outlinePane, plotPane, wrapPane, selectionKey]
   );
   const canvasSlot = useMemo(
     () => (

@@ -68,7 +68,7 @@ import {
 } from '../embed/initialPlots';
 import { newPlot } from '../embed/plotConfig';
 import { useTraceStateOut } from '../embed/stateOut';
-import { WorkbenchLayout } from '../workbench/WorkbenchLayout';
+import { WorkbenchLayout, type WorkbenchPaneWrapper } from '../workbench/WorkbenchLayout';
 import { useContextMenuWriters } from '../workbench/contextMenu/context';
 import { TraceCursorContext, traceMenuWriters, type TraceMenuInput } from '../tools/trace/menu';
 import { createSelectionStore, type SelectionStore } from '../workbench/selection';
@@ -1059,6 +1059,27 @@ export function TraceApp() {
     unitLookups,
   };
   const definition = useTraceDefinition({ state: tool, model, update, selection });
+  // An error boundary around each pane of the properties panel, with main's
+  // default fallback (the message, "Try again", "Reload"). Signals resets like
+  // main's Layers panel (the active plot, the view mode, a workspace load)
+  // and, since the open curve card renders in it, on a new selection;
+  // Properties like main's right panel (the active plot, the selection, a
+  // workspace load). Rebuilt only when a key changes: the layout memoizes the
+  // panel on it.
+  const wrapPane = useCallback<WorkbenchPaneWrapper>(
+    (pane, content, selectionKey) => (
+      <ErrorBoundary
+        resetKeys={
+          pane === 'signals'
+            ? [activePlotId, viewMode, workspaceGeneration, selectionKey]
+            : [activePlotId, selectionKey, workspaceGeneration]
+        }
+      >
+        {content}
+      </ErrorBoundary>
+    ),
+    [activePlotId, viewMode, workspaceGeneration]
+  );
   // The queued drawing select, applied once its plot is active. Declared after
   // `useTraceDefinition`, whose activation reset runs first in the same commit.
   useEffect(() => {
@@ -1117,6 +1138,7 @@ export function TraceApp() {
         archiver={activePlot.archiver}
         toolId="trace"
         hostState={traceHostState(plots)}
+        wrapPane={wrapPane}
       >
         <TraceCanvasActions options={actionOptions} />
         <TraceMenu
