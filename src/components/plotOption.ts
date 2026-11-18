@@ -325,6 +325,12 @@ interface HoldPoint {
 
 type SeriesData = Float64Array | (LinePoint | HoldPoint)[];
 
+// Every line series here may be fed flat typed-array data (toSeriesData), so each
+// declares XY_DIMENSIONS. Without it ECharts' development build asserts
+// ("dimensions must be given if data is TypedArray."), which the production build
+// strips. The x and y dimensions map to the two values of each point (#187).
+const XY_DIMENSIONS = ['x', 'y'];
+
 /**
  * Series data for line points. Without a break it is a flat
  * [t0, v0, t1, v1, ...] typed array, which ECharts treats as primitive data:
@@ -591,6 +597,7 @@ export function buildPlotOption({
             id: `${trace.id}-band-min`,
             name: `${labels.get(trace.id)} (min)`,
             type: 'line',
+            dimensions: XY_DIMENSIONS,
             yAxisIndex,
             data: seriesData(bandData.min, step, cut),
             stack: stackId,
@@ -608,6 +615,7 @@ export function buildPlotOption({
             id: `${trace.id}-band-max`,
             name: `${labels.get(trace.id)} (max)`,
             type: 'line',
+            dimensions: XY_DIMENSIONS,
             yAxisIndex,
             data: seriesData(bandData.max, step, cut),
             stack: stackId,
@@ -628,6 +636,7 @@ export function buildPlotOption({
           id: trace.id,
           name: labels.get(trace.id),
           type: 'line',
+          dimensions: XY_DIMENSIONS,
           yAxisIndex,
           data: seriesData(fullPoints, step, cut),
           step: step ? 'end' : false,
@@ -679,6 +688,7 @@ export function buildPlotOption({
               id: `${trace.id}-alarm-${severity}`,
               name: `${labels.get(trace.id)} (${severity})`,
               type: 'line',
+              dimensions: XY_DIMENSIONS,
               yAxisIndex,
               data,
               step: step ? 'end' : false,
@@ -713,6 +723,7 @@ export function buildPlotOption({
               id: `${trace.id}-extension`,
               name: `${trace.displayName} (extension)`,
               type: 'line',
+              dimensions: XY_DIMENSIONS,
               yAxisIndex,
               data,
               lineStyle: {
