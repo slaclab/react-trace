@@ -23,9 +23,10 @@ const docked: PlotBehaviour = { ...DEFAULT_GESTURE_PREFS, tooltip: 'docked' };
 
 /**
  * Trace's plot behaviour, as main had it (the maintainers' C1-C7): the wheel
- * zooms time only (Alt+wheel: time and every Y axis; C2).
+ * zooms time only (Alt+wheel: time and every Y axis; C2); dragging a Y axis
+ * pans it (Shift or Alt+drag: stretches it; C3).
  */
-const tracePlot: PlotBehaviour = { ...docked, wheel: 'x' };
+const tracePlot: PlotBehaviour = { ...docked, wheel: 'x', yAxisDrag: 'pan' };
 
 export const BUILTIN_DEFAULTS: SiteDefaults = deepFreeze({
   header: {

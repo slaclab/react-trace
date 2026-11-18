@@ -7,8 +7,8 @@
 //   * the strip shows the same toggles; the tooltip toggle is on (pressed);
 //     the drag toggle starts in the tool's default (zoom box in every
 //     tool), and a click on the tooltip toggle reaches the link;
-//   * the wheel over the plot area zooms BOTH axes, over the Y axis band the
-//     Y axis only;
+//   * the wheel over the plot area zooms BOTH axes (Trace: Alt+wheel; its
+//     plain wheel zooms time only, C2), over the Y axis band the Y axis only;
 //   * in zoom mode a drag draws a box and its release zooms both axes;
 //   * a double-click in the plot area brings every axis back to auto-scale.
 //
@@ -82,6 +82,8 @@ interface Tool {
   name: string;
   /** The drag mode the tool opens with. */
   drag: 'zoom' | 'pan';
+  /** The plain wheel over the plot area zooms X alone; Alt+wheel zooms both (C2). */
+  wheelXOnly: boolean;
   open(page: Page): Promise<void>;
   /** Whether the link holds a manual X / Y scale. */
   manual(page: Page): Promise<{ x: boolean | null; y: boolean }>;
@@ -104,6 +106,7 @@ const TOOLS: Tool[] = [
   {
     name: 'Trace',
     drag: 'zoom',
+    wheelXOnly: true,
     async open(page) {
       await page.route(/\/(mole|hare|formula-engine)\//, (route) => route.fulfill({ status: 503 }));
       await mockHare(page);
@@ -121,6 +124,7 @@ const TOOLS: Tool[] = [
   {
     name: 'Correlation',
     drag: 'zoom',
+    wheelXOnly: false,
     async open(page) {
       await page.route(/\/(mole|hare|formula-engine)\//, (route) => route.fulfill({ status: 503 }));
       await mockHare(page);
@@ -146,6 +150,7 @@ const TOOLS: Tool[] = [
   {
     name: 'Waveform',
     drag: 'zoom',
+    wheelXOnly: false,
     async open(page) {
       await page.route(/\/(mole|hare|formula-engine)\//, (route) => route.fulfill({ status: 503 }));
       await mockHare(page, { waveforms: WAVEFORMS });
@@ -227,8 +232,18 @@ for (const tool of TOOLS) {
     await expect.poll(async () => (await tool.manual(page)).y).toBe(false);
 
     // ── The wheel over the plot area: both axes ────────────────────────────
+    // (Trace: its plain wheel zooms time alone and the Y axis stays on
+    // auto-scale; Alt+wheel zooms both, C2.)
     await page.mouse.move(at(0.4, 0.4).x, at(0.4, 0.4).y);
+    if (tool.wheelXOnly) {
+      await page.mouse.wheel(0, -200);
+      await park(page);
+      expect((await tool.manual(page)).y).toBe(false);
+      await page.mouse.move(at(0.4, 0.4).x, at(0.4, 0.4).y);
+      await page.keyboard.down('Alt');
+    }
     await page.mouse.wheel(0, -200);
+    if (tool.wheelXOnly) await page.keyboard.up('Alt');
     await expect.poll(async () => (await tool.manual(page)).y).toBe(true);
     const both = await tool.manual(page);
     if (both.x !== null) expect(both.x).toBe(true);

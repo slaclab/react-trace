@@ -116,10 +116,10 @@ describe('grid cell activation', () => {
     expect(onSetActivePlot).toHaveBeenCalledWith('p2');
     expect(seen).toHaveBeenCalledTimes(1);
 
-    // The axis drag in that same cell keeps working: dragging the Y band down
-    // 30 px stretches [0, 100] about its centre by 2^(30/200), freezing
-    // the auto-scaled axis in the same write.
-    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    // The axis drag in that same cell keeps working: Shift+dragging the Y
+    // band down 30 px (a plain drag pans it, C3) stretches [0, 100] about its
+    // centre by 2^(30/200), freezing the auto-scaled axis in the same write.
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0, shiftKey: true });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 230, buttons: 1 });
     act(() => frames.splice(0).forEach((cb) => cb(performance.now())));
     const half = 50 * 2 ** (30 / 200);

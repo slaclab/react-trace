@@ -4,12 +4,12 @@
 //
 //   * a wheel over the time labels zooms time alone into a sub-range whose
 //     samples are much smaller than the rest, and the auto-scaled Y axis
-//     refits to it (a wheel over the plot area would zoom the Y axis too):
-//     its tick labels drop to the small values (the view-window cut does
-//     this fit);
-//   * a vertical drag on the Y band then stretches that axis: its tick labels
-//     change while the time labels and the window's right edge stay as they
-//     were (the Y band never moves time), and the stretched axis shows
+//     refits to it: its tick labels drop to the small values (the
+//     view-window cut does this fit);
+//   * a vertical Shift+drag on the Y band then stretches that axis (a plain
+//     drag pans it, C3): its tick labels change while the time labels and
+//     the window's right edge stay as they were (the Y band never moves
+//     time), and the stretched axis shows
 //     its auto-scale badge, which turns auto-scale back on. The stretch runs
 //     on the zoomed window because a gesture froze it: on the live -10m window
 //     the time ticks move on their own whenever the clock passes a minute;
@@ -312,12 +312,15 @@ test('wheel zoom in refits the auto Y axis, a Y stretch leaves time alone, zoom 
   const windowBefore = await windowScale(page);
   expect(timeBefore.length).toBeGreaterThan(2);
 
+  // Shift+drag: a plain drag on the Y band pans it (C3).
   const bandX = box.x + GRID_LEFT / 2;
   await page.mouse.move(bandX, box.y + gridMidY);
+  await page.keyboard.down('Shift');
   await page.mouse.down();
   await page.mouse.move(bandX, box.y + gridMidY - 20, { steps: 4 });
   await page.mouse.move(bandX, box.y + gridMidY - 120, { steps: 10 });
   await page.mouse.up();
+  await page.keyboard.up('Shift');
   await parkPointer(page);
 
   await expect.poll(() => yLabels(page)).not.toEqual(yBefore);

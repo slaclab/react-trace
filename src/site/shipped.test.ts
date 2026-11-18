@@ -42,3 +42,11 @@ describe('C2: Trace’s wheel zooms time only; the other tools keep both', () =>
     expect(BUILTIN_DEFAULTS.waveform.plot.wheel).toBe('xy');
   });
 });
+
+describe('C3: dragging a Trace Y axis pans it; the other tools keep stretching', () => {
+  it('ships yAxisDrag pan for Trace and stretch for Correlation and Waveform', () => {
+    expect(BUILTIN_DEFAULTS.trace.plot.yAxisDrag).toBe('pan');
+    expect(BUILTIN_DEFAULTS.correlation.plot.yAxisDrag).toBe('stretch');
+    expect(BUILTIN_DEFAULTS.waveform.plot.yAxisDrag).toBe('stretch');
+  });
+});

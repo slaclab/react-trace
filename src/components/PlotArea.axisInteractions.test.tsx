@@ -122,12 +122,13 @@ const DOWN_100 = { min: 50 - 50 * Math.SQRT2, max: 50 + 50 * Math.SQRT2 };
 
 // jsdom reports a 0,0 bounding rect for the wrapper, so clientX/clientY ARE
 // canvas-pixel coordinates here.
+// A plain drag pans the axis (C3); Shift+drag (or Alt) stretches it.
 describe('per-axis drag stretch', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('a plain click (mousedown + mouseup, no movement) writes nothing', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
-    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0, shiftKey: true });
     fireEvent.mouseUp(window);
     flushFrames();
     expect(onUpdateAxis).not.toHaveBeenCalled();
@@ -137,7 +138,7 @@ describe('per-axis drag stretch', () => {
   it('a double-click on the axis band writes nothing', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
     for (let i = 0; i < 2; i++) {
-      fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+      fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0, shiftKey: true });
       fireEvent.mouseUp(window);
     }
     flushFrames();
@@ -147,7 +148,7 @@ describe('per-axis drag stretch', () => {
 
   it('movement of 3 px or less does not start a stretch', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
-    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0, shiftKey: true });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 203, buttons: 1 });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 197, buttons: 1 });
     flushFrames();
@@ -159,7 +160,7 @@ describe('per-axis drag stretch', () => {
 
   it('dragging UP 100 px narrows the span by 2^0.5 about the centre, freezing in the same write', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
-    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0, shiftKey: true });
     // Window listeners: the drag must keep tracking outside the wrapper.
     // buttons:1 = button still held.
     fireEvent.mouseMove(window, { clientX: 30, clientY: 100, buttons: 1 });
@@ -182,7 +183,7 @@ describe('per-axis drag stretch', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(
       makePlot({ autoScale: false, min: 0, max: 100 })
     );
-    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0, shiftKey: true });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 300, buttons: 1 });
     flushFrames();
     // A manually-ranged axis is never re-frozen: plain min/max only.
@@ -196,7 +197,7 @@ describe('per-axis drag stretch', () => {
 
   it('writes exactly once per flushed frame, from the captured extent (no compounding)', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
-    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0, shiftKey: true });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 150, buttons: 1 });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 120, buttons: 1 });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 100, buttons: 1 });
@@ -224,7 +225,7 @@ describe('per-axis drag stretch', () => {
 
   it('mouseup flushes the pending frame and cancels it', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
-    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0, shiftKey: true });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 100, buttons: 1 });
     expect(onUpdateAxis).not.toHaveBeenCalled();
     fireEvent.mouseUp(window);
@@ -242,7 +243,7 @@ describe('per-axis drag stretch', () => {
 
   it('never writes a factor-1 frame', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
-    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0, shiftKey: true });
     // Past the threshold, then back to the start before the frame runs.
     fireEvent.mouseMove(window, { clientX: 30, clientY: 150, buttons: 1 });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 200, buttons: 1 });
@@ -255,7 +256,7 @@ describe('per-axis drag stretch', () => {
 
   it('stops committing after mouseup', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
-    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0, shiftKey: true });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 230, buttons: 1 });
     flushFrames();
     const calls = onUpdateAxis.mock.calls.length;
@@ -269,7 +270,7 @@ describe('per-axis drag stretch', () => {
 
   it('ends the drag when the button is released off-window (no mouseup seen)', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
-    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0, shiftKey: true });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 230, buttons: 1 });
     flushFrames();
     const calls = onUpdateAxis.mock.calls.length;
@@ -288,7 +289,7 @@ describe('per-axis drag stretch', () => {
     // Grid interior: the whole-plot X pan/zoom owns this.
     fireEvent.mouseDown(wrap, { clientX: 400, clientY: 200, button: 0 });
     // Left margin but above the grid band.
-    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 20, button: 0 });
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 20, button: 0, shiftKey: true });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 100, buttons: 1 });
     flushFrames();
     expect(onUpdateAxis).not.toHaveBeenCalled();
@@ -297,7 +298,7 @@ describe('per-axis drag stretch', () => {
 
   it('cancels a pending stretch frame on unmount', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
-    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0 });
+    fireEvent.mouseDown(wrap, { clientX: 30, clientY: 200, button: 0, shiftKey: true });
     fireEvent.mouseMove(window, { clientX: 30, clientY: 100, buttons: 1 });
     unmount();
     flushFrames();

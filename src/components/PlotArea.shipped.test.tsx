@@ -176,3 +176,33 @@ describe('C2: the wheel over the plot zooms time only', () => {
     expect(onViewWindowChange).not.toHaveBeenCalled();
   });
 });
+
+describe('C3: dragging a Y axis pans that axis', () => {
+  it('a plain drag moves the axis with the pointer', () => {
+    const { wrap, onUpdateAxis } = mountPlot();
+    // 60 px down a 300 px grid: the range moves up by a fifth of its span.
+    fireMouse(wrap, 'mousedown', { x: 40, y: 200 });
+    fireMouse(window, 'mousemove', { x: 40, y: 260 });
+    flushFrames();
+    fireMouse(window, 'mouseup', { x: 40, y: 260 });
+    expect(onUpdateAxis).toHaveBeenLastCalledWith('ax1', {
+      autoScale: false,
+      min: expect.closeTo(20, 9),
+      max: expect.closeTo(120, 9),
+    });
+  });
+
+  it.each([
+    ['Shift', { shiftKey: true }],
+    ['Alt', { altKey: true }],
+  ])('%s+drag stretches it about its centre', (_key, mods) => {
+    const { wrap, onUpdateAxis } = mountPlot();
+    fireMouse(wrap, 'mousedown', { x: 40, y: 200, ...mods });
+    fireMouse(window, 'mousemove', { x: 40, y: 300 });
+    flushFrames();
+    fireMouse(window, 'mouseup', { x: 40, y: 300 });
+    const { min, max } = onUpdateAxis.mock.calls.at(-1)![1] as { min: number; max: number };
+    expect((min + max) / 2).toBeCloseTo(50, 9);
+    expect(max - min).toBeGreaterThan(100);
+  });
+});
