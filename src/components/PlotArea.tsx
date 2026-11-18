@@ -1209,7 +1209,13 @@ export function SinglePlot({
             the wrapper; the read-out grip is wired on it. CanopyChart renders
             the canvas (its default renderer) and binds each event once, so the
             handlers may change identity on every render. */}
-        <div ref={chartHostRef} data-chart-host="" style={{ height: '100%', width: '100%' }}>
+        <div
+          ref={chartHostRef}
+          data-chart-host=""
+          style={{ height: '100%', width: '100%' }}
+          // Swallows a left-click over a legend entry before the chart sees it.
+          onClickCapture={(e) => legend.blockClick(e.nativeEvent)}
+        >
           <CanopyChart
             option={option}
             replaceMerge={['series', 'yAxis']}
