@@ -7,7 +7,7 @@ import { MeasureIcon } from '../../icons';
 import type { Annotation, AnnotationPoint } from '../../model';
 import type { DrawingTool, Geometry, GridProjection } from '../types';
 import { DASH_ARRAY, finite, hitRect, rectPath, strokeOf } from '../shapeKit';
-import { axisUnit, fmtValue, withUnit } from '../format';
+import { axisUnit, fmtValue, withMinus, withUnit } from '../format';
 import { MeasureShape } from './Shape';
 
 function geometry(a: Annotation, grid: GridProjection): Geometry | null {
@@ -67,7 +67,8 @@ export const MEASURE_TOOL: DrawingTool = {
   Shape: MeasureShape,
   objName: (a, ctx) => {
     const [p0, p1] = a.points;
-    const dv = withUnit(fmtValue(p1.v - p0.v), axisUnit(ctx.axis));
+    // The minus sign the readout prints, not a hyphen.
+    const dv = withUnit(withMinus(fmtValue(p1.v - p0.v)), axisUnit(ctx.axis));
     return `Measure ${ctx.binned ? '≈' : ''}Δ${dv} / ${ctx.xAxis.formatSpan(p1.t - p0.t)}`;
   },
   hint: () => `${LONG}: shift-drag to measure`,

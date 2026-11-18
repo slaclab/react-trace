@@ -4,8 +4,26 @@
 // native picker. The swatch is the one tab stop; the input shares its box so
 // the picker opens at the swatch. Chrome tokens only: the colour shown is the
 // field's value, never a literal of ours.
+//
+// The native input takes only `#rrggbb`. A value in another form (a theme
+// variable such as a drawing's ink, `var(--cds-text-primary)`) is given to
+// the swatch as is, and to the input as the colour the swatch shows,
+// resolved when the picker opens, so the picker starts at that colour.
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
+
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/** A computed `rgb()` / `rgba()` colour as `#rrggbb`; null when it is not one. */
+function rgbToHex(css: string): string | null {
+  const m = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i.exec(css.trim());
+  if (!m) return HEX.test(css.trim()) ? css.trim().toLowerCase() : null;
+  const hex = m
+    .slice(1, 4)
+    .map((n) => Math.min(255, Number(n)).toString(16).padStart(2, '0'))
+    .join('');
+  return `#${hex}`;
+}
 
 export interface ColourSwatchProps {
   value: string;
@@ -31,9 +49,22 @@ export function ColourSwatch({
   small,
 }: ColourSwatchProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const swatchRef = useRef<HTMLButtonElement>(null);
+  const isHex = HEX.test(value);
+  // The colour a non-hex value shows, resolved at the last opening.
+  const [shown, setShown] = useState('');
   const openPicker = () => {
     const input = inputRef.current;
     if (!input) return;
+    const swatch = swatchRef.current;
+    if (!isHex && swatch) {
+      const view = swatch.ownerDocument.defaultView;
+      const hex = view ? rgbToHex(view.getComputedStyle(swatch).backgroundColor) : null;
+      if (hex !== null) {
+        input.value = hex;
+        setShown(hex);
+      }
+    }
     if (typeof input.showPicker === 'function') {
       try {
         input.showPicker();
@@ -51,7 +82,7 @@ export function ColourSwatch({
       <input
         ref={inputRef}
         type="color"
-        value={value}
+        value={isHex ? value : shown}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
         tabIndex={-1}
@@ -69,6 +100,7 @@ export function ColourSwatch({
         }}
       />
       <button
+        ref={swatchRef}
         type="button"
         className="wb-swatch trace-color-swatch"
         data-testid={testId}
