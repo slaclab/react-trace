@@ -258,7 +258,7 @@ export interface DrawingMenuEntry {
   label: string;
   /** True when the clicked point places nothing (no grid, no owner axis, off-scale). */
   disabled: boolean;
-  /** Adds the drawing at the clicked point and selects it. */
+  /** Adds the drawing at the clicked point and selects it; a note opens its text box. */
   select(): void;
 }
 
@@ -338,6 +338,8 @@ export function drawingMenuEntriesAt(host: DrawingHost, x: number, y: number): D
           const commit = appendCommitIn(config.catalog, drawing);
           host.document.commit(commit.fn, commit.label);
           host.document.select(drawing.id);
+          // A new note opens its text box, as placing one with the tool does.
+          if (tool.inlineText === true) host.overlayRef.current?.editText?.(drawing.id);
         },
       },
     ];

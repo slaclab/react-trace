@@ -4,9 +4,11 @@
 // workbench menu headed by the drawing's name, with Edit (selects it, which
 // opens its card), Lock / Unlock and Delete, each written through the plot's
 // drawing writer as one commit. A right-click beside it still opens the
-// point menu.
+// point menu, whose "Add note here" opens the new note's text box, focused,
+// as placing a note with the tool does.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, within } from '@testing-library/react';
+import { useMemo, useState } from 'react';
 import { fireEvent } from '@testing-library/dom';
 import { SinglePlot } from '../../../components/PlotArea';
 import type { Axis, Plot } from '../../../types';
@@ -159,5 +161,53 @@ describe('Trace drawing menu', () => {
     rightClick(wrap);
     expect(labels()).toContain('Add vertical line here');
     expect(labels()).not.toContain('Lock');
+  });
+});
+
+describe('Add note here', () => {
+  function Stateful() {
+    const [list, setList] = useState<Annotation[]>([]);
+    const [selected, setSelected] = useState<string | null>(null);
+    const plot = useMemo(() => makePlot(list), [list]);
+    return (
+      <ContextMenuProvider schemaWriters={{}}>
+        <SinglePlot
+          plot={plot}
+          archiveResults={new Map()}
+          liveResults={new Map()}
+          formulaResults={new Map()}
+          onCommitAnnotations={(fn) => setList((l) => fn(l))}
+          selectedAnnotationId={selected}
+          onSelectAnnotation={setSelected}
+        />
+      </ContextMenuProvider>
+    );
+  }
+
+  it('adds the note and opens its text box, focused; Enter keeps the text', () => {
+    // A linear fake: t = 10 * x on the time axis, v = 400 - y on every Y axis.
+    const original = fakeInstance.convertFromPixel;
+    fakeInstance.convertFromPixel = (finder: object, px: number) =>
+      'xAxisIndex' in finder ? px * 10 : 400 - px;
+    try {
+      const { container } = render(<Stateful />);
+      const wrap = container.querySelector('[data-plot-id]') as HTMLElement;
+      rightClick(wrap);
+      click('Add note here');
+      expect(menu()).toBeNull();
+      const editor = container.querySelector<HTMLInputElement>('input[data-annotation-editor]');
+      expect(editor).not.toBeNull();
+      expect(document.activeElement).toBe(editor);
+      act(() => {
+        fireEvent.change(editor!, { target: { value: 'beam lost' } });
+        fireEvent.keyDown(editor!, { key: 'Enter' });
+      });
+      expect(container.querySelector('input[data-annotation-editor]')).toBeNull();
+      expect(container.querySelector('[data-annotation-id] text')?.textContent).toContain(
+        'beam lost'
+      );
+    } finally {
+      fakeInstance.convertFromPixel = original;
+    }
   });
 });

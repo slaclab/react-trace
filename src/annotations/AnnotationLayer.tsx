@@ -158,6 +158,8 @@ export interface OverlayHandle {
   /** Start a shift-measure at this press: the root takes the pointer and captures it. */
   beginMeasure(e: PointerEvent): void;
   key(cmd: 'cancel' | 'delete'): { consumed: boolean };
+  /** Open the text box of a note just added (from a menu), as placing one does. */
+  editText?(id: string): void;
 }
 
 /** A frame store that never bumps (Trace: the card follows the layer's own renders). */
@@ -580,6 +582,9 @@ export function AnnotationLayer(props: AnnotationLayerProps) {
       const { annotations: list, selectedId: sel } = latest.current.props;
       const target = sel ? (list.find((a) => a.id === sel) ?? null) : null;
       return { consumed: run({ type: 'keyDelete', target }).consumed === true };
+    },
+    editText(id) {
+      setEditing({ id, text: '' });
     },
   };
   useImperativeHandle(overlayRef, () => handle);
