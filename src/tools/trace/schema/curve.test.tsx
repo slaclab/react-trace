@@ -40,6 +40,7 @@ import type { TraceDotState } from '../dots';
 import {
   NO_PV_REASON,
   PV_CURVE_ITEM_KIND,
+  STEP_HOLDS_REASON,
   archiveStatusLabel,
   assignCurveToUnitAxis,
   liveStatusLabel,
@@ -369,6 +370,7 @@ describe('PV-curve schema — shape', () => {
       'live-retention',
       'curve-archiver',
       'show-archive-band',
+      'break-on-gaps',
       'optimized-bins',
     ]);
     const data = pvCurveSchema.tabs.find((t) => t.id === 'data')!;
@@ -956,5 +958,34 @@ describe('a legacy updateRate key', () => {
     );
     expect(saved.source).toBe('native');
     expect(saved.plots[0].traces[0].pvName).toBe('TEST:CURRENT');
+  });
+});
+
+// --------------------------------------------------------- break on gaps --
+
+describe('PV-curve schema — Break on gaps (R1 opt-in)', () => {
+  const label = 'Break on gaps longer than 3× the sample spacing';
+
+  it('is off by default; on a Line curve it stores only "on", dotted, and resets', () => {
+    const store = mount([makeTrace({ useArchive: true, lineType: 'direct' })]);
+    openMore();
+    const toggle = byId('break-on-gaps') as HTMLButtonElement;
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(dot(label)).toBeNull();
+    fireEvent.click(toggle);
+    expect(curveIn(store)?.breakOnGaps).toBe(true);
+    expect(dot(label)).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: `Reset ${label}` }));
+    expect(curveIn(store)?.breakOnGaps).toBeUndefined();
+  });
+
+  it('is unavailable on a Step curve, with the reason', () => {
+    const store = mount([makeTrace({ useArchive: true, lineType: 'step' })]);
+    openMore();
+    const toggle = byId('break-on-gaps') as HTMLButtonElement;
+    expect(toggle.disabled || toggle.getAttribute('aria-disabled') === 'true').toBe(true);
+    expect(screen.getByText(STEP_HOLDS_REASON)).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(curveIn(store)?.breakOnGaps).toBeUndefined();
   });
 });

@@ -110,6 +110,7 @@ export const TRACE_FIELD_TABLE: Readonly<Record<string, FieldClass>> = {
   'curve-archiver': plot('trace', 'archiver'),
   'show-archive-band': plot('trace', 'showArchiveBand'),
   'optimized-bins': plot('trace', 'optimizedDataBins'),
+  'break-on-gaps': session(FILE_ONLY),
   'line-type': plot('trace', 'lineType'),
   'line-width': plot('trace', 'lineWidth'),
   'line-style': plot('trace', 'lineStyle'),

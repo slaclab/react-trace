@@ -59,6 +59,9 @@ import { PvNameControl } from '../fields/pvName';
 import type { TraceAxisModel } from './axis';
 import type { TracePlotModel } from './plot';
 
+/** Why Break on gaps is unavailable on a Step curve. */
+export const STEP_HOLDS_REASON = 'A Step curve holds each value until the next sample.';
+
 /** The item kind Trace's PV curves render under (`schema.items.curve`). */
 export const PV_CURVE_ITEM_KIND = 'curve';
 
@@ -648,6 +651,23 @@ export function createPvCurveSchema<
       get: (ctx) => curve(ctx)?.showArchiveBand !== false,
       set: (ctx, on) => patch(ctx, { showArchiveBand: on ? undefined : false }),
       ...curveOptional<S, M, U>('showArchiveBand'),
+    },
+    {
+      // Opt-in, off by default (R1): the archive line breaks where samples
+      // are more than 3× their usual spacing apart, for a recorder writing on
+      // a fixed grid. Never on a Step curve, whose samples hold until the
+      // next (`breaksOnGaps`). Undefined is off; only "on" is stored.
+      id: 'break-on-gaps',
+      label: 'Break on gaps longer than 3× the sample spacing',
+      kind: 'toggle',
+      tab: CURVE_TABS.data,
+      level: 'L3',
+      when: archive,
+      disabled: (ctx) => (curve(ctx)?.lineType === 'step' ? STEP_HOLDS_REASON : false),
+      help: 'At least 30 s. Off, the line breaks only at INVALID samples and disconnects.',
+      get: (ctx) => curve(ctx)?.breakOnGaps === true,
+      set: (ctx, on) => patch(ctx, { breakOnGaps: on ? true : undefined }),
+      ...curveOptional<S, M, U>('breakOnGaps'),
     },
     {
       id: 'optimized-bins',
