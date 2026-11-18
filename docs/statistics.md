@@ -148,7 +148,7 @@ statistics (divided by n − 1).
 | `median(v)`               | Middle value; mean of the two middle ones for even counts. |
 | `std(v)`                  | Sample standard deviation, ddof = 1 (needs 2 values).      |
 | `var(v)`                  | Sample variance, ddof = 1 (needs 2 values).                |
-| `rms(v)`                  | Root mean square, sqrt(mean(v²)); not centred.             |
+| `rms(v)`                  | Root mean square, sqrt(mean(v²)); not centered.            |
 | `ptp(v)`                  | Peak to peak: max(v) − min(v).                             |
 | `first(v)`                | The oldest value.                                          |
 | `last(v)`                 | The newest value.                                          |
@@ -201,6 +201,6 @@ your own. A token that cannot be read, such as an unknown built-in id, is
 dropped. An expression with a mistake is kept.
 
 When a URL grows past its 4 KB budget, Correlation drops the `m=` keys after
-the labels, colours, markers and hidden list and before any Y; Waveform
+the labels, colors, markers and hidden list and before any Y; Waveform
 drops them with the curve styles; Trace drops them with the rest of the
 plot config. The metrics then reopen at the default.

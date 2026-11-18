@@ -210,12 +210,12 @@ Click a trace's card to change how it looks. In its **Signal** block, **Label** 
 
 **Style block:**
 
-- **① Colour** — pick a colour.
+- **① Color** — pick a color.
 - **② Line** — **Step** (holds each value until the next sample; the default) or **Line** (straight lines between samples).
 - **Width** — 0.5 to 20 px.
 - **③ Dash** — solid, dashed, dotted, and mixed patterns, or **None** to show only markers.
 - **④ Extend to now** — draw a dashed line from the last value to the end of the time range.
-- **Alarm colouring** — tint the live curve by each sample's alarm severity.
+- **Alarm coloring** — tint the live curve by each sample's alarm severity.
 
 <div style="text-align:center; margin:1.5rem 0;">
   <a class="glightbox" href="../images/trace_style.png"><img src="../images/trace_style.png" alt="Style settings" style="width:50%; border-radius:0.5rem;"></a>
@@ -225,7 +225,7 @@ Turn on **Markers** to mark each sample, then choose a **Marker** and **Marker s
 
 ### Color Palettes
 
-New traces get their colours from the plot's palette. Open **Display**, then **More**, and choose one of 13 palettes under **Palette** (①). Every trace on the plot that still has a palette colour is recoloured; colours you picked yourself stay.
+New traces get their colors from the plot's palette. Open **Display**, then **More**, and choose one of 13 palettes under **Palette** (①). Every trace on the plot that still has a palette color is recolored; colors you picked yourself stay.
 
 <div style="text-align:center; margin:1.5rem 0;">
   <a class="glightbox" href="../images/palette.png"><img src="../images/palette.png" alt="Color palette settings" style="width:50%; border-radius:0.5rem;"></a>
@@ -423,7 +423,7 @@ Every icon in Trace has a tooltip that appears on hover. Here's a quick referenc
 
 ## Dark Mode
 
-Click the sun/moon icon in the actions bar (++option+t++ / ++alt+t++) to switch between dark and light mode. Your choice is saved in the browser and used on future visits. Plots with the default background follow the theme; a plot with a custom **Background colour** keeps it.
+Click the sun/moon icon in the actions bar (++option+t++ / ++alt+t++) to switch between dark and light mode. Your choice is saved in the browser and used on future visits. Plots with the default background follow the theme; a plot with a custom **Background color** keeps it.
 
 ---
 

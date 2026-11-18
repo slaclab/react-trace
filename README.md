@@ -222,7 +222,7 @@ in `src/tools/dotHelpers.ts`:
   reset writes `undefined`.
 - `recordKey`: the value is an entry in a per-PV record. It is modified when
   the entry exists, and reset deletes it.
-- `stampedValue`: the tool stamps an automatic value (a palette colour, an
+- `stampedValue`: the tool stamps an automatic value (a palette color, an
   axis slot). It is modified when the tool's rule rejects the stored value,
   and reset writes the object's own automatic value.
 

@@ -47,7 +47,7 @@ detached window) carries the range controls:
 
 - **1h**, **6h**, **24h** pick the last hour, six hours or day.
 - **All** shows from the earliest loaded sample to now.
-- **Go to** takes a date and time and centres a window of the current span on
+- **Go to** takes a date and time and centers a window of the current span on
   it.
 - **Now** follows live data again with the last relative span you used, or
   the last hour if there was none.
@@ -55,7 +55,7 @@ detached window) carries the range controls:
 ## Scaling the Y axes { #axes }
 
 - **Drag** a Y axis up or down to move that axis alone. **Shift + drag** (or
-  **Alt + drag**) zooms it instead: up to zoom in about its centre, down to
+  **Alt + drag**) zooms it instead: up to zoom in about its center, down to
   zoom out. Either way the axis stops auto-scaling.
 - **Wheel** over a Y axis zooms it around the value under the cursor.
 - **Alt + wheel** over the plot zooms time and every Y axis around the
@@ -147,7 +147,7 @@ to put the readout back.
 - **Click** a drawing to select it; **drag** it to move it; drag one of its
   handles to reshape it.
 - A selected drawing shows a round **style** button. It opens the drawing's
-  colour (ink, the colour of each plotted curve, or an accent), its line
+  color (ink, the color of each plotted curve, or an accent), its line
   width (0.5 to 2 px) and solid or dashed.
 - A locked drawing cannot be moved, reshaped or restyled and shows a lock
   instead of handles.
@@ -170,7 +170,7 @@ Drawings: they cannot be dragged onto an axis.
 
 Click a drawing's card (or select the drawing on the plot) and it offers:
 
-- **Kind** (read only), **Label**, **Colour**, **Width**, **Style**
+- **Kind** (read only), **Label**, **Color**, **Width**, **Style**
   (_Solid_ or _Dashed_).
 - **Axis**, for the drawings that carry a value.
 - **Value**, for a horizontal line.
@@ -242,7 +242,7 @@ current plot. Keys do nothing while you type in a field.
 | Alt+N              | Note                                                 |
 | Alt+M              | Measure                                              |
 | ← / →              | Pan time by 10 % of the span                         |
-| + / −              | Zoom time in / out by 1.25 about the centre          |
+| + / −              | Zoom time in / out by 1.25 about the center          |
 | Esc                | Cancel the drawing in progress, then disarm the tool |
 | Delete / Backspace | Delete the selected drawing (not a locked one)       |
 | ⌘Z / Ctrl+Z        | Undo the last drawing change of the current plot     |
@@ -303,7 +303,7 @@ A new tool is **one module, one catalog entry, one line per plot**:
    `code`, `label`, `icon`), placement (`arity` 1 or 2, `axes` `'x'`, `'y'`
    or `'xy'`, the Alt `key`, `menuAdd`, `inlineText`), shape (`shapePoint`,
    `geometry`, `Shape`), text (`objName`, `hint`), its own panel
-   `fields` and `validate`, and its link `codec`. Behaviour keys on these
+   `fields` and `validate`, and its link `codec`. Behavior keys on these
    fields, never on a `kind` string.
 2. **One catalog entry.** Build the plot's catalog with `makeCatalog` from
    `src/annotations/catalog/index.ts`, for example

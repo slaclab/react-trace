@@ -24,7 +24,7 @@ To move a curve between lists, use its **Plot on** field or drag its card.
 Moves never lose a PV. Moving into an occupied Reference or X axis PV swaps
 the two PVs, and a snapshot reference is replaced. The only move that is
 refused is one into a full Signals list ("Live is full (8/8)"). Styles
-(Label, Colour, Line, Width, Dash) belong to the PV, so a curve keeps them
+(Label, Color, Line, Width, Dash) belong to the PV, so a curve keeps them
 when it moves between Signals and Reference.
 
 **One axis, one unit.** The Live axis takes the engineering unit of the first
@@ -57,7 +57,7 @@ Turn on **Rolling mean** (under the Reference's cards)
 and every live curve gets its own reference: the element-by-element **mean of
 its frames over the last _Window_ seconds** (default 60 s, 1 s to 1 h). With
 it comes a **σ per element** over the same frames, drawn as the **Spread
-band** (±1σ by default; ±2σ, ±3σ or none) in the curve's colour. The band is
+band** (±1σ by default; ±2σ, ±3σ or none) in the curve's color. The band is
 the probability picture along the index: how far each element usually
 strays. With Δ on, the live curve is drawn as its deviation from its rolling
 mean and the band sits around zero, so an element outside the band is
@@ -195,7 +195,7 @@ grammar.
 
 | Key                                      | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pv=<pv>`                                | A Live waveform, repeated, in colour order; deduplicated, at most 8.                                                                                                                                                                                                                                                                                                                                                   |
+| `pv=<pv>`                                | A Live waveform, repeated, in color order; deduplicated, at most 8.                                                                                                                                                                                                                                                                                                                                                    |
 | `ref=<pv>`                               | The Reference PV (0–1). A snapshot reference is session data and is never written.                                                                                                                                                                                                                                                                                                                                     |
 | `roll=<1..3600>`                         | A rolling reference instead: per live curve, the mean of its frames over the last N seconds.                                                                                                                                                                                                                                                                                                                           |
 | `spread=<0..3>`                          | The ±kσ band around a reference that has a σ (rolling, or a snapshot frozen from one); default 1, 0 = none.                                                                                                                                                                                                                                                                                                            |

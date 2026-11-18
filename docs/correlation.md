@@ -67,4 +67,4 @@ unit, or Y per X.
 `readout=1` turns the panel on; the metric list is written as repeated
 `m=` keys, as the [Statistics](statistics.md#in-the-url) page describes.
 When a URL grows past its 4 KB budget, the `m=` keys are dropped after the
-labels, colours, markers and hidden list, and Ys only after that.
+labels, colors, markers and hidden list, and Ys only after that.

@@ -4,7 +4,7 @@ icon: lucide/settings
 
 # Site defaults
 
-Many of Trace's behaviour choices are only "which default ships": what the
+Many of Trace's behavior choices are only "which default ships": what the
 wheel zooms, whether a new plot shows the crosshair, what the header says. A
 deployment sets its own defaults without rebuilding or forking, for all three
 tools (Trace, Correlation and Waveform) at once.
@@ -55,7 +55,7 @@ Site defaults apply in two places:
 
 - **Where a tool creates something**: Add plot, a new curve or formula, a
   fresh tab, a fresh Correlation or Waveform view.
-- **App-level behaviour**: the mouse gestures, where the read-out sits, and the
+- **App-level behavior**: the mouse gestures, where the read-out sits, and the
   header with its links.
 
 They never change what a saved file, a stored view or a link with settings
@@ -79,12 +79,12 @@ at the baseline values. Correlation's links always state their settings.
 Trace's heading when it runs standalone (embedded, the host's tile bar names
 the tool), and the links in every tool's help menu.
 
-| Key            | Built in                       | Meaning                                                                          |
-| -------------- | ------------------------------ | -------------------------------------------------------------------------------- |
-| `prefix`       | `""`                           | Text before the product name, at most 40 characters.                             |
-| `brand`        | `false`                        | The prefix and name in the shell's brand colour, as canopy-shell's `brandColor`. |
-| `bugReportUrl` | the build's, else this project | The bug-report link (http or https). Overrides `VITE_BUG_REPORT_URL`.            |
-| `docsUrl`      | the build's, else this project | The documentation link (http or https). Overrides `VITE_DOCS_URL`.               |
+| Key            | Built in                       | Meaning                                                                         |
+| -------------- | ------------------------------ | ------------------------------------------------------------------------------- |
+| `prefix`       | `""`                           | Text before the product name, at most 40 characters.                            |
+| `brand`        | `false`                        | The prefix and name in the shell's brand color, as canopy-shell's `brandColor`. |
+| `bugReportUrl` | the build's, else this project | The bug-report link (http or https). Overrides `VITE_BUG_REPORT_URL`.           |
+| `docsUrl`      | the build's, else this project | The documentation link (http or https). Overrides `VITE_DOCS_URL`.              |
 
 ### `plot`: the mouse and the read-out
 

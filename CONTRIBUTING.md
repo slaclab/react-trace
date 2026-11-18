@@ -34,11 +34,11 @@ pnpm format:check
 
 `pnpm build` type-checks the app and the Vite config (`tsc -b`) before bundling; run it before opening a pull request.
 
-### Chrome literals: colours and fonts come from the theme tokens
+### Chrome literals: colors and fonts come from the theme tokens
 
-Trace's own interface (its "chrome") takes its colours and fonts from the
+Trace's own interface (its "chrome") takes its colors and fonts from the
 `--canopy-*` contract variables, so a host application can restyle it from one
-stylesheet. A colour or font written as a literal in the chrome escapes that
+stylesheet. A color or font written as a literal in the chrome escapes that
 contract. `scripts/check-chrome-literals.mjs` enforces this. `pnpm test` runs it
 first, and you can run it alone:
 
@@ -49,16 +49,16 @@ node scripts/check-chrome-literals.mjs src/App.css     # only the named files
 
 **What it checks.** Each guarded file is checked for:
 
-- a colour literal: a hex colour (`#fff`, `#0f62fe80`), a colour function
+- a color literal: a hex color (`#fff`, `#0f62fe80`), a color function
   (`rgb()`, `rgba()`, `hsl()`, `hsla()`, and `hwb()`, `lab()`, `lch()`,
   `oklab()`, `oklch()`, `color(srgb ...)`; one that wraps a `var()` is fine),
-  or a CSS colour name (all 148, such as `red` or `rebeccapurple`);
+  or a CSS color name (all 148, such as `red` or `rebeccapurple`);
 - a `font` or `font-family` that is not `inherit` or a `--canopy-font-*`
   variable;
 - in the workbench only (`src/workbench/`), a `font-size` that is not `inherit`
   or a `--canopy-text-*` variable.
 
-Use `var(--canopy-...)` (colours, text sizes, fonts) instead.
+Use `var(--canopy-...)` (colors, text sizes, fonts) instead.
 
 **Where it looks.** The guarded files are the list in `DEFAULT_FILES` plus
 every file under `GUARDED_TREES` in the script: all production modules and
@@ -71,19 +71,19 @@ tree is guarded without editing the script.
 ordinary code is not mistaken for a style:
 
 - In a `.css` file only declarations are read: a selector such as `#feed {`, a
-  `url(#id)` and quoted text are not colours, and a colour name counts only in
-  the value of a colour property (`color`, `background`, `border`, `fill`,
+  `url(#id)` and quoted text are not colors, and a color name counts only in
+  the value of a color property (`color`, `background`, `border`, `fill`,
   custom properties and so on), so `white-space` and `var(--x-red)` pass.
 - In a `.ts`/`.tsx` file only string literals, template literals and style
   objects (`style={{...}}`, `style: {...}`, a `CSSProperties` value) are read.
   Types (`font: string`), identifiers, JSX text, comments, object keys and
   import paths are not. A string's context counts too: `href="#a11"`, a
   selector passed to `querySelector` or `closest`, and a message passed to
-  `new Error()` or `console.*` are not styles, and a colour name counts only
-  under a colour key (`color`, `backgroundColor`, `fill`, `stroke`, `border...`)
-  or a colour attribute (`fill="red"`), so `<Tag type="red">` passes.
-- Any other file is read line by line as raw text, with hex colours, colour
-  functions and fonts checked but not colour names.
+  `new Error()` or `console.*` are not styles, and a color name counts only
+  under a color key (`color`, `backgroundColor`, `fill`, `stroke`, `border...`)
+  or a color attribute (`fill="red"`), so `<Tag type="red">` passes.
+- Any other file is read line by line as raw text, with hex colors, color
+  functions and fonts checked but not color names.
 
 **How to exempt a line.** Put a comment on the line before it:
 
@@ -102,13 +102,13 @@ lines it found.
 
 **Accepted reasons.**
 
-| Reason                | Use it for                                                                                   |
-| --------------------- | -------------------------------------------------------------------------------------------- |
-| `document background` | the page background behind the app, which no host variable replaces                          |
-| `@media print`        | a print stylesheet, where the theme variables do not apply                                   |
-| `widget prop default` | the default of a widget prop that takes a colour, before a host sets it                      |
-| `Carbon danger pair`  | the text colour paired with a Carbon danger background token, which has no contract variable |
-| `not a style literal` | a string the guard reads as a colour or font that is not one (an id, a label, sample data)   |
+| Reason                | Use it for                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------------- |
+| `document background` | the page background behind the app, which no host variable replaces                         |
+| `@media print`        | a print stylesheet, where the theme variables do not apply                                  |
+| `widget prop default` | the default of a widget prop that takes a color, before a host sets it                      |
+| `Carbon danger pair`  | the text color paired with a Carbon danger background token, which has no contract variable |
+| `not a style literal` | a string the guard reads as a color or font that is not one (an id, a label, sample data)   |
 
 A line that is not really a style is better rewritten so that the guard no
 longer sees it than exempted. Use `not a style literal` only when it can't be.

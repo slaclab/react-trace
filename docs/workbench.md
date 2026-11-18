@@ -36,7 +36,7 @@ visibility eye, lock and remove buttons. Click a card to open it in place.
 It shows the card's settings in titled blocks:
 
 - **Signal**: label, and the list it is plotted on (**Plot on**).
-- **Style**: colour, line, width, dash and markers.
+- **Style**: color, line, width, dash and markers.
 - **Data** (Trace): live and archive sources and their status.
 
 Click the card again, or press ++escape++, to close it. Selecting a curve or a
@@ -49,7 +49,7 @@ A list's own settings sit under its cards. Examples are the Reference's
 
 ## The modified dot and reset
 
-Some fields have an automatic value, such as a palette colour, an automatic
+Some fields have an automatic value, such as a palette color, an automatic
 axis or an unset option. When you change such a field, a **dot** appears next
 to it to show it differs from the automatic value. Use the field's **reset**
 to clear the change and go back to the automatic value. A field with no
