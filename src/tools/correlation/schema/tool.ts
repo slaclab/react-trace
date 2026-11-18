@@ -13,6 +13,7 @@ import { AXES, LABELS, PLOT_SECTIONS, onFlags, summary } from '../../vocabulary'
 import type { FieldDef, ObjectSchema } from '../../../workbench/types';
 import { LookbackControl } from '../fields/lookback';
 import { statisticsFields } from '../../../statistics/fields';
+import { siteDefaults } from '../../../site/store';
 import { axisFields } from './axes';
 import {
   AXES_LABELS,
@@ -182,6 +183,7 @@ export function toolSchema<
     getMetrics: (ctx) => ctx.state.metrics,
     setMetrics: (ctx, metrics) => ctx.update((state) => setMetrics(state, metrics)),
     rowCount: (ctx) => ctx.state.ys.length,
+    defaultMetrics: () => siteDefaults().correlation.metrics,
   });
 
   const code: FieldDef<S, M, U>[] = [

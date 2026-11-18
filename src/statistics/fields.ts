@@ -2,13 +2,14 @@
 // Show statistics (toggle, L1) · Show distribution (toggle, L1, while
 // statistics are shown) · Metrics (custom list editor, L1) ·
 // Reset metrics (action, L2; disabled at the default). The tool supplies
-// where the values live in its state and the row count the editor validates
-// against.
+// where the values live in its state, the row count the editor validates
+// against and, when a site sets it (src/site), the default list Reset
+// metrics returns to.
 
 import { createElement } from 'react';
 import type { FieldDef, ToolContext, ToolUi } from '../workbench/types';
 import { MetricsControl } from './MetricsControl';
-import { defaultMetrics, metricsAreDefault, type Metric, type MetricCatalog } from './model';
+import { defaultMetrics, sameMetrics, type Metric, type MetricCatalog } from './model';
 
 export const STATS_FIELD_IDS = {
   show: 'stats-show',
@@ -28,12 +29,15 @@ export interface StatisticsFieldsSpec<S, M, U extends ToolUi> {
   setMetrics(ctx: ToolContext<S, M, U>, metrics: Metric[]): void;
   /** How many rows the frame has (for `y<k>` validation). */
   rowCount(ctx: ToolContext<S, M, U>): number;
+  /** The list Reset metrics returns to; absent, the catalog's default. */
+  defaultMetrics?(): readonly Metric[];
 }
 
 export function statisticsFields<S, M, U extends ToolUi>(
   spec: StatisticsFieldsSpec<S, M, U>
 ): FieldDef<S, M, U>[] {
   const { tab, catalog } = spec;
+  const initial = () => spec.defaultMetrics?.() ?? defaultMetrics(catalog);
   return [
     {
       id: STATS_FIELD_IDS.show,
@@ -78,8 +82,12 @@ export function statisticsFields<S, M, U extends ToolUi>(
       tab,
       level: 'L2',
       disabled: (ctx) =>
-        metricsAreDefault(catalog, spec.getMetrics(ctx)) ? 'Already the default' : false,
-      run: (ctx) => spec.setMetrics(ctx, defaultMetrics(catalog)),
+        sameMetrics(spec.getMetrics(ctx), initial()) ? 'Already the default' : false,
+      run: (ctx) =>
+        spec.setMetrics(
+          ctx,
+          initial().map((m) => ({ ...m }))
+        ),
     },
   ];
 }

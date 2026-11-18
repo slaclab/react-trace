@@ -4,9 +4,9 @@
 // to the plot whose id `ctx.target` names, else the active plot. Its tabs are
 // the plot-wide sections of the properties panel, each with a summary:
 //
-//   Acquisition Refresh interval (optional dot; relative ranges only) ·
+//   Acquisition Refresh interval (site dot; relative ranges only) ·
 //               Effective refresh (read-only, while a short span caps it) ·
-//               Default archiver (custom, optional dot)
+//               Default archiver (custom, site dot)
 //   Axes        X axis: Time range (custom, `#time-range`, `range=`) ·
 //               Autoscroll (session state; relative ranges only); the
 //               Y axes follow as the axis sections' sub-blocks
@@ -22,7 +22,10 @@
 //
 // Dots come only from `../dots`. Required fields with no automatic rule
 // carry none; Autoscroll carries none either: it is session state that a new
-// plot stamps `true`, so an optional-path dot would light on every plot.
+// plot stamps `true`, so an optional-path dot would light on every plot. A
+// field a site can set (src/site: Refresh interval, Default archiver, Mouse
+// drag, Drawing tools, Palette) carries a site dot: lit while the plot's
+// value differs from the site's, and its reset writes the site's value.
 //
 // Built by a factory generic over the tool's state and model, so the tool's
 // full state type (`tool.ts`) can instantiate it; `plotSchema` is the instance
@@ -33,6 +36,7 @@ import {
   activePlot,
   plotOptional,
   plotPaletteDot,
+  plotSiteDot,
   plotTitleDot,
   type TraceDotModel,
   type TraceDotState,
@@ -56,7 +60,8 @@ import {
   refreshIntervalMs,
 } from '../../../hooks/useAutoScrollTimers';
 import type { Plot } from '../../../types';
-import { DRAG_MODE_LABEL, DRAG_MODES, isDragMode } from '../../../plot/plotToggles';
+import { DRAG_MODE_LABEL, DRAG_MODES, isDragMode, type DragMode } from '../../../plot/plotToggles';
+import { siteDefaults } from '../../../site/store';
 import { AXES, LABELS, PLOT_SECTIONS, onFlags, summary } from '../../vocabulary';
 import type {
   FieldDef,
@@ -215,7 +220,12 @@ export function createPlotSchema<
         if (value === null) return;
         patch(ctx, { refreshIntervalS: clampInterval(value) });
       },
-      ...plotOptional<S, M, U>('refreshIntervalS'),
+      // The site's interval (built in: 5 s, stored as automatic) is unmarked.
+      ...plotSiteDot<S, M, U, number>({
+        value: (p) => p.refreshIntervalS ?? DEFAULT_REFRESH_INTERVAL_S,
+        site: () => siteDefaults().trace.plot.refreshIntervalS,
+        store: (v) => ({ refreshIntervalS: v === DEFAULT_REFRESH_INTERVAL_S ? undefined : v }),
+      }),
     },
     {
       // Shown only while a short span caps the interval above, which still
@@ -244,7 +254,11 @@ export function createPlotSchema<
       set: (ctx, archiver: string | undefined) => patch(ctx, { archiver }),
       render: ({ value, onChange, id }) =>
         createElement(ArchiverControl, { id, value: value as string | undefined, onChange }),
-      ...plotOptional<S, M, U>('archiver'),
+      ...plotSiteDot<S, M, U, string | undefined>({
+        value: (p) => p.archiver,
+        site: () => siteDefaults().trace.plot.archiver,
+        store: (archiver) => ({ archiver }),
+      }),
     },
   ];
 
@@ -329,7 +343,11 @@ export function createPlotSchema<
           patch(ctx, { dragMode: value === TRACE_DEFAULT_DRAG ? undefined : value });
         }
       },
-      ...plotOptional<S, M, U>('dragMode'),
+      ...plotSiteDot<S, M, U, DragMode>({
+        value: (p) => p.dragMode ?? TRACE_DEFAULT_DRAG,
+        site: () => siteDefaults().trace.plot.dragMode,
+        store: (mode) => ({ dragMode: mode === TRACE_DEFAULT_DRAG ? undefined : mode }),
+      }),
     },
     {
       id: 'show-status-line',
@@ -366,7 +384,11 @@ export function createPlotSchema<
       level: 'L2',
       get: (ctx) => read(ctx, (p) => p.showDrawingTools !== false, true),
       set: (ctx, on) => patch(ctx, { showDrawingTools: on ? undefined : false }),
-      ...plotOptional<S, M, U>('showDrawingTools'),
+      ...plotSiteDot<S, M, U, boolean>({
+        value: (p) => p.showDrawingTools !== false,
+        site: () => siteDefaults().trace.plot.showDrawingTools,
+        store: (on) => ({ showDrawingTools: on ? undefined : false }),
+      }),
     },
     {
       // The plot's drawings shown: the rail's hide-all and the Drawings

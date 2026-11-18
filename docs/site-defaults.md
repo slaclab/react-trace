@@ -152,6 +152,13 @@ Used when the page opens with no state beyond its PVs (`pv`, `ref`, `xs`).
 | `metrics`      | the defaults | As in Correlation.                                             |
 | `drawingTools` | `true`       | The drawing rail.                                              |
 
+## Modified dots and Reset
+
+For the keys a site sets, a field's modified dot compares against the site's
+value, and its reset writes the site's value back: Refresh interval, Default
+archiver, Mouse drag, Drawing tools and Palette in Trace. Reset metrics in
+Correlation and Waveform returns to the site's metric list.
+
 ## Deploying
 
 **Container image.** The image ships a neutral `config.json` (no settings)

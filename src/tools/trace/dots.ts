@@ -28,10 +28,18 @@
 // whichever plot holds them; plot-level fields (target at tool level) bind to
 // the plot whose id the target names, else the active plot.
 
-import { colorForIndex, paletteOf, paletteSlot, withPalette, type Palette } from '../../palettes';
+import {
+  colorForIndex,
+  paletteOf,
+  paletteSlot,
+  storedPaletteId,
+  withPalette,
+  type Palette,
+} from '../../palettes';
+import { siteDefaults } from '../../site/store';
 import type { Axis, Plot, PVTrace } from '../../types';
 import type { Target, ToolContext, ToolUi } from '../../workbench/types';
-import { optionalPath, stampedValue, type Dot } from '../dotHelpers';
+import { optionalPath, siteValue, stampedValue, type Dot } from '../dotHelpers';
 
 /** The slice of Trace's tool state the dots read and write. */
 export interface TraceDotState {
@@ -245,20 +253,43 @@ export function plotOptional<S extends TraceDotState, M, Ui extends ToolUi = Too
 }
 
 /**
- * Plot Palette (tool-level target): pinned iff the plot states a palette;
- * reset returns it to the default palette, recolouring by slot every curve
- * still at a colour of the old palette.
+ * Dot for a plot field a site can set (src/site `trace.plot`): pinned iff the
+ * plot's value (`value`, its automatic reading included) differs from the
+ * site's; reset writes the site's value back in the field's stored form
+ * (`store`). With the built-ins it is the field's optional-path dot.
+ */
+export function plotSiteDot<
+  S extends TraceDotState,
+  M,
+  Ui extends ToolUi = ToolUi,
+  V = unknown,
+>(spec: { value(plot: Plot): V; site(): V; store(value: V): Partial<Plot> }): Dot<S, M, Ui> {
+  return siteValue<S, M, Ui, V | undefined>({
+    get: (ctx) => {
+      const plot = plotForTarget(ctx.state, ctx.target);
+      return plot === undefined ? spec.site() : spec.value(plot);
+    },
+    site: () => spec.site(),
+    set: (state, target, value) => patchPlot(state, target, spec.store(value as V)),
+  });
+}
+
+/**
+ * Plot Palette (tool-level target): pinned iff the plot's palette is not the
+ * site's (built in: the default palette); reset returns it to the site's,
+ * recolouring by slot every curve still at a colour of the old palette.
  */
 export function plotPaletteDot<S extends TraceDotState, M, Ui extends ToolUi = ToolUi>(): Dot<
   S,
   M,
   Ui
 > {
-  return optionalPath<S, M, Ui>({
-    get: (ctx) => plotForTarget(ctx.state, ctx.target)?.palette,
-    set: (state, target) => {
+  return siteValue<S, M, Ui, string | undefined>({
+    get: (ctx) => storedPaletteId(plotForTarget(ctx.state, ctx.target)?.palette),
+    site: () => storedPaletteId(siteDefaults().trace.plot.palette),
+    set: (state, target, palette) => {
       const plot = plotForTarget(state, target);
-      return plot ? withPlot(state, plot.id, (p) => withPalette(p, undefined)) : state;
+      return plot ? withPlot(state, plot.id, (p) => withPalette(p, palette)) : state;
     },
   });
 }

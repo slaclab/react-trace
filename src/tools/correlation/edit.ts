@@ -39,11 +39,10 @@ import {
   type CorrelationMarker,
   type CorrelationState,
 } from './query';
-import { CORRELATION_METRICS } from './metrics';
 import { siteTimer } from './defaults';
+import { siteDefaults } from '../../site/store';
 import {
   MAX_METRICS,
-  defaultMetrics,
   isCustomId,
   metricsFullMessage,
   nextCustomId,
@@ -318,9 +317,12 @@ export function moveMetric(
   });
 }
 
-/** Back to the default metric list (every preset, the first five on, no strips). */
+/** Back to the site's metric list (built in: every preset, the first five on, no strips). */
 export function resetMetrics(state: CorrelationState): CorrelationState {
-  return apply(state, (s) => ({ ...s, metrics: defaultMetrics(CORRELATION_METRICS) }));
+  return apply(state, (s) => ({
+    ...s,
+    metrics: siteDefaults().correlation.metrics.map((m) => ({ ...m })),
+  }));
 }
 
 /** The fields of a drawing a patch may change (its id stays). */

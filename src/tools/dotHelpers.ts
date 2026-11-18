@@ -8,6 +8,9 @@
 //   present; reset writes `undefined`.
 // - `recordKey`: the field lives in a per-PV record. Pinned iff the record has
 //   an entry for this key; reset deletes the entry.
+// - `siteValue`: a value a site sets (src/site). Pinned iff the value
+//   differs from the site's; reset writes the site's value back. With the
+//   built-in site defaults it marks and resets as `optionalPath` does.
 // - `stampedValue`: the tool stamps an automatic value (a palette colour, an
 //   axis slot) into the object. Pinned iff the stored value is not one the
 //   tool's automatic rule produces for this object; reset writes the automatic
@@ -39,6 +42,26 @@ export function optionalPath<State, Model, Ui extends ToolUi = ToolUi>(spec: {
     reset: (ctx) => {
       const target = ctx.target;
       ctx.update((state) => spec.set(state, target, undefined));
+    },
+  };
+}
+
+/**
+ * Pinned iff `get` (the field's value, its automatic reading included)
+ * differs from `site()`; reset writes the site's value through `set`, which
+ * stores it in the field's own form.
+ */
+export function siteValue<State, Model, Ui extends ToolUi = ToolUi, V = unknown>(spec: {
+  get(ctx: ToolContext<State, Model, Ui>): V;
+  site(): V;
+  set(state: State, target: Target, value: V): State;
+}): Dot<State, Model, Ui> {
+  return {
+    modified: (ctx) => spec.get(ctx) !== spec.site(),
+    reset: (ctx) => {
+      const target = ctx.target;
+      const value = spec.site();
+      ctx.update((state) => spec.set(state, target, value));
     },
   };
 }

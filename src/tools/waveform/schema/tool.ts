@@ -3,6 +3,7 @@
 
 import { DRAG_MODE_LABEL, DRAG_MODES, isDragMode } from '../../../plot/plotToggles';
 import { statisticsFields } from '../../../statistics/fields';
+import { siteDefaults } from '../../../site/store';
 import { WAVEFORM_METRICS } from '../metrics';
 import { apply } from '../edit';
 import { toolCodeFragment } from '../plotOption';
@@ -90,6 +91,7 @@ export function toolSchema<M extends WaveformSchemaModel, U extends WaveformUi>(
     setMetrics: (ctx, metrics) =>
       ctx.update((state) => apply(state, (s) => ({ ...s, metrics: [...metrics] }))),
     rowCount: (ctx) => ctx.state.pvs.length,
+    defaultMetrics: () => siteDefaults().waveform.metrics,
   });
 
   const code: FieldDef<S, M, U>[] = [
