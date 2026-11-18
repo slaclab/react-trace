@@ -18,3 +18,14 @@
     IBM-Plex-Serif: false,
   )
 );
+@use '@carbon/styles/scss/fonts/sans';
+
+// Carbon's Plex Sans faces leave out the Greek subset, but Trace's own chrome
+// prints Greek (the measure readout's Δt, Δy and σ, the Statistics σ guides),
+// so add it for the same weights and styles through Carbon's mixins. Plex
+// Mono ships no Greek letters at all (π is already in its Pi subset), so
+// Greek in mono text falls back to the system font whatever is declared.
+// (A single name is a one-element list in Sass.)
+@include sans.light($unicode-ranges: Greek);
+@include sans.regular($unicode-ranges: Greek);
+@include sans.semibold($unicode-ranges: Greek);
