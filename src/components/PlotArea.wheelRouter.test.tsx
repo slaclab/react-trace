@@ -159,13 +159,8 @@ describe('grid-interior wheel', () => {
     expect(timeAt(w, x)).toBeCloseTo(tCursor, -1);
     expect(w.from).toBeLessThan(tCursor);
     expect(w.to).toBeGreaterThan(tCursor);
-    // Both axes zoom: the Y axis about the value under the cursor, at once.
-    const anchor = ((340 - 200) / 300) * 100;
-    expect(onUpdateAxis).toHaveBeenCalledWith('ax1', {
-      autoScale: false,
-      min: expect.closeTo(anchor - anchor * f, 6),
-      max: expect.closeTo(anchor + (100 - anchor) * f, 6),
-    });
+    // Time only (C2): the auto-scaled Y axis is left alone.
+    expect(onUpdateAxis).not.toHaveBeenCalled();
     unmount();
   });
 
@@ -246,23 +241,23 @@ describe('grid-interior wheel', () => {
     unmount();
   });
 
-  it('alt+wheel zooms the primary Y axis only and leaves the window alone', () => {
+  it('alt+wheel zooms the window and every Y axis about the cursor (C2)', () => {
     const { wrap, onUpdateAxis, onViewWindowChange, unmount } = mountPlot(
       makePlot([axis('ax1', 'left'), axis('ax2', 'right')])
     );
-    // y=190 -> value 50 on the fake axis; the auto-scaled axis freezes first.
+    // y=190 -> value 50 on the fake axes; each auto-scaled axis freezes with its zoom.
     const ev = wheel(wrap, { clientX: 400, clientY: 190, deltaY: -100, altKey: true });
     expect(ev.defaultPrevented).toBe(true);
     flushFrames();
-    expect(onViewWindowChange).not.toHaveBeenCalled();
-    expect(onUpdateAxis).toHaveBeenCalled();
-    for (const call of onUpdateAxis.mock.calls) expect(call[0]).toBe('ax1');
-    expect(onUpdateAxis).toHaveBeenNthCalledWith(1, 'ax1', { autoScale: false, min: 0, max: 100 });
+    expect(onViewWindowChange).toHaveBeenCalledTimes(1);
     const f = wheelFactor(-100);
-    expect(onUpdateAxis).toHaveBeenLastCalledWith('ax1', {
-      min: expect.closeTo(50 - 50 * f, 6),
-      max: expect.closeTo(50 + 50 * f, 6),
-    });
+    for (const id of ['ax1', 'ax2']) {
+      expect(onUpdateAxis).toHaveBeenCalledWith(id, {
+        autoScale: false,
+        min: expect.closeTo(50 - 50 * f, 6),
+        max: expect.closeTo(50 + 50 * f, 6),
+      });
+    }
     unmount();
   });
 });

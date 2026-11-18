@@ -140,7 +140,8 @@ describe('Trace plot with site gesture choices', () => {
     expect(onUpdateAxis).not.toHaveBeenCalled();
   });
 
-  it('wheel xy (built in): zooms the Y axis too', () => {
+  it('wheel xy: zooms the Y axis too', () => {
+    setSiteConfig({ trace: { plot: { wheel: 'xy' } } });
     const { wrap, onUpdateAxis } = mountPlot();
     wheel(wrap, { clientX: 400, clientY: 200, deltaY: -100 });
     flushFrames();

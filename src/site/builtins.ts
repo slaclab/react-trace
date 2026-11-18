@@ -21,6 +21,12 @@ export function deepFreeze<T>(value: T): T {
 
 const docked: PlotBehaviour = { ...DEFAULT_GESTURE_PREFS, tooltip: 'docked' };
 
+/**
+ * Trace's plot behaviour, as main had it (the maintainers' C1-C7): the wheel
+ * zooms time only (Alt+wheel: time and every Y axis; C2).
+ */
+const tracePlot: PlotBehaviour = { ...docked, wheel: 'x' };
+
 export const BUILTIN_DEFAULTS: SiteDefaults = deepFreeze({
   header: {
     prefix: '',
@@ -30,7 +36,7 @@ export const BUILTIN_DEFAULTS: SiteDefaults = deepFreeze({
   },
   trace: {
     plot: {
-      ...docked,
+      ...tracePlot,
       showCrosshair: false,
       dragMode: 'zoom',
       showLegend: true,

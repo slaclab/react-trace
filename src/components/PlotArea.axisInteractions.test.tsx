@@ -6,7 +6,6 @@
 // instance that echarts-for-react disposes right after mount) and resolve the
 // chart lazily. A Y-band drag stretches the axis about its centre, one write
 // per animation frame.
-import { wheelFactor } from '../plot/geometry';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render } from '@testing-library/react';
 import { fireEvent } from '@testing-library/dom';
@@ -323,19 +322,13 @@ describe('per-axis wheel zoom', () => {
     unmount();
   });
 
-  it('a wheel over the plot area zooms the Y axis too, about the value under the cursor', () => {
+  it('a wheel over the plot area zooms time only and leaves the Y axis on auto-scale (C2)', () => {
     const { wrap, onUpdateAxis, unmount } = mountPlot(makePlot());
+    // This harness gives the time axis no writer, so the wheel has nothing to
+    // zoom and is left to the page.
     const notPrevented = fireEvent.wheel(wrap, { clientX: 400, clientY: 200, deltaY: -100 });
-    expect(notPrevented).toBe(false);
-    // y 200 is the value 140/300 of [0, 100]; the auto axis freezes with this one write.
-    const anchor = (140 / 300) * 100;
-    const f = wheelFactor(-100);
-    expect(onUpdateAxis).toHaveBeenCalledTimes(1);
-    expect(onUpdateAxis).toHaveBeenCalledWith('ax1', {
-      autoScale: false,
-      min: expect.closeTo(anchor - anchor * f, 6),
-      max: expect.closeTo(anchor + (100 - anchor) * f, 6),
-    });
+    expect(notPrevented).toBe(true);
+    expect(onUpdateAxis).not.toHaveBeenCalled();
     unmount();
   });
 

@@ -148,3 +148,31 @@ describe('C1: the left-drag and the time pans', () => {
     expect(onUpdateAxis).not.toHaveBeenCalled();
   });
 });
+
+describe('C2: the wheel over the plot zooms time only', () => {
+  it('zooms the time window and leaves an auto-scaled Y axis alone', () => {
+    const { wrap, onUpdateAxis, onViewWindowChange } = mountPlot();
+    wheel(wrap, { clientX: 400, clientY: 200, deltaY: -100 });
+    flushFrames();
+    const w = onViewWindowChange.mock.calls.at(-1)![0] as TimeWindowNs;
+    expect(nsToMs(w.toNs) - nsToMs(w.fromNs)).toBeLessThan(TO_MS - FROM_MS);
+    expect(onUpdateAxis).not.toHaveBeenCalled();
+  });
+
+  it('Alt+wheel zooms the Y axes too', () => {
+    const { wrap, onUpdateAxis, onViewWindowChange } = mountPlot();
+    wheel(wrap, { clientX: 400, clientY: 200, deltaY: -100, altKey: true });
+    flushFrames();
+    expect(onViewWindowChange).toHaveBeenCalledTimes(1);
+    expect(onUpdateAxis).toHaveBeenCalledWith('ax1', expect.objectContaining({ autoScale: false }));
+  });
+
+  it('the wheel over a Y axis still zooms that axis alone', () => {
+    const { wrap, onUpdateAxis, onViewWindowChange } = mountPlot();
+    wheel(wrap, { clientX: 40, clientY: 200, deltaY: -100 });
+    flushFrames();
+    expect(onUpdateAxis).toHaveBeenCalled();
+    for (const call of onUpdateAxis.mock.calls) expect(call[0]).toBe('ax1');
+    expect(onViewWindowChange).not.toHaveBeenCalled();
+  });
+});

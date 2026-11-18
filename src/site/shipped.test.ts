@@ -34,3 +34,11 @@ describe('C1: a left-drag in a new Trace plot draws a zoom box; time pans other 
     expect(key('ArrowRight')).toEqual({ kind: 'pan', dir: 1 });
   });
 });
+
+describe('C2: Trace’s wheel zooms time only; the other tools keep both', () => {
+  it('ships wheel x for Trace and xy for Correlation and Waveform', () => {
+    expect(BUILTIN_DEFAULTS.trace.plot.wheel).toBe('x');
+    expect(BUILTIN_DEFAULTS.correlation.plot.wheel).toBe('xy');
+    expect(BUILTIN_DEFAULTS.waveform.plot.wheel).toBe('xy');
+  });
+});
