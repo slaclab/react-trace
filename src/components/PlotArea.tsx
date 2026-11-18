@@ -145,7 +145,6 @@ function getAxisExtent(
 const TAB_STRIP_STYLE: CSSProperties = {
   flex: '1 1 auto',
   minWidth: 0,
-  alignSelf: 'stretch',
   overflowX: 'auto',
   overflowY: 'hidden',
   scrollbarWidth: 'thin',
