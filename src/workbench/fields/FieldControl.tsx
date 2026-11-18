@@ -9,7 +9,14 @@
 // reason disables the control (the chrome shows the reason). Each control
 // carries its own accessible name, so the chrome's label is visual only.
 
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { Button, Select, SelectItem, TextInput, Toggle } from '@carbon/react';
 import { Copy, View, ViewOff } from '@carbon/icons-react';
 import type { FieldDef, FieldOption, ToolContext, ToolUi } from '../types';
@@ -309,6 +316,34 @@ function Segmented({
   testId?: string;
   onChange(value: string): void;
 }) {
+  // Radio-group keyboard: one tab stop (the checked option, else the first
+  // enabled one); the arrows move to the next enabled option, wrapping, and
+  // select it.
+  const enabled = (option: FieldOption) => !disabled && option.disabled === undefined;
+  const checkedIndex = options.findIndex((option) => option.value === value && enabled(option));
+  const stopIndex = checkedIndex !== -1 ? checkedIndex : options.findIndex(enabled);
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const step =
+      e.key === 'ArrowRight' || e.key === 'ArrowDown'
+        ? 1
+        : e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+          ? -1
+          : 0;
+    if (step === 0) return;
+    const buttons = Array.from(
+      e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+    );
+    const from = buttons.indexOf(e.target as HTMLButtonElement);
+    if (from === -1) return;
+    e.preventDefault();
+    for (let n = 1; n < options.length; n++) {
+      const next = (from + step * n + options.length) % options.length;
+      if (!enabled(options[next])) continue;
+      buttons[next]?.focus();
+      if (options[next].value !== value) onChange(options[next].value);
+      return;
+    }
+  };
   return (
     <div
       id={id}
@@ -317,8 +352,9 @@ function Segmented({
       aria-describedby={describedBy}
       className="wb-segmented"
       data-testid={testId}
+      onKeyDown={onKeyDown}
     >
-      {options.map((option) => {
+      {options.map((option, index) => {
         const checked = option.value === value;
         return (
           <button
@@ -326,6 +362,7 @@ function Segmented({
             type="button"
             role="radio"
             aria-checked={checked}
+            tabIndex={index === stopIndex ? 0 : -1}
             className={`wb-segmented__option${checked ? ' wb-segmented__option--checked' : ''}`}
             disabled={disabled || option.disabled !== undefined}
             title={option.disabled}

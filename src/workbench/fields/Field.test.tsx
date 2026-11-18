@@ -486,3 +486,67 @@ describe('the note is tied to the control', () => {
     expect(container.querySelector('#stub-label')!.hasAttribute('aria-describedby')).toBe(false);
   });
 });
+
+describe('segmented keyboard', () => {
+  /** Four options on the item's tags, the third disabled. */
+  const stepsField = {
+    id: 'stub-steps',
+    label: 'Steps',
+    kind: 'segmented',
+    tab: 'general',
+    level: 'L1',
+    options: () => [
+      { value: 'one', label: 'One' },
+      { value: 'two', label: 'Two' },
+      { value: 'three', label: 'Three', disabled: 'Not here' },
+      { value: 'four', label: 'Four' },
+    ],
+    get: (ctx) => ctx.state.items.find((i) => i.id === ctx.target.id)!.tags || 'one',
+    set: (ctx, value) =>
+      ctx.update((s) => ({
+        ...s,
+        items: s.items.map((i) => (i.id === ctx.target.id ? { ...i, tags: value } : i)),
+      })),
+  } as StubField;
+  const radio = (name: string) => screen.getByRole('radio', { name }) as HTMLButtonElement;
+
+  it('is one tab stop: the checked option', () => {
+    mount(stepsField);
+    expect(radio('One').tabIndex).toBe(0);
+    expect(radio('Two').tabIndex).toBe(-1);
+    expect(radio('Four').tabIndex).toBe(-1);
+  });
+
+  it('arrows move, select and skip a disabled option, wrapping at the ends', () => {
+    const { stub } = mount(stepsField);
+    radio('One').focus();
+    fireEvent.keyDown(radio('One'), { key: 'ArrowRight' });
+    expect(itemA(stub).tags).toBe('two');
+    expect(document.activeElement).toBe(radio('Two'));
+    expect(radio('Two').tabIndex).toBe(0);
+    expect(radio('One').tabIndex).toBe(-1);
+
+    fireEvent.keyDown(radio('Two'), { key: 'ArrowDown' });
+    expect(itemA(stub).tags).toBe('four');
+    expect(document.activeElement).toBe(radio('Four'));
+
+    fireEvent.keyDown(radio('Four'), { key: 'ArrowRight' });
+    expect(itemA(stub).tags).toBe('one');
+    expect(document.activeElement).toBe(radio('One'));
+
+    fireEvent.keyDown(radio('One'), { key: 'ArrowLeft' });
+    expect(itemA(stub).tags).toBe('four');
+    fireEvent.keyDown(radio('Four'), { key: 'ArrowUp' });
+    expect(itemA(stub).tags).toBe('two');
+  });
+
+  it('with no option checked, the first enabled one is the tab stop', () => {
+    const field = {
+      ...stepsField,
+      get: () => 'none',
+    } as StubField;
+    mount(field);
+    expect(radio('One').tabIndex).toBe(0);
+    expect(radio('Two').tabIndex).toBe(-1);
+  });
+});
