@@ -7,10 +7,12 @@
 //
 // The native input takes only `#rrggbb`. A value in another form (a theme
 // variable such as a drawing's ink, `var(--cds-text-primary)`) is given to
-// the swatch as is, and to the input as the colour the swatch shows,
-// resolved when the picker opens, so the picker starts at that colour.
+// the swatch as is; the input gets no value (it accepts nothing but
+// `#rrggbb`, and warns on anything else, an empty string included) until the
+// picker opens, when it takes the colour the swatch shows, so the picker
+// starts at that colour.
 
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -51,8 +53,6 @@ export function ColourSwatch({
   const inputRef = useRef<HTMLInputElement>(null);
   const swatchRef = useRef<HTMLButtonElement>(null);
   const isHex = HEX.test(value);
-  // The colour a non-hex value shows, resolved at the last opening.
-  const [shown, setShown] = useState('');
   const openPicker = () => {
     const input = inputRef.current;
     if (!input) return;
@@ -60,10 +60,7 @@ export function ColourSwatch({
     if (!isHex && swatch) {
       const view = swatch.ownerDocument.defaultView;
       const hex = view ? rgbToHex(view.getComputedStyle(swatch).backgroundColor) : null;
-      if (hex !== null) {
-        input.value = hex;
-        setShown(hex);
-      }
+      if (hex !== null) input.value = hex;
     }
     if (typeof input.showPicker === 'function') {
       try {
@@ -79,10 +76,14 @@ export function ColourSwatch({
     <span
       className={`wb-swatch-wrap trace-color-swatch-wrap${small ? ' wb-swatch-wrap--small' : ''}`}
     >
+      {/* A hex value is controlled; any other leaves the input uncontrolled
+          (no value at all, which it accepts), set only when the picker opens.
+          The key remounts the input when the value changes form. */}
       <input
+        key={isHex ? 'hex' : 'resolved'}
         ref={inputRef}
         type="color"
-        value={isHex ? value : shown}
+        value={isHex ? value : undefined}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
         tabIndex={-1}

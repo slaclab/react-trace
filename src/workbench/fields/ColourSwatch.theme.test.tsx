@@ -32,6 +32,8 @@ describe('ColourSwatch with a theme colour', () => {
     });
     const { input, swatch } = mount('var(--cds-text-primary)');
     expect(swatch.style.backgroundColor).toBe('var(--cds-text-primary)');
+    // No value until it opens: the browser warns on any value but #rrggbb.
+    expect(input.hasAttribute('value')).toBe(false);
     fireEvent.click(swatch);
     expect(input.value).toBe('#f4f4f4');
   });
