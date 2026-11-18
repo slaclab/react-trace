@@ -306,7 +306,8 @@ export function deriveWaveformModel(input: WaveformModelInput): WaveformModel {
     } else if (length === null) {
       status = summary !== undefined && !summary.connected ? 'error' : 'pending';
       chip = summary !== undefined && !summary.connected ? 'disconnected' : null;
-      const gate = metaGate(ref.pv);
+      // A hidden reference has no listener: its window says nothing about it.
+      const gate = hidden ? null : metaGate(ref.pv);
       if (gate === 'waiting') chip = META_WAITING;
       else if (gate === 'missing') {
         status = 'error';

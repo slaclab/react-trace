@@ -631,7 +631,7 @@ describe('metadata gate: each PV has its own window', () => {
     expect(row(h, MISSING)).toMatchObject({ status: 'error', chip: META_MISSING, drawable: false });
   });
 
-  it('adding a PV gives it its own window and leaves the others decided', () => {
+  it('adding a PV gives it its own window; once it passes the others draw again', () => {
     const h = harness();
     h.ctl.setState(state({ pvs: [GOOD] }));
     initial(h, [GOOD]);
@@ -646,6 +646,41 @@ describe('metadata gate: each PV has its own window', () => {
     h.ctl.setState(state({ pvs: [GOOD, MISSING], persist: 2 }));
     expect(liveTimers(h)).toHaveLength(0);
     expect(row(h, GOOD).drawable).toBe(true);
+  });
+
+  it('a hidden PV settles the axis at its timeout without an error; shown, it gets a new window', () => {
+    const h = harness();
+    h.ctl.setState(state({ pvs: [GOOD, MISSING], hidden: { [MISSING]: true } }));
+    initial(h, [GOOD]);
+    expect(row(h, GOOD).drawable).toBe(false);
+    fire(liveTimers(h)[0]);
+    expect(row(h, GOOD).drawable).toBe(true);
+    expect(row(h, MISSING)).toMatchObject({ hidden: true, chip: null });
+    expect(row(h, MISSING).status).not.toBe('error');
+
+    // Shown: it is listened to now, so it gets its own window before any verdict.
+    h.ctl.setState(state({ pvs: [GOOD, MISSING] }));
+    expect(row(h, MISSING)).toMatchObject({ status: 'pending', chip: META_WAITING });
+    expect(liveTimers(h)).toHaveLength(1);
+    fire(liveTimers(h)[0]);
+    expect(row(h, MISSING)).toMatchObject({ status: 'error', chip: META_MISSING });
+    expect(row(h, GOOD).drawable).toBe(true);
+  });
+
+  it('a hidden PV reference whose window passed is not reported as missing', () => {
+    const h = harness();
+    h.ctl.setState(
+      state({
+        pvs: [GOOD],
+        reference: { kind: 'pv', pv: MISSING },
+        hidden: { [MISSING]: true },
+      })
+    );
+    initial(h, [GOOD]);
+    fire(liveTimers(h)[0]);
+    expect(row(h, GOOD).drawable).toBe(true);
+    expect(h.ctl.getModel().reference).toMatchObject({ hidden: true, chip: null });
+    expect(h.ctl.getModel().reference!.status).not.toBe('error');
   });
 
   it('a PV that reports disconnected without metadata stops holding the others at once', () => {

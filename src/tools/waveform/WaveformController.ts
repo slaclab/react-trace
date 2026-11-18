@@ -33,7 +33,9 @@
 // The axis unit waits only for PVs still inside their window (model.ts), so
 // one PV that never answers holds the others for at most one window. Windows
 // are tracked per PV, not per PV list, so `dispose()` (StrictMode's double
-// mount) clears the timers and the next `setState` re-arms them.
+// mount) clears the timers and the next `setState` re-arms them. A hidden PV
+// has no listener; its window still runs so it cannot hold the axis forever,
+// and when it is listened to again without metadata it gets a new window.
 //
 // Frames are published at full range and pre-Δ (the ring mean when Average >
 // 1): element range, Δ and decimation are applied downstream by the option
@@ -244,7 +246,6 @@ export class WaveformController {
     this.state = state;
     this.disposed = false;
     this.sync();
-    this.syncMetaTimers();
     this.updateModel();
     if (referenceChanged(prev.reference, state.reference)) this.forcePublish();
   }
@@ -384,6 +385,7 @@ export class WaveformController {
     }
     for (const pv of [...this.buffers.keys()]) if (!wanted.has(pv)) this.buffers.delete(pv);
     this.syncRolling();
+    this.syncMetaTimers();
   }
 
   /** Live entries keep a rolling window exactly while the reference is rolling. */
@@ -427,6 +429,9 @@ export class WaveformController {
       everConnected: false,
       numeric: true,
     };
+    // Listened to without metadata: a window that ended unlistened (hidden)
+    // says nothing about it, so `syncMetaTimers` opens a new one.
+    if (this.meta[pv] === undefined) delete this.metaExpired[pv];
     // The SDK calls back synchronously with a cached snapshot, so the entry
     // exists before subscribing.
     this.entries.set(pv, entry);
