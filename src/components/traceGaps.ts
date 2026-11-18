@@ -23,9 +23,10 @@
 //   after its last sample, live data that follows is separated by
 //   `[t_last_archive + 1 ms, null]`.
 // - The dashed now-extension anchors on the last non-null point. A live trace
-//   draws it only while connected with no open break (a resume closes one);
-//   an archive-only trace drops it when its covered window ends more than the
-//   tail threshold after its last sample.
+//   with live samples draws it only while connected with no open break (a
+//   resume closes one); one live has sent nothing for draws it from its
+//   archive's last sample. An archive-only trace drops it when its covered
+//   window ends more than the tail threshold after its last sample.
 // - `traceSamples` is the same merge as plain samples, INVALID ones included
 //   with their severity: the tooltip and the INVALID markers read it.
 
@@ -313,7 +314,8 @@ export function traceSamples(
 /**
  * The point the dashed now-extension starts from, or undefined when none is
  * drawn: the last non-null point, provided no gap or INVALID run follows it, a
- * live trace is connected, and an archive-only trace's tail is not stale. The
+ * live trace with live samples is connected, and an archive-only trace's tail
+ * is not stale. A Live-on trace without a live sample anchors as-is. The
  * chart passes the drawn line (`withLiveResumes`), so a live trace that
  * resumed after its last break anchors on the resume point.
  */
@@ -326,9 +328,12 @@ export function extensionAnchor(
   const last = data.at(-1);
   if (!last || last[1] === null) return undefined; // open break or empty
   if (trace.kind !== 'formula') {
-    if (trace.useLive) {
+    if (trace.useLive && (live?.points.length ?? 0) > 0) {
+      // Live has drawn: its connection decides. A Live-on curve live has
+      // sent nothing for (connecting, archive-only PV, service down at load)
+      // extends its archive line from the last sample, as main does.
       if (!live?.connected) return undefined;
-    } else if (trace.useArchive && archiveTailStale(archive)) {
+    } else if (!trace.useLive && trace.useArchive && archiveTailStale(archive)) {
       return undefined;
     }
   }

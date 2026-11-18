@@ -338,3 +338,33 @@ describe('INVALID samples', () => {
     ]);
   });
 });
+
+describe('extension for a Live-on curve with no live sample yet', () => {
+  // Main draws the dashed extension from the last sample whatever the live
+  // connection: a Live-on curve whose PV has sent nothing (still connecting,
+  // archive-only, or the live service down at load) extends its archive line.
+  const now = T0 + 3_600 * S;
+  const times = grid(now - 600 * S, 10 * S, 60);
+  const last = times.at(-1)!;
+  const a = archive(times, last + 5 * S);
+  const waiting = (status: LiveSeriesResult['status']): LiveSeriesResult => ({
+    ...live([], [], false),
+    status,
+  });
+
+  it('extends the archive line while live is idle, connecting or down', () => {
+    const t = trace({ useLive: true, useArchive: true });
+    for (const l of [undefined, waiting('idle'), waiting('connecting'), waiting('disconnected')]) {
+      const data = traceLineData(t, a, l, undefined);
+      expect(extensionAnchor(t, data, a, l)).toEqual([last, 1]);
+    }
+  });
+
+  it('still draws none once a disconnect has broken the line', () => {
+    const t = trace({ useLive: true, useArchive: true });
+    const l = live([last + 20 * S], [last + 30 * S], false);
+    const data = traceLineData(t, a, l, undefined);
+    expect(data.at(-1)).toEqual([last + 30 * S, null]);
+    expect(extensionAnchor(t, data, a, l)).toBeUndefined();
+  });
+});
