@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from 'react';
 import type { ECharts, EChartsOption } from 'echarts';
 import { ErrorBoundary, useChartFont, useColorMode } from '@slaclab/canopy-shell';
@@ -137,6 +138,27 @@ function getAxisExtent(
   const ext = chartModel(chart)?.getComponent(axisType, idx)?.axis?.scale?.getExtent();
   return ext ? [ext[0], ext[1]] : null;
 }
+
+// The tab bar's squeeze rules (see PlotArea): the strip and the range chips
+// shrink in proportion to their content and scroll sideways; the view and Add
+// plot buttons keep their size.
+const TAB_STRIP_STYLE: CSSProperties = {
+  flex: '1 1 auto',
+  minWidth: 0,
+  alignSelf: 'stretch',
+  overflowX: 'auto',
+  overflowY: 'hidden',
+  scrollbarWidth: 'thin',
+};
+const TAB_CONTROLS_STYLE: CSSProperties = { flexShrink: 1, minWidth: 0 };
+const TAB_RANGE_SITE_STYLE: CSSProperties = {
+  marginRight: 6,
+  flex: '0 1 auto',
+  minWidth: 0,
+  overflowX: 'auto',
+  overflowY: 'hidden',
+  scrollbarWidth: 'thin',
+};
 
 interface PlotAreaProps extends AnnotationChannel {
   plots: Plot[];
@@ -1443,7 +1465,10 @@ export function PlotArea({
     <div className="plot-area">
       {/* Tab bar */}
       <div className="plot-tab-bar">
-        <div className="plot-tab-bar__tabs">
+        {/* At narrow widths the tabs and the range chips share the squeeze:
+            both shrink in proportion and scroll sideways, so no tab is ever
+            cut off. Main's bar had no chips, so its tabs kept the room. */}
+        <div className="plot-tab-bar__tabs" style={TAB_STRIP_STYLE}>
           {viewMode === 'tabs' &&
             plots.map((plot) => (
               <div
@@ -1494,9 +1519,9 @@ export function PlotArea({
           )}
         </div>
 
-        <div className="plot-tab-bar__controls">
+        <div className="plot-tab-bar__controls" style={TAB_CONTROLS_STYLE}>
           {viewMode === 'tabs' && (
-            <div data-range-site="tab" style={{ marginRight: 6 }}>
+            <div data-range-site="tab" style={TAB_RANGE_SITE_STYLE}>
               {rangeControlsFor(activePlot)}
             </div>
           )}
