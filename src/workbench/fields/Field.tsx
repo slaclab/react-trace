@@ -36,7 +36,13 @@ export function Field<S, M, U extends ToolUi = ToolUi>({
   const reason = disabledReason(field, ctx);
   const note = reason !== false ? reason : field.help;
   const control = (
-    <FieldControl field={field} ctx={ctx} placement={placement} idSuffix={idSuffix} />
+    <FieldControl
+      field={field}
+      ctx={ctx}
+      placement={placement}
+      idSuffix={idSuffix}
+      describedBy={note ? noteId : undefined}
+    />
   );
   const noteLine = note ? (
     <div

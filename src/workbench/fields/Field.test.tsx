@@ -432,3 +432,57 @@ describe('action', () => {
     expect(stub.calls.action).toEqual([]);
   });
 });
+
+describe('the note is tied to the control', () => {
+  /** The ids `el` names in `aria-describedby`. */
+  const describedBy = (el: Element) => (el.getAttribute('aria-describedby') ?? '').split(/\s+/);
+  const noteOf = (container: HTMLElement) =>
+    container.querySelector<HTMLElement>('.wb-field__note')!;
+
+  it.each([
+    ['text', labelField, '#stub-label'],
+    ['number', offsetField, '#stub-offset'],
+    ['select', lineWidthField, '#stub-line-width'],
+    ['segmented', modeField, '#stub-mode'],
+    ['toggle', visibleField, '#stub-visible'],
+    ['colour', colourField, '[data-testid="trace-color-swatch"]'],
+  ] as Array<[string, StubField, string]>)(
+    '%s: the disabled reason describes the control',
+    (_kind, field, selector) => {
+      const { container } = mount({ ...field, disabled: () => 'Not while paused' } as StubField);
+      const note = noteOf(container);
+      expect(note.textContent).toBe('Not while paused');
+      expect(note.id).not.toBe('');
+      expect(describedBy(container.querySelector(selector)!)).toContain(note.id);
+    }
+  );
+
+  it('action: the disabled reason describes the button', () => {
+    const stub = createStubTool({ capabilities: { inspect: true } });
+    const field: StubField = { ...inspectField, disabled: () => 'No data yet' };
+    const { container } = mount(field, { stub });
+    expect(describedBy(container.querySelector('#stub-inspect')!)).toContain(noteOf(container).id);
+  });
+
+  it('the help line describes the control', () => {
+    const { container } = mount({ ...labelField, help: 'Shown in the legend' });
+    expect(describedBy(container.querySelector('#stub-label')!)).toContain(noteOf(container).id);
+  });
+
+  it('a custom renderer receives the note id', () => {
+    const field = {
+      ...tagsField,
+      help: 'Comma separated',
+      render: ({ describedBy: note }: { describedBy?: string }) => (
+        <span data-testid="custom-note">{note}</span>
+      ),
+    } as StubField;
+    const { container } = mount(field);
+    expect(screen.getByTestId('custom-note').textContent).toBe(noteOf(container).id);
+  });
+
+  it('no note, no aria-describedby', () => {
+    const { container } = mount(labelField);
+    expect(container.querySelector('#stub-label')!.hasAttribute('aria-describedby')).toBe(false);
+  });
+});

@@ -9,7 +9,7 @@
 // reason disables the control (the chrome shows the reason). Each control
 // carries its own accessible name, so the chrome's label is visual only.
 
-import { useId, useState, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Select, SelectItem, TextInput, Toggle } from '@carbon/react';
 import { Copy, View, ViewOff } from '@carbon/icons-react';
 import type { FieldDef, FieldOption, ToolContext, ToolUi } from '../types';
@@ -24,6 +24,8 @@ export interface FieldControlProps<S, M, U extends ToolUi = ToolUi> {
   placement?: FieldPlacement;
   /** Appended to the `#id` of a repeated block's copy; see `fieldHooks`. */
   idSuffix?: string;
+  /** The id of the chrome's note (disabled reason or help), set as `aria-describedby`. */
+  describedBy?: string;
 }
 
 export function FieldControl<S, M, U extends ToolUi = ToolUi>({
@@ -31,12 +33,22 @@ export function FieldControl<S, M, U extends ToolUi = ToolUi>({
   ctx,
   placement = 'properties',
   idSuffix,
+  describedBy,
 }: FieldControlProps<S, M, U>): ReactNode {
   const { id, testId } = fieldHooks(field, placement, idSuffix);
   const generatedId = useId();
   const controlId = id ?? generatedId;
   const disabled = disabledReason(field, ctx) !== false;
   const small = placement === 'row';
+  // Carbon's Select writes its own `aria-describedby` (its helper text, here
+  // none) over a passed one, so the note is set on the element itself.
+  const selectRef = useRef<HTMLSelectElement>(null);
+  useLayoutEffect(() => {
+    const select = selectRef.current;
+    if (!select) return;
+    if (describedBy) select.setAttribute('aria-describedby', describedBy);
+    else select.removeAttribute('aria-describedby');
+  }, [describedBy]);
 
   switch (field.kind) {
     case 'text':
@@ -49,6 +61,7 @@ export function FieldControl<S, M, U extends ToolUi = ToolUi>({
           placeholder={field.placeholder}
           value={field.get(ctx)}
           disabled={disabled}
+          aria-describedby={describedBy}
           data-testid={testId}
           onChange={(e) => field.set(ctx, e.target.value)}
         />
@@ -63,6 +76,7 @@ export function FieldControl<S, M, U extends ToolUi = ToolUi>({
           max={field.max}
           unit={field.unit}
           disabled={disabled}
+          describedBy={describedBy}
           testId={testId}
           onChange={(value) => field.set(ctx, value)}
         />
@@ -70,6 +84,7 @@ export function FieldControl<S, M, U extends ToolUi = ToolUi>({
     case 'select':
       return (
         <Select
+          ref={selectRef}
           id={controlId}
           labelText={field.label}
           hideLabel
@@ -98,6 +113,7 @@ export function FieldControl<S, M, U extends ToolUi = ToolUi>({
           value={field.get(ctx)}
           options={field.options(ctx)}
           disabled={disabled}
+          describedBy={describedBy}
           testId={testId}
           onChange={(value) => field.set(ctx, value)}
         />
@@ -131,6 +147,7 @@ export function FieldControl<S, M, U extends ToolUi = ToolUi>({
           size={small ? 'sm' : 'md'}
           toggled={on}
           disabled={disabled}
+          aria-describedby={describedBy}
           data-testid={testId}
           onToggle={(checked: boolean) => field.set(ctx, checked)}
         />
@@ -142,6 +159,7 @@ export function FieldControl<S, M, U extends ToolUi = ToolUi>({
           value={field.get(ctx)}
           label={field.label}
           disabled={disabled}
+          describedBy={describedBy}
           testId={testId}
           small={small}
           onChange={(colour) => field.set(ctx, colour)}
@@ -166,6 +184,7 @@ export function FieldControl<S, M, U extends ToolUi = ToolUi>({
           className="wb-field__readonly"
           data-testid={testId}
           aria-label={field.label}
+          aria-describedby={describedBy}
         >
           {field.get(ctx)}
         </output>
@@ -180,6 +199,7 @@ export function FieldControl<S, M, U extends ToolUi = ToolUi>({
             value: field.get(ctx),
             onChange: (value: unknown) => field.set(ctx, value),
             id,
+            describedBy,
           })}
         </span>
       );
@@ -190,6 +210,7 @@ export function FieldControl<S, M, U extends ToolUi = ToolUi>({
           kind="tertiary"
           size="sm"
           disabled={disabled}
+          aria-describedby={describedBy}
           data-testid={testId}
           onClick={() => field.run(ctx)}
         >
@@ -216,6 +237,7 @@ function NumberControl({
   max,
   unit,
   disabled,
+  describedBy,
   testId,
   onChange,
 }: {
@@ -226,6 +248,7 @@ function NumberControl({
   max?: number;
   unit?: string;
   disabled: boolean;
+  describedBy?: string;
   testId?: string;
   onChange(value: number | null): void;
 }) {
@@ -252,6 +275,7 @@ function NumberControl({
         invalid={invalid}
         invalidText={rangeText(min, max)}
         disabled={disabled}
+        aria-describedby={describedBy}
         data-testid={testId}
         onChange={(e) => {
           setText(e.target.value);
@@ -272,6 +296,7 @@ function Segmented({
   value,
   options,
   disabled,
+  describedBy,
   testId,
   onChange,
 }: {
@@ -280,11 +305,19 @@ function Segmented({
   value: string;
   options: FieldOption[];
   disabled: boolean;
+  describedBy?: string;
   testId?: string;
   onChange(value: string): void;
 }) {
   return (
-    <div id={id} role="radiogroup" aria-label={label} className="wb-segmented" data-testid={testId}>
+    <div
+      id={id}
+      role="radiogroup"
+      aria-label={label}
+      aria-describedby={describedBy}
+      className="wb-segmented"
+      data-testid={testId}
+    >
       {options.map((option) => {
         const checked = option.value === value;
         return (

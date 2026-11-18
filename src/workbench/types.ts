@@ -246,6 +246,11 @@ export interface CustomFieldRenderProps<S, M, U extends ToolUi, V> {
   onChange(value: V): void;
   /** The control's `#id`, on the Properties rendering only. */
   id?: string;
+  /**
+   * The id of the field's note (its disabled reason or help line), when one
+   * is shown: set it as the control's `aria-describedby`.
+   */
+  describedBy?: string;
 }
 
 /** A tool-supplied renderer (Trace's formula editor, archiver picker, time range…). */

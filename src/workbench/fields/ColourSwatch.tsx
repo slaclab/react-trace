@@ -13,6 +13,8 @@ export interface ColourSwatchProps {
   label: string;
   onChange(colour: string): void;
   disabled?: boolean;
+  /** The id of the field's note (disabled reason or help). */
+  describedBy?: string;
   /** The Properties hook (`trace-color-swatch`) or a header field's testid. */
   testId?: string;
   /** The small Outline row form. */
@@ -24,6 +26,7 @@ export function ColourSwatch({
   label,
   onChange,
   disabled,
+  describedBy,
   testId,
   small,
 }: ColourSwatchProps) {
@@ -70,6 +73,7 @@ export function ColourSwatch({
         className="wb-swatch trace-color-swatch"
         data-testid={testId}
         aria-label={label}
+        aria-describedby={describedBy}
         title={label}
         disabled={disabled}
         style={{ backgroundColor: value }}
