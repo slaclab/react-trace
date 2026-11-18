@@ -719,3 +719,43 @@ describe('parent re-render', () => {
     expect(vi.mocked(FieldControl).mock.calls.length).toBe(before);
   });
 });
+
+describe('focus after remove', () => {
+  const removeButton = (id: string, label: string) =>
+    within(rowEl(id)).getByRole('button', { name: `Remove ${label}` });
+
+  it('goes to the next card head', () => {
+    mount();
+    const remove = removeButton('a', 'STUB:A');
+    remove.focus();
+    fireEvent.click(remove);
+    expect(rowEl('a')).toBeNull();
+    expect(document.activeElement).toBe(rowEl('b'));
+  });
+
+  it('goes to the previous card head when the last card goes', () => {
+    mount();
+    const remove = removeButton('b', 'STUB:B');
+    remove.focus();
+    fireEvent.click(remove);
+    expect(rowEl('b')).toBeNull();
+    expect(document.activeElement).toBe(rowEl('a'));
+  });
+
+  it('stays in the section when its only card goes', () => {
+    mount();
+    const remove = removeButton('c', 'STUB:C');
+    remove.focus();
+    fireEvent.click(remove);
+    expect(rowEl('c')).toBeNull();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(sectionEl('locked').contains(document.activeElement)).toBe(true);
+  });
+
+  it('leaves focus alone when it was not in the card', () => {
+    mount();
+    fireEvent.click(removeButton('a', 'STUB:A'));
+    expect(rowEl('a')).toBeNull();
+    expect(document.activeElement).toBe(document.body);
+  });
+});

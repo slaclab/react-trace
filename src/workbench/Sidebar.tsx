@@ -32,6 +32,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -191,6 +192,21 @@ export function Sidebar({ children, store: givenStore, canvas }: SidebarProps) {
   // A user selection reveals the pane; never written.
   useRevealRequest(() => showRail(false, false));
 
+  // The collapse and expand buttons unmount themselves: the button pressed
+  // hands focus to its counterpart. A reveal request moves no focus.
+  const expandRef = useRef<HTMLButtonElement>(null);
+  const collapseRef = useRef<HTMLButtonElement>(null);
+  const focusAfterToggle = useRef(false);
+  const toggleRail = (next: boolean) => {
+    if (railRef.current !== next) focusAfterToggle.current = true;
+    showRail(next, true);
+  };
+  useLayoutEffect(() => {
+    if (!focusAfterToggle.current) return;
+    focusAfterToggle.current = false;
+    (rail ? expandRef : collapseRef).current?.focus();
+  }, [rail]);
+
   // ----------------------------------------------------------- resizing --
 
   const [resizable] = useState(canResize);
@@ -279,7 +295,8 @@ export function Sidebar({ children, store: givenStore, canvas }: SidebarProps) {
             data-pane="properties"
             aria-label={`Expand ${SIDEBAR_TITLE}`}
             title={`Expand ${SIDEBAR_TITLE}`}
-            onClick={() => showRail(false, true)}
+            ref={expandRef}
+            onClick={() => toggleRail(false)}
           >
             <span className="wb-sidebar__rail-label">{SIDEBAR_TITLE}</span>
           </button>
@@ -300,7 +317,8 @@ export function Sidebar({ children, store: givenStore, canvas }: SidebarProps) {
             className="wb-sidebar__collapse"
             aria-label={`Collapse ${SIDEBAR_TITLE}`}
             title={`Collapse ${SIDEBAR_TITLE}`}
-            onClick={() => showRail(true, true)}
+            ref={collapseRef}
+            onClick={() => toggleRail(true)}
           >
             <SidePanelClose size={16} />
           </button>

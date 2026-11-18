@@ -550,3 +550,16 @@ describe('segmented keyboard', () => {
     expect(radio('Two').tabIndex).toBe(-1);
   });
 });
+
+describe('focus after reset', () => {
+  it('moves focus from the reset button to the control', () => {
+    const { container } = mount(labelField);
+    const input = container.querySelector<HTMLInputElement>('#stub-label')!;
+    fireEvent.change(input, { target: { value: 'Beam' } });
+    const reset = resetButton('Display name')!;
+    reset.focus();
+    fireEvent.click(reset);
+    expect(resetButton('Display name')).toBeNull();
+    expect(document.activeElement).toBe(input);
+  });
+});

@@ -733,10 +733,48 @@ export function Outline<S, M, U extends ToolUi = ToolUi>(props: OutlineProps<S, 
     },
     [store]
   );
+  // Remove unmounts the card that holds focus: once it is gone, focus goes
+  // to the next card head, else the previous one, else into its section
+  // (the add row first). Only when focus was in the card and was dropped.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const refocus = useRef<RemovedCard | null>(null);
   const onRemove = useCallback(
-    (itemId: string) => source.definition.binding.ops.remove(itemId),
+    (itemId: string) => {
+      const card = byAttr(rootRef.current, 'data-card-id', itemId);
+      refocus.current =
+        card !== null && card.contains(card.ownerDocument.activeElement)
+          ? {
+              itemId,
+              next: card.nextElementSibling?.getAttribute('data-card-id') ?? null,
+              prev: card.previousElementSibling?.getAttribute('data-card-id') ?? null,
+              sectionId: card.closest('[data-section-id]')?.getAttribute('data-section-id') ?? null,
+            }
+          : null;
+      source.definition.binding.ops.remove(itemId);
+    },
     [source]
   );
+  useLayoutEffect(() => {
+    const pending = refocus.current;
+    const root = rootRef.current;
+    if (pending === null || root === null) return;
+    const card = byAttr(root, 'data-card-id', pending.itemId);
+    const active = root.ownerDocument.activeElement;
+    if (card !== null) {
+      // Not gone yet: wait while focus is still in it.
+      if (!card.contains(active)) refocus.current = null;
+      return;
+    }
+    refocus.current = null;
+    if (active !== null && active !== root.ownerDocument.body) return;
+    const section = byAttr(root, 'data-section-id', pending.sectionId);
+    const target =
+      byAttr(root, 'data-row-id', pending.next) ??
+      byAttr(root, 'data-row-id', pending.prev) ??
+      firstFocusable(section?.querySelector('.wb-outline-add') ?? null) ??
+      firstFocusable(section);
+    target?.focus();
+  });
   const add = useCallback(
     (sectionId: string, pv: string) => source.definition.binding.ops.add(sectionId, pv),
     [source]
@@ -951,7 +989,7 @@ export function Outline<S, M, U extends ToolUi = ToolUi>(props: OutlineProps<S, 
   };
 
   return (
-    <div className="wb-outline" aria-label="Signals">
+    <div ref={rootRef} className="wb-outline" aria-label="Signals">
       <DndContext
         sensors={sensors}
         collisionDetection={collision}
@@ -981,6 +1019,35 @@ export function Outline<S, M, U extends ToolUi = ToolUi>(props: OutlineProps<S, 
       <OutlineFooter actions={binding.footer ?? NO_ACTIONS} />
     </div>
   );
+}
+
+/** A removed card's neighbours, for the focus it held. */
+interface RemovedCard {
+  itemId: string;
+  next: string | null;
+  prev: string | null;
+  sectionId: string | null;
+}
+
+/** The element under `root` whose `attr` is `value`; ids are not CSS-escaped. */
+function byAttr(root: Element | null, attr: string, value: string | null): HTMLElement | null {
+  if (root === null || value === null) return null;
+  for (const el of root.querySelectorAll<HTMLElement>(`[${attr}]`)) {
+    if (el.getAttribute(attr) === value) return el;
+  }
+  return null;
+}
+
+const FOCUSABLE =
+  'input:not([type="hidden"]), select, textarea, button, [tabindex]:not([tabindex="-1"])';
+
+/** The first enabled element in `root` that is in the tab order. */
+function firstFocusable(root: Element | null): HTMLElement | null {
+  if (root === null) return null;
+  for (const el of root.querySelectorAll<HTMLElement>(FOCUSABLE)) {
+    if (el.tabIndex >= 0 && !(el as HTMLButtonElement).disabled) return el;
+  }
+  return null;
 }
 
 const NO_FIELDS: never[] = [];

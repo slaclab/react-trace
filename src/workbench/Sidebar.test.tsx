@@ -150,3 +150,21 @@ describe('reveal request', () => {
     expect(store.writes).toEqual([]);
   });
 });
+
+describe('focus across the rail', () => {
+  it('collapse focuses the rail button; expand focuses the collapse button', () => {
+    renderSidebar(fakeStore());
+    collapseButton().focus();
+    fireEvent.click(collapseButton());
+    expect(document.activeElement).toBe(expandTarget());
+    fireEvent.click(expandTarget());
+    expect(document.activeElement).toBe(collapseButton());
+  });
+
+  it('a reveal request does not take focus', () => {
+    const { selection } = renderSidebar(fakeStore({ collapsed: true }));
+    act(() => selection.select({ level: 'section', kind: 's', id: 'a' }, 'user'));
+    expect(screen.queryByRole('button', { name: `Expand ${SIDEBAR_TITLE}` })).toBeNull();
+    expect(document.activeElement).toBe(document.body);
+  });
+});
