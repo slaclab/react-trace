@@ -1,14 +1,16 @@
 // Trace's heading at the head of the actions row (WorkbenchLayout's
-// `heading`). Standalone: the product name, then the active plot's
-// "N Live • N Archive" counter. Embedded: the counter alone, since the host's
-// tile bar already names the tool.
+// `heading`). Standalone: the product name, after the site's prefix and in
+// the shell's brand colour when the site says so (src/site `header`), then
+// the active plot's "N Live • N Archive" counter. Embedded: the counter
+// alone, since the host's tile bar already names the tool.
 
+import { siteDefaults } from '../../site/store';
 import type { WorkbenchHeading } from '../../workbench/WorkbenchLayout';
 
 /**
  * The name Trace shows: canopy-shell AppHeader's `prefix` and `productName`.
- * The prefix belongs to the site (a deployment's site config is to set it);
- * built in it is empty, so the heading reads "Trace".
+ * The prefix belongs to the site (its `header.prefix`, src/site); built in
+ * it is this empty one, so the heading reads "Trace".
  */
 export const TRACE_HEADER: { readonly prefix: string; readonly productName: string } = {
   prefix: '',
@@ -29,13 +31,16 @@ export function liveArchiveCounter(
   return `${live} Live • ${archive} Archive`;
 }
 
-/** The heading for the active plot: the name standalone, the counter always. Pure. */
+/**
+ * The heading for the active plot: the name standalone, the counter always.
+ * Pure but for the site's `header` (fixed for the page load).
+ */
 export function traceHeading(
   plot: Parameters<typeof liveArchiveCounter>[0],
   embedded: boolean
 ): WorkbenchHeading {
   const status = liveArchiveCounter(plot);
-  return embedded
-    ? { status }
-    : { prefix: TRACE_HEADER.prefix, name: TRACE_HEADER.productName, status };
+  if (embedded) return { status };
+  const { prefix, brand } = siteDefaults().header;
+  return { prefix, name: TRACE_HEADER.productName, status, ...(brand ? { brand: true } : {}) };
 }

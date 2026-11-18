@@ -61,6 +61,10 @@
   line-height: 1.33;
 }
 
+.wb-workbench__name--brand {
+  color: var(--canopy-brand);
+}
+
 .wb-workbench__prefix {
   margin-inline-end: 0.25rem;
   font-weight: 400;

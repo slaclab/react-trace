@@ -144,18 +144,22 @@ export interface WorkbenchHeading {
   prefix?: string;
   name?: string;
   status?: ReactNode;
+  /** The prefix and name in the shell's brand colour, as AppHeader's `brandColor`. */
+  brand?: boolean;
 }
 
 /** The actions row's heading; null when it has nothing to show. */
 function headingOf(heading: WorkbenchHeading | undefined): ReactNode {
   if (!heading) return null;
-  const { prefix, name, status } = heading;
+  const { prefix, name, status, brand } = heading;
   const hasStatus = status !== undefined && status !== null && status !== '';
   if (!name && !hasStatus) return null;
   return (
     <div className="wb-workbench__heading">
       {name ? (
-        <span className="wb-workbench__name">
+        <span
+          className={brand ? 'wb-workbench__name wb-workbench__name--brand' : 'wb-workbench__name'}
+        >
           {prefix ? <span className="wb-workbench__prefix">{prefix}</span> : null}
           {name}
         </span>
