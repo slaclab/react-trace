@@ -328,10 +328,13 @@ describe('Waveform schema — plot-wide sections', () => {
     const store = mount(makeState());
     const input = byId('persistence')!;
     fireEvent.change(input, { target: { value: '8' } });
+    fireEvent.blur(input);
     expect(store.getState().persist).toBe(8);
     fireEvent.change(input, { target: { value: '17' } });
+    fireEvent.blur(input);
     expect(store.getState().persist).toBe(8);
     fireEvent.change(input, { target: { value: '0' } });
+    fireEvent.blur(input);
     expect(store.getState().persist).toBe(8);
     expect(screen.getByText(/Bars curves show only the latest frame/)).toBeTruthy();
     expect(dot('Persistence')).toBeNull();
@@ -340,8 +343,10 @@ describe('Waveform schema — plot-wide sections', () => {
   it('writes Average within 1–64', () => {
     const store = mount(makeState());
     fireEvent.change(byId('average')!, { target: { value: '64' } });
+    fireEvent.blur(byId('average')!);
     expect(store.getState().avg).toBe(64);
     fireEvent.change(byId('average')!, { target: { value: '65' } });
+    fireEvent.blur(byId('average')!);
     expect(store.getState().avg).toBe(64);
   });
 
@@ -405,12 +410,16 @@ describe('Waveform schema — plot-wide sections', () => {
     const store = mount(makeState());
     openMore();
     fireEvent.change(byId('decimation')!, { target: { value: '1000' } });
+    fireEvent.blur(byId('decimation')!);
     expect(store.getState().dec).toBe(1000);
     fireEvent.change(byId('decimation')!, { target: { value: '0' } });
+    fireEvent.blur(byId('decimation')!);
     expect(store.getState().dec).toBe(0);
     fireEvent.change(byId('update-rate')!, { target: { value: '2' } });
+    fireEvent.blur(byId('update-rate')!);
     expect(store.getState().hz).toBe(2);
     fireEvent.change(byId('update-rate')!, { target: { value: '11' } });
+    fireEvent.blur(byId('update-rate')!);
     expect(store.getState().hz).toBe(2);
   });
 
@@ -426,12 +435,14 @@ describe('Waveform schema — plot-wide sections', () => {
     fireEvent.click(byId('axis-autoscale')!);
     expect(store.getState().yScale).toEqual({ auto: false });
     fireEvent.change(byId('axis-min')!, { target: { value: '-2' } });
+    fireEvent.blur(byId('axis-min')!);
     expect(store.getState().yScale?.min).toBe(-2);
     expect(dot('Min')).not.toBeNull();
     reset('Min');
     expect(store.getState().yScale?.min).toBeUndefined();
 
     fireEvent.change(byId('axis-max')!, { target: { value: '7' } });
+    fireEvent.blur(byId('axis-max')!);
     fireEvent.click(byId('axis-autoscale')!);
     expect(store.getState().yScale).toEqual({ max: 7 });
     expect(byId('axis-max')).toBeNull();
@@ -460,6 +471,7 @@ describe('Waveform schema — plot-wide sections', () => {
     fireEvent.click(byId('x-axis-autoscale')!);
     expect(store.getState().xScale).toEqual({ auto: false });
     fireEvent.change(byId('x-axis-max')!, { target: { value: '40' } });
+    fireEvent.blur(byId('x-axis-max')!);
     expect(store.getState().xScale).toEqual({ auto: false, max: 40 });
     expect(dot('Max')).not.toBeNull();
   });
@@ -721,6 +733,7 @@ describe('Waveform schema — Live cards', () => {
 
     fireEvent.change(type, { target: { value: 'bars' } });
     fireEvent.change(width, { target: { value: '3' } });
+    fireEvent.blur(width);
     fireEvent.change(style, { target: { value: 'dashDot' } });
     expect(store.getState().styles[A]).toEqual({
       lineType: 'bars',
@@ -735,8 +748,10 @@ describe('Waveform schema — Live cards', () => {
 
     // Width takes 0.5–20 px; outside it writes nothing.
     fireEvent.change(width, { target: { value: '20' } });
+    fireEvent.blur(width);
     expect(store.getState().styles[A]?.width).toBe(20);
     fireEvent.change(width, { target: { value: '50' } });
+    fireEvent.blur(width);
     expect(store.getState().styles[A]?.width).toBe(20);
   });
 });
@@ -753,6 +768,7 @@ describe('Waveform schema — Reference and X axis PV cards', () => {
     expect((byId('label') as HTMLInputElement).value).toBe(R);
 
     fireEvent.change(byId('line-width')!, { target: { value: '2' } });
+    fireEvent.blur(byId('line-width')!);
     expect(store.getState().styles[R]).toEqual({ width: 2 });
     expect(dot('Width')).not.toBeNull();
     const card = document.querySelector(`[data-card-id="${waveformItemId('reference', R)}"]`)!;

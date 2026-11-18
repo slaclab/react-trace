@@ -174,7 +174,11 @@ export type TextField<S, M, U extends ToolUi = ToolUi> = ValueField<S, M, U, 'te
   row?: never;
 };
 
-/** `null` is an empty input (the tool decides whether that means automatic). */
+/**
+ * `null` is an empty input (the tool decides whether that means automatic).
+ * The control writes on blur or Enter (and per arrow-key step), never per
+ * keystroke; Escape reverts an uncommitted draft.
+ */
 export type NumberField<S, M, U extends ToolUi = ToolUi> = ValueField<
   S,
   M,

@@ -441,6 +441,7 @@ describe('formula-curve schema — Style (shared)', () => {
   it('Width edits reach the curve and its series; Width has no dot', () => {
     const store = mount();
     fireEvent.change(byId('line-width')!, { target: { value: '4' } });
+    fireEvent.blur(byId('line-width')!);
     expect(curveIn(store)?.lineWidth).toBe(4);
     const series = buildPlotOption(fragmentInput(store.getState().plots[0])).series.find(
       (s) => s.id === 'f1'

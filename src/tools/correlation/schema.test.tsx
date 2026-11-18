@@ -321,8 +321,10 @@ describe('Correlation schema — plot sections', () => {
   it('writes Max points within [1, 10000] and ignores an out-of-range value', () => {
     const store = mount(makeState());
     fireEvent.change(byId('max-points')!, { target: { value: '250' } });
+    fireEvent.blur(byId('max-points')!);
     expect(store.getState().n).toBe(250);
     fireEvent.change(byId('max-points')!, { target: { value: '20000' } });
+    fireEvent.blur(byId('max-points')!);
     expect(store.getState().n).toBe(250);
   });
 
@@ -564,6 +566,7 @@ describe('Correlation schema — Axes', () => {
     expect(store.getState().xScale).toEqual({ auto: false });
     expect(byId('axis-min')).toBeNull();
     fireEvent.change(byId('x-axis-min')!, { target: { value: '-2' } });
+    fireEvent.blur(byId('x-axis-min')!);
     expect(store.getState().xScale?.min).toBe(-2);
     expect(dot('Min')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Reset Min' }));
@@ -572,6 +575,7 @@ describe('Correlation schema — Axes', () => {
 
     // Back on keeps Max, so turning it off again restores it.
     fireEvent.change(byId('x-axis-max')!, { target: { value: '7' } });
+    fireEvent.blur(byId('x-axis-max')!);
     fireEvent.click(byId('x-axis-autoscale')!);
     expect(store.getState().xScale).toEqual({ max: 7 });
     expect(byId('x-axis-max')).toBeNull();
@@ -587,6 +591,7 @@ describe('Correlation schema — Axes', () => {
     expect(store.getState().yScale).toBeUndefined();
     fireEvent.click(byId('axis-autoscale')!);
     fireEvent.change(byId('axis-max')!, { target: { value: '10' } });
+    fireEvent.blur(byId('axis-max')!);
     expect(store.getState().yScale).toEqual({ auto: false, max: 10 });
     expect(byId('x-axis-max')).toBeNull();
   });
@@ -614,6 +619,7 @@ describe('Correlation schema — Trigger group', () => {
     expect(source().value).toBe('timer');
     expect((byId('trigger-period') as HTMLInputElement).value).toBe('2');
     fireEvent.change(byId('trigger-period')!, { target: { value: '0.5' } });
+    fireEvent.blur(byId('trigger-period')!);
     expect(store.getState().trigger).toEqual({ mode: 'timer', dtS: 0.5 });
   });
 
@@ -759,6 +765,7 @@ describe('Correlation schema — Y card', () => {
     const store = mount(makeState(), item('y', 'Y:A'));
     expect((byId('marker-size') as HTMLInputElement).value).toBe('5');
     fireEvent.change(byId('marker-size')!, { target: { value: '9' } });
+    fireEvent.blur(byId('marker-size')!);
     fireEvent.change(byId('marker-shape')!, { target: { value: 'diamond' } });
     expect(store.getState().markers).toEqual({ 'Y:A': { size: 9, shape: 'diamond' } });
     expect(dot('Marker size')).not.toBeNull();

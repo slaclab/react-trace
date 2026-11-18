@@ -830,6 +830,7 @@ describe('PV-curve schema — Data › More', () => {
     expect((byId('live-retention') as HTMLInputElement).value).toBe('');
     expect(dot('Live retention')).toBeNull();
     fireEvent.change(byId('live-retention')!, { target: { value: '60' } });
+    fireEvent.blur(byId('live-retention')!);
     expect(curveIn(store)?.liveRetentionMs).toBe(60_000);
     expect(dot('Live retention')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Reset Live retention' }));
@@ -848,9 +849,11 @@ describe('PV-curve schema — Data › More', () => {
     expect(curveIn(store)?.showArchiveBand).toBeUndefined();
 
     fireEvent.change(byId('optimized-bins')!, { target: { value: '500' } });
+    fireEvent.blur(byId('optimized-bins')!);
     expect(curveIn(store)?.optimizedDataBins).toBe(500);
     expect(dot('Optimized bins')).not.toBeNull();
     fireEvent.change(byId('optimized-bins')!, { target: { value: '' } });
+    fireEvent.blur(byId('optimized-bins')!);
     expect(curveIn(store)?.optimizedDataBins).toBeUndefined();
   });
 });
@@ -862,6 +865,7 @@ describe('PV-curve schema — Style', () => {
     const store = mount();
     fireEvent.change(byId('line-type')!, { target: { value: 'direct' } });
     fireEvent.change(byId('line-width')!, { target: { value: '3' } });
+    fireEvent.blur(byId('line-width')!);
     fireEvent.change(byId('line-style')!, { target: { value: 'dashed' } });
     expect(curveIn(store)).toMatchObject({ lineType: 'direct', lineWidth: 3, lineStyle: 'dashed' });
     expect(dot('Extend to now')).toBeNull();
@@ -878,6 +882,7 @@ describe('PV-curve schema — Style', () => {
     expect(curveIn(store)?.showSymbol).toBe(true);
     fireEvent.change(byId('symbol-shape')!, { target: { value: 'diamond' } });
     fireEvent.change(byId('symbol-size')!, { target: { value: '6' } });
+    fireEvent.blur(byId('symbol-size')!);
     expect(curveIn(store)).toMatchObject({ symbolShape: 'diamond', symbolSize: 6 });
     fireEvent.click(byId('show-symbols')!);
     expect(byId('symbol-shape')).toBeNull();

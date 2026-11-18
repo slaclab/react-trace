@@ -242,6 +242,7 @@ describe('Trace axis schema — fields', () => {
     const store = mount([makeAxis({ autoScale: false })]);
     expect(dot('Min')).toBeNull();
     fireEvent.change(byId('axis-min')!, { target: { value: '-5' } });
+    fireEvent.blur(byId('axis-min')!);
     expect(axisIn(store, 'ax1')?.min).toBe(-5);
     expect(dot('Min')).not.toBeNull();
     fireEvent.click(button('Reset Min'));
@@ -249,6 +250,7 @@ describe('Trace axis schema — fields', () => {
     expect(dot('Min')).toBeNull();
 
     fireEvent.change(byId('axis-max')!, { target: { value: '10' } });
+    fireEvent.blur(byId('axis-max')!);
     expect(axisIn(store, 'ax1')?.max).toBe(10);
   });
 

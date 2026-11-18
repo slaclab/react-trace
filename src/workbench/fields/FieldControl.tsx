@@ -281,24 +281,34 @@ function NumberControl({
   testId?: string;
   onChange(value: number | null): void;
 }) {
-  // The typed text, so a half-typed "1." or "-" survives a render (a text
-  // input: a number input sanitises "-" to ""); only a parsable value inside
-  // the bounds is written. A new value from outside (a reset, another
+  // The typed text is a draft: a half-typed "1." or "-" survives a render (a
+  // text input: a number input sanitises "-" to ""), and nothing is written
+  // while typing. Blur or Enter commits a parsable value inside the bounds;
+  // Escape puts the stored value back. Typing "1800" therefore never passes
+  // through 1, 18 and 180. A new value from outside (a reset, another
   // selection) replaces the text.
   // A value that is not a finite number (NaN from a getter) shows as empty
   // and compares as null: NaN !== NaN would reset the text on every render.
   const current = value !== null && Number.isFinite(value) ? value : null;
-  const [text, setText] = useState(current === null ? '' : String(current));
+  const stored = current === null ? '' : String(current);
+  const [text, setText] = useState(stored);
   const [prevValue, setPrevValue] = useState(current);
+  // Set by a commit, cleared by typing: an empty commit the tool ignored.
+  const [committed, setCommitted] = useState(false);
   if (current !== prevValue) {
     setPrevValue(current);
-    if (parseNumber(text) !== current) setText(current === null ? '' : String(current));
+    if (parseNumber(text) !== current) setText(stored);
   }
   const parsed = parseNumber(text, { min, max });
-  // Emptied, but the tool kept its value (it refuses null): a required
-  // field, not a blank that silently keeps the old number.
-  const missing = parsed === null && current !== null;
+  // Emptied and committed, but the tool kept its value (it refuses null): a
+  // required field, not a blank that silently keeps the old number.
+  const missing = committed && parsed === null && current !== null;
   const invalid = parsed === undefined || missing;
+  const commit = () => {
+    setCommitted(true);
+    if (parsed === undefined) return;
+    if (parsed !== current || (parsed === null && current !== null)) onChange(parsed);
+  };
   return (
     <span className="wb-field__number">
       <TextInput
@@ -315,16 +325,32 @@ function NumberControl({
         data-testid={testId}
         onChange={(e) => {
           setText(e.target.value);
-          const parsed = parseNumber(e.target.value, { min, max });
-          if (parsed !== undefined) onChange(parsed);
+          setCommitted(false);
         }}
+        onBlur={commit}
         onKeyDown={(e) => {
-          // A text input has no steppers: ArrowUp/ArrowDown step by `step`.
+          if (e.key === 'Enter') {
+            commit();
+            return;
+          }
+          if (e.key === 'Escape') {
+            // A draft: revert it and keep the key from the card (the
+            // workbench's root Escape). A clean field lets it through.
+            if (parseNumber(text) === current) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setText(stored);
+            setCommitted(false);
+            return;
+          }
+          // A text input has no steppers: ArrowUp/ArrowDown step by `step`
+          // and commit each press.
           const direction = e.key === 'ArrowUp' ? 1 : e.key === 'ArrowDown' ? -1 : 0;
           if (direction === 0 || step === undefined || !(step > 0)) return;
           e.preventDefault();
           const next = stepped(parseNumber(text) ?? current, direction * step, min, max);
           setText(String(next));
+          setCommitted(false);
           if (next !== current) onChange(next);
         }}
       />

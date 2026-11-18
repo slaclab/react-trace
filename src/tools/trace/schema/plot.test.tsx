@@ -404,10 +404,12 @@ describe('plot schema — Acquisition', () => {
     expect(input.value).toBe('5');
     expect(dot('Refresh interval')).toBeNull();
     typeInto('refresh-interval', '12');
+    fireEvent.blur(byId('refresh-interval')!);
     expect(plotOf(store, 'p1').refreshIntervalS).toBe(12);
     expect(dot('Refresh interval')).not.toBeNull();
     expect(summaryOf('acquisition')).toBe('refresh 12 s');
     typeInto('refresh-interval', '600');
+    fireEvent.blur(byId('refresh-interval')!);
     expect(plotOf(store, 'p1').refreshIntervalS).toBe(12);
     fireEvent.click(screen.getByRole('button', { name: 'Reset Refresh interval' }));
     expect(plotOf(store, 'p1').refreshIntervalS).toBeUndefined();
@@ -473,6 +475,7 @@ describe('plot schema — Display', () => {
     expect(plotOf(store, 'p1').gridStyle).toBe('dashed');
     expect((byId('grid-opacity') as HTMLInputElement).value).toBe('100');
     typeInto('grid-opacity', '40');
+    fireEvent.blur(byId('grid-opacity')!);
     expect(plotOf(store, 'p1').gridOpacity).toBeCloseTo(0.4);
     expect(dot('Grid style')).toBeNull();
     expect(dot('Grid opacity')).toBeNull();
@@ -482,8 +485,10 @@ describe('plot schema — Display', () => {
     const store = mount();
     openMore('display');
     typeInto('tick-font-size', '14');
+    fireEvent.blur(byId('tick-font-size')!);
     expect(plotOf(store, 'p1').tickFontSize).toBe(14);
     typeInto('tick-font-size', '99');
+    fireEvent.blur(byId('tick-font-size')!);
     expect(plotOf(store, 'p1').tickFontSize).toBe(14);
     expect(dot('Tick font size')).toBeNull();
     await act(async () => {});

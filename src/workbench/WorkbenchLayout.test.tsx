@@ -956,3 +956,30 @@ describe('the actions row heading', () => {
     expect(screen.queryByTestId(TESTIDS.actionsBar)).toBeNull();
   });
 });
+
+// ------------------------------------------------------ number field Escape --
+
+describe('number field Escape inside the panel', () => {
+  const offsetInput = () => document.querySelector<HTMLInputElement>('#stub-offset')!;
+
+  it('a draft is reverted, nothing is written and the card stays open', () => {
+    const { selection, tool } = mount();
+    act(() => selection.select(item('a')));
+    focus(offsetInput());
+    fireEvent.change(offsetInput(), { target: { value: '18' } });
+    escape(offsetInput());
+    expect(offsetInput().value).toBe('0');
+    expect(tool.getState().offsets['STUB:A']).toBeUndefined();
+    expect(bodyOf('a')).not.toBeNull();
+    expect(selection.get().selection).toEqual(item('a'));
+  });
+
+  it('a clean field lets Escape close the card', () => {
+    const { selection } = mount();
+    act(() => selection.select(item('a')));
+    focus(offsetInput());
+    escape(offsetInput());
+    expect(selection.get().selection).toBeNull();
+    expect(bodyOf('a')).toBeNull();
+  });
+});

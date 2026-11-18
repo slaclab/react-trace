@@ -212,6 +212,7 @@ describe('number', () => {
     const input = container.querySelector<HTMLInputElement>('#stub-offset')!;
     expect(input.value).toBe('0');
     fireEvent.change(input, { target: { value: '1.5' } });
+    fireEvent.blur(input);
     expect(stub.getState().offsets['STUB:A']).toBe(1.5);
     expect(dot(container)).not.toBeNull();
     fireEvent.click(resetButton('Offset')!);
@@ -234,6 +235,7 @@ describe('number', () => {
     const input = container.querySelector<HTMLInputElement>('#stub-gain')!;
     expect(input.value).toBe('2');
     fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
     expect(itemA(stub).gain).toBeNull();
   });
 
@@ -246,10 +248,12 @@ describe('number', () => {
     const { container } = mount(windowField, { stub });
     const input = container.querySelector<HTMLInputElement>('#stub-window')!;
     fireEvent.change(input, { target: { value: '0' } });
+    fireEvent.blur(input);
     expect(itemA(stub).window).toBe(5);
     expect(input.getAttribute('aria-invalid')).toBe('true');
     expect(screen.getByText('samples')).toBeTruthy();
     fireEvent.change(input, { target: { value: '7' } });
+    fireEvent.blur(input);
     expect(itemA(stub).window).toBe(7);
   });
 
@@ -593,10 +597,12 @@ describe('number: an empty field the tool will not clear', () => {
     const { container } = mount(requiredField, { stub });
     const input = container.querySelector<HTMLInputElement>('#stub-window')!;
     fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
     expect(itemA(stub).window).toBe(5);
     expect(input.getAttribute('aria-invalid')).toBe('true');
     expect(screen.getByText('Required')).toBeTruthy();
     fireEvent.change(input, { target: { value: '7' } });
+    fireEvent.blur(input);
     expect(itemA(stub).window).toBe(7);
     expect(input.hasAttribute('aria-invalid')).toBe(false);
   });
@@ -607,6 +613,7 @@ describe('number: an empty field the tool will not clear', () => {
     const { container } = mount(gainField, { stub });
     const input = container.querySelector<HTMLInputElement>('#stub-gain')!;
     fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
     expect(itemA(stub).gain).toBeNull();
     expect(input.hasAttribute('aria-invalid')).toBe(false);
   });
@@ -645,5 +652,78 @@ describe('number: step', () => {
     const { container } = mount(gainField, { stub });
     fireEvent.keyDown(container.querySelector('#stub-gain')!, { key: 'ArrowUp' });
     expect(itemA(stub).gain).toBe(2);
+  });
+});
+
+describe('number: commit on blur or Enter', () => {
+  const offsetOf = (stub: StubTool) => stub.getState().offsets['STUB:A'];
+  const offsetInput = (container: HTMLElement) =>
+    container.querySelector<HTMLInputElement>('#stub-offset')!;
+
+  it('typing writes nothing until the field commits', () => {
+    const { stub, container } = mount(offsetField);
+    const input = offsetInput(container);
+    for (const text of ['1', '18', '180', '1800']) {
+      fireEvent.change(input, { target: { value: text } });
+      expect(offsetOf(stub)).toBeUndefined();
+    }
+    expect(input.value).toBe('1800');
+  });
+
+  it('blur commits', () => {
+    const { stub, container } = mount(offsetField);
+    const input = offsetInput(container);
+    fireEvent.change(input, { target: { value: '1800' } });
+    fireEvent.blur(input);
+    expect(offsetOf(stub)).toBe(1800);
+  });
+
+  it('Enter commits', () => {
+    const { stub, container } = mount(offsetField);
+    const input = offsetInput(container);
+    fireEvent.change(input, { target: { value: '1800' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(offsetOf(stub)).toBe(1800);
+  });
+
+  it('Escape reverts to the stored value, writes nothing and keeps the key', () => {
+    const stub = createStubTool();
+    stub.update((s) => ({ ...s, offsets: { 'STUB:A': 2 } }));
+    const outer = vi.fn();
+    const { container } = render(
+      <div onKeyDown={outer}>
+        <Harness stub={stub} target={item('a')} field={offsetField} />
+      </div>
+    );
+    const input = offsetInput(container);
+    fireEvent.change(input, { target: { value: '18' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(input.value).toBe('2');
+    expect(offsetOf(stub)).toBe(2);
+    expect(outer).not.toHaveBeenCalled();
+    // Nothing left to commit.
+    fireEvent.blur(input);
+    expect(offsetOf(stub)).toBe(2);
+  });
+
+  it('Escape in an unchanged field passes the key on', () => {
+    const outer = vi.fn();
+    const stub = createStubTool();
+    const { container } = render(
+      <div onKeyDown={outer}>
+        <Harness stub={stub} target={item('a')} field={offsetField} />
+      </div>
+    );
+    fireEvent.keyDown(offsetInput(container), { key: 'Escape' });
+    expect(outer).toHaveBeenCalledTimes(1);
+  });
+
+  it('an arrow-key step commits on each press', () => {
+    const { stub, container } = mount(offsetField);
+    const input = offsetInput(container);
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(offsetOf(stub)).toBe(0.1);
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(offsetOf(stub)).toBe(0.2);
   });
 });
