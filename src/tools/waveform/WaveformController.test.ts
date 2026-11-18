@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { FakeHare, type FakeValue } from '../shared/fakeHare.test-util';
 import { setHidden, setSnapshot, setVisible } from './edit';
-import { META_MISSING, META_WAITING, NOT_IN_SNAPSHOT } from './model';
+import { META_MISSING, META_WAITING, NOT_IN_SNAPSHOT, STRING_WAVEFORM } from './model';
 import { defaultWaveformState, type WaveformState } from './query';
 import { WAVEFORM_META_TIMEOUT_MS, WaveformController } from './WaveformController';
 
@@ -650,5 +650,23 @@ describe('metadata gate: each PV has its own window', () => {
     expect(row(h, GOOD)).toMatchObject({ status: 'ok', drawable: true });
     expect(row(h, MISSING)).toMatchObject({ status: 'error', chip: 'disconnected' });
     expect(liveTimers(h)).toHaveLength(0);
+  });
+});
+
+describe('string waveforms', () => {
+  it('a string-array PV is not drawn and says string waveforms cannot be plotted', () => {
+    const h = harness();
+    h.ctl.setState(state({ pvs: ['TEST:WAVEFORM', 'TEST:STR_WAVEFORM'] }));
+    h.hare.initial([
+      ['TEST:WAVEFORM', 'V', wf(1, 2, 3)],
+      [
+        'TEST:STR_WAVEFORM',
+        null,
+        { connected: true, valueKind: 'waveform', value: ['a', 'b', 'c'] },
+      ],
+    ]);
+    const [good, str] = h.ctl.getModel().live;
+    expect(good).toMatchObject({ status: 'ok', drawable: true });
+    expect(str).toMatchObject({ status: 'error', chip: STRING_WAVEFORM, drawable: false });
   });
 });

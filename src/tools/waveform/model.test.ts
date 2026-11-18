@@ -9,10 +9,12 @@ import {
   META_WAITING,
   NOT_IN_SNAPSHOT,
   ROLLING_COLLECTING,
+  STRING_WAVEFORM,
   axisUnitOf,
   clockTime,
   deltaWaitingMessage,
   deriveWaveformModel,
+  stringWaveformMessage,
   unitMessage,
   type WaveformMetaMap,
   type WaveformPvMeta,
@@ -574,5 +576,48 @@ describe('metadata gate per PV', () => {
     );
     expect(expired.reference).toMatchObject({ status: 'error', chip: META_MISSING });
     expect(expired.live[0].drawable).toBe(true);
+  });
+});
+
+describe('string waveforms', () => {
+  const STR = 'TEST:STR_WAVEFORM';
+  const GOOD = 'TEST:WAVEFORM';
+
+  it('marks a live string waveform as an error that is not drawn', () => {
+    const m = deriveWaveformModel(
+      input({
+        state: state({ pvs: [GOOD, STR] }),
+        meta: { [GOOD]: mm, [STR]: none },
+        rings: { [GOOD]: ring(4), [STR]: ring(8, { numeric: false }) },
+      })
+    );
+    expect(m.live[0]).toMatchObject({ status: 'ok', drawable: true });
+    expect(m.live[1]).toMatchObject({ status: 'error', chip: STRING_WAVEFORM, drawable: false });
+    expect(m.live[1].message).toBe(stringWaveformMessage(STR));
+  });
+
+  it('says why the canvas is empty when the only curve is a string waveform', () => {
+    const m = deriveWaveformModel(
+      input({
+        state: state({ pvs: [STR] }),
+        meta: { [STR]: none },
+        rings: { [STR]: ring(8, { numeric: false }) },
+      })
+    );
+    expect(m.canvas.kind).toBe('none-drawable');
+  });
+
+  it('marks a string waveform PV reference the same way', () => {
+    const m = deriveWaveformModel(
+      input({
+        state: state({ pvs: [GOOD], reference: { kind: 'pv', pv: STR }, delta: true }),
+        meta: { [GOOD]: mm, [STR]: none },
+        rings: { [GOOD]: ring(8), [STR]: ring(8, { numeric: false }) },
+      })
+    );
+    expect(m.reference).toMatchObject({ status: 'error', chip: STRING_WAVEFORM, drawable: false });
+    // Δ against it waits: the reference holds no numeric frame.
+    expect(m.delta.waiting).not.toBeNull();
+    expect(m.live[0].drawable).toBe(false);
   });
 });

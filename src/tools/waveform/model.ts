@@ -74,7 +74,10 @@ export interface WaveformRingSummary {
   resetEpoch: number;
   /** Arrival of the latest frame, ms; null when none. */
   arrival: number | null;
-  /** The value kind is numeric; absent = numeric. Used for the X source. */
+  /**
+   * The value kind is numeric; absent = numeric. False (a string waveform)
+   * refuses the PV in every role: live, PV reference and X source.
+   */
   numeric?: boolean;
 }
 
@@ -186,6 +189,13 @@ export const META_WAITING = 'waiting for metadata';
 /** A PV whose metadata window ended with nothing reported. */
 export const META_MISSING = 'no metadata';
 
+/** A string waveform: its frames are all NaN, so it is never drawn. */
+export const STRING_WAVEFORM = "string waveform — can't be plotted";
+
+export function stringWaveformMessage(pv: string): string {
+  return `${pv} holds strings; string waveforms can't be plotted.`;
+}
+
 export function metaMissingMessage(pv: string): string {
   return `${pv} sent no metadata or data: check the name, or whether its IOC is up.`;
 }
@@ -253,7 +263,8 @@ export function deriveWaveformModel(input: WaveformModelInput): WaveformModel {
     const hidden = state.hidden[ref.pv] === true;
     const unitRefused = decided && refused(egu(ref.pv), unit);
     const length = summary?.length ?? null;
-    const hasFrame = !unitRefused && length !== null;
+    const strings = summary?.numeric === false;
+    const hasFrame = !unitRefused && !strings && length !== null;
     if (hasFrame) refLength = length;
     let status: RowStatus = 'ok';
     let chip: string | null = null;
@@ -261,6 +272,10 @@ export function deriveWaveformModel(input: WaveformModelInput): WaveformModel {
     if (unitRefused) {
       status = 'refused';
       message = unitMessage(ref.pv, egu(ref.pv), unit!);
+    } else if (strings) {
+      status = 'error';
+      chip = STRING_WAVEFORM;
+      message = stringWaveformMessage(ref.pv);
     } else if (length === null) {
       status = summary !== undefined && !summary.connected ? 'error' : 'pending';
       chip = summary !== undefined && !summary.connected ? 'disconnected' : null;
@@ -280,7 +295,7 @@ export function deriveWaveformModel(input: WaveformModelInput): WaveformModel {
     }
     if (delta && !hasFrame) {
       deltaWaiting = deltaWaitingMessage(ref.pv);
-      if (!unitRefused) {
+      if (!unitRefused && !strings) {
         status = 'pending';
         chip = deltaWaiting;
       }
@@ -364,6 +379,12 @@ export function deriveWaveformModel(input: WaveformModelInput): WaveformModel {
     if (!summary.connected) {
       row.status = 'error';
       row.chip = 'disconnected';
+      return row;
+    }
+    if (summary.numeric === false) {
+      row.status = 'error';
+      row.chip = STRING_WAVEFORM;
+      row.message = stringWaveformMessage(pv);
       return row;
     }
     if (length === null) {
