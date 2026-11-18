@@ -61,7 +61,10 @@
 // metrics reopen at the default), then the drawings (note texts trimmed, then
 // drawings dropped from the end, leaving room for the page keys the state-out
 // step adds), and only then trailing Ys. A query carrying `ann` that is over
-// 4 KB on arrival is read without its drawings when that fits.
+// 4 KB on arrival is read without its drawings when that fits. The page keys
+// (`theme`, `embedded`, `hostbar`, `bench`) configure the page, not the plot:
+// the parser drops them before it measures, so the 4 KB is the query's own on
+// the way in as on the way out.
 //
 // This module is the only parser of the grammar. Both functions are pure apart
 // from the warnings.
@@ -90,6 +93,8 @@ import {
 import { encodeJsonParam } from '../../annotations/config';
 import type { ShedSnapshot } from '../../annotations/host/shedStore';
 import { validateAnnotationIn, type Annotation } from '../../annotations/model';
+import { PAGE_KEYS } from '../../embed/pageKeys';
+import { BENCH_KEY } from '../shared/renderMark';
 import { CORRELATION_METRICS } from './metrics';
 import {
   decodeMetricToken,
@@ -484,6 +489,20 @@ function byteLength(s: string): number {
   return new TextEncoder().encode(s).length;
 }
 
+/** The query keys that configure the page; never part of the plot's query. */
+const PAGE_ONLY_KEYS: ReadonlySet<string> = new Set([...PAGE_KEYS, BENCH_KEY]);
+
+// The query without its page keys, token by token so the rest keeps its bytes.
+function withoutPageKeys(raw: string): string {
+  return raw
+    .split('&')
+    .filter((token) => {
+      const key = new URLSearchParams(token).keys().next().value;
+      return key === undefined || !PAGE_ONLY_KEYS.has(key);
+    })
+    .join('&');
+}
+
 function pvName(raw: string): string | null {
   const name = raw.trim();
   return name === '' ? null : name;
@@ -702,15 +721,15 @@ export interface CorrelationQueryOptions {
 // identity default).
 const CODEC: ContextCodecOptions = { xAxis: VALUE_X_AXIS, warnPrefix: 'Correlation query' };
 
-// Parse a query string (with or without a leading "?"). Over 4 KB the
-// drawings (`ann`) are dropped first; if it is still over, the whole query is
-// rejected and the defaults open.
+// Parse a query string (with or without a leading "?"), page keys left out.
+// Over 4 KB the drawings (`ann`) are dropped first; if it is still over, the
+// whole query is rejected and the defaults open.
 export function parseCorrelationQuery(
   s: string,
   opts: CorrelationQueryOptions = {}
 ): CorrelationState {
   const catalog = opts.catalog ?? CORRELATION_CATALOG;
-  let raw = s.startsWith('?') ? s.slice(1) : s;
+  let raw = withoutPageKeys(s.startsWith('?') ? s.slice(1) : s);
   const state = defaultCorrelationState();
   if (byteLength(raw) > MAX_QUERY_BYTES) {
     const stripped = withoutContextDrawings(raw);
