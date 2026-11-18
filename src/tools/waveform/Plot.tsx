@@ -329,6 +329,7 @@ export function WaveformPlot({
     axes,
     theme: chartTheme,
     chart: chartTip,
+    toolsOff: state.drawingTools === false,
   });
   useDrawingWrapperListeners(stage, drawingHost);
   const point = useCallback((p: PlotPoint) => waveformPointMenu(p, state, model), [state, model]);

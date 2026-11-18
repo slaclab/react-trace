@@ -146,6 +146,11 @@ export interface WaveformState {
   tooltip: boolean;
   /** What a left-drag in the plot does; a zoom box by default. */
   drag: DragMode;
+  /**
+   * The drawing tools (the drawing rail and its arm keys); present only as
+   * `false` (off), absent means on. Written as `rail=0`.
+   */
+  drawingTools?: false;
   /** Show statistics (the panel under the chart); off by default. */
   stats: boolean;
   /** Show distribution (the panel's density block); off by default. */

@@ -294,6 +294,7 @@ export function normalizeWaveformState(
     styles: kept(state.styles, pruned(state.styles, curves, normalizeStyle)),
     drawings: normalizeDrawings(state.drawings, catalog),
   };
+  if (state.drawingTools === false) next.drawingTools = false;
   if (xs !== '') {
     const xLabel = normalizeLabel(state.xLabel);
     if (xLabel !== undefined) next.xLabel = xLabel;

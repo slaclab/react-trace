@@ -92,7 +92,7 @@ export function waveformSchema<
   U extends WaveformUi = WaveformUi,
 >(options: WaveformSchemaOptions = {}): ToolSchema<S, M, U> {
   return {
-    tool: toolSchema<M, U>(),
+    tool: toolSchema<M, U>(options),
     sections: {
       live: liveSection<M, U>(),
       reference: referenceSection<M, U>(),

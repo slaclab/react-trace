@@ -38,12 +38,21 @@ interface UiWithWriter {
   setUi?: WaveformUiWriter;
 }
 
-/** The Annotations section; its eye writes the `ui` record's own writer, else `options.setUi`. */
+/** The hide-all writer: the `ui` record's own writer, else `options.setUi`. */
+export function drawingsUiWriter<M, U extends WaveformUi>(
+  ctx: ToolContext<S, M, U>,
+  options: WaveformSchemaOptions
+): DrawingsUiWriter | undefined {
+  return ((ctx.ui as UiWithWriter | undefined)?.setUi ?? options.setUi) as
+    | DrawingsUiWriter
+    | undefined;
+}
+
+/** The Annotations section; its eye writes through {@link drawingsUiWriter}. */
 export function drawingsSectionSchema<M, U extends WaveformUi>(
   options: WaveformSchemaOptions
 ): SectionSchema<S, M, U> {
-  return drawingsVisibleSection<S, M, U>(
-    (ctx: ToolContext<S, M, U>) =>
-      ((ctx.ui as UiWithWriter).setUi ?? options.setUi) as DrawingsUiWriter | undefined
+  return drawingsVisibleSection<S, M, U>((ctx: ToolContext<S, M, U>) =>
+    drawingsUiWriter(ctx, options)
   );
 }

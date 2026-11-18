@@ -84,6 +84,7 @@ export function serializeWaveformQueryWithShed(
   if (state.crosshair !== defaults.crosshair) head.push(`cross=${state.crosshair ? 1 : 0}`);
   if (state.tooltip !== defaults.tooltip) head.push(`tip=${state.tooltip ? 1 : 0}`);
   if (isDragMode(state.drag) && state.drag !== defaults.drag) head.push(`drag=${state.drag}`);
+  if (state.drawingTools === false) head.push('rail=0');
   if (state.stats !== defaults.stats) head.push(`stats=${state.stats ? 1 : 0}`);
   if (state.dist !== defaults.dist) head.push(`dist=${state.dist ? 1 : 0}`);
   // The metric tokens, all or none: the list is written only off the default,

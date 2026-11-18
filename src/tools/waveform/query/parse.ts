@@ -194,6 +194,10 @@ export function parseWaveformQuery(s: string, opts: WaveformQueryOptions = {}): 
     if (isDragMode(drag)) state.drag = drag;
     else bad('drag');
   }
+  // The drawing tools: only off is kept; `rail=1` is the default.
+  flag('rail', (v) => {
+    if (!v) state.drawingTools = false;
+  });
   flag('dist', (v) => (state.dist = v));
   // Any `m` key: the list is exactly the decoded tokens; a bad token is
   // skipped (and `m` reported once).
