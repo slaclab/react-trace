@@ -58,6 +58,7 @@
   font-size: var(--canopy-text-md);
   font-weight: 600;
   text-overflow: ellipsis;
+  line-height: 1.33;
 }
 
 .wb-workbench__prefix {
@@ -70,6 +71,7 @@
   color: var(--cds-text-secondary);
   font-size: var(--canopy-text-sm);
   text-overflow: ellipsis;
+  line-height: 1.33;
 }
 
 /* Under a host the heading takes the contract's small control height, as the

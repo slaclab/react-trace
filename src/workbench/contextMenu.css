@@ -9,6 +9,7 @@
   font-family: var(--canopy-font-mono);
   font-size: var(--canopy-text-sm);
   text-overflow: ellipsis;
+  line-height: 1.33;
   white-space: nowrap;
   list-style: none;
   cursor: default;
@@ -46,6 +47,7 @@
 .wb-context-toast__text {
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.33;
   white-space: nowrap;
 }
 

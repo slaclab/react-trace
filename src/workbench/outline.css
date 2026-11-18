@@ -212,6 +212,7 @@
 .wb-outline-section__title {
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.33;
   white-space: nowrap;
 }
 
@@ -306,6 +307,7 @@
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.33;
   white-space: nowrap;
   cursor: pointer;
 }
@@ -478,6 +480,7 @@
   color: var(--cds-text-primary);
   font-size: var(--canopy-text-md);
   text-overflow: ellipsis;
+  line-height: 1.33;
   white-space: nowrap;
   cursor: grabbing;
 }

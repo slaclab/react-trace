@@ -58,6 +58,7 @@
 .wb-panel .wb-field__label {
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.33;
   white-space: nowrap;
 }
 
@@ -213,6 +214,9 @@
   font-size: var(--canopy-text-sm);
   text-align: end;
   text-overflow: ellipsis;
+  /* Text that hides its overflow for the ellipsis needs a line box taller
+     than the font: the page's reset line height (1) clips g, p and y. */
+  line-height: 1.33;
   white-space: nowrap;
 }
 
