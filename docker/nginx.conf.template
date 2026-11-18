@@ -61,6 +61,15 @@ http {
             proxy_send_timeout 3600;
         }
 
+        # The site defaults (docs/site-defaults.md). A deployment mounts its
+        # own file over the image's neutral one. Revalidated on every load, so
+        # an edit takes effect on the next page load; a missing file is a 404,
+        # never the SPA page below.
+        location = /config.json {
+            add_header Cache-Control "no-cache" always;
+            try_files $uri =404;
+        }
+
         location / {
             try_files $uri $uri/ /index.html;
         }

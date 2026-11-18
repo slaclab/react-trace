@@ -21,6 +21,7 @@ nav = [
     { "Statistics" = "statistics.md" },
     { "Drawing tools" = "drawing-tools.md" },
   ] },
+  { "Site defaults" = "site-defaults.md" },
 ]
 
 # ----------------------------------------------------------------------------

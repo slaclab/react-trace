@@ -118,7 +118,20 @@ reach Canopy.
 The header's bug and help buttons open this repo's GitHub issues and the public
 docs site. A deployment can point them elsewhere with `VITE_BUG_REPORT_URL` and
 `VITE_DOCS_URL` at build time; the image build reads them from the
-`BUG_REPORT_URL` and `DOCS_URL` repository variables.
+`BUG_REPORT_URL` and `DOCS_URL` repository variables. A site's `config.json`
+overrides both at runtime (below).
+
+#### Site defaults (optional)
+
+A deployment sets its own defaults without a rebuild: the header prefix and
+links, the plot gestures, and what a new plot, curve or view opens with. Every
+page reads `config.json` next to it (the image ships a neutral one at
+`/usr/share/nginx/html/config.json`; mount your own over it) and Canopy's
+site settings (`GET <Canopy base>/magpie/v1/settings/trace`), which win over
+the file. `config.example.json` lists every key; `docs/site-defaults.md`
+explains them. The file is served to every browser: no secrets in it. (The
+desktop app's `src-tauri/config.json`, which holds keys, is a different file
+and is never served.)
 
 #### Channel catalog (optional)
 

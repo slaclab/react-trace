@@ -58,6 +58,22 @@ Trace says no, or can't be reached, the "Post to E-Log" button stays hidden.
 A flag the app doesn't know, such as the removed `--elog-url`, makes it ignore
 all its command-line flags, including `--canopy-url`, and log a warning.
 
+## Site defaults
+
+Two different files are named `config.json`:
+
+- `src-tauri/config.json`, above, holds the Canopy URL and keys. It is a
+  bundle resource only the native proxy reads; it is never served to the
+  webview.
+- `dist/config.json` holds the site defaults every page reads at startup
+  (`docs/site-defaults.md`): no secrets, just behaviour choices such as the
+  header prefix or what a new plot opens with. The build copies it from
+  `public/config.json`, and the proxy serves it beside the pages. A desktop
+  build for a site edits `public/config.json` before `pnpm tauri:build`.
+
+Canopy's site settings (`/magpie/v1/settings/trace`) reach the app through the
+proxy's `/magpie` route, as in the web deployment, and win over the file.
+
 ## Startup behavior
 
 Release builds bind the proxy port **before** creating any window, and the

@@ -5,6 +5,7 @@ import {
   findFontFaces,
   findHits,
   findWoffFiles,
+  siteConfigProblem,
 } from './check-dist.mjs';
 
 describe('FORBIDDEN', () => {
@@ -95,5 +96,23 @@ describe('findWoffFiles', () => {
 
   it('returns nothing for a woff2-only build', () => {
     expect(findWoffFiles(['index.html', 'assets/IBMPlexSans-Light-Pi.woff2'])).toEqual([]);
+  });
+});
+
+describe('siteConfigProblem', () => {
+  it('accepts a JSON object, the neutral file included', () => {
+    expect(siteConfigProblem('{ "version": 1 }')).toBeNull();
+    expect(siteConfigProblem('{}')).toBeNull();
+  });
+
+  it('refuses text that is not JSON', () => {
+    expect(siteConfigProblem('<!doctype html>')).toBe('is not valid JSON');
+    expect(siteConfigProblem('{ "version": 1, }')).toBe('is not valid JSON');
+  });
+
+  it('refuses JSON that is not an object', () => {
+    expect(siteConfigProblem('[]')).toBe('is not a JSON object');
+    expect(siteConfigProblem('null')).toBe('is not a JSON object');
+    expect(siteConfigProblem('1')).toBe('is not a JSON object');
   });
 });

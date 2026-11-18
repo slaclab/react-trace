@@ -42,7 +42,7 @@ describe('validateSiteConfig', () => {
           gridOpacity: 0.5,
           tickFontSize: 14,
           refreshIntervalS: 10,
-          palette: 'default',
+          palette: 'viridis',
           timeRange: '-30m',
           archiver: 'arch-b',
           showDrawingTools: false,
@@ -128,6 +128,12 @@ describe('validateSiteConfig', () => {
       correlation: {},
       waveform: {},
     });
+  });
+
+  it('stores the default palette as none, as a plot does', () => {
+    const config = validateSiteConfig({ trace: { plot: { palette: 'default' } } }, 'config.json');
+    expect(warn).not.toHaveBeenCalled();
+    expect(config.trace?.plot).toHaveProperty('palette', undefined);
   });
 
   it('takes null as the archiver for Canopy’s default', () => {

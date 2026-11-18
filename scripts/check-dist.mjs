@@ -6,8 +6,10 @@
 // so text shows in a fallback font while IBM Plex loads instead of staying
 // invisible. No .woff file may ship either: every browser and WebView Trace
 // targets loads woff2, so a .woff fallback is dead weight in the container
-// image and the Tauri bundle. Run after `vite build`; exits non-zero on any
-// problem.
+// image and the Tauri bundle. The site defaults file (`config.json`, from
+// public/) must ship beside the pages as a JSON object: the image's neutral
+// file, which a deployment mounts its own over. Run after `vite build`; exits
+// non-zero on any problem.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -33,6 +35,23 @@ export function facesWithoutSwap(css) {
 /** The paths in `paths` that are `.woff` fonts (`.woff2` is fine). */
 export function findWoffFiles(paths) {
   return paths.filter((path) => /\.woff$/i.test(path));
+}
+
+/** The site defaults file every page reads, at the root of dist/. */
+export const SITE_CONFIG_FILE = 'config.json';
+
+/** Why `text` is not a usable site defaults file, or null when it is one. */
+export function siteConfigProblem(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return 'is not valid JSON';
+  }
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    return 'is not a JSON object';
+  }
+  return null;
 }
 
 function* walk(dir) {
@@ -88,6 +107,20 @@ function main() {
   if (woff.length > 0) {
     console.error('check-dist: .woff fonts in the build output (woff2 only is expected):');
     for (const path of woff) console.error(`  ${path}`);
+    failed = true;
+  }
+  let siteText = null;
+  try {
+    siteText = readFileSync(join(distDir, SITE_CONFIG_FILE), 'utf8');
+  } catch {
+    console.error(
+      `check-dist: ${SITE_CONFIG_FILE} is missing; public/${SITE_CONFIG_FILE} ships it`
+    );
+    failed = true;
+  }
+  const siteProblem = siteText === null ? null : siteConfigProblem(siteText);
+  if (siteProblem !== null) {
+    console.error(`check-dist: ${SITE_CONFIG_FILE} ${siteProblem}`);
     failed = true;
   }
   if (noSwap.length > 0) {

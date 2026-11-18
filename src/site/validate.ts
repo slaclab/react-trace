@@ -9,6 +9,7 @@
 // Keys starting with `$` (`$comment`, `$schema`) are notes and are skipped.
 // A `version` other than 1 drops the whole source with one warning.
 import { relativeRangeMs, parseSpanMs } from '../api/time';
+import { isPaletteId, storedPaletteId } from '../palettes';
 import { isPlotFieldValue, isTraceFieldValue } from '../embed/plotConfig';
 import { DOUBLE_CLICKS, WHEEL_ZOOMS, Y_AXIS_DRAGS } from '../plot/gesturePrefs';
 import { decodeMetricTokens, MAX_METRICS, type MetricCatalog } from '../statistics/model';
@@ -65,6 +66,9 @@ const archiver: Rule = (v) => {
   if (typeof v !== 'string' || v.trim() === '') return null;
   return isPlotFieldValue('archiver', v.trim()) ? pass(v.trim()) : null;
 };
+
+// A palette id; the default palette is stored as none, as a plot stores it.
+const palette: Rule = (v) => (isPaletteId(v) ? pass(storedPaletteId(v)) : null);
 
 // A span within Correlation's lookback range; whitespace removed, never clamped.
 const lookback: Rule = (v) => {
@@ -137,7 +141,7 @@ const SCHEMA: Section = {
       gridOpacity: plotField('gridOpacity'),
       tickFontSize: plotField('tickFontSize'),
       refreshIntervalS: plotField('refreshIntervalS'),
-      palette: plotField('palette'),
+      palette,
       timeRange,
       archiver,
       showDrawingTools: plotField('showDrawingTools'),
