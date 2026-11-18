@@ -14,6 +14,7 @@ import { CanopyChart, useChartTheme } from '@slaclab/canopy-charts';
 import { useDrawingTheme } from '../annotationTheme';
 import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
 import type { Axis, Plot } from '../types';
+import { DROP_LABEL_ATTR, DROP_TARGET_ATTR } from '../workbench/dropTarget';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 import type { FormulaSeriesResult } from '../hooks/useFormulaSeries';
@@ -158,6 +159,17 @@ const TAB_RANGE_SITE_STYLE: CSSProperties = {
   overflowY: 'hidden',
   scrollbarWidth: 'thin',
 };
+
+/**
+ * A plot's tab or grid cell as a drop target for a Signals card (the workbench
+ * Outline's `[data-workbench-drop]`, Trace's `ops.drop`): every plot but the
+ * active one, whose curves the Signals pane lists.
+ */
+function dropTargetProps(plot: Plot, activePlotId: string): Record<string, string> {
+  return plot.id === activePlotId
+    ? {}
+    : { [DROP_TARGET_ATTR]: plot.id, [DROP_LABEL_ATTR]: plot.title };
+}
 
 interface PlotAreaProps extends AnnotationChannel {
   plots: Plot[];
@@ -1476,6 +1488,7 @@ export function PlotArea({
                 key={plot.id}
                 className={`plot-tab ${plot.id === activePlotId ? 'plot-tab--active' : 'plot-tab--inactive'}${isDetached(plot.id) ? ' plot-tab--detached' : ''}`}
                 onClick={() => onSetActivePlot(plot.id)}
+                {...dropTargetProps(plot, activePlotId)}
               >
                 <span>{plot.title}</span>
                 <button
@@ -1615,6 +1628,7 @@ export function PlotArea({
               <div
                 key={plot.id}
                 className={`plot-grid__cell${plot.id === activePlot.id ? ' plot-grid__cell--active' : ''}`}
+                {...dropTargetProps(plot, activePlot.id)}
                 onPointerDownCapture={() => {
                   if (plot.id !== activePlotId) onSetActivePlot(plot.id);
                 }}

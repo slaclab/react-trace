@@ -494,3 +494,17 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* A target outside the Outline (`[data-workbench-drop]`, a plot's tab or grid
+   cell) while a card is over it: ringed when it takes the card, outlined in
+   the error colour when it refuses (the reason is its title). */
+[data-workbench-drop-state='allowed'] {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+
+[data-workbench-drop-state='refused'] {
+  outline: 2px dashed var(--cds-support-error);
+  outline-offset: -2px;
+  cursor: no-drop;
+}

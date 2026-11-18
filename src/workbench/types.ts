@@ -435,6 +435,12 @@ export interface ToolOps {
   add(sectionId: string, pv: string): Promise<AddRefusal | void>;
   remove(itemId: string): void;
   move(itemId: string, sectionId: string): void;
+  /**
+   * Optional: a card dropped outside the Outline on an element marked
+   * `[data-workbench-drop="<targetId>"]` (a plot's tab, say). Without it,
+   * such elements are no targets. Asked first through `dropRefusal`.
+   */
+  drop?(itemId: string, targetId: string): void;
 }
 
 /** The per-render half, read through a latest-ref (rate rule). */
@@ -443,6 +449,8 @@ export interface ToolBinding<S, M> {
   ops: ToolOps;
   /** Why `itemId` cannot move to `sectionId`, or `null`; the same rule the Plot on options use. */
   moveRefusal(itemId: string, sectionId: string): string | null;
+  /** Why `itemId` cannot be dropped on the target `targetId` (`ops.drop`), or `null`. */
+  dropRefusal?(itemId: string, targetId: string): string | null;
   footer?: Action[];
 }
 

@@ -22,6 +22,7 @@ import type { PvSearch } from '../../pvSearch';
 import { useResetOnChange, type SelectionStore } from '../../workbench/selection';
 import type { ToolDefinition, ToolSchema, ToolUi } from '../../workbench/types';
 import { useLatest } from '../../workbench/useLatest';
+import type { Plot } from '../../types';
 import type { TraceDotState } from './dots';
 import { traceBinding, type TraceBindingInput, type UnitLookup } from './outline';
 import { DRAWING_ITEM_KIND, DRAWINGS_SECTION_KIND } from '../../annotations/host/workbench';
@@ -97,6 +98,8 @@ export interface TraceDefinitionInputs {
   lookupUnit?: UnitLookup;
   /** Opens the Search PVs dialog for the active plot (the add rows' button). */
   searchPvs?(): void;
+  /** Told after a curve moved to another plot (`ops.drop`). */
+  onMovedToPlot?(label: string, plot: Plot): void;
 }
 
 /**
@@ -128,6 +131,7 @@ export function useTraceDefinition(
     if (search !== undefined) input.search = search;
     if (lookupUnit !== undefined) input.lookupUnit = lookupUnit;
     if (hasSearchPvs) input.searchPvs = () => latest.current.searchPvs?.();
+    input.onMovedToPlot = (label, plot) => latest.current.onMovedToPlot?.(label, plot);
     return traceDefinition(input);
   }, [latest, update, selection, search, lookupUnit, hasSearchPvs]);
 }

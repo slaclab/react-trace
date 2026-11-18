@@ -37,6 +37,14 @@
 //   reason and a drop there never calls `ops.move`; an allowed drop calls
 //   `ops.move` once. A drop on the card's own section, or outside every
 //   section, does nothing.
+// - Drops outside the Outline: when the binding has `ops.drop`, an element
+//   marked `[data-workbench-drop="<targetId>"]` anywhere in the document (a
+//   plot's tab or grid cell) is a target while no section is under the
+//   pointer. It is hit-tested by its rect, carries
+//   `data-workbench-drop-state` (allowed / refused, with the reason as its
+//   title) while hovered, and is announced by its `data-workbench-drop-label`.
+//   `dropRefusal` is asked as for a section; an allowed drop calls
+//   `ops.drop` once. Pointer drags only: the keyboard sensor reaches sections.
 //
 // Rate rule: the view-model is compared structurally (sections by header
 // fields, rows by id + kind + status + label + refusal) and the previous
@@ -76,9 +84,12 @@ import {
   type DraggableSyntheticListeners,
   type DragCancelEvent,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragOverEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
+import { getEventCoordinates } from '@dnd-kit/utilities';
+import { DROP_LABEL_ATTR, DROP_STATE_ATTR, DROP_TARGET_ATTR } from './dropTarget';
 import { ChevronDown, ChevronRight, Locked, TrashCan, Unlocked } from '@carbon/icons-react';
 import { FieldBlock } from './FieldBlock';
 import { useContextMenu } from './contextMenu/context';
@@ -634,6 +645,42 @@ interface DropTarget {
 const collision: CollisionDetection = (args) =>
   args.pointerCoordinates ? pointerWithin(args) : rectIntersection(args);
 
+/** An outside drop target under a card, with its tool's refusal. */
+interface OutsideTarget {
+  el: HTMLElement;
+  id: string;
+  label: string;
+  refusal: string | null;
+}
+
+/**
+ * The last outside target (in document order) whose rect holds the point and
+ * that shows there: a target clipped away (a tab scrolled out of its strip)
+ * keeps its rect under whatever covers it, so where the document can say
+ * what is at the point, the target must be in that stack.
+ */
+function outsideTargetAt(doc: Document, x: number, y: number): HTMLElement | null {
+  let hit: HTMLElement | null = null;
+  for (const el of doc.querySelectorAll<HTMLElement>(`[${DROP_TARGET_ATTR}]`)) {
+    const r = el.getBoundingClientRect();
+    if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) hit = el;
+  }
+  if (hit === null || typeof doc.elementsFromPoint !== 'function') return hit;
+  const target = hit;
+  return doc.elementsFromPoint(x, y).some((e) => target.contains(e)) ? target : null;
+}
+
+function markOutside(target: OutsideTarget | null, on: boolean): void {
+  if (target === null) return;
+  if (on) {
+    target.el.setAttribute(DROP_STATE_ATTR, target.refusal === null ? 'allowed' : 'refused');
+    if (target.refusal !== null) target.el.setAttribute('title', target.refusal);
+  } else {
+    target.el.removeAttribute(DROP_STATE_ATTR);
+    if (target.refusal !== null) target.el.removeAttribute('title');
+  }
+}
+
 interface SectionFrameProps {
   id: string;
   className: string;
@@ -857,6 +904,14 @@ export function Outline<S, M, U extends ToolUi = ToolUi>(props: OutlineProps<S, 
     announcedOver.current = from?.sectionId ?? null;
     if (from !== null) setAnnouncement(`Picked up ${from.label}.`);
   }, []);
+  // The outside target under the card (`ops.drop`), marked while hovered.
+  const outside = useRef<OutsideTarget | null>(null);
+  const setOutside = useCallback((next: OutsideTarget | null) => {
+    markOutside(outside.current, false);
+    outside.current = next;
+    markOutside(next, true);
+  }, []);
+  useEffect(() => () => markOutside(outside.current, false), []);
   const onDragOver = useCallback(
     (event: DragOverEvent) => {
       const from = event.active.data.current as RowDrag | undefined;
@@ -865,6 +920,8 @@ export function Outline<S, M, U extends ToolUi = ToolUi>(props: OutlineProps<S, 
       const overId = over?.sectionId ?? null;
       if (from === undefined || overId === announcedOver.current) return;
       announcedOver.current = overId;
+      // Off every section onto an outside target: `onDragMove` names it.
+      if (over === undefined && outside.current !== null) return;
       setAnnouncement(
         over === undefined
           ? `${from.label} is not over a section.`
@@ -873,10 +930,40 @@ export function Outline<S, M, U extends ToolUi = ToolUi>(props: OutlineProps<S, 
     },
     [targetOf, titleOf]
   );
+  const onDragMove = useCallback(
+    (event: DragMoveEvent) => {
+      const from = event.active.data.current as RowDrag | undefined;
+      const binding = source.definition.binding;
+      const start = getEventCoordinates(event.activatorEvent);
+      const doc = rootRef.current?.ownerDocument;
+      // Outside targets lie outside the Outline, never under a section; the
+      // drop itself still checks that no section took it.
+      const el =
+        from !== undefined && binding.ops.drop && start && doc
+          ? outsideTargetAt(doc, start.x + event.delta.x, start.y + event.delta.y)
+          : null;
+      if (el === (outside.current?.el ?? null)) return;
+      if (el === null || from === undefined) {
+        setOutside(null);
+        return;
+      }
+      const id = el.getAttribute(DROP_TARGET_ATTR) ?? '';
+      const label = el.getAttribute(DROP_LABEL_ATTR) ?? id;
+      const refusal = binding.dropRefusal?.(from.itemId, id) ?? null;
+      setOutside({ el, id, label, refusal });
+      setAnnouncement(
+        refusal === null
+          ? `${from.label} is over ${label}.`
+          : `${from.label} cannot go to ${label}: ${refusal}`
+      );
+    },
+    [source, setOutside]
+  );
   const endDrag = useCallback(() => {
     setDragging(null);
     setDropTarget(null);
-  }, []);
+    setOutside(null);
+  }, [setOutside]);
   const onDragCancel = useCallback(
     (event: DragCancelEvent) => {
       endDrag();
@@ -887,10 +974,23 @@ export function Outline<S, M, U extends ToolUi = ToolUi>(props: OutlineProps<S, 
   );
   const onDragEnd = useCallback(
     (event: DragEndEvent) => {
+      const out = event.over === null ? outside.current : null;
       endDrag();
       const from = event.active.data.current as RowDrag | undefined;
       const target = targetOf(from, event.over?.data.current as SectionDrop | undefined);
       if (from === undefined) return;
+      const binding = source.definition.binding;
+      if (out !== null && binding.ops.drop) {
+        // Asked again at the drop, as for a section.
+        const refusal = binding.dropRefusal?.(from.itemId, out.id) ?? null;
+        if (refusal !== null) {
+          setAnnouncement(`${from.label} not moved: ${refusal}`);
+          return;
+        }
+        binding.ops.drop(from.itemId, out.id);
+        setAnnouncement(`${from.label} moved to ${out.label}.`);
+        return;
+      }
       // Asked again at the drop: the state may have moved since the last hover.
       if (target === null) {
         setAnnouncement(`${from.label} not moved.`);
@@ -1036,6 +1136,7 @@ export function Outline<S, M, U extends ToolUi = ToolUi>(props: OutlineProps<S, 
         collisionDetection={collision}
         onDragStart={onDragStart}
         onDragOver={onDragOver}
+        onDragMove={onDragMove}
         onDragEnd={onDragEnd}
         onDragCancel={onDragCancel}
         accessibility={{ announcements: SILENT }}

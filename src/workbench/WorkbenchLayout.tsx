@@ -334,8 +334,19 @@ class LayoutSource<S, M, U extends ToolUi> {
         add: (sectionId, pv) => latest().ops.add(sectionId, pv),
         remove: (itemId) => latest().ops.remove(itemId),
         move: (itemId, sectionId) => latest().ops.move(itemId, sectionId),
+        // Optional: present only while the tool's binding has it.
+        get drop() {
+          return latest().ops.drop
+            ? (itemId: string, targetId: string) => latest().ops.drop?.(itemId, targetId)
+            : undefined;
+        },
       },
       moveRefusal: (itemId, sectionId) => latest().moveRefusal(itemId, sectionId),
+      get dropRefusal() {
+        return latest().dropRefusal
+          ? (itemId: string, targetId: string) => latest().dropRefusal?.(itemId, targetId) ?? null
+          : undefined;
+      },
       get footer() {
         const footer = latest().footer;
         // Each click runs the newest action of that id.

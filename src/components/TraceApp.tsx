@@ -1208,6 +1208,10 @@ export function TraceApp() {
     search: addRowSearch,
     // The add rows' Search PVs: the Signals pane shows the active plot.
     searchPvs: () => openPvSearch(activePlotId),
+    // A curve dropped on another plot's tab or grid cell: the source plot
+    // stays active, so say where it went.
+    onMovedToPlot: (label, plot) =>
+      showToast({ kind: 'success', title: `Moved ${label} to ${plot.title}` }),
   });
   // An error boundary around each pane of the properties panel, with main's
   // default fallback (the message, "Try again", "Reload"). Signals resets like

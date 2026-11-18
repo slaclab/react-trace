@@ -25,8 +25,20 @@
 // another PV meanwhile (`assignCurveToUnitAxis`). Lookups are registered in
 // the model's `unitLookups`, which the owner aborts when a workspace loads. `remove` drops a
 // curve. `move` retargets a curve to another axis of the same plot; there is
-// no cross-plot move. `move`, the drag's drop check and the Y-axis
-// field's options share one rule, `traceMoveRefusal`.
+// no cross-plot move between sections. `move`, the drag's drop check and the
+// Y-axis field's options share one rule, `traceMoveRefusal`.
+//
+// Move to another plot (R6): `ops.drop(item, plotId)` moves a curve to the
+// plot whose tab or grid cell it was dropped on (`[data-workbench-drop]`,
+// PlotArea). `moveCurveToPlot` lands it as a unit lookup would
+// (`assignCurveToUnitAxis`: the target's axis with the source axis's unit,
+// else a new axis with that unit, else the target's first axis). The curve
+// keeps its id, so the selection and its live buffer follow, and every
+// per-curve setting travels; a colour still on the source palette takes the
+// target palette's slot, a user-set colour stays. `moveToPlotRefusal`
+// refuses it while a formula binds the curve, the curve is a formula with
+// bindings, or a drawing is attached to it. After a move the source plot
+// stays active and the owner says so (`onMovedToPlot`).
 //
 // Drawings: after the axis sections, a Drawings section (no
 // add row, header eye on `ui`) lists the active plot's drawings by `objName`,
@@ -62,7 +74,7 @@ import { TIME_X_AXIS } from '../../annotations/catalog/xAxis';
 import { hasValueAxisIn } from '../../annotations/model';
 import { DRAWING_STAYS_REASON } from '../shared/drawingOutline';
 import { makeId } from '../../id';
-import { colorForIndex, paletteOf } from '../../palettes';
+import { colorForIndex, paletteOf, paletteSlot } from '../../palettes';
 import type { PvSearch } from '../../pvSearch';
 import { traceLabel } from '../../traceLabel';
 import type { Axis, Plot, PVTrace } from '../../types';
@@ -104,6 +116,11 @@ export const NOT_ACTIVE_AXIS_REASON = 'That axis is not on the active plot.';
 export const UNKNOWN_CURVE_REASON = 'That curve no longer exists.';
 export const UNKNOWN_AXIS_REASON = 'That axis no longer exists.';
 export const CROSS_PLOT_REASON = 'A curve moves only between axes of its own plot.';
+export const UNKNOWN_PLOT_REASON = 'That plot no longer exists.';
+export const SAME_PLOT_REASON = 'The curve is already on that plot.';
+export const FORMULA_BINDS_REASON = 'A formula on its plot uses this curve.';
+export const FORMULA_BINDINGS_REASON = 'A formula moves only with the curves it uses.';
+export const DRAWING_ATTACHED_REASON = 'A drawing is attached to this curve.';
 /** The stale hint of a drawing row whose axis is hidden. */
 export const AXIS_HIDDEN_HINT = 'Axis hidden';
 
@@ -138,6 +155,8 @@ export interface TraceBindingInput<S extends TraceDotState, M extends TraceCurve
   lookupUnit?: UnitLookup;
   /** Opens the Search PVs dialog for the active plot; no add-row button when absent. */
   searchPvs?(): void;
+  /** Told after a curve moved to another plot (`label` as it read on its source plot). */
+  onMovedToPlot?(label: string, plot: Plot): void;
 }
 
 // ------------------------------------------------------------- move rule --
@@ -207,6 +226,65 @@ export function moveCurve<S extends TraceDotState>(state: S, id: string, axisId:
   const plot = plotHoldingCurve(state, id);
   if (plot?.traces.find((t) => t.id === id)?.axisId === axisId) return state;
   return patchCurve(state, id, { axisId });
+}
+
+/**
+ * Why the curve `id` cannot move to the plot `plotId`, or `null`. A formula
+ * binding or an attached drawing ties a curve to its plot.
+ */
+export function moveToPlotRefusal(state: TraceDotState, id: string, plotId: string): string | null {
+  if (isActiveDrawing(state, id)) return DRAWING_STAYS_REASON;
+  const from = plotHoldingCurve(state, id);
+  const curve = from?.traces.find((t) => t.id === id);
+  if (!from || !curve) return UNKNOWN_CURVE_REASON;
+  const to = state.plots.find((p) => p.id === plotId);
+  if (!to) return UNKNOWN_PLOT_REASON;
+  if (to.id === from.id) return SAME_PLOT_REASON;
+  if (to.axes.length === 0) return UNKNOWN_AXIS_REASON;
+  if (curve.kind === 'formula' && Object.keys(curve.bindings ?? {}).length > 0) {
+    return FORMULA_BINDINGS_REASON;
+  }
+  const bound = from.traces.some(
+    (t) => t.kind === 'formula' && Object.values(t.bindings ?? {}).includes(id)
+  );
+  if (bound) return FORMULA_BINDS_REASON;
+  if ((from.annotations ?? []).some((a) => a.traceId === id)) return DRAWING_ATTACHED_REASON;
+  return null;
+}
+
+/**
+ * `state` with the curve `id` moved to the plot `plotId`, appended to its
+ * curves: on the axis with the source axis's unit, else a new axis
+ * `newAxisId` with that unit, else the first axis. Same id and settings; a
+ * colour still on the source palette takes the target palette's slot for its
+ * new position. Unchanged when `moveToPlotRefusal` refuses.
+ */
+export function moveCurveToPlot<S extends TraceDotState>(
+  state: S,
+  id: string,
+  plotId: string,
+  newAxisId: string
+): S {
+  if (moveToPlotRefusal(state, id, plotId) !== null) return state;
+  const from = plotHoldingCurve(state, id)!;
+  const to = state.plots.find((p) => p.id === plotId)!;
+  const curve = from.traces.find((t) => t.id === id)!;
+  const firstAxisId = to.axes[0].id;
+  const color =
+    paletteSlot(curve.color, paletteOf(from)) >= 0
+      ? colorForIndex(paletteOf(to), to.traces.length)
+      : curve.color;
+  const moved: PVTrace = { ...curve, axisId: firstAxisId, color };
+  const next: S = {
+    ...state,
+    plots: state.plots.map((p) => {
+      if (p.id === from.id) return { ...p, traces: p.traces.filter((t) => t.id !== id) };
+      if (p.id === to.id) return { ...p, traces: [...p.traces, moved] };
+      return p;
+    }),
+  };
+  const unit = from.axes.find((a) => a.id === curve.axisId)?.units?.trim();
+  return unit ? assignCurveToUnitAxis(next, id, unit, firstAxisId, newAxisId) : next;
 }
 
 /** `state` with `axis` appended to the plot `plotId`. */
@@ -498,6 +576,20 @@ export function traceBinding<S extends TraceDotState, M extends TraceCurveModel>
     select?.({ level: 'item', kind: FORMULA_CURVE_ITEM_KIND, id });
   }
 
+  // A curve to another plot; the source plot stays active and the owner is told.
+  function moveToPlot(itemId: string, plotId: string): void {
+    const state = getState();
+    if (moveToPlotRefusal(state, itemId, plotId) !== null) return;
+    const from = plotHoldingCurve(state, itemId)!;
+    const curve = from.traces.find((t) => t.id === itemId)!;
+    const target = state.plots.find((p) => p.id === plotId)!;
+    const label = traceLabel(curve, from.traces);
+    lookups().abort(itemId);
+    const newAxisId = makeId('axis');
+    update((s) => moveCurveToPlot(s, itemId, plotId, newAxisId));
+    input.onMovedToPlot?.(label, target);
+  }
+
   function addAxis(): void {
     const plot = activePlot(getState());
     if (!plot) return;
@@ -539,8 +631,10 @@ export function traceBinding<S extends TraceDotState, M extends TraceCurveModel>
         if (traceMoveRefusal(getState(), itemId, sectionId) !== null) return;
         update((state) => moveCurve(state, itemId, sectionId));
       },
+      drop: moveToPlot,
     },
     moveRefusal: (itemId, sectionId) => traceMoveRefusal(getState(), itemId, sectionId),
+    dropRefusal: (itemId, plotId) => moveToPlotRefusal(getState(), itemId, plotId),
     footer,
   };
 }
