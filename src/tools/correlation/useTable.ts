@@ -28,10 +28,12 @@
 // Back-pressure: every result is a whole table, so frames are coalesced before
 // the plot sees them. The first frame of a window is handed over at once; the
 // frames after it only replace the pending one, and the newest is handed over
-// when the window closes — the next animation frame, or no sooner than
-// LARGE_FRAME_INTERVAL_MS for a frame of LARGE_FRAME_ROWS rows or more (near
-// the 10,000-row cap one draw costs more than an animation frame). Health
-// sees every arrival at once.
+// when the window closes, on the next animation frame. Under sustained
+// pressure (a frame was coalesced) at LARGE_FRAME_ROWS rows or more — near the
+// 10,000-row cap one draw costs more than an animation frame — the window
+// after that hand-over stays open LARGE_FRAME_INTERVAL_MS, so the page keeps
+// time between draws; a frame that arrives after a quiet window is handed
+// over at once, whatever its size. Health sees every arrival at once.
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
@@ -72,7 +74,10 @@ export const SPEC_DEBOUNCE_MS = 300;
 export const HIDDEN_LONG_MS = 10_000;
 /** The health line is re-evaluated this often. */
 export const HEALTH_TICK_MS = 1000;
-/** A frame this many rows or larger keeps the next hand-over at least LARGE_FRAME_INTERVAL_MS away. */
+/**
+ * Under pressure, a coalesced frame this many rows or larger keeps the next
+ * hand-over at least LARGE_FRAME_INTERVAL_MS away.
+ */
 export const LARGE_FRAME_ROWS = 2000;
 export const LARGE_FRAME_INTERVAL_MS = 250;
 
@@ -307,13 +312,15 @@ export class TableController {
     this.dispatch({ type: 'result', id, table, now: Date.now() });
     const spec = this.current;
     this.latest = { id, table, columnPvs: spec?.columnPvs ?? {}, cutKey: cutKeyOf(spec) };
-    if (this.window === null) this.handOver();
+    if (this.window === null) this.handOver(false);
     else this.pendingFrame = true;
     this.emit();
   }
 
-  // Show the newest frame (unless paused) and open a coalescing window.
-  private handOver(): void {
+  // Show the newest frame (unless paused) and open a coalescing window; a
+  // large `coalesced` frame (frames arrive faster than they are drawn) holds
+  // the window open longer.
+  private handOver(coalesced: boolean): void {
     this.pendingFrame = false;
     if (!this.paused) this.shown = this.latest;
     const rows = this.latest?.table.tsNs.length ?? 0;
@@ -321,10 +328,10 @@ export class TableController {
       () => {
         this.window = null;
         if (!this.pendingFrame) return;
-        this.handOver();
+        this.handOver(true);
         this.emit();
       },
-      rows >= LARGE_FRAME_ROWS ? LARGE_FRAME_INTERVAL_MS : 0
+      coalesced && rows >= LARGE_FRAME_ROWS ? LARGE_FRAME_INTERVAL_MS : 0
     );
   }
 

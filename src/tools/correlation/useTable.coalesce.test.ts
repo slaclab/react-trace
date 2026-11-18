@@ -2,8 +2,9 @@
 // that arrive faster than the page draws are coalesced. The first frame of a
 // window is handed over at once, later ones only replace the pending frame,
 // and the newest is handed over when the window closes (the next animation
-// frame; at least LARGE_FRAME_INTERVAL_MS for frames of LARGE_FRAME_ROWS rows
-// or more). Health still sees every arrival.
+// frame; under pressure at LARGE_FRAME_ROWS rows or more, the window after a
+// coalesced hand-over stays open LARGE_FRAME_INTERVAL_MS). Health still sees
+// every arrival.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   FormulaEngineSubscribeOptions,
@@ -122,14 +123,32 @@ describe('frame coalescing', () => {
     c.dispose();
   });
 
-  it('frames at the row cap are handed over at most every LARGE_FRAME_INTERVAL_MS', () => {
+  it('under pressure, frames at the row cap are handed over at most every LARGE_FRAME_INTERVAL_MS', () => {
     const s = manualScheduler();
     const { c, push } = live(s.schedule);
+    // One frame at a time (a quiet window between): each is handed over at once.
     push(table(10));
     expect(s.pending.at(-1)?.delayMs).toBe(0);
     s.run();
-    push(table(LARGE_FRAME_ROWS));
+    const big = table(LARGE_FRAME_ROWS);
+    push(big);
+    expect(c.getSnapshot().frame?.table).toBe(big);
+    expect(s.pending.at(-1)?.delayMs).toBe(0);
+    // A frame while that one is drawn: coalesced, handed over when the window
+    // closes, and the next window stays open longer.
+    const newer = table(LARGE_FRAME_ROWS);
+    push(newer);
+    s.run();
+    expect(c.getSnapshot().frame?.table).toBe(newer);
     expect(s.pending.at(-1)?.delayMs).toBe(LARGE_FRAME_INTERVAL_MS);
+    // Small coalesced frames keep the animation-frame window.
+    push(table(10));
+    s.run();
+    s.run();
+    push(table(10));
+    push(table(10));
+    s.run();
+    expect(s.pending.at(-1)?.delayMs).toBe(0);
     c.dispose();
   });
 
