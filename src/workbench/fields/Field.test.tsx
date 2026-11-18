@@ -33,6 +33,7 @@ import {
   type StubState,
   type StubTool,
   type StubUi,
+  type StubCtx,
 } from '../__fixtures__/stubTool';
 import type { FieldDef, Target } from '../types';
 import { Field } from './Field';
@@ -569,5 +570,44 @@ describe('number: a NaN value', () => {
     const field = { ...gainField, get: () => Number.NaN } as StubField;
     const { container } = mount(field);
     expect(container.querySelector<HTMLInputElement>('#stub-gain')!.value).toBe('');
+  });
+});
+
+describe('number: an empty field the tool will not clear', () => {
+  /** The tools' rule for a required number: a null write is ignored. */
+  const requiredField = {
+    ...windowField,
+    when: undefined,
+    set: (ctx: StubCtx, value: number | null) => {
+      if (value === null) return;
+      ctx.update((s) => ({
+        ...s,
+        items: s.items.map((i) => (i.id === ctx.target.id ? { ...i, window: value } : i)),
+      }));
+    },
+  } as StubField;
+
+  it('is shown as an error, not as a blank that silently keeps the old value', () => {
+    const stub = createStubTool();
+    stub.update((s) => ({ ...s, items: s.items.map((i) => ({ ...i, window: 5 })) }));
+    const { container } = mount(requiredField, { stub });
+    const input = container.querySelector<HTMLInputElement>('#stub-window')!;
+    fireEvent.change(input, { target: { value: '' } });
+    expect(itemA(stub).window).toBe(5);
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByText('Required')).toBeTruthy();
+    fireEvent.change(input, { target: { value: '7' } });
+    expect(itemA(stub).window).toBe(7);
+    expect(input.hasAttribute('aria-invalid')).toBe(false);
+  });
+
+  it('an empty field the tool clears is not an error', () => {
+    const stub = createStubTool();
+    stub.update((s) => ({ ...s, items: s.items.map((i) => ({ ...i, gain: 2 })) }));
+    const { container } = mount(gainField, { stub });
+    const input = container.querySelector<HTMLInputElement>('#stub-gain')!;
+    fireEvent.change(input, { target: { value: '' } });
+    expect(itemA(stub).gain).toBeNull();
+    expect(input.hasAttribute('aria-invalid')).toBe(false);
   });
 });

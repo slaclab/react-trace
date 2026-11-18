@@ -272,7 +272,11 @@ function NumberControl({
     setPrevValue(current);
     if (parseNumber(text) !== current) setText(current === null ? '' : String(current));
   }
-  const invalid = parseNumber(text, { min, max }) === undefined;
+  const parsed = parseNumber(text, { min, max });
+  // Emptied, but the tool kept its value (it refuses null): a required
+  // field, not a blank that silently keeps the old number.
+  const missing = parsed === null && current !== null;
+  const invalid = parsed === undefined || missing;
   return (
     <span className="wb-field__number">
       <TextInput
@@ -283,7 +287,7 @@ function NumberControl({
         inputMode="decimal"
         value={text}
         invalid={invalid}
-        invalidText={rangeText(min, max)}
+        invalidText={missing ? 'Required' : rangeText(min, max)}
         disabled={disabled}
         aria-describedby={describedBy}
         data-testid={testId}
