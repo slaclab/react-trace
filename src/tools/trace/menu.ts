@@ -3,9 +3,11 @@
 //
 //   Signal (a curve's row or legend entry): Copy value at cursor (the curve's
 //   sample at the plot cursor's last time inside the plot, else its latest),
-//   Open in, Correlate against <the plot's other PV>, PV info. Inspect data,
-//   Create formula, Move to axis, Hide and Remove come from the curve's own
-//   card fields.
+//   Open in, Correlate against <the plot's other PV>, PV info, Move to plot
+//   (the other plots, each disabled with `moveToPlotRefusal`'s reason; it
+//   runs the same move as a drop on the plot's tab or grid cell, and is its
+//   keyboard path). Inspect data, Create formula, Move to axis, Hide and
+//   Remove come from the curve's own card fields.
 //   Point: the reading under the pointer, Reset zoom, Copy plot as image and
 //   Copy link (built by the plot, `tracePointMenu`).
 //
@@ -22,6 +24,7 @@ import type { LiveSeriesResult } from '../../hooks/useLiveSeries';
 import type { Axis, Plot } from '../../types';
 import type { PlotPoint, PointMenu } from '../../annotations/host/useDrawingHost';
 import type {
+  Choice,
   ContextMenuWriters,
   InfoRow,
   MenuSignal,
@@ -38,6 +41,7 @@ import {
   viewLinkFor,
 } from '../contextMenu';
 import type { TraceDotState } from './dots';
+import { moveToPlotRefusal } from './outline';
 import { curveOf, plotHoldingCurve } from './schema/curve';
 
 /** What Trace's writers read. */
@@ -48,6 +52,8 @@ export interface TraceMenuInput {
   formulaResultsByPlot: ReadonlyMap<string, ReadonlyMap<string, FormulaSeriesResult>>;
   /** The plot cursor's last time inside the plot (ms), or undefined. */
   cursorOf(plotId: string): number | undefined;
+  /** Moves the curve to the plot (the binding's `ops.drop`); no Move to plot without it. */
+  moveToPlot?(curveId: string, plotId: string): void;
 }
 
 /** Where a plot records its cursor's time (ms) while the pointer is inside it; null outside the app. */
@@ -132,6 +138,23 @@ export function traceMenuWriters(input: TraceMenuInput): ContextMenuWriters {
         }
       }
       return pvInfoRows(s.pv, known, plot?.archiver);
+    },
+    moveToPlot: (s): Choice[] | null => {
+      const plot = holding(s);
+      const run = input.moveToPlot;
+      if (!plot || !run) return null;
+      return state.plots
+        .filter((p) => p.id !== plot.id)
+        .map((p) => {
+          // The reason rides in the label: the menu shows a disabled entry's
+          // label, not a tooltip of its own.
+          const refusal = moveToPlotRefusal(state, s.id, p.id);
+          return {
+            label: refusal === null ? p.title : `${p.title}: ${refusal}`,
+            disabled: refusal ?? false,
+            run: () => run(s.id, p.id),
+          };
+        });
     },
   };
 }

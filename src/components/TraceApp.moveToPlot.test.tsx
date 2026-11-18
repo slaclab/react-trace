@@ -204,3 +204,51 @@ describe('dragging a Signals card to another plot', () => {
     expect(document.querySelector('.wb-card--open')).toBeNull();
   });
 });
+
+describe('Move to plot in the signal menu (the keyboard path)', () => {
+  /** Opens TEST:SINE's signal menu as the Menu key or Shift+F10 does: on the focused card. */
+  function openMenuFromKeyboard(pv: string) {
+    const head = rowNamed(pv);
+    head.focus();
+    const r = head.getBoundingClientRect();
+    fireEvent.contextMenu(head, { clientX: r.left, clientY: r.top, button: 0 });
+    return screen.getByRole('menuitem', { name: /Move to plot/ });
+  }
+
+  it('lists the other plots and moves the curve from the keyboard', () => {
+    mount();
+    const entry = openMenuFromKeyboard('TEST:SINE');
+    entry.focus();
+    fireEvent.keyDown(entry, { key: 'ArrowRight' });
+    const plot2 = screen.getByRole('menuitem', { name: 'Plot 2' });
+    expect(screen.queryByRole('menuitem', { name: 'Plot 1' })).toBeNull();
+    plot2.focus();
+    // Carbon activates a menu item on Enter's key-up.
+    fireEvent.keyDown(plot2, { key: 'Enter' });
+    fireEvent.keyUp(plot2, { key: 'Enter' });
+
+    expect(rows().some((r) => r.includes('TEST:SINE'))).toBe(false);
+    expect(screen.getByText('Moved TEST:SINE to Plot 2')).toBeTruthy();
+    // The toast sits in a polite live region: the move is announced.
+    const toast = screen.getByText('Moved TEST:SINE to Plot 2');
+    expect(toast.closest('[aria-live="polite"]')).not.toBeNull();
+  });
+
+  it('a plot it cannot go to is listed disabled, with the reason', () => {
+    mount();
+    fireEvent.click(rowNamed('TEST:SINE'));
+    fireEvent.click(screen.getByRole('button', { name: /create formula from this curve/i }));
+    const entry = openMenuFromKeyboard('TEST:SINE');
+    entry.focus();
+    fireEvent.keyDown(entry, { key: 'ArrowRight' });
+    const plot2 = screen.getByRole('menuitem', { name: `Plot 2: ${FORMULA_BINDS_REASON}` });
+    expect(plot2.getAttribute('aria-disabled')).toBe('true');
+    plot2.focus();
+    // Carbon activates a menu item on Enter's key-up.
+    fireEvent.keyDown(plot2, { key: 'Enter' });
+    fireEvent.keyUp(plot2, { key: 'Enter' });
+    fireEvent.click(plot2);
+    expect(rows().some((r) => r.includes('TEST:SINE'))).toBe(true);
+    expect(screen.queryByText(/^Moved /)).toBeNull();
+  });
+});

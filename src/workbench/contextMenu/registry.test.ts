@@ -207,6 +207,7 @@ describe('placement contract (scene 7)', () => {
     hide: [true, false],
     remove: [true, false],
     'move-to-axis': [true, false],
+    'move-to-plot': [true, false],
     'reset-zoom': [false, true],
   };
 

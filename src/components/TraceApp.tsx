@@ -1305,6 +1305,8 @@ export function TraceApp() {
             liveResultsByPlot,
             formulaResultsByPlot,
             cursorOf: (id) => cursorTimes.get(id),
+            // Move to plot runs the same move as a drop on a tab or cell.
+            moveToPlot: (id, plotId) => definition.binding.ops.drop?.(id, plotId),
           }}
         />
         <UndoKeyListener onUndo={() => undoAnnotations(poppedOutPlot ?? activePlotId)} />

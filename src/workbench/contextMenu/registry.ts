@@ -102,6 +102,8 @@ export interface ContextMenuWriters {
   createFormula?(s: MenuSignal): Offer | null;
   /** The axes the signal can move to, the current one selected. */
   moveTo?(s: MenuSignal): Choice[] | null;
+  /** The other plots the signal can move to, each disabled with its reason when it cannot. */
+  moveToPlot?(s: MenuSignal): Choice[] | null;
   /** The signal's visibility. */
   hide?(s: MenuSignal): { hidden: boolean; set(hidden: boolean): void } | null;
   remove?(s: MenuSignal): Offer | null;
@@ -396,6 +398,17 @@ export const CONTEXT_ACTIONS: readonly ContextActionSpec[] = Object.freeze([
       const list = signal && w.moveTo ? w.moveTo(signal) : null;
       return list && list.length > 0
         ? { id: 'move-to-axis', label: 'Move to axis', children: choices('move-to-axis', list) }
+        : null;
+    },
+  },
+  {
+    id: 'move-to-plot',
+    scopes: ['signal'],
+    group: 'item',
+    resolve: ({ signal, w }) => {
+      const list = signal && w.moveToPlot ? w.moveToPlot(signal) : null;
+      return list && list.length > 0
+        ? { id: 'move-to-plot', label: 'Move to plot', children: choices('move-to-plot', list) }
         : null;
     },
   },
