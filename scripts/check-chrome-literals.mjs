@@ -2,7 +2,9 @@
 // Chrome literal guard: Trace's chrome takes its colours and fonts from the
 // canopy contract variables, so a host stylesheet can restyle it. A colour or
 // a font written as a literal escapes that contract. This script fails on any
-// hex colour or non-contract font declaration in the chrome files -- and, in
+// colour literal (a hex colour, rgb(), rgba(), hsl(), hsla() or another colour
+// function, or a CSS colour name) or non-contract font declaration in the
+// chrome files -- and, in
 // the workbench (FONT_SIZE_TREES), on any font size that is not a contract
 // text size -- except on a line whose previous line carries
 // `canopy-allow-literal: <reason>`, and it pins those exemptions to
@@ -108,6 +110,169 @@ export function gatesFontSize(key) {
 
 /** A hex colour token: valid lengths only, not an `&#160;` entity or a longer word. */
 const HEX_TOKEN = /(?<![\w&])#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})(?!\w)/gi;
+/**
+ * Every CSS named colour (the 148 of the CSS Color spec). `transparent` and
+ * `currentcolor` are left out: they name no colour of their own.
+ */
+export const NAMED_COLOURS = [
+  'aliceblue',
+  'antiquewhite',
+  'aqua',
+  'aquamarine',
+  'azure',
+  'beige',
+  'bisque',
+  'black',
+  'blanchedalmond',
+  'blue',
+  'blueviolet',
+  'brown',
+  'burlywood',
+  'cadetblue',
+  'chartreuse',
+  'chocolate',
+  'coral',
+  'cornflowerblue',
+  'cornsilk',
+  'crimson',
+  'cyan',
+  'darkblue',
+  'darkcyan',
+  'darkgoldenrod',
+  'darkgray',
+  'darkgreen',
+  'darkgrey',
+  'darkkhaki',
+  'darkmagenta',
+  'darkolivegreen',
+  'darkorange',
+  'darkorchid',
+  'darkred',
+  'darksalmon',
+  'darkseagreen',
+  'darkslateblue',
+  'darkslategray',
+  'darkslategrey',
+  'darkturquoise',
+  'darkviolet',
+  'deeppink',
+  'deepskyblue',
+  'dimgray',
+  'dimgrey',
+  'dodgerblue',
+  'firebrick',
+  'floralwhite',
+  'forestgreen',
+  'fuchsia',
+  'gainsboro',
+  'ghostwhite',
+  'gold',
+  'goldenrod',
+  'gray',
+  'green',
+  'greenyellow',
+  'grey',
+  'honeydew',
+  'hotpink',
+  'indianred',
+  'indigo',
+  'ivory',
+  'khaki',
+  'lavender',
+  'lavenderblush',
+  'lawngreen',
+  'lemonchiffon',
+  'lightblue',
+  'lightcoral',
+  'lightcyan',
+  'lightgoldenrodyellow',
+  'lightgray',
+  'lightgreen',
+  'lightgrey',
+  'lightpink',
+  'lightsalmon',
+  'lightseagreen',
+  'lightskyblue',
+  'lightslategray',
+  'lightslategrey',
+  'lightsteelblue',
+  'lightyellow',
+  'lime',
+  'limegreen',
+  'linen',
+  'magenta',
+  'maroon',
+  'mediumaquamarine',
+  'mediumblue',
+  'mediumorchid',
+  'mediumpurple',
+  'mediumseagreen',
+  'mediumslateblue',
+  'mediumspringgreen',
+  'mediumturquoise',
+  'mediumvioletred',
+  'midnightblue',
+  'mintcream',
+  'mistyrose',
+  'moccasin',
+  'navajowhite',
+  'navy',
+  'oldlace',
+  'olive',
+  'olivedrab',
+  'orange',
+  'orangered',
+  'orchid',
+  'palegoldenrod',
+  'palegreen',
+  'paleturquoise',
+  'palevioletred',
+  'papayawhip',
+  'peachpuff',
+  'peru',
+  'pink',
+  'plum',
+  'powderblue',
+  'purple',
+  'rebeccapurple',
+  'red',
+  'rosybrown',
+  'royalblue',
+  'saddlebrown',
+  'salmon',
+  'sandybrown',
+  'seagreen',
+  'seashell',
+  'sienna',
+  'silver',
+  'skyblue',
+  'slateblue',
+  'slategray',
+  'slategrey',
+  'snow',
+  'springgreen',
+  'steelblue',
+  'tan',
+  'teal',
+  'thistle',
+  'tomato',
+  'turquoise',
+  'violet',
+  'wheat',
+  'white',
+  'whitesmoke',
+  'yellow',
+  'yellowgreen',
+];
+const NAMED = new RegExp(`(?<![\\w.#$-])(?:${NAMED_COLOURS.join('|')})(?![\\w(-])`, 'gi');
+
+/**
+ * A colour function: rgb(), rgba(), hsl(), hsla() and the newer hwb(), lab(),
+ * lch(), oklab(), oklch() and color(srgb ...). One that takes a `var()` is
+ * not a literal.
+ */
+const COLOUR_FN =
+  /(?<![\w-])(?:(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\((?![^)]*var\()|color\(\s*(?:srgb|srgb-linear|display-p3|a98-rgb|prophoto-rgb|rec2020|xyz|xyz-d50|xyz-d65)\b)/gi;
 const FONT = /\b(?:font(?:-family)?|fontFamily)\s*:([^;]*)/g;
 const FONT_SIZE = /(?<![\w-])(?:font-size|fontSize)\s*:([^;]*)/g;
 const MARKER = /canopy-allow-literal:\s*(.*?)\s*(?:\*\/.*|-->.*)?$/;
@@ -185,10 +350,11 @@ function colourText(value, keepQuoted) {
 }
 
 /**
- * Offsets in `value` of colour literals. `leadingHex` limits hex colours to
- * those a CSS value can start with, so prose such as `see issue #123` passes.
+ * Offsets in `value` of colour literals: a hex colour, a colour function and,
+ * with `named`, a CSS colour name. `leadingHex` limits hex colours to those a
+ * CSS value can start with, so prose such as `see issue #123` passes.
  */
-function colourOffsets(value, { leadingHex = false, keepQuoted = false } = {}) {
+function colourOffsets(value, { leadingHex = false, keepQuoted = false, named = false } = {}) {
   const text = colourText(value, keepQuoted);
   const out = [];
   for (const m of text.matchAll(HEX_TOKEN)) {
@@ -201,12 +367,17 @@ function colourOffsets(value, { leadingHex = false, keepQuoted = false } = {}) {
     )
       out.push(m.index);
   }
+  for (const m of text.matchAll(COLOUR_FN)) out.push(m.index);
+  if (named) for (const m of text.matchAll(NAMED)) out.push(m.index);
   return out;
 }
 
-/** The property names whose values are checked for a colour literal in a string. */
-const STYLE_PROP =
-  /^(?:font|font-family|font-size|--[\w-]+|background|border|outline|fill|stroke|(?:[\w-]+-)?color)$/i;
+/** The CSS properties whose value can hold a colour name. */
+const COLOUR_PROP =
+  /^(?:--[\w-]+|(?:[\w-]+-)?colou?r|background(?:-[\w-]+)?|border(?:-[\w-]+)?|outline(?:-[\w-]+)?|fill|stroke|(?:box|text|drop)-shadow|text-decoration|column-rule(?:-[\w-]+)?)$/i;
+
+/** The properties checked in CSS-looking text inside a string: colours and fonts. */
+const isStyleProp = (prop) => /^font(?:-family|-size)?$/.test(prop) || COLOUR_PROP.test(prop);
 
 /** A declaration: `prop: value` ended by `;`, `}` or the end; a selector ends in `{` and is not one. */
 const DECL = /(?<![\w-])(--[\w-]+|[a-z][a-z0-9-]*)\s*:(?!:)\s*([^;{}]*)(?=[;}]|$)/gi;
@@ -214,15 +385,15 @@ const DECL = /(?<![\w-])(--[\w-]+|[a-z][a-z0-9-]*)\s*:(?!:)\s*([^;{}]*)(?=[;}]|$
 /**
  * Offsets in `text` of literal declarations: a colour in a value, or a
  * non-contract font (and, with `fontSize`, font size). With `onlyStyleProps`
- * only the properties of STYLE_PROP count, for CSS-looking text in a string.
+ * only a colour or font property counts (isStyleProp), for CSS-looking text in a string.
  */
 function declOffsets(text, { fontSize, onlyStyleProps = false }) {
   const out = [];
   for (const m of text.matchAll(DECL)) {
     const prop = m[1].toLowerCase();
-    if (onlyStyleProps && !STYLE_PROP.test(prop)) continue;
+    if (onlyStyleProps && !isStyleProp(prop)) continue;
     const base = m.index + m[0].length - m[2].length;
-    for (const at of colourOffsets(m[2])) out.push(base + at);
+    for (const at of colourOffsets(m[2], { named: COLOUR_PROP.test(prop) })) out.push(base + at);
     if ((prop === 'font' || prop === 'font-family') && !fontValueOk(m[2])) out.push(base);
     if (fontSize && prop === 'font-size' && !sizeValueOk(m[2])) out.push(base);
   }
@@ -332,7 +503,11 @@ function tsLines(text, { tsx, fontSize }) {
     const colourValue =
       (ctx.attr !== undefined && COLOUR_ATTR.test(ctx.attr)) ||
       (ctx.key !== undefined && COLOUR_KEY.test(ctx.key));
-    for (const at of colourOffsets(raw, { leadingHex: !colourValue, keepQuoted: true }))
+    for (const at of colourOffsets(raw, {
+      leadingHex: !colourValue,
+      keepQuoted: true,
+      named: colourValue,
+    }))
       flag(start + at);
     for (const at of declOffsets(raw, { fontSize, onlyStyleProps: true })) flag(start + at);
     // Key-driven font checks run once per value: on the whole template, not its pieces.
@@ -386,7 +561,7 @@ function literalLines(text, { fontSize = false, kind } = {}) {
 
 /** The line-by-line test for text of unknown syntax. */
 function rawLineIsLiteral(line, fontSize) {
-  if (new RegExp(HEX_TOKEN).test(line)) return true;
+  if (new RegExp(HEX_TOKEN).test(line) || new RegExp(COLOUR_FN).test(line)) return true;
   for (const [, raw] of line.matchAll(FONT)) if (!fontValueOk(raw)) return true;
   if (fontSize) for (const [, raw] of line.matchAll(FONT_SIZE)) if (!sizeValueOk(raw)) return true;
   return false;

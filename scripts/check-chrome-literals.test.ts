@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   DEFAULT_FILES,
   GUARDED_TREES,
+  NAMED_COLOURS,
   REASONS,
   ROOT,
   check,
@@ -581,5 +582,195 @@ describe('command line, by file type', () => {
   it('exits 1 for a hex colour in a string and in a declaration', () => {
     expect(cli('bad.tsx').status).toBe(1);
     expect(cli('bad.css').status).toBe(1);
+  });
+});
+
+describe('colour functions and colour names', () => {
+  it.each([
+    'rgb(255, 0, 0)',
+    'rgb(255 0 0 / 50%)',
+    'RGB(1,2,3)',
+    'rgba(0, 0, 0, 0.5)',
+    'hsl(0 100% 50%)',
+    'hsla(0, 0%, 0%, 1)',
+    'hwb(0 0% 0%)',
+    'lab(50% 40 59)',
+    'lch(50% 80 30)',
+    'oklab(60% 0.1 0.1)',
+    'oklch(60% 0.2 30)',
+    'color(display-p3 1 0 0)',
+    'color(srgb 1 0 0)',
+  ])('flags %s in a stylesheet and in a string', (fn) => {
+    expect(lit(`.a {\n  color: ${fn};\n}\n`, 'css')).toEqual([2]);
+    expect(lit(`.a {\n  border: 1px solid ${fn};\n}\n`, 'css')).toEqual([2]);
+    expect(lit(`const o = { color: '${fn}' };`, 'ts')).toEqual([1]);
+    expect(lit(`const css = 'background: ${fn}';`, 'ts')).toEqual([1]);
+    expect(lit(`const c = <i style={{ background: \`${fn}\` }} />;`, 'tsx')).toEqual([1]);
+  });
+
+  it('flags a colour function on any line of raw text', () => {
+    expect(isLiteral('color: rgb(255, 0, 0);')).toBe(true);
+    expect(isLiteral("fill: 'hsl(0 100% 50%)',")).toBe(true);
+  });
+
+  it('flags a colour function that has no declaration around it', () => {
+    expect(lit("const c = 'rgba(0, 0, 0, 0.5)';", 'ts')).toEqual([1]);
+    expect(lit('const g = `linear-gradient(rgb(0 0 0), #fff)`;', 'ts')).toEqual([1]);
+  });
+
+  it('passes a colour function that takes a variable, and similar names', () => {
+    const css = [
+      '.a {',
+      '  color: rgb(var(--canopy-rgb) / 50%);',
+      '  background: color-mix(in srgb, var(--canopy-surface) 50%, transparent);',
+      '  border-color: currentcolor;',
+      '  fill: transparent;',
+      '}',
+    ].join('\n');
+    expect(lit(css, 'css')).toEqual([]);
+    expect(lit("const f = rgbToHex('x') + getRgb(1) + colour(2);", 'ts')).toEqual([]);
+  });
+
+  const NAMES = NAMED_COLOURS as string[];
+
+  it('knows all 148 CSS colour names', () => {
+    expect(NAMES).toHaveLength(148);
+    expect(new Set(NAMES).size).toBe(148);
+    expect(NAMES).toEqual(expect.arrayContaining(['red', 'rebeccapurple', 'lightgoldenrodyellow']));
+    expect(NAMES.every((name) => /^[a-z]+$/.test(name))).toBe(true);
+  });
+
+  it('flags every colour name as a colour, in a stylesheet and in a string', () => {
+    for (const name of NAMES) {
+      expect(lit(`.a {\n  color: ${name};\n}\n`, 'css'), `css ${name}`).toEqual([2]);
+      expect(lit(`const o = { backgroundColor: '${name}' };`, 'ts'), `ts ${name}`).toEqual([1]);
+    }
+  });
+
+  it.each([
+    ['a colour in a shorthand', '.a {\n  border: 1px solid red;\n}\n'],
+    ['a second colour on the line', '.a {\n  color: var(--x); background: white;\n}\n'],
+    ['a gradient', '.a {\n  background: linear-gradient(to right, navy, tan);\n}\n'],
+    ['a custom property', '.a {\n  --accent: orange;\n}\n'],
+    [
+      'a shadow over several lines',
+      '.a {\n  box-shadow:\n    0 0 1px var(--x),\n    0 0 2px black;\n}\n',
+    ],
+    ['a capitalised name', '.a {\n  COLOR: RED;\n}\n'],
+    ['a name with a fallback', '.a {\n  color: var(--x, red);\n}\n'],
+    ['!important', '.a {\n  color: red !important;\n}\n'],
+  ])('flags %s', (_name, css) => {
+    expect(lit(css, 'css').length).toBe(1);
+  });
+
+  it.each([
+    ['white-space', '.a {\n  white-space: nowrap;\n}\n'],
+    [
+      'a name inside a custom property name',
+      '.a {\n  color: var(--x-red);\n  border: 1px solid var(--red-border);\n}\n',
+    ],
+    ['a class selector', '.redirect,\n.red,\n.a.tan:hover {\n  margin: 0;\n}\n'],
+    ['a selector with a colon', 'a:red,\n.b:not(.red) {\n  margin: 0;\n}\n'],
+    ['a name in a url', '.a {\n  background: url(red.png) no-repeat;\n}\n'],
+    ['a name in quoted text', '.a::after {\n  content: "red";\n}\n'],
+    [
+      'a keyword that merely starts with a name',
+      '.a {\n  animation: tangent 1s;\n  border-style: solid;\n}\n',
+    ],
+    [
+      'a name in a property that has no colour',
+      '.a {\n  animation-name: red;\n  grid-area: tan;\n}\n',
+    ],
+    ['a name in a comment', '.a {\n  /* color: red */\n  margin: 0; /* white */\n}\n'],
+    ['inherit and none', '.a {\n  color: inherit;\n  border: none;\n  background: none;\n}\n'],
+  ])('passes %s', (_name, css) => {
+    expect(lit(css, 'css')).toEqual([]);
+  });
+
+  it.each([
+    ['a variant prop', 'const a = <Tag type="red">x</Tag>;'],
+    ['a kind prop', "const a = <Tag kind='red' />;"],
+    ['a class name', 'const a = <i className="red tan" />;'],
+    ['a data attribute', 'const a = <i data-colour="red" />;'],
+    ['an identifier', 'const red = 1; const white = red + 1;'],
+    ['a variant key', "const o = { variant: 'red', tone: 'white' };"],
+    ['a union type', "type Tone = 'red' | 'white';"],
+    ['a union type on a colour key', "interface S { color: 'red' | 'white' }"],
+    ['a lookup key', "const v = tones['red'];"],
+    ['a selector', "document.querySelector('.red');"],
+    ['an error message', "throw new Error('color red is not allowed');"],
+    ['a comment', '// color: red\nconst a = 1;'],
+    ['JSX text', 'const a = <p>colour: red</p>;'],
+    ['a name inside a longer word', "const o = { color: 'redirect', fill: 'tangent' };"],
+    ['a variable colour', 'const o = { color: red, fill: white };'],
+    [
+      'a contract colour',
+      "const o = { color: 'var(--canopy-text-primary)', fill: 'currentColor' };",
+    ],
+    ['a url fragment', "const o = { fill: 'url(#a11)' };"],
+  ])('passes %s in TypeScript', (_name, code) => {
+    expect(lit(code, 'tsx')).toEqual([]);
+  });
+
+  it.each([
+    ['a colour attribute', 'const a = <rect fill="red" />;'],
+    ['an expression attribute', "const a = <rect stroke={'white'} />;"],
+    ['a stop colour', 'const a = <stop stopColor="gold" />;'],
+    ['a colour key', "const o = { color: 'red' };"],
+    ['a quoted colour key', "const o = { 'background-color': 'white' };"],
+    ['a style object', "const a = <i style={{ borderColor: 'tan' }} />;"],
+    ['a conditional value', "const o = { color: dark ? 'white' : 'black' };"],
+    ['a value in a shorthand', "const o = { border: '1px solid red' };"],
+    ['a canvas assignment', "ctx.fillStyle = 'red';"],
+    ['an element style assignment', "el.style.backgroundColor = 'white';"],
+    ['a template value', 'const o = { color: `${x}, red` };'],
+    ['a CSS declaration in a string', "const css = 'color: red; margin: 0';"],
+  ])('flags %s in TypeScript', (_name, code) => {
+    expect(lit(code, 'tsx')).toEqual([1]);
+  });
+
+  it('flags a colour name only where the syntax is known', () => {
+    expect(scan('.a { color: red; }\n').hits).toEqual([]);
+    expect(scan('.a { color: red; }\n', { kind: 'css' }).hits).toEqual([
+      { line: 1, text: '.a { color: red; }' },
+    ]);
+  });
+
+  it('honours the marker on a colour function and a colour name', () => {
+    const css =
+      '/* canopy-allow-literal: @media print */\n.a { color: black; }\n.b { color: rgb(0 0 0); }\n';
+    expect(scan(css, { kind: 'css' })).toEqual({
+      hits: [{ line: 3, text: '.b { color: rgb(0 0 0); }' }],
+      exempt: [{ line: 2, reason: '@media print' }],
+    });
+  });
+
+  it('fails check() and the command line for them', () => {
+    const files: Record<string, string> = {
+      'Name.css': '.a {\n  color: red;\n}\n',
+      'Fn.tsx': "export const o = { color: 'rgb(1, 2, 3)' };\n",
+    };
+    const result = check([fixture('Name.css'), fixture('Fn.tsx')], {
+      full: false,
+      allowText: '',
+      read: (file: string) => files[path.basename(file)],
+    });
+    expect(result.errors).toEqual([
+      'fixtures/Name.css:2: color: red;',
+      "fixtures/Fn.tsx:1: export const o = { color: 'rgb(1, 2, 3)' };",
+    ]);
+
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'chrome-literals-colour-'));
+    try {
+      writeFileSync(path.join(dir, 'a.css'), files['Name.css']);
+      const run = spawnSync(process.execPath, [SCRIPT, path.join(dir, 'a.css')], {
+        encoding: 'utf8',
+        cwd: '/',
+      });
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('a.css:2: color: red;');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
