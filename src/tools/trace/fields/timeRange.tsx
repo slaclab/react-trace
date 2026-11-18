@@ -55,7 +55,10 @@ export function TimeRangeControl({ id, value, onChange }: TimeRangeControlProps)
     setSpanError(undefined);
   }
 
-  const commitSpan = () => {
+  // Enter always writes, even an unchanged span: re-committing the current
+  // range resumes following (#131). Blur writes only a change, so tabbing out
+  // of an untouched field does not throw away a pan.
+  const commitSpan = (always: boolean) => {
     const trimmed = spanText.trim();
     if (trimmed === '') {
       setSpanError(undefined);
@@ -67,7 +70,7 @@ export function TimeRangeControl({ id, value, onChange }: TimeRangeControlProps)
     }
     setSpanError(undefined);
     const next = `-${trimmed}`;
-    if (next !== value.timeRange) onChange({ ...value, timeRange: next });
+    if (always || next !== value.timeRange) onChange({ ...value, timeRange: next });
   };
 
   // A blank To means now: the custom range is checked against the time of the
@@ -113,9 +116,9 @@ export function TimeRangeControl({ id, value, onChange }: TimeRangeControlProps)
           invalid={!!spanError}
           invalidText={spanError}
           onChange={(e) => setSpanText(e.target.value)}
-          onBlur={commitSpan}
+          onBlur={() => commitSpan(false)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') commitSpan();
+            if (e.key === 'Enter') commitSpan(true);
           }}
         />
       )}

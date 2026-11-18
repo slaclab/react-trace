@@ -533,6 +533,7 @@ export function SinglePlot({
   const viewWindowRef = useRef(viewWindowNs);
   const onViewWindowChangeRef = useRef(onViewWindowChange);
   const xAxisRef = useRef(plot.xAxis);
+  const autoScrollRef = useRef(plot.autoScroll !== false);
   const pendingWindowRef = useRef<TimeWindowMs | null>(null);
   const windowFrameRef = useRef<number | null>(null);
   // Time-band gestures: the refresh interval decides whether a window "ends at
@@ -1091,6 +1092,20 @@ export function SinglePlot({
     onUpdateAxisRef.current = onUpdateAxis;
     onApplyXAxisRef.current = onApplyXAxis;
     onViewWindowChangeRef.current = onViewWindowChange;
+    // A range pick (a new `xAxis`) or Autoscroll back on resumes following and
+    // drops the view window (TraceApp's `lastSeen`), so drop a wheel or arrow
+    // key window still queued: landing after the reset, it would freeze the plot
+    // again. Checked here, not on `following`, which turns true a render later.
+    const autoScroll = plot.autoScroll !== false;
+    if (plot.xAxis !== xAxisRef.current || (autoScroll && !autoScrollRef.current)) {
+      if (windowFrameRef.current !== null) {
+        const win = wrapRef.current?.ownerDocument.defaultView ?? window;
+        win.cancelAnimationFrame(windowFrameRef.current);
+        windowFrameRef.current = null;
+      }
+      pendingWindowRef.current = null;
+    }
+    autoScrollRef.current = autoScroll;
     xAxisRef.current = plot.xAxis;
     refreshIntervalRef.current = refreshIntervalMs(plot);
     loadedRef.current = {
