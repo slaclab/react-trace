@@ -117,6 +117,9 @@ const {
 import type { WaveformState } from './query';
 import type { WaveformRingSummary } from './model';
 import type { WaveformCurveFrames, WaveformPlotFrames } from './plotOption';
+import { READOUT_CLASS } from '../../plot/readoutDock';
+import { resetSiteDefaults } from '../../site/store';
+import { setSiteConfig } from '../../site/testing';
 
 const A = 'WF:A';
 const B = 'WF:B';
@@ -848,5 +851,58 @@ describe('gestures', () => {
     });
     expect(s.xScale).toBeUndefined();
     expect(s.yScale).toBeUndefined();
+  });
+});
+
+describe('with site defaults', () => {
+  afterEach(() => resetSiteDefaults());
+
+  function mountWith(update?: (fn: (st: WaveformState) => WaveformState) => void) {
+    const s = stateWith({ pvs: [A] });
+    render(
+      <WaveformPlot
+        state={s}
+        model={modelOf(s, { [A]: ring(3) })}
+        frames={frames({ [A]: [1, 2, 3] })}
+        hare="connected"
+        update={update}
+      />
+    );
+    return s;
+  }
+  const tooltip = () => calls[calls.length - 1].option.tooltip as Record<string, unknown>;
+
+  it('docks the read-out by default; with the site’s cursor choice it follows the cursor', () => {
+    mountWith();
+    expect(tooltip().className).toBe(READOUT_CLASS);
+    cleanup();
+    setSiteConfig({ waveform: { plot: { tooltip: 'cursor' } } });
+    mountWith();
+    expect(tooltip().className).toBeUndefined();
+    expect(tooltip().position).toBeUndefined();
+  });
+
+  it('takes the site’s double-click: none leaves the plot’s scales alone', () => {
+    setSiteConfig({ waveform: { plot: { doubleClick: 'none' } } });
+    let s = stateWith({ pvs: [A], xScale: { auto: false, min: 2, max: 6 } });
+    const update = vi.fn((fn: (st: WaveformState) => WaveformState) => {
+      s = fn(s);
+    });
+    render(
+      <WaveformPlot
+        state={s}
+        model={modelOf(s, { [A]: ring(3) })}
+        frames={frames({ [A]: [1, 2, 3] })}
+        hare="connected"
+        update={update}
+      />
+    );
+    emitFinished();
+    const stage = document.querySelector('.waveform-plot__stage') as HTMLElement;
+    act(() => {
+      fireEvent.doubleClick(stage, { clientX: 300, clientY: 200, button: 0 });
+    });
+    expect(update).not.toHaveBeenCalled();
+    expect(s.xScale).toEqual({ auto: false, min: 2, max: 6 });
   });
 });

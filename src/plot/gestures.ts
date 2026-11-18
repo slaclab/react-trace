@@ -3,22 +3,27 @@
 // behave alike and differ only in what they plot.
 //
 //   Left-drag    on a Y band stretches that axis about its centre (down
-//                widens); on the X band stretches the X axis (a surface may
-//                own that drag: Trace's time band anchors at its right edge
-//                and keeps following now). In the plot area it pans or draws
-//                a zoom box, as the strip's drag mode says.
+//                widens) or pans it, as the surface's `yAxisDrag` says;
+//                Shift or Alt does the other. On the X band it stretches the
+//                X axis (a surface may own that drag: Trace's time band
+//                anchors at its right edge and keeps following now). In the
+//                plot area it pans or draws a zoom box, as the strip's drag
+//                mode says.
 //   Pan          moves the X axis and every manual Y axis of the grid so the
 //                content follows the pointer; an auto-scaled Y axis stays
 //                auto-scaled.
 //   Zoom box     zooms both axes to the box on release. A box thinner than
 //                THIN_BOX_PX in one direction zooms the other axis only; a
 //                box thin both ways is a click and writes nothing.
-//   Wheel        over the plot area zooms the X axis and every Y axis of the
-//                grid about the cursor; over an axis band zooms that axis
-//                only. Shift or a sideways scroll pans the X axis; Alt zooms
-//                the grid's primary Y alone; a pinch (ctrl/meta) always zooms.
+//   Wheel        over the plot area zooms about the cursor what the
+//                surface's `wheel` says: the X axis and every Y axis of the
+//                grid (`xy`; Alt: the grid's primary Y alone), or the X axis
+//                alone (`x`; Alt: X and every Y). Over an axis band it zooms
+//                that axis only. Shift or a sideways scroll pans the X axis;
+//                a pinch (ctrl/meta) always zooms.
 //   Double-click on a band returns that axis to auto-scale; in the plot area
-//                every axis of the grid.
+//                every axis of the grid, unless the surface's `doubleClick`
+//                is `none`.
 //
 // A press on plot chrome, or one the drawing layer claims, is never a
 // gesture. Drags track on the plot's own window (a detached plot's too) and
@@ -34,8 +39,9 @@
 // once so a burst of events never freezes it twice.
 //
 // The tool supplies a `PlotGestureSurface`: its geometry, its axes, how a
-// value maps to a pixel, and its writers. The surface is read at event time
-// through a ref, so the listeners are installed once per mount.
+// value maps to a pixel, its writers, and the site's gesture choices
+// (`prefs`, gesturePrefs.ts). The surface is read at event time through a
+// ref, so the listeners are installed once per mount.
 //
 // No colour literals here (src/plot is literal-guarded).
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
@@ -54,6 +60,7 @@ import {
   type Extent,
   type GridRect,
 } from './geometry';
+import { DEFAULT_GESTURE_PREFS, type GesturePrefs } from './gesturePrefs';
 import type { DragMode } from './plotToggles';
 
 /** One axis a gesture can move. The layer flips `auto` to false when it freezes it. */
@@ -125,6 +132,13 @@ export interface PlotGestureSurface {
   claimsPointer(e: MouseEvent): boolean;
   /** The X band's drag when the surface owns it; null for none (the press is ignored). */
   xBandDrag?(grid: GestureGrid, x: number): XBandDrag | null;
+  /** The gesture choices; each one absent is the layer's own (DEFAULT_GESTURE_PREFS). */
+  prefs?(): Partial<GesturePrefs>;
+}
+
+/** `surface`'s gesture choices, the layer's own where it names none. */
+function prefsOf(surface: PlotGestureSurface): GesturePrefs {
+  return { ...DEFAULT_GESTURE_PREFS, ...surface.prefs?.() };
 }
 
 /** A zoom box thinner than this (px) in one direction zooms the other axis only. */
@@ -310,10 +324,13 @@ export function installPlotGestures(
     };
   };
 
-  // Axis-band stretch: the extent captured at press, scaled about its centre
-  // by the total drag; an auto-scaled axis freezes on the first frame.
+  // Axis-band drag: the extent captured at press, scaled about its centre
+  // by the total drag (stretch) or moved with the pointer (pan, a Y band
+  // only); an auto-scaled axis freezes on the first frame.
   let stretch: {
     axis: GestureAxis;
+    grid: GestureGrid;
+    mode: 'stretch' | 'pan';
     captured: Extent;
     start: number;
     freeze: boolean;
@@ -326,10 +343,20 @@ export function installPlotGestures(
   const stretchFrames = coalesce<number>((d) => {
     const s = stretch;
     if (!s) return;
-    const factor = s.axis.dim === 'y' ? stretchFactorY(d) : stretchFactorX(d);
-    // A factor-1 frame would only re-commit the capture (and freeze for nothing).
-    if (factor === 1) return;
-    const next = stretchExtent(s.captured, factor, s.axis.log);
+    let next: Extent;
+    if (s.mode === 'pan') {
+      // Screen y grows downward, S upward: a drag down shifts the extent up
+      // so the value under the pointer stays under it.
+      const height = s.grid.rect.height;
+      if (d === 0 || height <= 0) return;
+      const span = toS(s.captured.max, s.axis.log) - toS(s.captured.min, s.axis.log);
+      next = panExtentBy(s.captured, (d / height) * span, s.axis.log);
+    } else {
+      const factor = s.axis.dim === 'y' ? stretchFactorY(d) : stretchFactorX(d);
+      // A factor-1 frame would only re-commit the capture (and freeze for nothing).
+      if (factor === 1) return;
+      next = stretchExtent(s.captured, factor, s.axis.log);
+    }
     if (!write(s.axis, next, s.freeze)) return;
     s.wrote = true;
     s.freeze = false;
@@ -562,8 +589,13 @@ export function installPlotGestures(
     const ext = s.extent(hit.axis, hit.grid);
     if (!ext) return;
     stretchFrames.cancel();
+    // A Y band pans or stretches as the surface says; Shift or Alt the other.
+    const panY =
+      hit.axis.dim === 'y' && (prefsOf(s).yAxisDrag === 'pan') !== (e.shiftKey || e.altKey);
     stretch = {
       axis: hit.axis,
+      grid: hit.grid,
+      mode: panY ? 'pan' : 'stretch',
       captured: ext,
       start: hit.axis.dim === 'y' ? y : x,
       freeze: hit.axis.auto,
@@ -615,7 +647,9 @@ export function installPlotGestures(
       if (!stretch.active && Math.abs(d) <= DRAG_THRESHOLD_PX) return;
       stretch.active = true;
       stretchFrames.queue(d);
-      setCursor(stretch.axis.dim === 'y' ? 'ns-resize' : 'ew-resize');
+      setCursor(
+        stretch.mode === 'pan' ? 'grabbing' : stretch.axis.dim === 'y' ? 'ns-resize' : 'ew-resize'
+      );
     }
   };
 
@@ -718,7 +752,7 @@ export function installPlotGestures(
     return true;
   };
 
-  // The plot area: zoom every axis of the grid about the cursor.
+  // The plot area: zoom the axes the surface's `wheel` names about the cursor.
   const wheelGrid = (
     s: PlotGestureSurface,
     grid: GestureGrid,
@@ -727,7 +761,9 @@ export function installPlotGestures(
     y: number
   ): boolean => {
     const pinch = e.ctrlKey || e.metaKey;
-    if (e.altKey && !pinch) {
+    const wheel = prefsOf(s).wheel;
+    const alt = e.altKey && !pinch;
+    if (alt && wheel === 'xy') {
       // Alt: the primary Y alone.
       const primary = grid.ys[0];
       if (!primary || primary.fixed || e.deltaY === 0) return false;
@@ -742,10 +778,13 @@ export function installPlotGestures(
       zoomAxis(s, grid.x, grid, x, factor, true, false);
       handled = true;
     }
-    for (const axis of grid.ys) {
-      if (axis.fixed) continue;
-      zoomAxis(s, axis, grid, y, factor, true, false);
-      handled = true;
+    // `x`: the Y axes only with Alt.
+    if (wheel === 'xy' || alt) {
+      for (const axis of grid.ys) {
+        if (axis.fixed) continue;
+        zoomAxis(s, axis, grid, y, factor, true, false);
+        handled = true;
+      }
     }
     return handled || pinch;
   };
@@ -795,6 +834,7 @@ export function installPlotGestures(
     }
     const grid = gridAt(s, x, y);
     if (!grid || onDrawing(e.target) || s.claimsPointer(e)) return;
+    if (prefsOf(s).doubleClick === 'none') return;
     let any = resetAxis(s, grid.x);
     for (const axis of grid.ys) any = resetAxis(s, axis) || any;
     if (any) e.preventDefault();

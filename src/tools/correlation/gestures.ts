@@ -24,6 +24,7 @@ import {
   type CorrelationAxisInput,
 } from './plotOption';
 import type { CorrelationAxisScale, CorrelationState } from './query';
+import { siteDefaults } from '../../site/store';
 
 /** The width a Y axis band claims in a grid's side margin. */
 const Y_BAND_PX = OVERLAY_AXIS_WIDTH;
@@ -197,6 +198,7 @@ export function useCorrelationGestures({
       },
       dragMode: (): DragMode => latest.current.state.drag,
       claimsPointer: (e) => latest.current.claimsPointer(e),
+      prefs: () => siteDefaults().correlation.plot,
     };
   }, [chart, projection]);
   usePlotGestures(boxRef, surface);

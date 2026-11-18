@@ -13,6 +13,7 @@ import {
 } from '../../plot/gestures';
 import type { DragMode } from '../../plot/plotToggles';
 import type { WaveformAxisScale, WaveformState } from './query';
+import { siteDefaults } from '../../site/store';
 
 /** The width the Y axis band claims left of the grid (the option's grid inset). */
 const Y_BAND_PX = 64;
@@ -133,6 +134,7 @@ export function useWaveformGestures({
       },
       dragMode: (): DragMode => latest.current.state.drag,
       claimsPointer: (e) => latest.current.claimsPointer(e),
+      prefs: () => siteDefaults().waveform.plot,
     };
   }, [chart, projection]);
   usePlotGestures(stageRef, surface);

@@ -36,6 +36,7 @@ import {
   type ProjectionInstance,
 } from '../plot/geometry';
 import { attachReadoutDrag, createReadoutDock, projectionArea } from '../plot/readoutDock';
+import { siteDefaults } from '../site/store';
 import type { OverlayHandle } from '../annotations/AnnotationLayer';
 import type { Annotation } from '../annotations/model';
 import { AxisBadges } from '../tools/trace/plot/AxisBadges';
@@ -957,6 +958,8 @@ export function SinglePlot({
       },
       dragMode: () => dragModeRef.current,
       claimsPointer: (e) => drawingRef.current.host.claimsPointer(e),
+      // The site's gesture choices (src/site), read at event time.
+      prefs: () => siteDefaults().trace.plot,
       xBandDrag: () => timeBandDrag(),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refs only; built once per mount

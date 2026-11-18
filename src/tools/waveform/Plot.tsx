@@ -93,6 +93,7 @@ import { StatisticsPanel } from '../../statistics/StatisticsPanel';
 import { useStatistics } from '../../statistics/useStatistics';
 import { WAVEFORM_METRICS, waveformStatFrame, waveformUnitOf } from './metrics';
 import './waveform.css';
+import { siteDefaults } from '../../site/store';
 
 /**
  * The render benchmark mark, set on every ECharts `finished` while the page
@@ -268,8 +269,11 @@ export function WaveformPlot({
   const [laidOut] = useState(createChartSlot);
   const [projection] = useState(() => createWaveformProjection(laidOut.get));
   // The data read-out's dock; its grip is wired on the chart's element below.
+  // Undefined while the site has the read-out follow the cursor (src/site).
   const [readoutDock] = useState(() =>
-    createReadoutDock({ grid: projectionArea(projection.store) })
+    siteDefaults().waveform.plot.tooltip === 'docked'
+      ? createReadoutDock({ grid: projectionArea(projection.store) })
+      : undefined
   );
   const [frameStore] = useState(createFrameStore);
   const [ownShed] = useState(() => createShedStore());
@@ -374,7 +378,7 @@ export function WaveformPlot({
     if (el === null) return;
     const instance = init(el);
     chart.current = instance;
-    const detachReadout = attachReadoutDrag(el, readoutDock);
+    const detachReadout = readoutDock ? attachReadoutDrag(el, readoutDock) : () => {};
     last.current = null;
     laidOut.set(null);
     projection.reset();

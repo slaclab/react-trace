@@ -134,6 +134,7 @@ import { applyCut, exportFileName, newestTsNs } from './export';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { chartPngSource, downloadHref } from '../shared/chartImage';
 import { markRendered } from '../shared/renderMark';
+import { siteDefaults } from '../../site/store';
 
 export const RENDERED_MARK = 'corr:rendered';
 
@@ -288,6 +289,9 @@ export function CorrelationPlot({
   // Width only places split panels; other layouts ignore it, so a resize
   // does not rebuild their option.
   const layoutWidth = layoutWidthOf(view, axes, width);
+  // The data read-out docked in a corner, or following the cursor: the
+  // site's choice (src/site), fixed for the page load.
+  const dock = siteDefaults().correlation.plot.tooltip === 'docked' ? drawing?.dock : undefined;
   const option = useMemo(
     () => ({
       ...plotOption({
@@ -300,7 +304,7 @@ export function CorrelationPlot({
         theme: chartTheme,
         hidden,
         width: layoutWidth,
-        readoutDock: drawing?.dock,
+        readoutDock: dock,
       }),
       textStyle: { fontFamily },
     }),
@@ -315,11 +319,10 @@ export function CorrelationPlot({
       hidden,
       layoutWidth,
       fontFamily,
-      drawing?.dock,
+      dock,
     ]
   );
   // The read-out's grip, on the chart's own element.
-  const dock = drawing?.dock;
   useEffect(() => {
     const dom = drawing?.boxRef.current?.querySelector<HTMLElement>('.correlation-plot__chart');
     return dock && dom ? attachReadoutDrag(dom, dock) : undefined;

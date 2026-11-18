@@ -11,6 +11,9 @@ import {
 } from '../../annotations/host/useDrawingDocument';
 import type { Annotation } from '../../annotations/model';
 import { firePointer } from '../../plot/testUtils';
+import { READOUT_CLASS } from '../../plot/readoutDock';
+import { resetSiteDefaults } from '../../site/store';
+import { setSiteConfig } from '../../site/testing';
 import { useCorrelationUi, type CorrelationUiRecord } from './tool';
 import type { CorrelationUi } from './schema';
 import { createSelectionStore } from '../../workbench/selection';
@@ -866,5 +869,41 @@ describe('CorrelationCanvas drawings', () => {
     act(() => toggle.click());
     expect(live.ui?.drawingsHidden).toBe(true);
     expect(live.doc?.hidden).toBe(true);
+  });
+});
+
+describe('CorrelationCanvas with site defaults', () => {
+  afterEach(() => resetSiteDefaults());
+
+  const tooltip = () =>
+    (plots()[plots().length - 1].option as unknown as { tooltip: Record<string, unknown> }).tooltip;
+
+  it('docks the read-out by default; with the site’s cursor choice it follows the cursor', () => {
+    mountDrawing();
+    expect(tooltip().className).toBe(READOUT_CLASS);
+    cleanup();
+    setSiteConfig({ correlation: { plot: { tooltip: 'cursor' } } });
+    mountDrawing();
+    expect(tooltip().className).toBeUndefined();
+    expect(tooltip().position).toBeUndefined();
+  });
+
+  it('takes the site’s wheel: over the plot, X alone', () => {
+    setSiteConfig({ correlation: { plot: { wheel: 'x' } } });
+    const { box, live } = mountDrawing();
+    act(() => onFinished.current?.());
+    act(() => {
+      box.dispatchEvent(
+        new WheelEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          clientX: 330,
+          clientY: 186,
+          deltaY: -100,
+        })
+      );
+    });
+    expect(live.state.xScale?.auto).toBe(false);
+    expect(live.state.yScale).toBeUndefined();
   });
 });

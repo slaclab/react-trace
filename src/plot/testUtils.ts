@@ -25,6 +25,7 @@ export interface PointerOpts {
   /** Defaults to 1 for pointerdown/pointermove, 0 otherwise. */
   buttons?: number;
   shiftKey?: boolean;
+  altKey?: boolean;
   pointerId?: number;
 }
 
@@ -64,6 +65,7 @@ export function fireMouse(
     button: opts.button ?? 0,
     buttons: opts.buttons ?? (pressed ? 1 : 0),
     shiftKey: opts.shiftKey ?? false,
+    altKey: opts.altKey ?? false,
   });
   el.dispatchEvent(ev);
   return ev;
