@@ -67,6 +67,7 @@ import { capturePlots, type PngSource, type CapturedPlot } from '../io/exportPlo
 import { createChartRegistry } from '../io/chartRegistry';
 import { PostToElogModal } from './PostToElogModal';
 import { PVSearchModal } from './PVSearchModal';
+import { moleSearch, toSearchRegex } from '../pvSearch';
 import { ConfigStoreModal } from './ConfigStoreModal';
 import { useElogConfig } from '../hooks/useElogConfig';
 import {
@@ -1191,11 +1192,20 @@ export function TraceApp() {
     unitLookups,
     shownAxisRange: (plotId, axisId) => axisRangesRef.current.get(plotId)?.get(axisId),
   };
+  // The add rows' PV search: the active plot's archiver, and a glob typed as
+  // main's PV name field read it (`toSearchRegex`), as the curve's PV name
+  // field does.
+  const activeArchiver = activePlot.archiver;
+  const addRowSearch = useMemo(
+    () => moleSearch({ archiver: activeArchiver, toPattern: toSearchRegex }),
+    [activeArchiver]
+  );
   const definition = useTraceDefinition({
     state: tool,
     model,
     update,
     selection,
+    search: addRowSearch,
     // The add rows' Search PVs: the Signals pane shows the active plot.
     searchPvs: () => openPvSearch(activePlotId),
   });
