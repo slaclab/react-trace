@@ -118,6 +118,16 @@ export interface PlotFrame {
   id: number;
   table: TableResultDTO;
   columnPvs: Record<string, string>;
+  /**
+   * The role PVs and lookback of its subscription: a Clear cut holds only for
+   * frames with the key it was made on (Plot.tsx `useCorrelationFrame`).
+   */
+  cutKey: string;
+}
+
+/** A frame's `cutKey`: its binding PVs and window start. */
+export function cutKeyOf(spec: TableSpec | null): string {
+  return spec === null ? '' : JSON.stringify([spec.bindingPvs, spec.t0Ns]);
 }
 
 export interface TableSnapshot {
@@ -296,7 +306,7 @@ export class TableController {
     if (table == null || id !== this.health.id || this.active?.id !== id) return;
     this.dispatch({ type: 'result', id, table, now: Date.now() });
     const spec = this.current;
-    this.latest = { id, table, columnPvs: spec?.columnPvs ?? {} };
+    this.latest = { id, table, columnPvs: spec?.columnPvs ?? {}, cutKey: cutKeyOf(spec) };
     if (this.window === null) this.handOver();
     else this.pendingFrame = true;
     this.emit();

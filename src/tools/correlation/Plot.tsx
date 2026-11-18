@@ -25,6 +25,9 @@
 // Clear cut (`useCorrelationFrame`). Pause only flips the caller's `paused`
 // flag (client-side; the subscription is untouched), Clear records the newest
 // tsNs on screen as the cut and resets the strips, and works while paused.
+// The cut holds for the role PVs and lookback it was made on (the frame's
+// `cutKey`): the first frame of a subscription with other PVs or another
+// lookback drops it, so that subscription's backfill is drawn.
 //
 // ECharts: `animation:false`; the scatter is `large:true` statically — at the
 // default N = 1000 it stays under ECharts' 2000-point large threshold, so
@@ -655,12 +658,16 @@ export interface CorrelationFrame {
  */
 // eslint-disable-next-line react-refresh/only-export-components -- the frame on screen is shared with the actions App.tsx registers
 export function useCorrelationFrame(
-  frame: FrameLike | null,
+  frame: (FrameLike & { cutKey?: string }) | null,
   metrics: readonly Metric[],
   /** Show statistics: off, nothing is evaluated or recorded. */
   enabled = true
 ): CorrelationFrame {
-  const [cut, setCut] = useState<number | null>(null);
+  const [cutAt, setCutAt] = useState<{ ns: number; key: string | undefined } | null>(null);
+  // A frame of other role PVs or another lookback ends the cut.
+  const frameKey = frame?.cutKey;
+  if (cutAt !== null && frame !== null && frameKey !== cutAt.key) setCutAt(null);
+  const cut = cutAt !== null && (frame === null || frameKey === cutAt.key) ? cutAt.ns : null;
   const shown = useMemo(() => applyCut(frame, cut), [frame, cut]);
   const statFrame = useMemo(() => (enabled ? correlationStatFrame(shown) : null), [shown, enabled]);
   // The strips' clock is the data clock: the newest row on screen, in ms.
@@ -674,9 +681,9 @@ export function useCorrelationFrame(
   const clearStrips = stats.clear;
   const clear = useCallback(() => {
     const newest = newestTsNs(shown);
-    if (newest !== null) setCut(newest);
+    if (newest !== null) setCutAt({ ns: newest, key: frameKey });
     clearStrips();
-  }, [shown, clearStrips]);
+  }, [shown, frameKey, clearStrips]);
   return { shown, cut, statFrame, table: stats.table, strips: stats.strips, clear };
 }
 
