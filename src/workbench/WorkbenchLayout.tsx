@@ -2,7 +2,10 @@
 //
 // One tool's whole surface: the actions bar on top, then the Sidebar (the
 // properties panel: the top block of signals and the plot-wide sections)
-// beside the canvas, which is this component's child slot. The layout provides the tool's selection to every part (the
+// beside the canvas, which is this component's child slot. A tool may lead the
+// actions row with a heading (`heading`): its name and a one-line status,
+// outside the toolbar. Under the host bar, which hides the actions bar, a
+// heading keeps the row to itself. The layout provides the tool's selection to every part (the
 // canvas reads it with `useWorkbenchSelection`) and its action registry to the
 // canvas (`useCanvasActions`) and the actions bar. Styles: `workbench.css`, the
 // one stylesheet entry, imported here.
@@ -131,6 +134,37 @@ function useQuickOpenShortcut(): void {
   }, []);
 }
 
+/**
+ * The heading that leads the actions row: the tool's name (`prefix` before
+ * `name`, as canopy-shell's AppHeader draws it), and a one-line `status` after
+ * it. Each part is optional: embedded, a host's tile bar already names the
+ * tool, so a tool may pass the status alone.
+ */
+export interface WorkbenchHeading {
+  prefix?: string;
+  name?: string;
+  status?: ReactNode;
+}
+
+/** The actions row's heading; null when it has nothing to show. */
+function headingOf(heading: WorkbenchHeading | undefined): ReactNode {
+  if (!heading) return null;
+  const { prefix, name, status } = heading;
+  const hasStatus = status !== undefined && status !== null && status !== '';
+  if (!name && !hasStatus) return null;
+  return (
+    <div className="wb-workbench__heading">
+      {name ? (
+        <span className="wb-workbench__name">
+          {prefix ? <span className="wb-workbench__prefix">{prefix}</span> : null}
+          {name}
+        </span>
+      ) : null}
+      {hasStatus ? <span className="wb-workbench__status">{status}</span> : null}
+    </div>
+  );
+}
+
 /** The two halves of the properties panel: the top block (`Outline`) and the plot-wide sections. */
 export type WorkbenchPane = 'signals' | 'properties';
 
@@ -167,6 +201,8 @@ export interface WorkbenchLayoutProps<S, M, U extends ToolUi = ToolUi> {
   toolId?: string;
   /** Under the host bar: the tool's one-line state for the host's tile bar (e.g. `live`, `paused`). */
   hostState?: string;
+  /** Leads the actions row (also under the host bar, alone); none when absent. */
+  heading?: WorkbenchHeading;
   /**
    * Wraps each pane of the properties panel, inside the panel (its header and
    * collapse stay outside). Absent, the panes render as they are.
@@ -612,6 +648,7 @@ export function WorkbenchLayout<S, M, U extends ToolUi = ToolUi>(
     ),
     [memory, outlinePane, plotPane, wrapPane, selectionKey]
   );
+  const heading = headingOf(props.heading);
   const canvasSlot = useMemo(
     () => (
       <div ref={canvasRef} className="wb-workbench__canvas" data-wb-surface="canvas">
@@ -626,8 +663,11 @@ export function WorkbenchLayout<S, M, U extends ToolUi = ToolUi>(
       <CanvasActionsProvider registry={registry}>
         <ContextMenuProvider schemaWriters={menuWriters}>
           <div className="wb-workbench" ref={rootRef} onKeyDown={onKeyDown}>
-            {hostBar ? null : (
+            {hostBar ? (
+              heading && <div className="wb-workbench__actions">{heading}</div>
+            ) : (
               <div className="wb-workbench__actions">
+                {heading}
                 <ActionsBar registry={registry} />
               </div>
             )}

@@ -2,7 +2,8 @@
 // add-trace row and the Correlation and Waveform sections. Two sources,
 // merged: the host's channel catalog ranked in the browser (catalog.ts,
 // fuzzy.ts), then Mole's archiver index (mole.ts), debounced per field by
-// usePVSearch.
+// usePVSearch. The Search PVs dialog reads Mole alone, with glob patterns
+// (toSearchRegex), its own limit and the previous matches kept while typing.
 
 export {
   CHANNEL_DEBOUNCE_MS,
@@ -23,5 +24,17 @@ export {
   type ChannelMatchResult,
   type FuzzyResult,
 } from './fuzzy';
-export { MOLE_SEARCH_LIMIT, moleSearch, moleSearchPattern, type PvSearch } from './mole';
-export { usePVSearch, type PVSearchResult, type PVSearchStatus } from './usePVSearch';
+export {
+  MOLE_SEARCH_LIMIT,
+  moleSearch,
+  moleSearchPattern,
+  toSearchRegex,
+  type MoleSearchOptions,
+  type PvSearch,
+} from './mole';
+export {
+  usePVSearch,
+  type PVSearchOptions,
+  type PVSearchResult,
+  type PVSearchStatus,
+} from './usePVSearch';

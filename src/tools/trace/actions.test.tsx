@@ -40,10 +40,12 @@ afterEach(() => {
 
 function handlers(): { [K in keyof TraceActionHandlers]: Mock<() => void> } {
   return {
+    searchPvs: vi.fn<() => void>(),
     refreshArchive: vi.fn<() => void>(),
     dataInsight: vi.fn<() => void>(),
     postElog: vi.fn<() => void>(),
     save: vi.fn<() => void>(),
+    configStore: vi.fn<() => void>(),
     print: vi.fn<() => void>(),
     import: vi.fn<() => void>(),
     exportCsv: vi.fn<() => void>(),
@@ -123,21 +125,42 @@ function press(init: KeyboardEventInit): KeyboardEvent {
 }
 
 const HANDLER_OF: Record<(typeof BAR_IDS)[number], keyof TraceActionHandlers> = {
+  'search-pvs': 'searchPvs',
   'refresh-archive': 'refreshArchive',
   'data-insight': 'dataInsight',
   'post-elog': 'postElog',
   save: 'save',
+  'config-store': 'configStore',
   print: 'print',
   import: 'import',
   'export-csv': 'exportCsv',
   'export-png': 'exportPng',
 };
 
+describe("Trace's own actions", () => {
+  it('put Search PVs first and Config store after Save, as the retired toolbar did', () => {
+    expect(BAR_IDS).toEqual([
+      'search-pvs',
+      'refresh-archive',
+      'data-insight',
+      'post-elog',
+      'save',
+      'config-store',
+      'print',
+      'import',
+      'export-csv',
+      'export-png',
+    ]);
+    expect(TRACE_ACTION_SPECS['search-pvs'].label).toBe('Search PVs');
+    expect(TRACE_ACTION_SPECS['config-store'].label).toBe('Config store (save, open, share)');
+  });
+});
+
 describe.each([
   ['standalone', false],
   ['embedded', true],
 ])('every action renders %s', (_mode, embedded) => {
-  it('shows all eight Trace actions in the retired toolbar order, then the standard ones', () => {
+  it('shows all ten Trace actions in the retired toolbar order, then the standard ones', () => {
     setup({ embedded });
     const trace = BAR_IDS.map(nameOf);
     const standard = embedded
@@ -347,7 +370,7 @@ describe('the host placements', () => {
     return [...bar, ...menu];
   }
 
-  it('bar: Refresh · Data Insight · Export CSV · Export PNG · Post to E-Log · Plots as grid; menu: Import… · Export trace file · Print', () => {
+  it('bar: Refresh · Data Insight · Export CSV · Export PNG · Post to E-Log · Plots as grid; menu: Search PVs… · Import… · Config store… · Export trace file · Print', () => {
     expect(placementsOf(pureList(true))).toEqual([
       ['refresh-archive', 'bar', 'Refresh archive data'],
       ['data-insight', 'bar', 'Data Insight'],
@@ -355,7 +378,9 @@ describe('the host placements', () => {
       ['export-png', 'bar', 'Export PNG'],
       ['post-elog', 'bar', 'Post to E-Log'],
       ['view-mode', 'bar', 'Plots as grid'],
+      ['search-pvs', 'menu', 'Search PVs…'],
       ['import', 'menu', 'Import…'],
+      ['config-store', 'menu', 'Config store…'],
       ['save', 'menu', 'Export trace file'],
       ['print', 'menu', 'Print'],
     ]);

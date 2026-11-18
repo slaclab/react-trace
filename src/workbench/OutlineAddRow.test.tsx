@@ -4,7 +4,8 @@
 // and adds nothing, a refusal shows its message and its action button, a slow
 // add makes the input read-only with "checking…" and drops a second add, and
 // a full section shows a one-line note in place of the row. The row never
-// checks capacity or duplicates itself: the stub's commit writer does.
+// checks capacity or duplicates itself: the stub's commit writer does. A
+// picker button (`add.browse`) sits beside the field when the tool gives one.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useSyncExternalStore } from 'react';
@@ -17,9 +18,11 @@ import {
   createStubTool,
   type StubTool,
 } from './__fixtures__/stubTool';
+import { Add } from '@carbon/icons-react';
 import { OutlineAddRow } from './OutlineAddRow';
+import { sameHead } from './outlineCompare';
 import { TESTIDS } from './testids';
-import type { OutlineSection } from './types';
+import type { OutlineAddBrowse, OutlineSection } from './types';
 
 // ---------------------------------------------------------------- harness --
 
@@ -215,5 +218,58 @@ describe('OutlineAddRow full section', () => {
       />
     );
     expect(container.innerHTML).toBe('');
+  });
+});
+
+describe('OutlineAddRow picker button (add.browse)', () => {
+  function section(add: OutlineSection['add']): OutlineSection {
+    return { id: 'signals', kind: 'group', title: 'Signals', count: 0, rows: [], add };
+  }
+  const add = vi.fn(async () => {});
+
+  it('renders an icon button named by its label beside the field, which runs it', () => {
+    const browse: OutlineAddBrowse = { label: 'Pick PVs', icon: Add, onClick: vi.fn() };
+    render(
+      <OutlineAddRow section={section({ placeholder: 'Add PV', browse })} add={add} catalog={[]} />
+    );
+    const button = screen.getByRole('button', { name: 'Pick PVs' });
+    expect(button.getAttribute('aria-label')).toBe('Pick PVs');
+    expect(button.closest('.wb-outline-add__line')?.contains(input())).toBe(true);
+    fireEvent.click(button);
+    expect(browse.onClick).toHaveBeenCalledTimes(1);
+    expect(add).not.toHaveBeenCalled();
+  });
+
+  it('is unusable with a disabled row, its reason in the tooltip', () => {
+    const browse: OutlineAddBrowse = { label: 'Pick PVs', icon: Add, onClick: vi.fn() };
+    render(
+      <OutlineAddRow
+        section={section({ placeholder: 'Add PV', disabled: 'Not now.', browse })}
+        add={add}
+        catalog={[]}
+      />
+    );
+    const button = screen.getByRole('button', { name: 'Pick PVs' });
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(button.getAttribute('title')).toBe('Pick PVs — Not now.');
+    fireEvent.click(button);
+    expect(browse.onClick).not.toHaveBeenCalled();
+  });
+
+  it('is absent without one, and the field keeps its place', () => {
+    render(<OutlineAddRow section={section({ placeholder: 'Add PV' })} add={add} catalog={[]} />);
+    expect(document.querySelector('.wb-outline-add__browse')).toBeNull();
+    expect(document.querySelector('.wb-outline-add__line')).toBeNull();
+    expect(input().closest('.wb-outline-add__field')?.parentElement?.className).toBe(
+      'wb-outline-add'
+    );
+  });
+
+  it('counts in the section head compare, by identity', () => {
+    const browse: OutlineAddBrowse = { label: 'Pick PVs', icon: Add, onClick: () => {} };
+    const a = section({ placeholder: 'Add PV', browse });
+    expect(sameHead(a, section({ placeholder: 'Add PV', browse }))).toBe(true);
+    expect(sameHead(a, section({ placeholder: 'Add PV', browse: { ...browse } }))).toBe(false);
+    expect(sameHead(a, section({ placeholder: 'Add PV' }))).toBe(false);
   });
 });

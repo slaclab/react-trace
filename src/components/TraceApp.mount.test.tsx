@@ -11,8 +11,9 @@
 //
 // On the workbench: standalone and embedded,
 // Trace is one sidebar (Layers + Properties) beside the plot canvas, under
-// the actions bar — no brand header, no Live/Archive counts, no side
-// panels.
+// the actions row — no Carbon header, no side panels. The row leads with the
+// heading (C9): "Trace" and the Live/Archive counts standalone, the counts
+// alone embedded, and alone in the row under the host bar.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { TESTIDS } from '../workbench/testids';
@@ -212,7 +213,7 @@ describe('TraceApp on the workbench', () => {
   for (const embedded of [false, true]) {
     const mode = embedded ? 'embedded' : 'standalone';
 
-    it(`${mode}: one sidebar beside the plot canvas, no brand header or counts`, () => {
+    it(`${mode}: one sidebar beside the plot canvas, under the heading row, no Carbon header`, () => {
       const { container } = mountAt(`/trace/?${PRESET}${embedded ? '&embedded=true' : ''}`);
       expect(container.querySelectorAll('.wb-workbench')).toHaveLength(1);
       expect(container.querySelectorAll('.wb-sidebar')).toHaveLength(1);
@@ -224,7 +225,14 @@ describe('TraceApp on the workbench', () => {
       expect(container.querySelector('.cds--header')).toBeNull();
       expect(screen.queryByText('TRACE')).toBeNull();
       expect(container.querySelector('.trace-header__counts')).toBeNull();
-      expect(screen.queryByText(/\bLive\b.*\bArchive\b/)).toBeNull();
+      // The heading leads the actions row: the counts, and the name standalone only.
+      const heading = container.querySelector('.wb-workbench__actions > .wb-workbench__heading');
+      expect(heading?.querySelector('.wb-workbench__status')?.textContent).toBe(
+        '3 Live • 3 Archive'
+      );
+      expect(heading?.querySelector('.wb-workbench__name')?.textContent ?? null).toBe(
+        embedded ? null : 'Trace'
+      );
       expect(container.querySelector('.layers-panel, .properties-panel')).toBeNull();
       expect(container.querySelector('.trace-resize-handle')).toBeNull();
       // One properties panel: the Signals list, then the plot-wide sections.
@@ -247,10 +255,12 @@ describe('TraceApp on the workbench', () => {
     });
   }
 
-  it('under the host bar: no actions bar; the workbench still renders', () => {
+  it('under the host bar: no actions bar, the counts alone in its row; the workbench still renders', () => {
     const { container } = mountAt(`/trace/?${PRESET}&embedded=true&hostbar=1`);
     expect(screen.queryByTestId(TESTIDS.actionsBar)).toBeNull();
-    expect(container.querySelector('.wb-workbench__actions')).toBeNull();
+    const row = container.querySelector('.wb-workbench__actions');
+    expect(row?.children).toHaveLength(1);
+    expect(row?.textContent).toBe('3 Live • 3 Archive');
     expect(container.querySelectorAll('.wb-sidebar')).toHaveLength(1);
   });
 

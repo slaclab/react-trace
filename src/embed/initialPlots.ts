@@ -16,6 +16,11 @@
 // the default. The traces take their colors from it before the config's own
 // colors apply.
 //
+// A config-store link (`config=<slug>`) opens a stored workspace instead,
+// which TraceApp fetches after mount. It wins over the plot keys: a link with
+// both opens on the default plot, then the stored workspace, and the plot keys
+// are ignored (`configLinkIgnores` names them for the console).
+//
 // The ids are fixed (`plot-1`, `y-axis-1`, `trace-N`) so the app's initial
 // `activePlotId` and selection are valid without looking at the plots.
 
@@ -48,6 +53,26 @@ export function plotQuery(search: string): string {
   return params.toString();
 }
 
+/** The query key of a config-store link. */
+export const CONFIG_LINK_KEY = 'config';
+
+/** The slug a config-store link names (`config=<slug>`), or null; a blank value names none. */
+export function configLinkSlug(search: string): string | null {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  const slug = params.get(CONFIG_LINK_KEY)?.trim();
+  return slug ? slug : null;
+}
+
+/**
+ * The plot keys a config-store link carries besides its slug, each once, in
+ * query order: what the link ignores. [] without a slug.
+ */
+export function configLinkIgnores(search: string): string[] {
+  if (configLinkSlug(search) === null) return [];
+  const keys = [...new URLSearchParams(plotQuery(search)).keys()];
+  return [...new Set(keys.filter((key) => key !== CONFIG_LINK_KEY))];
+}
+
 // The span of the x-axis range: what an automatic live retention derives from,
 // up to LIVE_RETENTION_MAX_MS (`resolveLiveRetentionMs`).
 export function rangeSpanMs(xAxis: TraceQueryXAxis): number {
@@ -76,12 +101,12 @@ function pvTrace(pvName: string, index: number, palette: Palette): PVTrace {
 
 // Build the opening plots from a page query (`location.search`, with or
 // without the leading "?"). `freshPalette` is the palette a query with no
-// `plot` key opens in.
+// `plot` key opens in. A config-store link opens the default plot.
 export function buildInitialPlots(
   search: string,
   freshPalette: Palette = getPalette(DEFAULT_PALETTE_ID)
 ): Plot[] {
-  const query = plotQuery(search);
+  const query = configLinkSlug(search) === null ? plotQuery(search) : '';
   const hasPlotKey = new URLSearchParams(query).has('plot');
   const {
     pvs,

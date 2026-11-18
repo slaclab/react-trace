@@ -16,6 +16,8 @@
 //   `ops.add`, then the unit lookup re-assigns it as today — the cases of
 //   `LeftPanel.addTrace.test.tsx`, ported;
 // - footer Add formula / Add axis;
+// - given `searchPvs`, a Search PVs button on every add row, and the dialog's
+//   bulk add (`addPvCurves`);
 // - `ops.move` within a plot only, sharing `moveRefusal` (no cross-plot drag).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
@@ -40,8 +42,10 @@ import {
   ADD_PV_PLACEHOLDER,
   CROSS_PLOT_REASON,
   NOT_ACTIVE_AXIS_REASON,
+  SEARCH_PVS_LABEL,
   UNKNOWN_AXIS_REASON,
   UNKNOWN_CURVE_REASON,
+  addPvCurves,
   curveRowStatus,
   traceMoveRefusal,
   type UnitLookup,
@@ -49,7 +53,7 @@ import {
 import { DRAWING_ITEM_KIND, DRAWINGS_SECTION_KIND } from '../../annotations/host/workbench';
 import { AXIS_SECTION_KIND } from './schema/axis';
 import { GROUPS } from '../vocabulary';
-import { PV_CURVE_ITEM_KIND } from './schema/curve';
+import { PV_CURVE_ITEM_KIND, UnitLookups } from './schema/curve';
 import { FORMULA_CURVE_ITEM_KIND } from './schema/formula';
 import {
   TRACE_SCHEMA,
@@ -126,6 +130,8 @@ let definition: ToolDefinition<TraceState, TraceModel>;
 let binding: ToolBinding<TraceState, TraceModel>;
 let store: SelectionStore;
 let lookupUnit: ReturnType<typeof vi.fn<UnitLookup>>;
+/** The owner's Search PVs opener; none unless a test sets it before mounting. */
+let searchPvs: (() => void) | undefined;
 
 function Harness({ initial }: { initial: TraceState }) {
   const [state, setState] = useState(initial);
@@ -136,6 +142,7 @@ function Harness({ initial }: { initial: TraceState }) {
     selection: store,
     search: SEARCH,
     lookupUnit,
+    searchPvs,
   });
   useLayoutEffect(() => {
     latest = state;
@@ -212,6 +219,7 @@ beforeEach(() => {
   formulaResults = new Map();
   // By default the unit lookup never answers, as LeftPanel's stubbed fetch.
   lookupUnit = vi.fn<UnitLookup>(() => new Promise<string | undefined>(() => {}));
+  searchPvs = undefined;
 });
 
 afterEach(() => {
@@ -828,6 +836,85 @@ describe('Trace footer', () => {
       id: axes[1].id,
     });
     expect(section(axes[1].id)).toBeTruthy();
+  });
+});
+
+// -------------------------------------------------------------- Search PVs --
+
+describe('Trace add row: Search PVs', () => {
+  it('is absent without an opener', () => {
+    mount();
+    expect(screen.queryByRole('button', { name: SEARCH_PVS_LABEL })).toBeNull();
+  });
+
+  it('sits beside the field of every axis section and opens the dialog', () => {
+    searchPvs = vi.fn();
+    mount();
+    for (const id of ['ax1', 'ax2']) {
+      expect(within(section(id)).getByRole('button', { name: SEARCH_PVS_LABEL })).toBeTruthy();
+    }
+    fireEvent.click(within(section('ax2')).getByRole('button', { name: SEARCH_PVS_LABEL }));
+    expect(searchPvs).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the view-model while nothing shown changed (rate rule)', () => {
+    searchPvs = vi.fn();
+    mount();
+    expect(outlineNow()).toBe(outlineNow());
+  });
+});
+
+describe('addPvCurves (the Search PVs dialog)', () => {
+  function bulk(state: TraceState) {
+    let current = state;
+    let writes = 0;
+    const io = {
+      getState: () => current,
+      update: (fn: (s: TraceState) => TraceState) => {
+        current = fn(current);
+        writes += 1;
+      },
+      lookups: new UnitLookups(),
+      lookupUnit,
+    };
+    return { io, state: () => current, writes: () => writes };
+  }
+
+  it('adds onto the first axis of the plot it names, coloured from that plot, in one write', () => {
+    const opened = opening();
+    const target = { ...plotOf(opened, 'p2'), palette: 'viridis', archiver: 'arch-b' };
+    const b = bulk({ ...opened, plots: [plotOf(opened, 'p1'), target] });
+    const ids = addPvCurves(b.io, 'p2', [' SIM:A ', 'SIM:B', 'SIM:A', '']);
+
+    expect(b.writes()).toBe(1);
+    const added = plotOf(b.state(), 'p2').traces.slice(1);
+    expect(added.map((t) => [t.id, t.pvName, t.axisId])).toEqual([
+      [ids[0], 'SIM:A', 'bx1'],
+      [ids[1], 'SIM:B', 'bx1'],
+    ]);
+    // On from the plot's one curve, in the plot's palette, not the model's.
+    const viridis = getPalette('viridis');
+    expect(added.map((t) => t.color)).toEqual([
+      colorForIndex(viridis, 1),
+      colorForIndex(viridis, 2),
+    ]);
+    expect(plotOf(b.state(), 'p1').traces).toHaveLength(3);
+    // One unit lookup each, on the plot's archiver.
+    expect(lookupUnit.mock.calls.map(([pv, archiver]) => [pv, archiver])).toEqual([
+      ['SIM:A', 'arch-b'],
+      ['SIM:B', 'arch-b'],
+    ]);
+  });
+
+  it('adds nothing without such a plot, an axis on it or a name', () => {
+    const opened = opening();
+    const noAxes = { ...plotOf(opened, 'p2'), axes: [] };
+    const b = bulk({ ...opened, plots: [plotOf(opened, 'p1'), noAxes] });
+    expect(addPvCurves(b.io, 'nope', ['SIM:A'])).toEqual([]);
+    expect(addPvCurves(b.io, 'p2', ['SIM:A'])).toEqual([]);
+    expect(addPvCurves(b.io, 'p1', [' ', ''])).toEqual([]);
+    expect(b.writes()).toBe(0);
+    expect(lookupUnit).not.toHaveBeenCalled();
   });
 });
 

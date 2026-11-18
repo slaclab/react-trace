@@ -51,7 +51,14 @@ import { readLegacyPaletteId } from '../state/paletteStore';
 import { getPalette, colorForIndex, paletteOf, DEFAULT_PALETTE_ID } from '../palettes';
 import { withFilePalette } from '../io/paletteInference';
 import { downloadBlob, downloadDataUrl, pickFile } from '../io/download';
-import { serializeWorkspace, deserializeWorkspace, type DeserializeResult } from '../io/serialize';
+import {
+  serializeWorkspace,
+  deserializeConfigData,
+  deserializeWorkspace,
+  type DeserializeResult,
+} from '../io/serialize';
+import { getConfig } from '../api/magpie';
+import { errorInfo } from '../api/errorInfo';
 import { buildCsvFiles } from '../io/exportCsv';
 import { safeFilename, timestamp } from '../io/filename';
 import { makeId } from '../id';
@@ -59,13 +66,19 @@ import { resolveFormulaSpec } from '../formula';
 import { capturePlots, type PngSource, type CapturedPlot } from '../io/exportPlotImage';
 import { createChartRegistry } from '../io/chartRegistry';
 import { PostToElogModal } from './PostToElogModal';
+import { PVSearchModal } from './PVSearchModal';
+import { ConfigStoreModal } from './ConfigStoreModal';
 import { useElogConfig } from '../hooks/useElogConfig';
 import {
   INITIAL_PLOT_ID,
   buildInitialPlots,
+  configLinkIgnores,
+  configLinkSlug,
+  CONFIG_LINK_KEY,
   initialSelection,
   rangeSpanMs,
 } from '../embed/initialPlots';
+import { isEmbedded } from '../embed/embedded';
 import { newPlot } from '../embed/plotConfig';
 import { useTraceStateOut } from '../embed/stateOut';
 import { WorkbenchLayout, type WorkbenchPaneWrapper } from '../workbench/WorkbenchLayout';
@@ -80,6 +93,8 @@ import {
   type TraceActionsOptions,
 } from '../tools/trace/actions';
 import { useTraceCapabilities } from '../tools/trace/capabilities';
+import { addPvCurves, moleUnitLookup } from '../tools/trace/outline';
+import { traceHeading } from '../tools/trace/header';
 import { PV_CURVE_ITEM_KIND, UnitLookups, plotHoldingCurve } from '../tools/trace/schema/curve';
 import { FORMULA_CURVE_ITEM_KIND } from '../tools/trace/schema/formula';
 import {
@@ -249,6 +264,12 @@ export function TraceApp() {
     );
     return { plots: seeded, selection: openingSelection(seeded) };
   });
+  // A config-store link (`?config=<slug>`): the stored workspace the effect
+  // below loads at startup, and the link's plot keys it ignores. Read once.
+  const [configLink] = useState(() => ({
+    slug: configLinkSlug(window.location.search),
+    ignores: configLinkIgnores(window.location.search),
+  }));
   // The plots and the active plot are one record: the workbench's single
   // writer (`update`) transforms both at once.
   const [tool, setTool] = useState<TraceAppState>(() => ({
@@ -334,9 +355,10 @@ export function TraceApp() {
     getSelectedAnnotation,
     getSelectedAnnotation
   );
-  // A drawing clicked in a plot that is not the active one (a grid cell, the
-  // fullscreen or a detached mount) activates that plot and is queued:
-  // activation resets the selection (`useResetOnChange` in
+  // An item selected in a plot that is not the active one (a drawing clicked
+  // in a grid cell, the fullscreen or a detached mount; the last curve the
+  // Search PVs dialog added to another plot) activates that plot and is
+  // queued: activation resets the selection (`useResetOnChange` in
   // `useTraceDefinition`), so the select is applied by an effect declared after
   // it. The comparison reads the committed active plot, not any
   // activation already requested in this event: a grid cell activates in its
@@ -345,20 +367,25 @@ export function TraceApp() {
   useEffect(() => {
     committedActivePlotId.current = activePlotId;
   }, [activePlotId]);
-  const pendingSelection = useRef<{ plotId: string; id: string } | null>(null);
-  const onSelectAnnotation = useCallback(
-    (plotId: string, id: string | null) => {
-      if (id !== null && plotId !== committedActivePlotId.current) {
-        pendingSelection.current = { plotId, id };
+  const pendingSelection = useRef<{ plotId: string; kind: string; id: string } | null>(null);
+  const selectOnPlot = useCallback(
+    (plotId: string, item: { kind: string; id: string } | null) => {
+      if (item !== null && plotId !== committedActivePlotId.current) {
+        pendingSelection.current = { plotId, ...item };
         setActivePlotId(plotId);
         return;
       }
       // A select (or `null`, back to the tool level) on the active plot
       // supersedes any queued one.
       pendingSelection.current = null;
-      selection.select(id === null ? null : { level: 'item', kind: DRAWING_ITEM_KIND, id }, 'user');
+      selection.select(item === null ? null : { level: 'item', ...item }, 'user');
     },
     [selection, setActivePlotId]
+  );
+  const onSelectAnnotation = useCallback(
+    (plotId: string, id: string | null) =>
+      selectOnPlot(plotId, id === null ? null : { kind: DRAWING_ITEM_KIND, id }),
+    [selectOnPlot]
   );
   const [viewMode, setViewMode] = useState<'tabs' | 'grid'>('tabs');
   const [poppedOutPlot, setPoppedOutPlot] = useState<string | null>(null);
@@ -385,8 +412,23 @@ export function TraceApp() {
     open: false,
     captured: [],
   });
-  // Shared success/error toast (E-Log posts today; the config store's save and
-  // load share it once ported). `seq` keys the ToastNotification: Carbon arms
+  // The Search PVs dialog (#43) and the plot it opens for. `openCount` keys the
+  // dialog, so each open mounts a fresh one with an empty pattern and selection.
+  const [pvSearch, setPvSearch] = useState({
+    open: false,
+    plotId: INITIAL_PLOT_ID,
+    openCount: 0,
+  });
+  const openPvSearch = useCallback(
+    (plotId: string) =>
+      setPvSearch((prev) => ({ open: true, plotId, openCount: prev.openCount + 1 })),
+    []
+  );
+  const closePvSearch = useCallback(() => setPvSearch((prev) => ({ ...prev, open: false })), []);
+  // The config store dialog (save, open and manage stored workspaces).
+  const [configStoreOpen, setConfigStoreOpen] = useState(false);
+  // Shared success/error toast (E-Log posts, the config store's save and load,
+  // a `?config=` link). `seq` keys the ToastNotification: Carbon arms
   // its auto-dismiss timer in an effect keyed on `timeout`, so two same-kind
   // toasts in a row would reuse one instance and the first toast's timer would
   // dismiss the second early.
@@ -820,6 +862,21 @@ export function TraceApp() {
     selection.select({ level: 'item', kind: FORMULA_CURVE_ITEM_KIND, id }, 'user');
   };
 
+  // The Search PVs dialog's Add: the curves land on the target plot in one
+  // write and take the add row's unit lookup, registered with the others so
+  // a workspace load aborts them. The last one is selected; a target that is
+  // not the active plot is activated first, since the Signals pane shows only
+  // the active plot.
+  const addSearchedPvs = (plotId: string, pvNames: string[]) => {
+    const ids = addPvCurves<TraceState>(
+      { getState: () => tool, update, lookups: unitLookups, lookupUnit: moleUnitLookup },
+      plotId,
+      pvNames
+    );
+    const last = ids[ids.length - 1];
+    if (last !== undefined) selectOnPlot(plotId, { kind: PV_CURVE_ITEM_KIND, id: last });
+  };
+
   // ── Action handlers ─────────────────────────────────────────────────────────
 
   const handleSave = () => {
@@ -829,8 +886,8 @@ export function TraceApp() {
   };
 
   // Apply a deserialized workspace to app state: the one code path for "set
-  // plots + active plot + theme". File import uses it; the config store's Load
-  // and its `?config=` links share it once they are ported.
+  // plots + active plot + theme", shared by file import, the config store's
+  // Load and `?config=` links.
   const applyWorkspace = (result: DeserializeResult) => {
     // A workspace with no plots would leave `activePlot` undefined, which the
     // render body dereferences: refuse it rather than blank the app. This
@@ -874,6 +931,66 @@ export function TraceApp() {
     selection.reset();
     setInsight((prev) => ({ ...prev, pv: undefined }));
   };
+
+  // A `?config=<slug>` link loads that stored workspace at startup. The
+  // link's plot keys were ignored (`buildInitialPlots`); say so once, also
+  // under StrictMode's second mount. Standalone, the slug then leaves the URL,
+  // so a reload doesn't fetch it again and a later edit isn't replaced by the
+  // stale link. Embedded, the host owns this page's URL and Trace leaves it
+  // alone. The fetch aborts on unmount.
+  const configLinkNoted = useRef(false);
+  useEffect(() => {
+    const { slug, ignores } = configLink;
+    if (slug === null) return;
+    if (ignores.length > 0 && !configLinkNoted.current) {
+      configLinkNoted.current = true;
+      console.info(
+        `Trace: the link opens config ${slug} from the config store; its ${ignores.join(', ')} ${
+          ignores.length === 1 ? 'key is' : 'keys are'
+        } ignored.`
+      );
+    }
+    let cancelled = false;
+    const abort = new AbortController();
+    void (async () => {
+      try {
+        const dto = await getConfig(slug, abort.signal);
+        if (cancelled) return;
+        const result = deserializeConfigData(dto.data);
+        applyWorkspace(result);
+        showToast({
+          kind: 'success',
+          title: 'Workspace loaded',
+          subtitle: [
+            dto.name ? `Loaded "${dto.name}"` : `Loaded config ${slug}`,
+            ...result.warnings,
+          ].join('\n'),
+          timeout: result.warnings.length > 0 ? 0 : undefined,
+        });
+      } catch (err) {
+        if (cancelled) return;
+        showToast({
+          kind: 'error',
+          title: 'Could not load shared workspace',
+          subtitle: errorInfo(err).detail,
+        });
+      } finally {
+        // Not after unmount: the URL may belong to a later route.
+        if (!cancelled && !isEmbedded()) {
+          const url = new URL(window.location.href);
+          url.searchParams.delete(CONFIG_LINK_KEY);
+          window.history.replaceState(window.history.state, '', url);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      abort.abort();
+    };
+    // Mount-only: the launch URL is read once. applyWorkspace and showToast
+    // close over setters and refs only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleImport = async () => {
     const file = await pickFile('.trc,.trc.json,.json,.xml,.stp');
@@ -1058,7 +1175,14 @@ export function TraceApp() {
     createFormula: (traceId) => createFormulaFromTrace(traceId),
     unitLookups,
   };
-  const definition = useTraceDefinition({ state: tool, model, update, selection });
+  const definition = useTraceDefinition({
+    state: tool,
+    model,
+    update,
+    selection,
+    // The add rows' Search PVs: the Signals pane shows the active plot.
+    searchPvs: () => openPvSearch(activePlotId),
+  });
   // An error boundary around each pane of the properties panel, with main's
   // default fallback (the message, "Try again", "Reload"). Signals resets like
   // main's Layers panel (the active plot, the view mode, a workspace load)
@@ -1086,7 +1210,7 @@ export function TraceApp() {
     const pending = pendingSelection.current;
     if (pending === null || pending.plotId !== activePlotId) return;
     pendingSelection.current = null;
-    selection.select({ level: 'item', kind: DRAWING_ITEM_KIND, id: pending.id }, 'user');
+    selection.select({ level: 'item', kind: pending.kind, id: pending.id }, 'user');
   }, [activePlotId, selection]);
 
   // Trace's actions bar: every former toolbar button and shortcut, each
@@ -1094,10 +1218,12 @@ export function TraceApp() {
   const standardOptions = useStandardActionsOptions(colorMode);
   const actionOptions: TraceActionsOptions = {
     handlers: {
+      searchPvs: () => openPvSearch(activePlotId),
       refreshArchive: handleRefreshArchive,
       dataInsight: () => openInsight(),
       postElog: () => void openElogPost(),
       save: handleSave,
+      configStore: () => setConfigStoreOpen(true),
       print: () => void handlePrint(),
       import: () => void handleImport(),
       exportCsv: handleExport,
@@ -1138,6 +1264,7 @@ export function TraceApp() {
         archiver={activePlot.archiver}
         toolId="trace"
         hostState={traceHostState(plots)}
+        heading={traceHeading(activePlot, standardOptions.embedded)}
         wrapPane={wrapPane}
       >
         <TraceCanvasActions options={actionOptions} />
@@ -1508,6 +1635,29 @@ export function TraceApp() {
           </div>,
           document.body
         )}
+
+      <PVSearchModal
+        key={pvSearch.openCount}
+        open={pvSearch.open}
+        plots={plots}
+        initialPlotId={pvSearch.plotId}
+        onAdd={(plotId, pvNames) => {
+          addSearchedPvs(plotId, pvNames);
+          closePvSearch();
+        }}
+        onClose={closePvSearch}
+      />
+
+      {configStoreOpen && (
+        <ConfigStoreModal
+          open={configStoreOpen}
+          plots={plots}
+          theme={colorMode}
+          onClose={() => setConfigStoreOpen(false)}
+          onLoaded={applyWorkspace}
+          onToast={showToast}
+        />
+      )}
 
       {elogConfig?.enabled && (
         <PostToElogModal

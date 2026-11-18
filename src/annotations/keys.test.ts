@@ -126,10 +126,12 @@ describe('resolveKey', () => {
 function noopHandlers(): TraceActionHandlers {
   const n = () => {};
   return {
+    searchPvs: n,
     refreshArchive: n,
     dataInsight: n,
     postElog: n,
     save: n,
+    configStore: n,
     print: n,
     import: n,
     exportCsv: n,

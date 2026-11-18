@@ -9,8 +9,9 @@
 // `createTraceSchema`.
 //
 // The binding half (`outline.ts`) is rebuilt by `useTraceDefinition` only when
-// its writer, selection, search or unit lookup change; ops read the latest
-// state and model through a holder updated after every render.
+// its writer, selection, search or unit lookup change, or Search PVs comes or
+// goes; ops (and Search PVs) read the latest inputs through a holder updated
+// after every render.
 //
 // Selection reset: when the active plot changes the selection goes back
 // to the tool level, without revealing Properties. `useTraceDefinition` does
@@ -94,12 +95,15 @@ export interface TraceDefinitionInputs {
   selection?: SelectionStore;
   search?: PvSearch;
   lookupUnit?: UnitLookup;
+  /** Opens the Search PVs dialog for the active plot (the add rows' button). */
+  searchPvs?(): void;
 }
 
 /**
- * The definition for TraceApp: the binding reads the latest state and model,
- * and is rebuilt only when `update`, `selection`, `search` or `lookupUnit`
- * change. When the active plot changes, `selection` is reset.
+ * The definition for TraceApp: the binding reads the latest state, model and
+ * `searchPvs`, and is rebuilt only when `update`, `selection`, `search` or
+ * `lookupUnit` change, or `searchPvs` comes or goes. When the active plot
+ * changes, `selection` is reset.
  */
 export function useTraceDefinition(
   inputs: TraceDefinitionInputs
@@ -107,6 +111,7 @@ export function useTraceDefinition(
   // Ops read the latest state and model, after the render that built them.
   const latest = useLatest(inputs);
   const { update, selection, search, lookupUnit } = inputs;
+  const hasSearchPvs = inputs.searchPvs !== undefined;
 
   useResetOnChange(inputs.state.activePlotId, selection);
 
@@ -119,6 +124,7 @@ export function useTraceDefinition(
     if (selection !== undefined) input.select = (s) => selection.select(s, 'user');
     if (search !== undefined) input.search = search;
     if (lookupUnit !== undefined) input.lookupUnit = lookupUnit;
+    if (hasSearchPvs) input.searchPvs = () => latest.current.searchPvs?.();
     return traceDefinition(input);
-  }, [latest, update, selection, search, lookupUnit]);
+  }, [latest, update, selection, search, lookupUnit, hasSearchPvs]);
 }

@@ -14,15 +14,19 @@
 // and records its props in `captured.plotArea`, which is how tests read the
 // plots and result maps TraceApp renders. WorkbenchLayout renders for real;
 // its latest props are kept in `captured.layout`, which gives tests the
-// selection store and the tool's single writer.
+// selection store, the tool's single writer and its definition (the
+// Signals pane's ops). A test may also stub the Search PVs dialog, whose
+// props land in `captured.pvSearchModal`.
 import { act, fireEvent, screen, within } from '@testing-library/react';
 import { createElement, type ComponentProps } from 'react';
 import { vi } from 'vitest';
 import type { PlotArea } from '../components/PlotArea';
+import type { PVSearchModal } from '../components/PVSearchModal';
 import { PV_CURVE_ITEM_KIND, patchCurve } from '../tools/trace/schema/curve';
-import type { TraceState } from '../tools/trace/tool';
+import type { TraceModel, TraceState, TraceUi } from '../tools/trace/tool';
 import type { Axis, Plot, PVTrace } from '../types';
 import type { SelectionStore } from '../workbench/selection';
+import type { ToolDefinition } from '../workbench/types';
 
 // ── Browser stubs (jsdom lacks these; Node 25+ also shadows jsdom's storage) ──
 
@@ -84,14 +88,16 @@ export interface LayoutProps {
   state: TraceState;
   selection: SelectionStore;
   update(fn: (state: TraceState) => TraceState): void;
+  definition: ToolDefinition<TraceState, TraceModel, TraceUi>;
 }
 
 export interface Captured {
   plotArea: PlotAreaProps | null;
   layout: LayoutProps | null;
+  pvSearchModal: ComponentProps<typeof PVSearchModal> | null;
 }
 
-export const captured: Captured = { plotArea: null, layout: null };
+export const captured: Captured = { plotArea: null, layout: null, pvSearchModal: null };
 
 // Every PlotArea render's props, oldest first, for assertions about intermediate frames.
 export const renders: { plotArea: PlotAreaProps[] } = { plotArea: [] };
@@ -125,6 +131,13 @@ export const mocks = {
     }
     return { ...actual, WorkbenchLayout: RecordingWorkbenchLayout };
   },
+  /** `./PVSearchModal` as a stub that renders nothing and records its props. */
+  PVSearchModal: {
+    PVSearchModal(props: ComponentProps<typeof PVSearchModal>) {
+      captured.pvSearchModal = props;
+      return null;
+    },
+  },
   useElogConfig: { useElogConfig: () => null },
   download: {
     pickFile: async () => pickQueue.shift() ?? null,
@@ -136,6 +149,7 @@ export const mocks = {
 export function resetHarness(): void {
   captured.plotArea = null;
   captured.layout = null;
+  captured.pvSearchModal = null;
   renders.plotArea.length = 0;
   pickQueue.length = 0;
   alertMock.mockClear();
@@ -169,6 +183,20 @@ export function actionButton(label: string): HTMLButtonElement {
   return within(toolbar).getByRole('button', {
     name: (name) => name.startsWith(label),
   }) as HTMLButtonElement;
+}
+
+// The Search PVs button of the Signals pane's first add row (the active plot's
+// first axis), not the actions bar's.
+export function signalsSearchPvs(): HTMLButtonElement {
+  const row = document.querySelector<HTMLElement>('.wb-outline-add');
+  if (!row) throw new Error('the Signals pane shows no add row');
+  return within(row).getByRole('button', { name: 'Search PVs' }) as HTMLButtonElement;
+}
+
+// Move a curve onto another axis of its plot, as a drag in the Signals pane does.
+export function moveCurve(traceId: string, axisId: string): void {
+  const { definition } = layout();
+  act(() => definition.binding.ops.move(traceId, axisId));
 }
 
 // Load a workspace through the actions bar's Import, as a user would.

@@ -9,6 +9,8 @@ import {
   INITIAL_AXIS_ID,
   INITIAL_PLOT_ID,
   buildInitialPlots,
+  configLinkIgnores,
+  configLinkSlug,
   initialSelection,
   plotQuery,
   rangeSpanMs,
@@ -145,6 +147,38 @@ describe('live retention', () => {
     expect(
       autoRetention('pv=TEST:TEST&range=custom&from=2026-01-01T10:00&to=2026-01-01T12:30')
     ).toBe(LIVE_RETENTION_MAX_MS);
+  });
+});
+
+describe('a config-store link', () => {
+  const PRESET = 'pv=SIM:A&pv=SIM:B&range=-15m';
+
+  it('names its slug; a blank or absent one names none', () => {
+    expect(configLinkSlug('?config=abc123')).toBe('abc123');
+    expect(configLinkSlug(`config=%20abc123%20&${PRESET}`)).toBe('abc123');
+    expect(configLinkSlug('?config=')).toBeNull();
+    expect(configLinkSlug('?config=%20')).toBeNull();
+    expect(configLinkSlug(`?${PRESET}`)).toBeNull();
+  });
+
+  it('wins over the plot keys: the default plot opens, and the keys it ignores are named', () => {
+    const search = `?embedded=true&config=abc123&${PRESET}&plot=%7B%7D&range=-1h`;
+    const [plot] = buildInitialPlots(search);
+    expect(plot.traces).toEqual([]);
+    expect(plot.xAxis).toEqual({ timeRange: '-1h' });
+    expect(plot.axes.map((a) => a.id)).toEqual([INITIAL_AXIS_ID]);
+    // Page keys are not plot keys; each ignored key once, in query order.
+    expect(configLinkIgnores(search)).toEqual(['pv', 'range', 'plot']);
+  });
+
+  it('ignores nothing when it is alone, and nothing without a slug', () => {
+    expect(configLinkIgnores('?config=abc123&theme=dark')).toEqual([]);
+    expect(configLinkIgnores(`?config=&${PRESET}`)).toEqual([]);
+    // A blank slug is no link: the plot keys apply.
+    expect(buildInitialPlots(`?config=&${PRESET}`)[0].traces.map((t) => t.pvName)).toEqual([
+      'SIM:A',
+      'SIM:B',
+    ]);
   });
 });
 

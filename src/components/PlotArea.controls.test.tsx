@@ -186,10 +186,12 @@ describe('Alt+D still opens Data Insight under the host bar', () => {
     const inspect = vi.fn<() => void>();
     const options: TraceActionsOptions = {
       handlers: {
+        searchPvs: vi.fn(),
         refreshArchive: vi.fn(),
         dataInsight: inspect,
         postElog: vi.fn(),
         save: vi.fn(),
+        configStore: vi.fn(),
         print: vi.fn(),
         import: vi.fn(),
         exportCsv: vi.fn(),

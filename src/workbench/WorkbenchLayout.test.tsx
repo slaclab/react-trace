@@ -10,7 +10,8 @@
 // read through a latest-ref; the selection follows the outline; root Escape
 // closes the open card and steps aside
 // for inner consumers, card drags, dialogs and the actions bar; and the PV
-// field's own Escape inside the panel.
+// field's own Escape inside the panel. The actions row's heading leads it,
+// outside the toolbar, and keeps the row to itself under the host bar.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { useSyncExternalStore, type ReactNode } from 'react';
@@ -35,7 +36,12 @@ import { createSelectionStore, type SelectionStore } from './selection';
 import { TESTIDS } from './testids';
 import type { Action, FieldDef, ToolBinding, ToolSchema } from './types';
 import { useCanvasActions } from './useCanvasActions';
-import { QUICK_OPEN, WorkbenchLayout, isQuickOpenKey } from './WorkbenchLayout';
+import {
+  QUICK_OPEN,
+  WorkbenchLayout,
+  isQuickOpenKey,
+  type WorkbenchHeading,
+} from './WorkbenchLayout';
 
 // Wrap the real top block and plot-wide sections in Profilers: a commit
 // anywhere inside either half of the panel counts.
@@ -113,6 +119,7 @@ interface HarnessOptions {
   footerRuns?: number[];
   canvas?: ReactNode;
   schema?: StubSchema;
+  heading?: WorkbenchHeading;
 }
 
 /**
@@ -156,6 +163,7 @@ function Harness({
       selection={selection}
       arrangement={arrangement}
       catalog={[]}
+      heading={options.heading}
     >
       {options.canvas ?? <Canvas tick={model.tick} />}
     </WorkbenchLayout>
@@ -896,5 +904,55 @@ describe('actions bar and shortcuts by embedding', () => {
     expect(container.querySelector('.wb-workbench__actions')).toBeNull();
     expect(pressPrint().defaultPrevented).toBe(true);
     expect(fired).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------- heading --
+
+describe('the actions row heading', () => {
+  afterEach(() => window.history.replaceState(null, '', '/'));
+
+  const headingEl = () => document.querySelector<HTMLElement>('.wb-workbench__heading');
+
+  it('leads the row with the name, then the status, outside the toolbar', () => {
+    mount({ heading: { prefix: '', name: 'Tool', status: '2 Live • 1 Archive' } });
+    const heading = headingEl()!;
+    expect(heading.querySelector('.wb-workbench__name')?.textContent).toBe('Tool');
+    expect(heading.querySelector('.wb-workbench__prefix')).toBeNull();
+    expect(heading.querySelector('.wb-workbench__status')?.textContent).toBe('2 Live • 1 Archive');
+    const toolbar = screen.getByRole('toolbar', { name: 'Tool actions' });
+    expect(heading.nextElementSibling).toBe(toolbar);
+    expect(toolbar.contains(heading)).toBe(false);
+    expect(heading.parentElement?.className).toBe('wb-workbench__actions');
+  });
+
+  it('puts a prefix before the name', () => {
+    mount({ heading: { prefix: 'Lab', name: 'Tool' } });
+    expect(headingEl()!.querySelector('.wb-workbench__prefix')?.textContent).toBe('Lab');
+    expect(headingEl()!.querySelector('.wb-workbench__name')?.textContent).toBe('LabTool');
+    expect(headingEl()!.querySelector('.wb-workbench__status')).toBeNull();
+  });
+
+  it('shows the status alone without a name, and nothing without either', () => {
+    mount({ heading: { status: '0 Live • 0 Archive' } });
+    expect(headingEl()!.querySelector('.wb-workbench__name')).toBeNull();
+    expect(headingEl()!.textContent).toBe('0 Live • 0 Archive');
+    cleanup();
+    mount({ heading: { prefix: 'Lab', status: '' } });
+    expect(headingEl()).toBeNull();
+    cleanup();
+    mount();
+    expect(headingEl()).toBeNull();
+    expect(screen.getByTestId(TESTIDS.actionsBar)).toBeTruthy();
+  });
+
+  it('under the host bar: the heading keeps the row to itself, with no actions bar', () => {
+    window.history.replaceState(null, '', '/x/trace/trace.html?embedded=true&hostbar=1');
+    const { container } = mount({ heading: { status: '1 Live • 1 Archive' } });
+    const row = container.querySelector('.wb-workbench__actions')!;
+    expect(row.children).toHaveLength(1);
+    expect(row.firstElementChild).toBe(headingEl());
+    expect(headingEl()!.textContent).toBe('1 Live • 1 Archive');
+    expect(screen.queryByTestId(TESTIDS.actionsBar)).toBeNull();
   });
 });

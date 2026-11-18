@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Button,
   Checkbox,
@@ -11,7 +11,7 @@ import {
   Search,
   Tag,
 } from '@carbon/react';
-import { usePVSearch } from '../hooks/usePVSearch';
+import { moleSearch, toSearchRegex, usePVSearch } from '../pvSearch';
 import type { Plot } from '../types';
 
 // Mole caps `limit` at 1000 and its Appliance adapter fetches every match
@@ -20,7 +20,7 @@ import type { Plot } from '../types';
 export const PV_SEARCH_LIMIT = 500;
 
 // The archiver returns matches in no useful order. Numeric-aware so that
-// KLYS:LI21:2 lists before KLYS:LI21:11.
+// SIM:BPM:2 lists before SIM:BPM:11.
 const collator = new Intl.Collator(undefined, { numeric: true });
 
 const EMPTY_SELECTION: ReadonlySet<string> = new Set();
@@ -61,8 +61,18 @@ export function PVSearchModal({ open, plots, initialPlotId, onAdd, onClose }: PV
     setSelection({ archiver: target?.archiver, pvs: EMPTY_SELECTION });
   }
   // Search the target plot's archiver: that is where the new traces will read.
-  // A closed dialog searches nothing, even if its pattern or plot changes.
-  const search = usePVSearch(open ? pattern : '', target?.archiver, 300, PV_SEARCH_LIMIT);
+  // Keyed on the archiver, not the plot, so a target on the same archiver
+  // keeps its matches without searching again. A closed dialog searches
+  // nothing, even if its pattern or plot changes.
+  const archiver = target?.archiver;
+  const moleOfTarget = useMemo(
+    () => moleSearch({ archiver, limit: PV_SEARCH_LIMIT, toPattern: toSearchRegex }),
+    [archiver]
+  );
+  const search = usePVSearch(open ? pattern : '', moleOfTarget, 300, {
+    limit: PV_SEARCH_LIMIT,
+    keepPrevious: true,
+  });
   const selected = selection.archiver === target?.archiver ? selection.pvs : EMPTY_SELECTION;
   const setSelected = (update: (prev: ReadonlySet<string>) => ReadonlySet<string>) =>
     setSelection({ archiver: target?.archiver, pvs: update(selected) });
@@ -139,7 +149,7 @@ export function PVSearchModal({ open, plots, initialPlotId, onAdd, onClose }: PV
         <Search
           id="pv-search-pattern"
           labelText="Pattern"
-          placeholder="Pattern, e.g. KLYS:LI2*:PDES"
+          placeholder="Pattern, e.g. SIM:BPM*:X"
           value={pattern}
           onChange={(e) => setPattern(e.target.value)}
           onClear={() => setPattern('')}

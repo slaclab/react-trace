@@ -12,6 +12,10 @@
 // dropped. A section at capacity shows a one-line note in place of the row
 // (the count it shows is the outline's, so the note goes away as soon as an
 // item leaves).
+//
+// A tool may put a picker button beside the field (`add.browse`, Trace's
+// Search PVs): an icon button named by its label, unusable with the row
+// while the row is disabled (the reason in its tooltip, as on the footer).
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Button } from '@carbon/react';
@@ -117,28 +121,53 @@ export function OutlineAddRow({ section, add, catalog, archiver }: OutlineAddRow
     }
   };
 
+  const field = (
+    <div ref={wrap} className="wb-outline-add__field" onKeyDownCapture={onKeyDownCapture}>
+      <PvCombo
+        key={generation}
+        id={`outline-add-${section.id}`}
+        titleText={add_.placeholder}
+        hideLabel
+        placeholder={add_.placeholder}
+        value=""
+        search={add_.search}
+        archiver={archiver}
+        catalog={catalog}
+        inputTestId={TESTIDS.outlineAddInput}
+        disabled={disabledReason !== null}
+        commitOnBlur={false}
+        onInputChange={() => {
+          if (refusal) setRefusal(null);
+        }}
+        onCommit={commit}
+      />
+    </div>
+  );
+  const browse = add_.browse;
+  const BrowseIcon = browse?.icon;
+
   return (
     <div className="wb-outline-add" data-section={section.id}>
-      <div ref={wrap} className="wb-outline-add__field" onKeyDownCapture={onKeyDownCapture}>
-        <PvCombo
-          key={generation}
-          id={`outline-add-${section.id}`}
-          titleText={add_.placeholder}
-          hideLabel
-          placeholder={add_.placeholder}
-          value=""
-          search={add_.search}
-          archiver={archiver}
-          catalog={catalog}
-          inputTestId={TESTIDS.outlineAddInput}
-          disabled={disabledReason !== null}
-          commitOnBlur={false}
-          onInputChange={() => {
-            if (refusal) setRefusal(null);
-          }}
-          onCommit={commit}
-        />
-      </div>
+      {browse && BrowseIcon ? (
+        <div className="wb-outline-add__line">
+          {field}
+          <button
+            type="button"
+            className="wb-outline-add__browse"
+            aria-label={browse.label}
+            title={disabledReason !== null ? `${browse.label} — ${disabledReason}` : browse.label}
+            // aria-disabled, not `disabled`: the reason stays hoverable.
+            aria-disabled={disabledReason !== null || undefined}
+            onClick={() => {
+              if (disabledReason === null) browse.onClick();
+            }}
+          >
+            <BrowseIcon size={16} />
+          </button>
+        </div>
+      ) : (
+        field
+      )}
       {disabledReason !== null && <p className="wb-outline-add__note">{disabledReason}</p>}
       {pending !== null && (
         <p

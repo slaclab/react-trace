@@ -14,7 +14,10 @@ import { traceCapabilities } from './trace/capabilities';
 import { TRACE_ACTION_SPECS, traceActions } from './trace/actions';
 import { WAVEFORM_ACTION_SPECS, waveformActions } from './waveform/actions';
 
-/** The icon names a host tile bar draws. */
+/**
+ * The icon names a host tile bar draws. Search and Bookmark (Trace's Search
+ * PVs and Config store, both menu entries) must be on the host's own list too.
+ */
 const ALLOWLIST = [
   'Renew',
   'DataTable',
@@ -29,6 +32,8 @@ const ALLOWLIST = [
   'Save',
   'Printer',
   'Upload',
+  'Search',
+  'Bookmark',
 ];
 
 const SPEC_TABLES = {
@@ -56,10 +61,12 @@ function trace(hostBar: boolean, elog = true) {
     ...COMMON,
     hostBar,
     handlers: {
+      searchPvs: vi.fn(),
       refreshArchive: vi.fn(),
       dataInsight: vi.fn(),
       postElog: vi.fn(),
       save: vi.fn(),
+      configStore: vi.fn(),
       print: vi.fn(),
       import: vi.fn(),
       exportCsv: vi.fn(),
@@ -102,7 +109,7 @@ function placements(entries: ToolActionEntry[]) {
 }
 
 describe('the report under the host bar', () => {
-  it('Trace: bar in display order, then Import… · Export trace file · Print', () => {
+  it('Trace: bar in display order, then Search PVs… · Import… · Config store… · Export trace file · Print', () => {
     expect(placements(toolActionsPayload(trace(true)).actions)).toEqual([
       ['refresh-archive', 'bar', 'Renew'],
       ['data-insight', 'bar', 'DataTable'],
@@ -110,11 +117,16 @@ describe('the report under the host bar', () => {
       ['export-png', 'bar', 'Image'],
       ['post-elog', 'bar', 'SendAlt'],
       ['view-mode', 'bar', 'Grid'],
+      ['search-pvs', 'menu', 'Search'],
       ['import', 'menu', 'Upload'],
+      ['config-store', 'menu', 'Bookmark'],
       ['save', 'menu', 'Save'],
       ['print', 'menu', 'Printer'],
     ]);
-    const save = toolActionsPayload(trace(true)).actions.find((e) => e.id === 'save');
+    const entries = toolActionsPayload(trace(true)).actions;
+    expect(entries.find((e) => e.id === 'search-pvs')?.label).toBe('Search PVs…');
+    expect(entries.find((e) => e.id === 'config-store')?.label).toBe('Config store…');
+    const save = entries.find((e) => e.id === 'save');
     expect(save?.label).toBe('Export trace file');
     expect(save?.shortcut).toBeUndefined();
   });

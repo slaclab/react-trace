@@ -16,6 +16,56 @@
   min-width: 0;
 }
 
+/* A row with a picker button (`add.browse`): the field takes the width, the
+   button a square of the input's height beside it, level with the input
+   (bottom-aligned, so a label shown above the input doesn't lift it). */
+.wb-outline-add__line {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.wb-outline-add__line > .wb-outline-add__field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wb-outline-add__browse {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--canopy-control-h-sm);
+  block-size: var(--canopy-control-h-sm);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cds-icon-primary);
+  cursor: pointer;
+}
+
+.wb-outline-add__browse svg {
+  fill: currentColor;
+}
+
+.wb-outline-add__browse:hover {
+  background: var(--cds-layer-hover);
+}
+
+.wb-outline-add__browse:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+
+.wb-outline-add__browse[aria-disabled='true'] {
+  color: var(--cds-icon-disabled);
+  cursor: not-allowed;
+}
+
+.wb-outline-add__browse[aria-disabled='true']:hover {
+  background: none;
+}
+
 /* Carbon's ComboBox paints its field and bottom border on the list box and
    leaves the input transparent at the list box's own 2rem. The input is the
    element a host restyles as a text input (the contract's control height and

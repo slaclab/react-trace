@@ -375,12 +375,25 @@ export interface OutlineRow {
   refusal?: string;
 }
 
+/**
+ * A button beside an add row's field that opens a fuller picker (Trace: the
+ * Search PVs dialog). An icon button named by `label`. Compared by identity,
+ * so a tool keeps one object for as long as it holds the same handler.
+ */
+export interface OutlineAddBrowse {
+  label: string;
+  icon: ComponentType<{ size?: number | string }>;
+  onClick(): void;
+}
+
 /** A section's add row; `search` replaces the default PV search. */
 export interface OutlineAdd {
   placeholder: string;
   /** `false`, or why nothing can be added right now. */
   disabled?: false | string;
   search?: PvSearch;
+  /** A picker button beside the field; none when absent. */
+  browse?: OutlineAddBrowse;
 }
 
 export interface OutlineSection {

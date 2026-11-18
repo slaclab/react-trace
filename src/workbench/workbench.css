@@ -19,9 +19,64 @@
   color: var(--cds-text-primary);
 }
 
+/* The actions row: the tool's heading (`heading`), then its actions bar. */
 .wb-workbench__actions {
+  display: flex;
   flex: 0 0 auto;
   border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.wb-workbench__actions > .workbench-actions {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The heading wears the bar's own layer and rule, so the row reads as one
+ * bar: the name, then the status, on one line that clips rather than wraps.
+ * Alone (under the host bar) it takes the whole row. */
+.wb-workbench__heading {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  min-height: 2.5rem;
+  padding: 0 1rem;
+  overflow: hidden;
+  background-color: var(--cds-layer);
+  border-bottom: 1px solid var(--cds-border-subtle);
+  color: var(--cds-text-primary);
+  white-space: nowrap;
+}
+
+.wb-workbench__heading:only-child {
+  flex: 1 1 auto;
+}
+
+.wb-workbench__name {
+  overflow: hidden;
+  font-size: var(--canopy-text-md);
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.wb-workbench__prefix {
+  margin-inline-end: 0.25rem;
+  font-weight: 400;
+}
+
+.wb-workbench__status {
+  overflow: hidden;
+  color: var(--cds-text-secondary);
+  font-size: var(--canopy-text-sm);
+  text-overflow: ellipsis;
+}
+
+/* Under a host the heading takes the contract's small control height, as the
+ * actions bar does (actions.css). */
+html[data-canopy-host] .wb-workbench__heading {
+  box-sizing: content-box;
+  min-block-size: var(--canopy-control-h-sm);
 }
 
 .wb-workbench__body {

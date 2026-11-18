@@ -1,9 +1,9 @@
 // Trace's canvas actions.
 //
-// Refresh archive, Data insight, Post to e-log, Save, Print, Import, Export
-// CSV and Export PNG, in every mode and in the retired toolbar's order, then
-// the workbench's standard actions (theme standalone only, Report a bug,
-// Docs). The canvas registers the list through `useCanvasActions`; the
+// Search PVs, Refresh archive, Data insight, Post to e-log, Save, Config
+// store, Print, Import, Export CSV and Export PNG, in every mode and in the
+// retired toolbar's order, then the workbench's standard actions (theme
+// standalone only, Report a bug, Docs). The canvas registers the list through `useCanvasActions`; the
 // workbench's actions bar renders it and binds every shortcut from it, so
 // each shortcut is declared here on its action and Trace keeps no shortcut
 // table of its own.
@@ -14,13 +14,14 @@
 //
 // Under the host bar (a host that draws the tool's tile bar) the report
 // places the actions. Bar, in display order: Refresh archive · Data insight ·
-// Export CSV · Export PNG · Post to E-Log · Plots as grid. Menu: Import… ·
-// Export trace file · Print. `save` becomes "Export trace file" with no
+// Export CSV · Export PNG · Post to E-Log · Plots as grid. Menu: Search PVs… ·
+// Import… · Config store… · Export trace file · Print. `save` becomes "Export trace file" with no
 // shortcut, since primary+S is the host's Save view (it still downloads the
 // `.trc.json`), and a `view-mode` toggle (pressed = grid) is registered.
 // Standalone labels, shortcuts and bar contents are unchanged.
 
 import {
+  Bookmark,
   DataTable,
   Download,
   Grid,
@@ -28,6 +29,7 @@ import {
   Printer,
   Renew,
   Save,
+  Search,
   SendAlt,
   Upload,
 } from '@carbon/icons-react';
@@ -42,10 +44,12 @@ import type { TraceCapabilities } from './capabilities';
 
 /** Trace's own action ids, in bar order. */
 export const TRACE_ACTION_IDS = [
+  'search-pvs',
   'refresh-archive',
   'data-insight',
   'post-elog',
   'save',
+  'config-store',
   'print',
   'import',
   'export-csv',
@@ -57,10 +61,14 @@ export type TraceActionId = (typeof TRACE_ACTION_IDS)[number];
 
 /** The handler each action invokes; the canvas closes these over its state. */
 export interface TraceActionHandlers {
+  /** Opens the Search PVs dialog for the active plot. */
+  searchPvs(): void;
   refreshArchive(): void;
   dataInsight(): void;
   postElog(): void;
   save(): void;
+  /** Opens the config store: save the workspace, open or manage a stored one. */
+  configStore(): void;
   print(): void;
   import(): void;
   exportCsv(): void;
@@ -81,6 +89,13 @@ export const EXPORT_TRACE_FILE_LABEL = 'Export trace file';
 export const TRACE_ACTION_SPECS: Readonly<
   Record<TraceActionId, ToolActionSpec<TraceSpecHandlers>>
 > = {
+  'search-pvs': {
+    label: 'Search PVs',
+    icon: Search,
+    iconName: 'Search',
+    handler: 'searchPvs',
+    menu: { order: 5, label: 'Search PVs…' },
+  },
   'refresh-archive': {
     label: 'Refresh archive data',
     icon: Renew,
@@ -111,6 +126,13 @@ export const TRACE_ACTION_SPECS: Readonly<
     shortcut: 'primary+S',
     handler: 'save',
     menu: { order: 40, label: EXPORT_TRACE_FILE_LABEL },
+  },
+  'config-store': {
+    label: 'Config store (save, open, share)',
+    icon: Bookmark,
+    iconName: 'Bookmark',
+    handler: 'configStore',
+    menu: { order: 20, label: 'Config store…' },
   },
   print: {
     label: 'Print',

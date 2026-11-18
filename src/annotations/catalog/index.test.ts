@@ -165,10 +165,12 @@ function plotActions(plot: string, embedded: boolean): Action[] {
       return traceActions({
         ...common,
         handlers: {
+          searchPvs: n,
           refreshArchive: n,
           dataInsight: n,
           postElog: n,
           save: n,
+          configStore: n,
           print: n,
           import: n,
           exportCsv: n,

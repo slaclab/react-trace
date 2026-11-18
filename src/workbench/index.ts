@@ -3,7 +3,11 @@
 // selection store, the canvas-action hook, the action-list builder and the PV
 // field. The stylesheet comes with `WorkbenchLayout`.
 
-export { WorkbenchLayout, type WorkbenchLayoutProps } from './WorkbenchLayout';
+export {
+  WorkbenchLayout,
+  type WorkbenchHeading,
+  type WorkbenchLayoutProps,
+} from './WorkbenchLayout';
 export * from './types';
 export { createSelectionStore, useResetOnChange, type SelectionStore } from './selection';
 export { formatShortcut, useCanvasActions } from './useCanvasActions';

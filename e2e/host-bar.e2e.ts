@@ -6,10 +6,12 @@
 // What is asserted, and why it matters:
 //
 //   * under the host bar no tool renders its actions bar: the host's tile bar
-//     carries those verbs instead;
+//     carries those verbs instead. Trace keeps a row for its Live/Archive
+//     counter alone (the tile bar names the tool);
 //   * each tool reports its actions as `canopy:tool-actions` from its real
 //     spec table: bar entries in display order, then menu entries, with their
-//     labels (Import…, Export trace file), kinds, shortcuts, placements and
+//     labels (Search PVs…, Import…, Config store…, Export trace file), kinds,
+//     shortcuts, placements and
 //     icon names, plus the state and the Docs / Report a bug links. The
 //     production build reports real Carbon icon names (minified builds lose
 //     component names, so the names are declared). Post to E-Log is absent:
@@ -54,7 +56,10 @@ const BUG_URL = 'https://github.com/slaclab/react-trace/issues/new/choose';
 /** How long a spec watches for something that must not happen. */
 const QUIET_MS = 1_000;
 
-/** The icon names a host tile bar draws. */
+/**
+ * The icon names a host tile bar draws. Search and Bookmark (Trace's Search
+ * PVs and Config store menu entries) must be on the host's own list too.
+ */
 const ICON_ALLOWLIST = new Set([
   'Renew',
   'DataTable',
@@ -69,6 +74,8 @@ const ICON_ALLOWLIST = new Set([
   'Save',
   'Printer',
   'Upload',
+  'Search',
+  'Bookmark',
 ]);
 
 type ToolName = 'trace' | 'correlation' | 'waveform';
@@ -89,6 +96,8 @@ interface ToolCase {
   focus: string;
   actions: Reported[];
   state: RegExp;
+  /** Under the host bar, the text of the row the tool keeps for its heading; none without one. */
+  heading?: RegExp;
 }
 
 const TOOLS: readonly ToolCase[] = [
@@ -115,11 +124,15 @@ const TOOLS: readonly ToolCase[] = [
         placement: 'bar',
       },
       { id: 'view-mode', label: 'Plots as grid', kind: 'toggle', pressed: false, placement: 'bar' },
+      { id: 'search-pvs', label: 'Search PVs…', kind: 'button', placement: 'menu' },
       { id: 'import', label: 'Import…', kind: 'button', shortcut: 'primary+O', placement: 'menu' },
+      { id: 'config-store', label: 'Config store…', kind: 'button', placement: 'menu' },
       { id: 'save', label: 'Export trace file', kind: 'button', placement: 'menu' },
       { id: 'print', label: 'Print', kind: 'button', shortcut: 'primary+P', placement: 'menu' },
     ],
     state: /^1 curve · (live|paused)$/,
+    // The counter alone: the tile bar names the tool.
+    heading: /^1 Live • 1 Archive$/,
   },
   {
     name: 'correlation',
@@ -221,7 +234,14 @@ for (const tool of TOOLS) {
       const host = await open(page, tool);
 
       await expect(host.frame.locator('[data-testid=actions-bar]')).toHaveCount(0);
-      await expect(host.frame.locator('.wb-workbench__actions')).toHaveCount(0);
+      const row = host.frame.locator('.wb-workbench__actions');
+      if (tool.heading) {
+        await expect(row).toHaveCount(1);
+        await expect(row).toHaveText(tool.heading);
+        await expect(row.locator('.wb-workbench__name')).toHaveCount(0);
+      } else {
+        await expect(row).toHaveCount(0);
+      }
 
       const report = await waitForToolActions(page, (m) => tool.state.test(m.state ?? ''));
       expect(report.version).toBe(1);

@@ -1,6 +1,6 @@
 // What an Outline view-model *shows*, as a structural compare (the rate rule).
 // A row is its id, kind, status, label and refusal; a section head is
-// everything but its rows, the add row's search by identity. The Outline keeps
+// everything but its rows, the add row's search and picker button by identity. The Outline keeps
 // the previous objects where these say "same"; a tool binding that returns its
 // previous view-model while nothing shown changed uses `sameOutline`.
 
@@ -19,7 +19,12 @@ export function sameRow(a: OutlineRow, b: OutlineRow): boolean {
 function sameAdd(a: OutlineSection['add'], b: OutlineSection['add']): boolean {
   if (a === b) return true;
   if (a === undefined || b === undefined) return false;
-  return a.placeholder === b.placeholder && a.disabled === b.disabled && a.search === b.search;
+  return (
+    a.placeholder === b.placeholder &&
+    a.disabled === b.disabled &&
+    a.search === b.search &&
+    a.browse === b.browse
+  );
 }
 
 /** A section's header fields (everything but its rows). */

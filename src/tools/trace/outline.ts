@@ -39,10 +39,16 @@
 // Footer: Add formula (onto the first axis, selected so its expression can be
 // typed) and Add axis (selected). Formula controls are never hidden.
 //
+// Search PVs: given `searchPvs`, every add row carries a Search PVs button
+// (`add.browse`) that opens the bulk dialog for the active plot. The dialog's
+// Add goes through `addPvCurves`: one write appends a curve per PV to the
+// target plot's first axis, coloured on from that plot's palette, and each
+// then takes the unit lookup an add-row curve takes (`reassignUnitAxis`).
+//
 // Rate rule: `outline` returns the previous view-model object while nothing
 // it shows changed, so a data tick re-renders no Outline.
 
-import { Add, Function as FunctionIcon } from '@carbon/icons-react';
+import { Add, Function as FunctionIcon, Search } from '@carbon/icons-react';
 import { fetchMetadata } from '@slaclab/canopy-client';
 import { canopyConnection } from '../../api/connection';
 import { axisUnitText, newAxis, newFormula, newTrace } from '../../embed/plotConfig';
@@ -55,13 +61,14 @@ import { TIME_X_AXIS } from '../../annotations/catalog/xAxis';
 import { hasValueAxisIn } from '../../annotations/model';
 import { DRAWING_STAYS_REASON } from '../shared/drawingOutline';
 import { makeId } from '../../id';
-import { colorForIndex } from '../../palettes';
+import { colorForIndex, paletteOf } from '../../palettes';
 import type { PvSearch } from '../../pvSearch';
 import { traceLabel } from '../../traceLabel';
 import type { Axis, Plot, PVTrace } from '../../types';
 import type {
   Action,
   AddRefusal,
+  OutlineAddBrowse,
   OutlineRow,
   OutlineSection,
   OutlineViewModel,
@@ -87,6 +94,8 @@ import { FORMULA_CURVE_ITEM_KIND } from './schema/formula';
 /** The add row's placeholder in every axis section. */
 export const ADD_PV_PLACEHOLDER = 'Add PV';
 export const ADD_FORMULA_ACTION_ID = 'add-formula';
+/** The add rows' button that opens the Search PVs dialog. */
+export const SEARCH_PVS_LABEL = 'Search PVs';
 export const ADD_AXIS_ACTION_ID = 'add-axis';
 
 export const NO_PLOT_REASON = 'There is no plot to add to.';
@@ -124,6 +133,8 @@ export interface TraceBindingInput<S extends TraceDotState, M extends TraceCurve
   search?: PvSearch;
   /** The unit lookup after an add; Mole's metadata by default. */
   lookupUnit?: UnitLookup;
+  /** Opens the Search PVs dialog for the active plot; no add-row button when absent. */
+  searchPvs?(): void;
 }
 
 // ------------------------------------------------------------- move rule --
@@ -168,6 +179,16 @@ export function appendCurve<S extends TraceDotState>(state: S, curve: PVTrace): 
   const plot = plotHoldingAxis(state, curve.axisId);
   if (!plot || plot.traces.some((t) => t.id === curve.id)) return state;
   return mapPlot(state, plot.id, (p) => ({ ...p, traces: [...p.traces, curve] }));
+}
+
+/** `state` with `curves` appended to the plot `plotId` in one write; unchanged when there is none. */
+export function appendCurves<S extends TraceDotState>(
+  state: S,
+  plotId: string,
+  curves: readonly PVTrace[]
+): S {
+  if (curves.length === 0 || !state.plots.some((p) => p.id === plotId)) return state;
+  return mapPlot(state, plotId, (p) => ({ ...p, traces: [...p.traces, ...curves] }));
 }
 
 /** `state` without the curve `id`; unchanged when no plot holds it. */
@@ -271,7 +292,8 @@ function itemKind(curve: PVTrace): string {
 export function traceOutline<S extends TraceDotState, M extends TraceCurveModel>(
   state: S,
   model: M,
-  search?: PvSearch
+  search?: PvSearch,
+  browse?: OutlineAddBrowse
 ): OutlineViewModel {
   const plot = activePlot(state);
   if (!plot) return { sections: [] };
@@ -293,6 +315,7 @@ export function traceOutline<S extends TraceDotState, M extends TraceCurveModel>
     });
     const add: NonNullable<OutlineSection['add']> = { placeholder: ADD_PV_PLACEHOLDER };
     if (search !== undefined) add.search = search;
+    if (browse !== undefined) add.browse = browse;
     const section: OutlineSection = {
       id: axis.id,
       kind: AXIS_SECTION_KIND,
@@ -330,9 +353,79 @@ function annotationsSection(plot: Plot): OutlineSection {
   );
 }
 
+// ------------------------------------------------------------- unit lookup --
+
+/** What a unit lookup after an add writes through and registers in. */
+export interface UnitAxisIo<S extends TraceDotState> {
+  update(fn: (state: S) => S): void;
+  /** The owner's registry, so a workspace load or an unmount aborts the lookup. */
+  lookups: UnitLookups;
+  lookupUnit: UnitLookup;
+}
+
+/**
+ * Looks up `pv`'s unit and moves the curve `curveId` onto that unit's axis
+ * (creating one), unless it left `axisId` or got another PV meanwhile
+ * (`assignCurveToUnitAxis`). No unit, a failed lookup or an abort leave the
+ * curve where it was added.
+ */
+export async function reassignUnitAxis<S extends TraceDotState>(
+  io: UnitAxisIo<S>,
+  curveId: string,
+  pv: string,
+  axisId: string,
+  archiver?: string
+): Promise<void> {
+  const controller = io.lookups.start(curveId);
+  let unit: string | undefined;
+  try {
+    unit = await io.lookupUnit(pv, archiver, controller.signal);
+  } catch {
+    return; // no metadata (or aborted): the curve stays where it was added
+  } finally {
+    io.lookups.settle(curveId, controller);
+  }
+  if (controller.signal.aborted || !unit) return;
+  const found = unit;
+  const newAxisId = makeId('axis');
+  io.update((state) => assignCurveToUnitAxis(state, curveId, found, axisId, newAxisId, pv));
+}
+
+/**
+ * The Search PVs dialog's Add: one curve per PV (trimmed, blanks and repeats
+ * dropped), from the shared new-curve defaults, on the first axis of the plot
+ * `plotId`, coloured on from that plot's palette, all in one write. Each new
+ * curve then asks for its unit's axis on the plot's archiver, so PVs with the
+ * same unit end up sharing one. Returns the new curves' ids in order; none
+ * when there is no such plot, it has no axis, or no name is left.
+ */
+export function addPvCurves<S extends TraceDotState>(
+  io: UnitAxisIo<S> & { getState(): S },
+  plotId: string,
+  pvNames: readonly string[]
+): string[] {
+  const plot = io.getState().plots.find((p) => p.id === plotId);
+  const axisId = plot?.axes[0]?.id;
+  const names = [...new Set(pvNames.map((name) => name.trim()).filter(Boolean))];
+  if (!plot || !axisId || names.length === 0) return [];
+  const palette = paletteOf(plot);
+  // displayName stays '': the row label follows the PV.
+  const curves = names.map((pv, i) =>
+    newTrace(makeId('trace'), pv, axisId, colorForIndex(palette, plot.traces.length + i), [])
+  );
+  io.update((state) => appendCurves(state, plotId, curves));
+  for (const curve of curves) {
+    void reassignUnitAxis(io, curve.id, curve.pvName, axisId, plot.archiver);
+  }
+  return curves.map((curve) => curve.id);
+}
+
 // ---------------------------------------------------------------- binding --
 
-/** Trace's `ToolBinding`; rebuild it when `update`, `select`, `search` or `lookupUnit` change. */
+/**
+ * Trace's `ToolBinding`; rebuild it when `update`, `select`, `search`,
+ * `lookupUnit` or `searchPvs` change.
+ */
 export function traceBinding<S extends TraceDotState, M extends TraceCurveModel>(
   input: TraceBindingInput<S, M>
 ): ToolBinding<S, M> {
@@ -346,22 +439,12 @@ export function traceBinding<S extends TraceDotState, M extends TraceCurveModel>
   const ownLookups = new UnitLookups();
   const lookups = () => getModel().unitLookups ?? ownLookups;
 
-  async function reassignUnit(curveId: string, pv: string, axisId: string, archiver?: string) {
-    const registry = lookups();
-    const controller = registry.start(curveId);
-    let unit: string | undefined;
-    try {
-      unit = await lookupUnit(pv, archiver, controller.signal);
-    } catch {
-      return; // no metadata (or aborted): the curve stays where it was added
-    } finally {
-      registry.settle(curveId, controller);
-    }
-    if (controller.signal.aborted || !unit) return;
-    const found = unit;
-    const newAxisId = makeId('axis');
-    update((state) => assignCurveToUnitAxis(state, curveId, found, axisId, newAxisId, pv));
-  }
+  // One add-row button for every section, kept for the binding's life so the
+  // view-model compares equal while nothing else changed.
+  const { searchPvs } = input;
+  const browse: OutlineAddBrowse | undefined = searchPvs
+    ? { label: SEARCH_PVS_LABEL, icon: Search, onClick: () => searchPvs() }
+    : undefined;
 
   async function add(sectionId: string, raw: string): Promise<AddRefusal | void> {
     const pv = raw.trim();
@@ -379,7 +462,13 @@ export function traceBinding<S extends TraceDotState, M extends TraceCurveModel>
       []
     );
     update((state) => appendCurve(state, curve));
-    void reassignUnit(id, pv, sectionId, plot.archiver);
+    void reassignUnitAxis(
+      { update, lookups: lookups(), lookupUnit },
+      id,
+      pv,
+      sectionId,
+      plot.archiver
+    );
   }
 
   function addFormula(): void {
@@ -414,7 +503,7 @@ export function traceBinding<S extends TraceDotState, M extends TraceCurveModel>
 
   return {
     outline(state, model) {
-      const next = traceOutline(state, model, search);
+      const next = traceOutline(state, model, search, browse);
       if (last !== null && sameOutline(last, next)) return last;
       last = next;
       return next;
