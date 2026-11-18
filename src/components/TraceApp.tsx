@@ -802,6 +802,8 @@ export function TraceApp() {
   // keydown reaches after document: a Carbon modal opened on top (e.g. Post to
   // E-Log) handles Escape on document and calls preventDefault, and so does a
   // plot's keymap when Escape cancels a drawing, so that keypress does only that.
+  // Deliberate (decision C8): with a drawing tool armed, the first Escape
+  // disarms it and the next leaves fullscreen (TraceApp.escapeLayers.test.tsx).
   useEffect(() => {
     if (!poppedOutPlot) return;
     const onKeyDown = (e: KeyboardEvent) => {

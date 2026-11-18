@@ -476,3 +476,44 @@ describe('traceHostState (the report state)', () => {
     expect(traceHostState(plots)).toBe(expected);
   });
 });
+
+// ---------------------------------------------------- keys in a form field --
+
+describe('Print is claimed even while typing in a field (decision C8)', () => {
+  // Deliberate: if Ctrl/Cmd+P went through from a field, the browser would
+  // print the bare page instead of Trace's print sheet. Every other shortcut
+  // stays text inside a field.
+  function pressIn(target: HTMLElement, init: KeyboardEventInit): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+    act(() => {
+      target.dispatchEvent(event);
+    });
+    return event;
+  }
+
+  function field(): HTMLInputElement {
+    const input = document.createElement('input');
+    input.placeholder = 'Add PV';
+    document.body.appendChild(input);
+    input.focus();
+    return input;
+  }
+
+  it('Ctrl+P in a text field opens the print sheet', () => {
+    const { h } = setup({ embedded: false });
+    const input = field();
+    const event = pressIn(input, { key: 'p', code: 'KeyP', ctrlKey: true });
+    expect(event.defaultPrevented).toBe(true);
+    expect(h.print).toHaveBeenCalledTimes(1);
+    input.remove();
+  });
+
+  it('Ctrl+S in a text field is left to the field', () => {
+    const { h } = setup({ embedded: false });
+    const input = field();
+    const event = pressIn(input, { key: 's', code: 'KeyS', ctrlKey: true });
+    expect(event.defaultPrevented).toBe(false);
+    expect(h.save).not.toHaveBeenCalled();
+    input.remove();
+  });
+});

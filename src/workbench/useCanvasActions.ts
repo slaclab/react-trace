@@ -116,6 +116,13 @@ export function isEditableTarget(target: EventTarget | null): boolean {
  * Bindings claimed even in an editable target: typing never uses them, and
  * letting them through would run the browser's own command on the bare
  * iframe — Cmd/Ctrl+P in a PV field printed the raw page, not Trace's sheet.
+ *
+ * Deliberate (decision C8), unlike main, which left every key in a field to
+ * the browser: do not "fix" it back to the editable guard. Pinned by
+ * src/tools/trace/actions.test.tsx ("Print is claimed even while typing in a
+ * field"). The fullscreen Escape order is decided alongside it: the first
+ * Escape disarms an armed drawing tool, the next leaves fullscreen
+ * (src/components/TraceApp.escapeLayers.test.tsx).
  */
 const CLAIMED_IN_EDITABLE: readonly ParsedShortcut[] = [{ mod: 'primary', key: 'p' }];
 
