@@ -262,6 +262,7 @@ function everything(): Plot {
     showLegend: false,
     showLegendValue: true,
     pinDataWindow: true,
+    dockReadout: true,
     showStatusLine: false,
     showTooltip: false,
     showDrawingTools: false,

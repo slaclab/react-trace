@@ -160,7 +160,7 @@ Zooming or panning the plot stops it from following the current time and turns *
 
 See [Moving through time](../drawing-tools.md#navigation) and [Scaling the Y axes](../drawing-tools.md#axes) for every gesture. Zooming or panning time stops following the current time (see [Returning to the Full Range](#returning-to-the-full-range)). Zooming a Y-axis switches it from **Auto-scale** to fixed limits; double-click the axis to undo it.
 
-Move the mouse over the plot to see the data tooltip (①) with each trace's value at that time. Each value is the sample nearest the pointer, and the time in parentheses shows how far that sample is from the pointer (for example **+2s**). The tooltip sits in a corner of the plot; drag its grip to move it. Crosshair lines are on in a new plot; turn **Crosshair** off in **Display** to hide them, or **Data tooltip** off to hide the tooltip.
+Move the mouse over the plot to see the data tooltip (①) with each trace's value at that time. Each value is the sample nearest the pointer, and the time in parentheses shows how far that sample is from the pointer (for example **+2s**). The tooltip follows the pointer; turn **Dock data tooltip** on in **Display** to keep it in a corner of the plot instead, where its grip moves it. Crosshair lines are on in a new plot; turn **Crosshair** off in **Display** to hide them, or **Data tooltip** off to hide the tooltip.
 
 <div style="text-align:center; margin:1.5rem 0;">
   <a class="glightbox" href="../images/read_values.png"><img src="../images/read_values.png" alt="Data tooltip and Y-axis zoom area" style="width:70%; border-radius:0.5rem;"></a>

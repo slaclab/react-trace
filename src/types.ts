@@ -109,6 +109,11 @@ export interface Plot {
   // ✚ Pin data window: the hover readout sits fixed at the plot's top-right
   // instead of following the cursor. Off when undefined; only "on" is stored.
   pinDataWindow?: boolean;
+  // ✚ Dock data tooltip: the hover readout docks in a corner of the plot
+  // (src/plot/readoutDock.ts) instead of following the cursor. Off when
+  // undefined, as on main; only "on" is stored. A new plot takes the site's
+  // `tooltip` choice (src/site).
+  dockReadout?: boolean;
   // ✚ Status line under the plot. On when undefined; only "off" (false) is
   // stored.
   showStatusLine?: boolean;

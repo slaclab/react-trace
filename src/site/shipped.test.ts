@@ -111,3 +111,12 @@ describe('C6: live retention follows the plot span, at most 30 min; a curve may 
     expect(deserializeWorkspace(file).plots[0].traces[0].liveRetentionMs).toBe(900_000);
   });
 });
+
+describe('C7: Trace’s data tooltip follows the cursor; the other tools keep it docked', () => {
+  it('ships tooltip cursor for Trace (Dock data tooltip off) and docked for Correlation and Waveform', () => {
+    expect(BUILTIN_DEFAULTS.trace.plot.tooltip).toBe('cursor');
+    expect(newSitePlot('p', 0).dockReadout).toBeUndefined();
+    expect(BUILTIN_DEFAULTS.correlation.plot.tooltip).toBe('docked');
+    expect(BUILTIN_DEFAULTS.waveform.plot.tooltip).toBe('docked');
+  });
+});

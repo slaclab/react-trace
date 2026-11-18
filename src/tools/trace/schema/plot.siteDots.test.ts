@@ -120,6 +120,18 @@ describe('with a site’s values', () => {
   });
 });
 
+describe('Dock data tooltip against the site’s read-out choice', () => {
+  it('is unmarked off by default, marked off at a docking site, and resets to on there', () => {
+    expect(field('dock-readout').modified(ctxOf(plot()).ctx)).toBe(false);
+    setSiteConfig({ trace: { plot: { tooltip: 'docked' } } });
+    const off = ctxOf(plot());
+    expect(field('dock-readout').modified(off.ctx)).toBe(true);
+    field('dock-readout').reset(off.ctx);
+    expect(off.plot().dockReadout).toBe(true);
+    expect(field('dock-readout').modified(off.ctx)).toBe(false);
+  });
+});
+
 describe('with the built-ins', () => {
   it('marks a value off the automatic one and resets to automatic', () => {
     const { ctx, plot: read } = ctxOf(

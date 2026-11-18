@@ -3,13 +3,13 @@
 // a fresh link without reading the site store. Fields stored only off their
 // wire baseline (the drag mode, the drawing rail) are stored the same way, so
 // a value at the baseline stays absent and one off it is explicit.
-import type { TraceCurveDefaults, TracePlotDefaults } from '../../site/types';
+import type { TraceCurveDefaults, TraceDefaults } from '../../site/types';
 import type { Plot, PVTrace } from '../../types';
 import { TRACE_DEFAULT_DRAG } from './plotView';
 
 /** A site's creation defaults for Trace: a new plot's and a new curve's. */
 export interface TraceCreation {
-  plot: TracePlotDefaults;
+  plot: TraceDefaults['plot'];
   trace: TraceCurveDefaults;
 }
 
@@ -20,7 +20,7 @@ export interface TraceCreation {
  */
 export function withPlotCreation<P extends Plot>(
   plot: P,
-  d: TracePlotDefaults,
+  d: TraceCreation['plot'],
   opts: { timeRange: boolean }
 ): P {
   const out: P = {
@@ -38,6 +38,9 @@ export function withPlotCreation<P extends Plot>(
   else out.dragMode = d.dragMode;
   if (d.showDrawingTools) delete out.showDrawingTools;
   else out.showDrawingTools = false;
+  // The site's read-out choice: docked is the plot's Dock data tooltip.
+  if (d.tooltip === 'docked') out.dockReadout = true;
+  else delete out.dockReadout;
   if (d.archiver !== undefined) out.archiver = d.archiver;
   if (opts.timeRange) out.xAxis = { timeRange: d.timeRange };
   return out;

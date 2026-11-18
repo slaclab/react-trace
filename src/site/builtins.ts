@@ -24,9 +24,16 @@ const docked: PlotBehaviour = { ...DEFAULT_GESTURE_PREFS, tooltip: 'docked' };
 /**
  * Trace's plot behaviour, as main had it (the maintainers' C1-C7): the wheel
  * zooms time only (Alt+wheel: time and every Y axis; C2); dragging a Y axis
- * pans it (Shift or Alt+drag: stretches it; C3).
+ * pans it (Shift or Alt+drag: stretches it; C3); the data tooltip follows the
+ * cursor, docking being a plot's Display setting (C7). Correlation and
+ * Waveform keep the layer's gestures and the docked read-out.
  */
-const tracePlot: PlotBehaviour = { ...docked, wheel: 'x', yAxisDrag: 'pan' };
+const tracePlot: PlotBehaviour = {
+  ...DEFAULT_GESTURE_PREFS,
+  wheel: 'x',
+  yAxisDrag: 'pan',
+  tooltip: 'cursor',
+};
 
 export const BUILTIN_DEFAULTS: SiteDefaults = deepFreeze({
   header: {

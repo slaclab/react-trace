@@ -12,7 +12,8 @@
 //               Y axes follow as the axis sections' sub-blocks
 //   Display     Title (stamped dot) · Legend · Live value in legend · X/Y
 //               gridlines · Crosshair · Data tooltip (L1); Mouse drag ·
-//               Status line · Pin data window · Drawing tools · Drawings
+//               Status line · Pin data window · Dock data tooltip ·
+//               Drawing tools · Drawings
 //               (session: the plot's hide-all) (L2); More: Grid style ·
 //               Grid opacity · Tick font size · Background colour · Palette
 //               (custom, `plot.palette`)
@@ -24,7 +25,7 @@
 // carry none; Autoscroll carries none either: it is session state that a new
 // plot stamps `true`, so an optional-path dot would light on every plot. A
 // field a site can set (src/site: Refresh interval, Default archiver, Mouse
-// drag, Drawing tools, Palette) carries a site dot: lit while the plot's
+// drag, Dock data tooltip, Drawing tools, Palette) carries a site dot: lit while the plot's
 // value differs from the site's, and its reset writes the site's value.
 //
 // Built by a factory generic over the tool's state and model, so the tool's
@@ -62,6 +63,7 @@ import {
 import type { Plot } from '../../../types';
 import { DRAG_MODE_LABEL, DRAG_MODES, isDragMode, type DragMode } from '../../../plot/plotToggles';
 import { siteDefaults } from '../../../site/store';
+import type { TooltipMode } from '../../../site/types';
 import { AXES, LABELS, PLOT_SECTIONS, onFlags, summary } from '../../vocabulary';
 import type {
   FieldDef,
@@ -372,6 +374,25 @@ export function createPlotSchema<
       get: (ctx) => read(ctx, (p) => p.pinDataWindow === true, false),
       set: (ctx, on) => patch(ctx, { pinDataWindow: on ? true : undefined }),
       ...plotOptional<S, M, U>('pinDataWindow'),
+    },
+    {
+      // ✚ The hover readout docked in a corner of the plot, which it dodges
+      // and whose grip moves it (src/plot/readoutDock.ts). Off by default, as
+      // on main: the readout follows the cursor. Only "on" is stored; a new
+      // plot takes the site's choice (src/site `tooltip`).
+      id: 'dock-readout',
+      label: 'Dock data tooltip',
+      kind: 'toggle',
+      tab: PLOT_TABS.display,
+      level: 'L2',
+      help: 'Keep the data tooltip in a corner of the plot instead of next to the cursor.',
+      get: (ctx) => read(ctx, (p) => p.dockReadout === true, false),
+      set: (ctx, on) => patch(ctx, { dockReadout: on ? true : undefined }),
+      ...plotSiteDot<S, M, U, TooltipMode>({
+        value: (p) => (p.dockReadout === true ? 'docked' : 'cursor'),
+        site: () => siteDefaults().trace.plot.tooltip,
+        store: (mode) => ({ dockReadout: mode === 'docked' ? true : undefined }),
+      }),
     },
     {
       // ✚ The drawing rail and its arm keys. On by default, so only "off"

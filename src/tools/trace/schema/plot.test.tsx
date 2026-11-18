@@ -244,6 +244,8 @@ describe('plot schema — sections, levels, summaries', () => {
       'drag-mode',
       'show-status-line',
       'pin-data-window',
+      // C7: docking the data tooltip is a Display setting.
+      'dock-readout',
       'show-drawing-tools',
       'show-drawings',
     ];

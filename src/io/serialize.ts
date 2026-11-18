@@ -283,6 +283,8 @@ function rehydratePlot(p: Plot, catalog: Catalog): Plot {
   if (plot.dragMode === TRACE_DEFAULT_DRAG) delete plot.dragMode;
   // Drawing tools are stored only off (false); anything else is on.
   if (plot.showDrawingTools !== false) delete plot.showDrawingTools;
+  // The docked readout is stored only on; anything else follows the cursor.
+  if (plot.dockReadout !== true) delete plot.dockReadout;
   return withAnnotations(plot, rehydrateAnnotations(p.annotations, plot.axes ?? [], catalog));
 }
 

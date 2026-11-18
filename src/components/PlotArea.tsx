@@ -514,7 +514,10 @@ export function SinglePlot({
     },
     [projectionStore]
   );
-  // The data read-out's dock (pinned: the top-right corner), and its grip.
+  // The data read-out's dock (pinned: the top-right corner), and its grip,
+  // while the plot's Dock data tooltip is on; off, the read-out follows the
+  // cursor, as on main (a pinned one sits at the top-right).
+  const docked = plot.dockReadout === true;
   const [readoutDock] = useState(() =>
     createReadoutDock({ grid: projectionArea(projectionStore) })
   );
@@ -526,8 +529,8 @@ export function SinglePlot({
   // the read-out box, at the same origin.
   useEffect(() => {
     const dom = chartHostRef.current;
-    return dom ? attachReadoutDrag(dom, readoutDock) : undefined;
-  }, [readoutDock]);
+    return docked && dom ? attachReadoutDrag(dom, readoutDock) : undefined;
+  }, [readoutDock, docked]);
 
   // Per-axis screen geometry + metadata, recomputed each render and read by the
   // (mount-once) pointer listeners so hit-testing always reflects the current
@@ -1188,7 +1191,7 @@ export function SinglePlot({
     endMs,
     traceData,
     samples,
-    readoutDock,
+    readoutDock: docked ? readoutDock : undefined,
   });
   // No curve highlights from its (selectable) legend entry (`LegendMenu`).
   const option: EChartsOption = { ...built, series: quietLegendHover(built.series) };

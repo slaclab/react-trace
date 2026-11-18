@@ -61,6 +61,7 @@ export const TRACE_FIELD_TABLE: Readonly<Record<string, FieldClass>> = {
   'show-legend': plot('plot', 'showLegend'),
   'show-legend-value': plot('plot', 'showLegendValue'),
   'pin-data-window': plot('plot', 'pinDataWindow'),
+  'dock-readout': plot('plot', 'dockReadout'),
   'show-status-line': plot('plot', 'showStatusLine'),
   'show-tooltip': plot('plot', 'showTooltip'),
   'drag-mode': plot('plot', 'dragMode'),

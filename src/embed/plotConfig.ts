@@ -88,6 +88,8 @@ export interface PlotConfig {
   showLegendValue?: boolean;
   /** ✚ Pinned hover readout; written only when on. */
   pinDataWindow?: boolean;
+  /** ✚ Hover readout docked in a corner; off (following the cursor) by default, written only when on. */
+  dockReadout?: boolean;
   /** ✚ Status line; on by default, written only when off. */
   showStatusLine?: boolean;
   /** Hover read-out; on by default, written only when off. */
@@ -254,6 +256,7 @@ export interface PlotConfigSource {
   showLegend?: boolean;
   showLegendValue?: boolean;
   pinDataWindow?: boolean;
+  dockReadout?: boolean;
   showStatusLine?: boolean;
   showTooltip?: boolean;
   showDrawingTools?: boolean;
@@ -360,6 +363,7 @@ export function plotConfigOf(
   }
   if (plot.showLegendValue === true) config.showLegendValue = true;
   if (plot.pinDataWindow === true) config.pinDataWindow = true;
+  if (plot.dockReadout === true) config.dockReadout = true;
   if (plot.showStatusLine === false) config.showStatusLine = false;
   if (plot.showTooltip === false) config.showTooltip = false;
   if (plot.showDrawingTools === false) config.showDrawingTools = false;
@@ -454,6 +458,7 @@ const PLOT_CHECKS: Record<string, Check> = {
   showLegend: bool,
   showLegendValue: bool,
   pinDataWindow: bool,
+  dockReadout: bool,
   showStatusLine: bool,
   showTooltip: bool,
   showDrawingTools: bool,
@@ -643,6 +648,8 @@ export function applyPlotConfig(
   if (out.dragMode === TRACE_DEFAULT_DRAG) delete out.dragMode;
   // Drawing tools are stored only off.
   if (out.showDrawingTools !== false) delete out.showDrawingTools;
+  // The docked readout is stored only on.
+  if (out.dockReadout !== true) delete out.dockReadout;
   // Raw tuples never reach the Plot: decoded against the rebuilt axes and traces.
   if (drawings !== undefined) {
     out = withAnnotations(
