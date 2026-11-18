@@ -1,40 +1,34 @@
 import { useState, useEffect } from 'react';
 
-import { listLogbooks, type ElogLogbook } from '../api/elog';
+import { describeElogError, getElogConfig } from '../api/elog';
 
 export interface ElogConfig {
   enabled: boolean;
-  logbooks: ElogLogbook[];
-  defaultLogbooks: string[];
+  defaultLogbookIds: string[];
 }
 
-const DISABLED: ElogConfig = { enabled: false, logbooks: [], defaultLogbooks: [] };
+const DISABLED: ElogConfig = { enabled: false, defaultLogbookIds: [] };
 
-function parseDefaults(): string[] {
-  const raw = import.meta.env.VITE_ELOG_DEFAULT_LOGBOOKS as string | undefined;
-  if (!raw) return [];
-  return raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-// No config endpoint exists on elog-plus, so availability is inferred: if the
-// logbooks list loads, the feature is on. Cached at module scope so the dialog
-// and the toolbar button share one fetch. On failure we reset the cache so a
-// later open can retry, and report disabled so the button stays hidden.
+// Canopy's e-log /config says whether posting is available for Trace (a provider
+// is configured and Trace has a token there). Cached at module scope so the
+// dialog and the toolbar button share one fetch. A disabled config is cached as
+// is; a failed fetch resets the cache so a later mount can retry. Either way the
+// button stays hidden, so log why instead of disappearing silently.
 let cache: Promise<ElogConfig> | null = null;
 
-function fetchConfig(): Promise<ElogConfig> {
+export function loadElogConfig(): Promise<ElogConfig> {
   if (!cache) {
-    cache = listLogbooks()
-      .then((logbooks) => ({
-        enabled: true,
-        logbooks,
-        defaultLogbooks: parseDefaults(),
-      }))
-      .catch(() => {
+    cache = getElogConfig()
+      .then((config): ElogConfig => {
+        if (!config.enabled) {
+          console.info(`E-log posting disabled: ${config.reason ?? 'no reason given'}`);
+          return DISABLED;
+        }
+        return { enabled: true, defaultLogbookIds: config.defaultLogbookIds ?? [] };
+      })
+      .catch((err: unknown) => {
         cache = null;
+        console.warn(`E-log posting unavailable: ${describeElogError(err)}`);
         return DISABLED;
       });
   }
@@ -46,7 +40,7 @@ export function useElogConfig(): ElogConfig | null {
 
   useEffect(() => {
     let cancelled = false;
-    fetchConfig().then((c) => {
+    loadElogConfig().then((c) => {
       if (!cancelled) setConfig(c);
     });
     return () => {

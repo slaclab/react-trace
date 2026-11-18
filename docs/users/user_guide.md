@@ -6,7 +6,7 @@
 
 The Trace window has four areas:
 
-- **① Header** — the toolbar for saving, exporting, printing, and other actions. The counter next to **TRACE** shows how many traces on the current plot use live and archive data.
+- **① Header** — the toolbar for saving, exporting, printing, and other actions. The counter next to **SLAC Trace** shows how many traces on the current plot use live and archive data.
 - **② Layers** — the plot's axes and the traces on each axis. Click an item to edit it.
 - **③ Plot area** — the plot itself, with plot tabs and view controls above it.
 - **④ Properties** — settings for whatever is selected in **Layers**: the plot, an axis, or a trace.
@@ -48,6 +48,16 @@ Once you choose a PV, the trace starts drawing:
 <div style="text-align:center; margin:1.5rem 0;">
   <a class="glightbox" href="../images/plot_pv_plotted.png"><img src="../images/plot_pv_plotted.png" alt="A PV plotted with live and archive data" style="width:80%; border-radius:0.5rem;"></a>
 </div>
+
+### Add Several PVs at Once
+
+To add many PVs in one go, click the **Search PVs** icon in the header, or the **Search PVs** button below a plot's axes in the **Layers** panel.
+
+1. Type part of a PV name in **Pattern**. Matches from the archiver appear as you type. `*` matches any run of characters and `?` matches one, so `KLYS:LI2*:PDES` finds every PV that starts with `KLYS:LI2` and ends with `:PDES`.
+2. Tick the PVs you want, or use **Select all** at the top of the list. Matches are listed alphabetically. Ticks are kept when you change the pattern, so you can gather PVs from several searches; the **Selected** row shows them and lets you remove one or clear them all.
+3. Click **Add N PVs**. Double-clicking a match adds it straight away, together with anything already selected.
+
+The new traces appear under the plot's first axis and move to their units axes as the lookups finish (see [Axes and Units](#axes-and-units)). PVs that are already on the plot are marked **on plot**; you can still add them again. The dialog lists at most 500 matches, so narrow the pattern if the PV you want isn't shown. With more than one plot open, the dialog starts on the current plot and **Add to plot** lets you pick another.
 
 ### Axes and Units
 

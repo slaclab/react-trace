@@ -18,9 +18,9 @@ import {
 import { Copy, TrashCan, Renew } from '@carbon/icons-react';
 
 import type { Plot } from '../types';
-import type { ColorMode } from '../state/themeStore';
+import type { ColorMode } from '@slaclab/canopy-shell';
 import type { ConfigDTO } from '../api/types';
-import { CanopyError } from '../api/client';
+import { errorInfo } from '../api/errorInfo';
 import {
   serializeConfigData,
   deserializeConfigData,
@@ -58,6 +58,13 @@ const BUSY_VERB = { load: 'Loading', rename: 'Renaming', delete: 'Deleting' } as
 // silently hidden; real paging is slaclab/react-trace#80.
 const PAGE_SIZE = 200;
 
+// Marks the delete confirmation, which opens as a second modal over the store.
+// The store's Carbon focus wrap treats focus leaving for an element outside it
+// as Tab-past-the-end and pulls it back to its own first button. Listing this
+// class in the store's `selectorsFloatingMenus` lets focus move into the
+// confirmation; the confirmation's own wrap then keeps it there.
+const DELETE_CONFIRM_CLASS = 'config-store-delete-confirm';
+
 function shareUrl(slug: string): string {
   const url = new URL(window.location.href);
   url.search = '';
@@ -72,8 +79,7 @@ function configLabel(config: ConfigDTO): string {
 }
 
 function errText(err: unknown): string {
-  if (err instanceof CanopyError) return err.detail;
-  return (err as Error | null)?.message ?? 'Unknown error';
+  return errorInfo(err).detail;
 }
 
 /** Copy `text`, reporting whether it actually landed (see handleSave). */
@@ -123,6 +129,9 @@ export function ConfigStoreModal({
     deleteTargetRef.current = config;
     setDeleteTargetState(config);
   }, []);
+  // The row button that opened the delete confirmation, to refocus on close.
+  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const storeBodyRef = useRef<HTMLDivElement>(null);
 
   // Monotonic refresh id. A Save/Delete fires its own refresh while the open
   // refresh may still be in flight; without this, the slower (older) response
@@ -226,6 +235,24 @@ export function ConfigStoreModal({
     if (busyRef.current === op) setBusy(null);
   };
 
+  // Return focus to the store when the delete confirmation closes. Otherwise it
+  // stays on the hidden confirmation, and the next Tab leaves the store for the
+  // page behind it. After a delete the row's button is gone (the list reloads),
+  // or still disabled if that reload lands in a later render, so fall back to
+  // the store's scrollable body, which Carbon makes focusable.
+  // Runs as the cleanup, i.e. after the commit that closes the confirmation, so
+  // its focus wrap is already off and doesn't pull focus back.
+  const deleteConfirmOpen = deleteTarget !== null;
+  useEffect(() => {
+    if (!deleteConfirmOpen) return;
+    const trigger = deleteTriggerRef.current;
+    const storeBody = storeBodyRef.current;
+    return () => {
+      const triggerUsable = trigger?.isConnected && !trigger.disabled;
+      (triggerUsable ? trigger : storeBody)?.focus();
+    };
+  }, [deleteConfirmOpen]);
+
   const handleSave = async () => {
     const op: BusyOp = { kind: 'save' };
     const session = begin(op);
@@ -324,9 +351,10 @@ export function ConfigStoreModal({
   };
 
   // A row's Delete opens the confirmation; only its Delete button deletes.
-  const askDelete = (config: ConfigDTO) => {
+  const askDelete = (config: ConfigDTO, trigger: HTMLButtonElement) => {
     // Don't ask about an action that can't start.
     if (busyRef.current) return;
+    deleteTriggerRef.current = trigger;
     setError(null);
     setDeleteTarget(config);
   };
@@ -362,9 +390,15 @@ export function ConfigStoreModal({
 
   return (
     <>
-      <ComposedModal open={open} onClose={requestClose} size="lg" aria-label="Config store">
+      <ComposedModal
+        open={open}
+        onClose={requestClose}
+        size="lg"
+        aria-label="Config store"
+        selectorsFloatingMenus={[`.${DELETE_CONFIRM_CLASS}`]}
+      >
         <ModalHeader title="Config store" />
-        <ModalBody hasScrollingContent>
+        <ModalBody hasScrollingContent aria-label="Config store contents" ref={storeBodyRef}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 4 }}>
             {error && !deleteTarget && (
               <InlineNotification
@@ -487,7 +521,9 @@ export function ConfigStoreModal({
                               hasIconOnly
                               iconDescription="Delete"
                               renderIcon={TrashCan}
-                              onClick={() => askDelete(c)}
+                              onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
+                                askDelete(c, e.currentTarget)
+                              }
                               disabled={busy !== null}
                             />
                           </div>
@@ -508,6 +544,7 @@ export function ConfigStoreModal({
         size="sm"
         danger
         aria-label="Delete config?"
+        className={DELETE_CONFIRM_CLASS}
       >
         <ModalHeader title="Delete config?" />
         <ModalBody>

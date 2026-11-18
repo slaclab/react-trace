@@ -11,7 +11,7 @@
 // controls exactly when a response lands relative to clicks and dismissals.
 import { useState } from 'react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { ConfigStoreModal } from './ConfigStoreModal';
 import { CanopyError } from '../api/client';
 import type * as Magpie from '../api/magpie';
@@ -251,10 +251,18 @@ beforeAll(() => {
       disconnect() {}
     }
   );
+  // jsdom has no scrollIntoView. Carbon's modal calls it when focus moves to an
+  // element inside a scrolling ModalBody.
+  Object.defineProperty(Element.prototype, 'scrollIntoView', {
+    configurable: true,
+    writable: true,
+    value: vi.fn(),
+  });
 });
 
 afterAll(() => {
   vi.unstubAllGlobals();
+  delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
 });
 
 beforeEach(() => {
@@ -681,6 +689,77 @@ describe('ConfigStoreModal: the delete confirmation', () => {
     await settle(() => deletes[0].resolve());
     expect(screen.queryByText('Config B')).toBeNull();
     expect(screen.getByText('Config A')).toBeTruthy();
+  });
+});
+
+describe('ConfigStoreModal: focus around the delete confirmation', () => {
+  // The store's scrolling body, which Carbon makes focusable. Carbon up to 1.108
+  // names it by its aria-label ("Config store contents"), later versions by the
+  // modal heading ("Config store").
+  const storeBody = () => screen.getByRole('region', { name: /^Config store/ });
+
+  it('falls back to the store body when a Delete removes the trigger with its row', async () => {
+    await mount();
+    startDelete('Config B');
+    api.listConfigs.mockResolvedValue({ results: [A], continuationToken: null, totalCount: 1 });
+    await settle(() => deletes[0].resolve());
+    expect(screen.queryByText('Config B')).toBeNull();
+    expect(document.activeElement).toBe(storeBody());
+  });
+
+  it('falls back to the store body when the delete trigger is disabled on close', async () => {
+    await mount();
+    const trigger = rowButton('Config B', 'Delete');
+    fireEvent.click(trigger);
+    // Stands in for a trigger that can't take focus when the confirmation closes.
+    trigger.disabled = true;
+    dismissConfirm('Cancel');
+    await settle();
+    expect(confirmOpen()).toBe(false);
+    expect(document.activeElement).toBe(storeBody());
+  });
+
+  it('moves focus into the delete confirmation and back to its trigger on Escape', async () => {
+    // Carbon's focus wrap only targets elements with an offsetParent, which
+    // jsdom never sets (no layout). Without one the store's wrap can't move
+    // focus at all and this test couldn't see it pull focus back.
+    const offsetParent = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent')!;
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.parentElement;
+      },
+    });
+    const focusedOutside: Element[] = [];
+    const recordFocus = (e: FocusEvent) => {
+      if (!(e.target as Element).closest('.cds--modal--danger')) {
+        focusedOutside.push(e.target as Element);
+      }
+    };
+    try {
+      await mount();
+      // A keyboard user tabs to the row's Delete button and presses Enter.
+      const trigger = rowButton('Config B', 'Delete');
+      trigger.focus();
+      document.addEventListener('focusin', recordFocus);
+      fireEvent.click(trigger);
+
+      const cancel = within(confirmModal()!).getByRole('button', { name: 'Cancel' });
+      await waitFor(() => expect(document.activeElement).toBe(cancel));
+      // jsdom lets the outer focus() win, so also check the store never took
+      // focus on the way (in a browser its pull-back wins and focus stays there).
+      expect(focusedOutside).toEqual([]);
+      document.removeEventListener('focusin', recordFocus);
+
+      // One Escape closes the confirmation and focus goes back to the trigger.
+      fireEvent.keyDown(cancel, { key: 'Escape' });
+      await waitFor(() => expect(confirmOpen()).toBe(false));
+      expect(storeOpen()).toBe(true);
+      expect(document.activeElement).toBe(trigger);
+    } finally {
+      document.removeEventListener('focusin', recordFocus);
+      Object.defineProperty(HTMLElement.prototype, 'offsetParent', offsetParent);
+    }
   });
 });
 
