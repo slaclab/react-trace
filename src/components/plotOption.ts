@@ -167,6 +167,23 @@ export interface PlotLayout {
   gridRight: number;
 }
 
+/**
+ * Tick labels for an axis with a set range. ECharts labels the range's edges
+ * with their raw values, and a pan or zoom leaves them as long as
+ * 109.63855421686748, which runs into the next axis. Round every label to
+ * three decimals below the span's leading digit (a span of 100 shows 109.6, a
+ * span of 2 shows 1.386); ticks already that coarse keep their own text.
+ */
+export function spanTickFormatter(
+  min: number | undefined,
+  max: number | undefined
+): (v: number) => string {
+  const span = min !== undefined && max !== undefined ? Math.abs(max - min) : NaN;
+  if (!Number.isFinite(span) || span === 0) return formatAxisTick;
+  const decimals = Math.min(20, Math.max(0, 3 - Math.floor(Math.log10(span))));
+  return (v: number) => formatAxisTick(Number(v.toFixed(decimals)));
+}
+
 /** Axis slots and grid insets for a plot's visible axes, in panel order. */
 export function plotLayout(visibleAxes: readonly Axis[]): PlotLayout {
   const axisIndexMap = new Map<string, number>();
@@ -526,6 +543,11 @@ export function buildPlotOption({
       bottom: GRID_BOTTOM,
       left: gridLeft,
       right: gridRight,
+      // The grid stays where these numbers put it. ECharts 6 otherwise moves it
+      // to keep axis labels inside the chart, so a long label (a panned axis's
+      // edge) shifted the plot sideways mid-drag, and the axis hit-zones and
+      // the drawing layer, which use these numbers, stopped matching it.
+      outerBoundsMode: 'none',
     },
     xAxis: {
       type: 'time',
@@ -577,7 +599,11 @@ export function buildPlotOption({
             min: axis.autoScale ? undefined : axis.min,
             max: axis.autoScale ? undefined : axis.max,
             scale: axis.autoScale,
-            axisLabel: { ...axisLabel, fontSize: plot.tickFontSize, formatter: formatAxisTick },
+            axisLabel: {
+              ...axisLabel,
+              fontSize: plot.tickFontSize,
+              formatter: axis.autoScale ? formatAxisTick : spanTickFormatter(axis.min, axis.max),
+            },
             // ECharts hides axisLine on secondary y-axes by default; force it on so
             // every stacked axis shows its own vertical line next to its labels.
             axisLine: { ...axisStyle.axisLine, show: true },
