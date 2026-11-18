@@ -6,10 +6,15 @@
 // re-rendered only when the model changes, not per frame).
 //
 // Rules:
-//   - One axis, one unit: once every live and reference PV's metadata is in
-//     (or the metadata timeout passed) the axis unit is the EGU of the first PV
-//     in state order — live in order, then the PV reference — with a non-empty
-//     EGU, regardless of connection, length or visibility. A PV of another
+//   - One axis, one unit: once every live and reference PV is settled the
+//     axis unit is the EGU of the first PV in state order — live in order,
+//     then the PV reference — with a non-empty EGU, regardless of connection,
+//     length or visibility. A PV is settled when its metadata is in or its own
+//     metadata window ended without it (`metaExpired`: its timeout passed, or
+//     it reported disconnected first), and then counts as having no unit; a
+//     late metadata can still set the unit. While a PV is in its window its
+//     row says "waiting for metadata"; once the window ended with nothing
+//     reported it is an error, "no metadata". A PV of another
 //     non-empty unit is kept in its section, not drawn, with the "Open a new
 //     Waveform tab (+)" message. Being a pure function of the state, the unit
 //     is re-evaluated on every section change (a refused curve is admitted
@@ -86,8 +91,10 @@ export interface WaveformModelInput {
   /** By PV: live, PV reference and X source. */
   rings: Readonly<Record<string, WaveformRingSummary | undefined>>;
   meta: WaveformMetaMap;
-  /** The metadata timeout passed: decide the unit with what arrived. */
+  /** Every PV's metadata window passed: decide the unit with what arrived. */
   metaTimedOut: boolean;
+  /** By PV: its own metadata window ended without metadata (timed out, or reported disconnected). */
+  metaExpired?: Readonly<Record<string, boolean | undefined>>;
   /** Per live PV, the frames its rolling window keeps; absent = none. */
   rolling?: Readonly<Record<string, number | undefined>>;
 }
@@ -174,6 +181,14 @@ export const CANVAS_WAITING = 'waiting for data';
 export const NOT_IN_SNAPSHOT = 'not in snapshot — take a new snapshot';
 export const ROLLING_COLLECTING = 'collecting';
 export const LENGTH_MISMATCH = 'length mismatch';
+/** A PV in its metadata window: the axis unit waits for it. */
+export const META_WAITING = 'waiting for metadata';
+/** A PV whose metadata window ended with nothing reported. */
+export const META_MISSING = 'no metadata';
+
+export function metaMissingMessage(pv: string): string {
+  return `${pv} sent no metadata or data: check the name, or whether its IOC is up.`;
+}
 
 export function unitMessage(pv: string, units: string, axis: string): string {
   return `${pv} is in ${units}; the axis is ${axis}. Open a new Waveform tab (+) for it.`;
@@ -198,11 +213,12 @@ function refPv(state: WaveformState): string | null {
 export function axisUnitOf(
   state: WaveformState,
   meta: WaveformMetaMap,
-  timedOut = false
+  timedOut = false,
+  expired: Readonly<Record<string, boolean | undefined>> = {}
 ): { decided: boolean; unit: string | null } {
   const ref = refPv(state);
   const order = ref === null ? state.pvs : [...state.pvs, ref];
-  const decided = timedOut || order.every((pv) => meta[pv] !== undefined);
+  const decided = timedOut || order.every((pv) => meta[pv] !== undefined || expired[pv] === true);
   if (!decided) return { decided, unit: null };
   for (const pv of order) {
     const egu = meta[pv]?.egu ?? '';
@@ -217,8 +233,14 @@ function refused(egu: string, unit: string | null): boolean {
 
 export function deriveWaveformModel(input: WaveformModelInput): WaveformModel {
   const { state, rings, meta } = input;
-  const { decided, unit } = axisUnitOf(state, meta, input.metaTimedOut);
+  const expired = input.metaExpired ?? {};
+  const { decided, unit } = axisUnitOf(state, meta, input.metaTimedOut, expired);
   const egu = (pv: string) => meta[pv]?.egu ?? '';
+  // A PV with no metadata and no report: in its window, or its window ended.
+  const metaGate = (pv: string): 'waiting' | 'missing' | null => {
+    if (meta[pv] !== undefined || rings[pv] !== undefined) return null;
+    return input.metaTimedOut || expired[pv] === true ? 'missing' : 'waiting';
+  };
   const ref = state.reference;
   const delta = state.delta && ref !== null;
 
@@ -242,6 +264,13 @@ export function deriveWaveformModel(input: WaveformModelInput): WaveformModel {
     } else if (length === null) {
       status = summary !== undefined && !summary.connected ? 'error' : 'pending';
       chip = summary !== undefined && !summary.connected ? 'disconnected' : null;
+      const gate = metaGate(ref.pv);
+      if (gate === 'waiting') chip = META_WAITING;
+      else if (gate === 'missing') {
+        status = 'error';
+        chip = META_MISSING;
+        message = metaMissingMessage(ref.pv);
+      }
     } else if (summary !== undefined && !summary.connected) {
       status = 'stale';
       chip =
@@ -320,8 +349,16 @@ export function deriveWaveformModel(input: WaveformModelInput): WaveformModel {
       return row;
     }
     if (row.hidden) return row;
+    const gate = metaGate(pv);
+    if (gate === 'missing') {
+      row.status = 'error';
+      row.chip = META_MISSING;
+      row.message = metaMissingMessage(pv);
+      return row;
+    }
     if (!decided || summary === undefined) {
       row.status = 'pending';
+      if (gate === 'waiting') row.chip = META_WAITING;
       return row;
     }
     if (!summary.connected) {

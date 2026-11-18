@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { FakeHare, type FakeValue } from '../shared/fakeHare.test-util';
 import { setHidden, setSnapshot, setVisible } from './edit';
-import { NOT_IN_SNAPSHOT } from './model';
+import { META_MISSING, META_WAITING, NOT_IN_SNAPSHOT } from './model';
 import { defaultWaveformState, type WaveformState } from './query';
 import { WAVEFORM_META_TIMEOUT_MS, WaveformController } from './WaveformController';
 
@@ -590,5 +590,65 @@ describe('model: emitted only on change', () => {
     timer.cb();
     expect(h.ctl.getModel().unitDecided).toBe(true);
     expect(h.ctl.getModel().unit).toBe('V');
+  });
+});
+
+describe('metadata gate: each PV has its own window', () => {
+  const GOOD = 'TEST:WAVEFORM';
+  const MISSING = 'DEMO:MISSING';
+  const liveTimers = (h: Harness) =>
+    h.timers.filter((t) => t.live && t.ms === WAVEFORM_META_TIMEOUT_MS);
+  const row = (h: Harness, pv: string) => h.ctl.getModel().live.find((r) => r.pv === pv)!;
+  /** Fire a timer as the clock would: once, after which it is no longer live. */
+  const fire = (t: Harness['timers'][number]) => {
+    t.live = false;
+    t.cb();
+  };
+
+  it('survives StrictMode: dispose then setState with the same state re-arms the window', () => {
+    const h = harness();
+    const s = state({ pvs: [GOOD, MISSING] });
+    // StrictMode: mount, dispose, mount again with the same state.
+    h.ctl.setState(s);
+    h.ctl.dispose();
+    h.ctl.setState(s);
+    initial(h, [GOOD]);
+    expect(h.ctl.getModel().unitDecided).toBe(false);
+    expect(row(h, MISSING).chip).toBe(META_WAITING);
+    const timers = liveTimers(h);
+    expect(timers).toHaveLength(1);
+    fire(timers[0]);
+    expect(h.ctl.getModel().unitDecided).toBe(true);
+    expect(row(h, GOOD)).toMatchObject({ status: 'ok', drawable: true });
+    expect(row(h, MISSING)).toMatchObject({ status: 'error', chip: META_MISSING, drawable: false });
+  });
+
+  it('adding a PV gives it its own window and leaves the others decided', () => {
+    const h = harness();
+    h.ctl.setState(state({ pvs: [GOOD] }));
+    initial(h, [GOOD]);
+    expect(row(h, GOOD).drawable).toBe(true);
+    expect(liveTimers(h)).toHaveLength(0);
+    h.ctl.setState(state({ pvs: [GOOD, MISSING] }));
+    expect(liveTimers(h)).toHaveLength(1);
+    fire(liveTimers(h)[0]);
+    expect(row(h, GOOD).drawable).toBe(true);
+    expect(row(h, MISSING).chip).toBe(META_MISSING);
+    // A further edit does not reopen the window of a PV whose window passed.
+    h.ctl.setState(state({ pvs: [GOOD, MISSING], persist: 2 }));
+    expect(liveTimers(h)).toHaveLength(0);
+    expect(row(h, GOOD).drawable).toBe(true);
+  });
+
+  it('a PV that reports disconnected without metadata stops holding the others at once', () => {
+    const h = harness();
+    h.ctl.setState(state({ pvs: [MISSING, GOOD] }));
+    initial(h, [GOOD]);
+    expect(row(h, GOOD).drawable).toBe(false);
+    h.hare.diff([[MISSING, DOWN_WF]]);
+    expect(h.ctl.getModel().unitDecided).toBe(true);
+    expect(row(h, GOOD)).toMatchObject({ status: 'ok', drawable: true });
+    expect(row(h, MISSING)).toMatchObject({ status: 'error', chip: 'disconnected' });
+    expect(liveTimers(h)).toHaveLength(0);
   });
 });

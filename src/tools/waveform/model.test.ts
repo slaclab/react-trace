@@ -5,6 +5,8 @@ import {
   CANVAS_NONE_DRAWABLE,
   CANVAS_WAITING,
   ELEMENT_LABEL,
+  META_MISSING,
+  META_WAITING,
   NOT_IN_SNAPSHOT,
   ROLLING_COLLECTING,
   axisUnitOf,
@@ -521,5 +523,56 @@ describe('purity', () => {
     const m2 = deriveWaveformModel(i);
     expect(m2).toEqual(m1);
     expect(JSON.parse(JSON.stringify(m1))).toEqual(m1);
+  });
+});
+
+describe('metadata gate per PV', () => {
+  const GOOD = 'TEST:WAVEFORM';
+  const MISSING = 'DEMO:MISSING';
+
+  it('names the PV still in its window; a PV whose window passed no longer holds the axis', () => {
+    const s = state({ pvs: [MISSING, GOOD] });
+    const waiting = deriveWaveformModel(
+      input({ state: s, meta: { [GOOD]: mm }, rings: { [GOOD]: ring(4) } })
+    );
+    expect(waiting.live[0]).toMatchObject({ status: 'pending', chip: META_WAITING });
+    expect(waiting.live[1]).toMatchObject({ status: 'pending', drawable: false });
+
+    const expired = deriveWaveformModel(
+      input({
+        state: s,
+        meta: { [GOOD]: mm },
+        metaExpired: { [MISSING]: true },
+        rings: { [GOOD]: ring(4) },
+      })
+    );
+    expect(expired.unitDecided).toBe(true);
+    expect(expired.unit).toBe('mm');
+    expect(expired.live[0]).toMatchObject({
+      status: 'error',
+      chip: META_MISSING,
+      drawable: false,
+    });
+    expect(expired.live[0].message).toContain(MISSING);
+    expect(expired.live[1]).toMatchObject({ status: 'ok', drawable: true });
+    expect(expired.canvas).toEqual({ kind: 'ready' });
+  });
+
+  it('gives a PV reference the same statuses', () => {
+    const s = state({ pvs: [GOOD], reference: { kind: 'pv', pv: MISSING } });
+    const waiting = deriveWaveformModel(
+      input({ state: s, meta: { [GOOD]: mm }, rings: { [GOOD]: ring(4) } })
+    );
+    expect(waiting.reference).toMatchObject({ status: 'pending', chip: META_WAITING });
+    const expired = deriveWaveformModel(
+      input({
+        state: s,
+        meta: { [GOOD]: mm },
+        metaExpired: { [MISSING]: true },
+        rings: { [GOOD]: ring(4) },
+      })
+    );
+    expect(expired.reference).toMatchObject({ status: 'error', chip: META_MISSING });
+    expect(expired.live[0].drawable).toBe(true);
   });
 });

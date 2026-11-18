@@ -21,6 +21,14 @@
 // that bypasses `hz` and Pause (paused, the live frames stay frozen), so the
 // Snapshot click re-zeroes Δ at once.
 //
+// Metadata: each live and reference PV has its own window
+// (`WAVEFORM_META_TIMEOUT_MS`), armed when it joins the state and ended by
+// its metadata, by a disconnected report without metadata, or by the timer.
+// The axis unit waits only for PVs still inside their window (model.ts), so
+// one PV that never answers holds the others for at most one window. Windows
+// are tracked per PV, not per PV list, so `dispose()` (StrictMode's double
+// mount) clears the timers and the next `setState` re-arms them.
+//
 // Frames are published at full range and pre-Δ (the ring mean when Average >
 // 1): element range, Δ and decimation are applied downstream by the option
 // builder. `captureSnapshot` returns, for `edit.setSnapshot`, every visible
@@ -46,7 +54,7 @@ import {
 import type { WaveformCurveFrames, WaveformPlotFrames } from './plotOption';
 import { MAX_HZ, defaultWaveformState, type WaveformState } from './query';
 
-/** No metadata within this window: the axis unit is decided with what arrived. */
+/** A PV's metadata window: past it, the PV counts as having no unit and gets a status. */
 export const WAVEFORM_META_TIMEOUT_MS = 3000;
 
 /** What the controller needs of a PV service: listeners and the meta cache. */
@@ -147,10 +155,10 @@ export class WaveformController {
   /** The averaging buffers' arrays: reused per publish, so a snapshot copies them. */
   private readonly averaged = new WeakSet<Float64Array>();
   private readonly meta: Record<string, WaveformPvMeta | undefined> = {};
-  private metaTimedOut = false;
-  private metaTimer: unknown = undefined;
-  /** The live and reference PVs the metadata decision last covered, in order. */
-  private metaKey = '';
+  /** Per PV in its metadata window, its timer. */
+  private readonly metaTimers = new Map<string, unknown>();
+  /** PVs whose metadata window ended without metadata. */
+  private readonly metaExpired: Record<string, boolean | undefined> = {};
 
   /** A frame was ingested since the last publish. */
   private dirty = false;
@@ -218,7 +226,7 @@ export class WaveformController {
     this.state = state;
     this.disposed = false;
     this.sync();
-    this.syncMetaTimer();
+    this.syncMetaTimers();
     this.updateModel();
     if (referenceChanged(prev.reference, state.reference)) this.forcePublish();
   }
@@ -274,7 +282,8 @@ export class WaveformController {
       state: { ...this.state, delta: false },
       rings: this.summaries(),
       meta: this.meta,
-      metaTimedOut: this.metaTimedOut,
+      metaTimedOut: false,
+      metaExpired: this.metaExpired,
       rolling: this.rollingCounts(),
     });
     const seconds = rollingSecondsOf(this.state);
@@ -308,10 +317,8 @@ export class WaveformController {
   dispose(): void {
     this.disposed = true;
     this.cancelScheduled();
-    if (this.metaTimer !== undefined) {
-      this.clearTimer(this.metaTimer);
-      this.metaTimer = undefined;
-    }
+    for (const timer of this.metaTimers.values()) this.clearTimer(timer);
+    this.metaTimers.clear();
     for (const [pv, entry] of this.entries) this.release(pv, entry);
     this.owned?.disconnect();
   }
@@ -409,6 +416,10 @@ export class WaveformController {
     if (meta !== undefined) {
       const egu = meta.units ?? '';
       if (this.meta[pv]?.egu !== egu) this.meta[pv] = { egu };
+      this.endMetaWindow(pv, false);
+    } else if (!data.connected && this.meta[pv] === undefined) {
+      // Reported disconnected before any metadata: it holds no one back.
+      this.endMetaWindow(pv, true);
     }
     if (!data.connected) {
       entry.connected = false;
@@ -431,24 +442,47 @@ export class WaveformController {
     this.updateModel();
   }
 
-  // ── Metadata timeout ────────────────────────────────────────────────
+  // ── Metadata windows ────────────────────────────────────────────────
 
-  private syncMetaTimer(): void {
+  /**
+   * One window per live and reference PV without metadata, armed once: a PV
+   * that left the state forgets its window (re-adding it opens a new one),
+   * and a PV whose window ended keeps that until it leaves.
+   */
+  private syncMetaTimers(): void {
+    if (this.disposed) return;
     const s = this.state;
     const ref = refPvOf(s);
-    const order = ref === '' ? s.pvs : [...s.pvs, ref];
-    const key = order.join('\n');
-    if (key === this.metaKey) return;
-    this.metaKey = key;
-    if (order.every((pv) => this.meta[pv] !== undefined)) return;
-    // A PV whose metadata has not arrived: give it the window afresh.
-    if (this.metaTimer !== undefined) this.clearTimer(this.metaTimer);
-    this.metaTimedOut = false;
-    this.metaTimer = this.setTimer(() => {
-      this.metaTimer = undefined;
-      this.metaTimedOut = true;
-      this.updateModel();
-    }, WAVEFORM_META_TIMEOUT_MS);
+    const order = new Set(ref === '' ? s.pvs : [...s.pvs, ref]);
+    for (const [pv, timer] of this.metaTimers) {
+      if (order.has(pv)) continue;
+      this.clearTimer(timer);
+      this.metaTimers.delete(pv);
+    }
+    for (const pv of Object.keys(this.metaExpired)) {
+      if (!order.has(pv)) delete this.metaExpired[pv];
+    }
+    for (const pv of order) {
+      if (this.meta[pv] !== undefined || this.metaExpired[pv] === true) continue;
+      if (this.metaTimers.has(pv)) continue;
+      const timer = this.setTimer(() => {
+        if (this.metaTimers.get(pv) !== timer) return;
+        this.metaTimers.delete(pv);
+        this.metaExpired[pv] = true;
+        this.updateModel();
+      }, WAVEFORM_META_TIMEOUT_MS);
+      this.metaTimers.set(pv, timer);
+    }
+  }
+
+  /** End `pv`'s window: by its metadata, or (`expired`) without it. */
+  private endMetaWindow(pv: string, expired: boolean): void {
+    const timer = this.metaTimers.get(pv);
+    if (timer !== undefined) {
+      this.clearTimer(timer);
+      this.metaTimers.delete(pv);
+    }
+    if (expired) this.metaExpired[pv] = true;
   }
 
   // ── Model ────────────────────────────────────────────────────────────────
@@ -474,7 +508,8 @@ export class WaveformController {
       state: this.state,
       rings: this.summaries(),
       meta: this.meta,
-      metaTimedOut: this.metaTimedOut,
+      metaTimedOut: false,
+      metaExpired: this.metaExpired,
       ...(rolling !== undefined ? { rolling } : {}),
     });
   }
