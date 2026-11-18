@@ -36,8 +36,9 @@
 // drawing is removed through `withAnnotations` (undo comes from the owner's
 // history-wrapped `update`) and never moves (`DRAWING_STAYS_REASON`).
 //
-// Footer: Add formula (onto the first axis, selected so its expression can be
-// typed) and Add axis (selected). Formula controls are never hidden.
+// Footer: Add formula (onto the selected axis, or the selected curve's axis,
+// else the first axis; selected so its expression can be typed) and Add axis
+// (selected). Formula controls are never hidden.
 //
 // Search PVs: given `searchPvs`, every add row carries a Search PVs button
 // (`add.browse`) that opens the bulk dialog for the active plot. The dialog's
@@ -129,6 +130,8 @@ export interface TraceBindingInput<S extends TraceDotState, M extends TraceCurve
   update(fn: (state: S) => S): void;
   /** Selects what the footer created (the workbench selection, user origin). */
   select?(selection: Selection): void;
+  /** The current workbench selection: Add formula lands on the axis it names. */
+  getSelection?(): Selection;
   /** The add rows' PV search; the workbench default when absent. */
   search?: PvSearch;
   /** The unit lookup after an add; Mole's metadata by default. */
@@ -471,9 +474,23 @@ export function traceBinding<S extends TraceDotState, M extends TraceCurveModel>
     );
   }
 
+  // The axis of the active plot the selection names: a selected axis, or a
+  // selected curve's axis.
+  function selectedAxis(plot: Plot): Axis | undefined {
+    const selection = input.getSelection?.();
+    if (!selection) return undefined;
+    let axisId: string | undefined;
+    if (selection.level === 'section' && selection.kind === AXIS_SECTION_KIND) {
+      axisId = selection.id;
+    } else if (selection.level === 'item') {
+      axisId = plot.traces.find((t) => t.id === selection.id)?.axisId;
+    }
+    return plot.axes.find((a) => a.id === axisId);
+  }
+
   function addFormula(): void {
     const plot = activePlot(getState());
-    const axis = plot?.axes[0];
+    const axis = plot && (selectedAxis(plot) ?? plot.axes[0]);
     if (!plot || !axis) return;
     const id = makeId('formula');
     const formula = newFormula(id, axis.id, colorForIndex(getModel().palette, plot.traces.length));

@@ -965,3 +965,34 @@ describe('Trace axis sections start expanded', () => {
     expect(rowEl('t1')).toBeTruthy();
   });
 });
+
+// ------------------------------------------------------- Add formula target --
+
+describe('Add formula lands on the selected axis', () => {
+  // Main had an Add formula per axis; the footer's one button takes the
+  // selected axis, or the selected curve's axis, and the first axis otherwise.
+  const addFormula = () => {
+    fireEvent.click(screen.getByRole('button', { name: /add formula/i }));
+    return plotOf(latest, 'p1').traces.at(-1)!;
+  };
+
+  it('onto a selected axis section', () => {
+    mount();
+    act(() => store.select({ level: 'section', kind: AXIS_SECTION_KIND, id: 'ax2' }));
+    const added = addFormula();
+    expect(added.kind).toBe('formula');
+    expect(added.axisId).toBe('ax2');
+  });
+
+  it("onto a selected curve's axis", () => {
+    mount();
+    act(() => store.select({ level: 'item', kind: PV_CURVE_ITEM_KIND, id: 't2' }));
+    expect(addFormula().axisId).toBe('ax2');
+  });
+
+  it('onto the first axis when the selection names no axis of the active plot', () => {
+    mount();
+    act(() => store.select({ level: 'section', kind: AXIS_SECTION_KIND, id: 'bx1' }));
+    expect(addFormula().axisId).toBe('ax1');
+  });
+});

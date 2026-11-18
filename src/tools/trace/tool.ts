@@ -121,7 +121,10 @@ export function useTraceDefinition(
       getModel: () => latest.current.model,
       update,
     };
-    if (selection !== undefined) input.select = (s) => selection.select(s, 'user');
+    if (selection !== undefined) {
+      input.select = (s) => selection.select(s, 'user');
+      input.getSelection = () => selection.get().selection;
+    }
     if (search !== undefined) input.search = search;
     if (lookupUnit !== undefined) input.lookupUnit = lookupUnit;
     if (hasSearchPvs) input.searchPvs = () => latest.current.searchPvs?.();
