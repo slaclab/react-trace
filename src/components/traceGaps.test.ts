@@ -9,6 +9,7 @@ import {
   isResumePoint,
   nearestSample,
   traceLineData,
+  traceSamples,
   withLiveResumes,
   type LinePoint,
 } from './traceGaps';
@@ -450,6 +451,52 @@ describe('archive lines hold an on-change PV (R1)', () => {
     expect(nulls(bandLineData(band, false).max)).toEqual([]);
     expect(nulls(bandLineData(band, true).min)).toEqual([holeStart + 1]);
     expect(nulls(bandLineData(band, true).max)).toEqual([holeStart + 1]);
+  });
+});
+
+describe('a held start value with live behind it', () => {
+  // A 30 s window on a PV that didn't change in it: the archive's answer is
+  // its last value before the window, held at the start. Live disagrees
+  // (here, -15 against 5), as a simulated live backend does.
+  const now = T0 + 3_600 * S;
+  const fromMs = now - 30 * S;
+  const t = trace({ useArchive: true, useLive: true });
+  const held = (): ArchiveSeriesResult => ({
+    ...archive([fromMs], now),
+    mean: [{ time: fromMs, value: -15, severity: 'NO_ALARM' }],
+  });
+
+  it('is dropped once live reaches back to it', () => {
+    for (const startMs of [fromMs - 2 * S, fromMs]) {
+      const l = live(grid(startMs, S, 30), [], true, 5);
+      expect(traceLineData(t, held(), l, undefined)).toEqual(pts(grid(startMs, S, 30), 5));
+      expect(traceSamples(t, held(), l, undefined)).toBe(l.points);
+    }
+  });
+
+  it('stays in front of a live buffer that starts after it', () => {
+    const l = live(grid(now - 10 * S, S, 10), [], true, 5);
+    expect(traceLineData(t, held(), l, undefined)).toEqual([
+      [fromMs, -15],
+      ...pts(grid(now - 10 * S, S, 10), 5),
+    ]);
+    expect(traceSamples(t, held(), l, undefined)[0]).toMatchObject({ time: fromMs, value: -15 });
+  });
+
+  it('leaves an archive with samples in the window as it was', () => {
+    const a = archive([fromMs, fromMs + 10 * S], now, -15);
+    const l = live(grid(fromMs - 2 * S, S, 30), [], true, 5);
+    const data = traceLineData(t, a, l, undefined);
+    expect(data.slice(0, 3)).toEqual([
+      [fromMs, -15],
+      [fromMs + 10 * S, -15],
+      [fromMs + 11 * S, 5],
+    ]);
+  });
+
+  it('leaves a binned answer as it was', () => {
+    const l = live(grid(fromMs - 2 * S, S, 30), [], true, 5);
+    expect(traceLineData(t, { ...held(), mode: 'binned' }, l, undefined)[0]).toEqual([fromMs, -15]);
   });
 });
 

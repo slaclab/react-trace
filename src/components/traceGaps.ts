@@ -24,6 +24,10 @@
 //   read-outs and snapping also read) leaves them out. Only the chart's line
 //   and its extension add them (`withLiveResumes`), as a point the line
 //   resumes from, until the first real sample after the break.
+// - Archive behind live: a raw archive answer of one point (the value held at
+//   the window start for a PV that didn't change in it) is left out when live
+//   has a sample at or before it. Live has the value there, and the archive's
+//   would otherwise step in at the left edge on every refetch.
 // - Seam (opted in only): when the archive's covered window ends more than
 //   the tail threshold after its last sample, live data that follows is
 //   separated by `[t_last_archive + 1 ms, null]`.
@@ -266,6 +270,19 @@ export function withLiveResumes(
   return line;
 }
 
+// Whether live already has everything a raw archive answer holds: the answer
+// is one point and live has a sample at or before it. That point is usually
+// the value held at the window start for a PV that didn't change in the
+// window (archiveStore's holdLastBefore). Each refetch puts it at the new
+// window start, where it would stand in front of live's own value until the
+// axis scrolls past it: a step at the left edge, and an autoscale jump, on
+// every refresh whenever the two disagree.
+function liveCoversArchive(archive: ArchiveSeriesResult, liveFirstMs: number): boolean {
+  return (
+    archive.mode !== 'binned' && archive.mean.length === 1 && liveFirstMs <= archive.mean[0].time
+  );
+}
+
 export function traceLineData(
   trace: PVTrace,
   archive: ArchiveSeriesResult | undefined,
@@ -285,6 +302,7 @@ export function traceLineData(
   const livePts = trace.useLive && live && live.points.length > 0 ? liveLine(live) : null;
 
   if (archivePts && livePts) {
+    if (liveCoversArchive(archive!, live!.points[0].time)) return livePts;
     const seamMs = archive!.mean[archive!.mean.length - 1].time;
     let head = 0;
     while (head < livePts.length && livePts[head][0] <= seamMs) head++;
@@ -319,6 +337,7 @@ export function traceSamples(
   const archivePts = trace.useArchive && archive && archive.mean.length > 0 ? archive.mean : null;
   const livePts = trace.useLive && live && live.points.length > 0 ? live.points : null;
   if (archivePts && livePts) {
+    if (liveCoversArchive(archive!, livePts[0].time)) return livePts;
     const seamMs = archivePts[archivePts.length - 1].time;
     let head = 0;
     while (head < livePts.length && livePts[head].time <= seamMs) head++;
