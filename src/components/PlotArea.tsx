@@ -41,6 +41,7 @@ import type { OverlayHandle } from '../annotations/AnnotationLayer';
 import type { Annotation } from '../annotations/model';
 import { AxisBadges } from '../tools/trace/plot/AxisBadges';
 import { DrawingRail } from '../annotations/DrawingRail';
+import { RAIL_RIGHT } from '../annotations/railMetrics';
 import { PlotTabName } from './PlotTabName';
 import { AxisMenu, TimeBandMenu } from '../tools/trace/plot/menus';
 import { BUILTIN_CATALOG } from '../annotations/catalog';
@@ -437,6 +438,15 @@ export function SinglePlot({
   // the drawing colours layered on (annotationTheme.ts).
   const { colorMode } = useColorMode();
   const theme = useDrawingTheme();
+  // The drawing rail mounts unless Display › Drawing tools is off or nothing
+  // drives it; while it does, the left gutter widens so the outermost Y axis
+  // name clears it, in the option and the hit-zones alike.
+  const railShown =
+    plot.showDrawingTools !== false &&
+    (onAnnotationPrefs !== undefined ||
+      onAnnotationsHidden !== undefined ||
+      onPlotView !== undefined);
+  const railRight = railShown ? RAIL_RIGHT : 0;
   // Embedded in a host tile (the page query does not change while mounted).
   const [embedded] = useState(isEmbedded);
   const visibleAxes = plot.axes.filter((a) => a.visible);
@@ -1092,7 +1102,7 @@ export function SinglePlot({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the helpers read refs only
   }, [wrapRef]);
 
-  const layout = plotLayout(visibleAxes);
+  const layout = plotLayout(visibleAxes, railRight);
   const { axisIndexMap, sideIndexMap, gridLeft, gridRight } = layout;
 
   // Install what the projection projects through (read on ready, finished and
@@ -1193,6 +1203,7 @@ export function SinglePlot({
     traceData,
     samples,
     readoutDock: docked ? readoutDock : undefined,
+    railRight,
   });
   // No curve highlights from its (selectable) legend entry (`LegendMenu`).
   const option: EChartsOption = { ...built, series: quietLegendHover(built.series) };
@@ -1312,7 +1323,7 @@ export function SinglePlot({
         {/* The rail mounts only with a writer; without a prefs writer its
             tools stay disabled and only hide-all is live. Display › Drawing
             tools off mounts neither. */}
-        {plot.showDrawingTools === false ? null : onAnnotationPrefs ? (
+        {!railShown ? null : onAnnotationPrefs ? (
           <DrawingRailFor
             host={host}
             focusRoot={focusPlotRoot}
@@ -1320,17 +1331,15 @@ export function SinglePlot({
             onView={onPlotView}
           />
         ) : (
-          (onAnnotationsHidden || onPlotView) && (
-            <DrawingRail
-              catalog={BUILTIN_CATALOG}
-              prefs={annotationPrefs ?? DEFAULT_TOOL_PREFS}
-              hidden={annotationsHidden === true}
-              onHiddenChange={onAnnotationsHidden}
-              view={plotView}
-              onView={onPlotView}
-              focusRoot={focusPlotRoot}
-            />
-          )
+          <DrawingRail
+            catalog={BUILTIN_CATALOG}
+            prefs={annotationPrefs ?? DEFAULT_TOOL_PREFS}
+            hidden={annotationsHidden === true}
+            onHiddenChange={onAnnotationsHidden}
+            view={plotView}
+            onView={onPlotView}
+            focusRoot={focusPlotRoot}
+          />
         )}
         {contextMenuAxis && contextMenu?.kind === 'axis' && (
           <AxisMenu

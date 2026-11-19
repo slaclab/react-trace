@@ -41,6 +41,7 @@ import {
 } from 'react';
 import type { Catalog } from './catalog/types';
 import { stopNativeEvents } from '../plot/geometry';
+import { RAIL_LEFT } from './railMetrics';
 import { PLOT_TOGGLES, type PlotView } from '../plot/plotToggles';
 import type { AnnotationToolPrefs } from './tools';
 
@@ -99,7 +100,7 @@ const stopRailPresses = stopNativeEvents('pointerdown', 'mousedown', 'dblclick')
 
 const RAIL_STYLE: CSSProperties = {
   position: 'absolute',
-  left: 2,
+  left: RAIL_LEFT,
   top: '50%',
   transform: 'translateY(-50%)',
   display: 'flex',

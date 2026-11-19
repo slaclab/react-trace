@@ -184,8 +184,22 @@ export function spanTickFormatter(
   return (v: number) => formatAxisTick(Number(v.toFixed(decimals)));
 }
 
-/** Axis slots and grid insets for a plot's visible axes, in panel order. */
-export function plotLayout(visibleAxes: readonly Axis[]): PlotLayout {
+/** How far a left Y axis's name sits out from its axis line. */
+export const AXIS_NAME_GAP = 65;
+
+/** How far a left Y axis's name (11 px, rotated) reaches out past its gap. */
+export const AXIS_NAME_EXTENT = 14;
+
+/** Free space kept between the drawing rail and the outermost axis name. */
+export const RAIL_NAME_CLEARANCE = 4;
+
+/**
+ * Axis slots and grid insets for a plot's visible axes, in panel order.
+ * `railRight` is the x of the drawing rail's right edge when the plot shows
+ * one (0: no rail): the left gutter then widens until the outermost left
+ * axis's name clears the rail, since the rail floats over that gutter.
+ */
+export function plotLayout(visibleAxes: readonly Axis[], railRight = 0): PlotLayout {
   const axisIndexMap = new Map<string, number>();
   visibleAxes.forEach((axis, idx) => {
     axisIndexMap.set(axis.id, idx);
@@ -206,9 +220,18 @@ export function plotLayout(visibleAxes: readonly Axis[]): PlotLayout {
     sideIndexMap,
     gridTop: GRID_TOP,
     gridBottom: GRID_BOTTOM,
-    gridLeft: 70 + Math.max(0, leftAxesCount - 1) * AXIS_OFFSET,
+    gridLeft: gridLeftFor(leftAxesCount, railRight),
     gridRight: (rightAxesCount > 0 ? 70 : 20) + Math.max(0, rightAxesCount - 1) * AXIS_OFFSET,
   };
+}
+
+/** The grid's left inset: 70 px per the first left axis, AXIS_OFFSET per further one, and room for the rail. */
+function gridLeftFor(leftAxesCount: number, railRight: number): number {
+  const outer = Math.max(0, leftAxesCount - 1) * AXIS_OFFSET;
+  const base = 70 + outer;
+  if (railRight <= 0 || leftAxesCount === 0) return base;
+  // The outermost name reaches out to gridLeft - outer - gap - extent.
+  return Math.max(base, railRight + RAIL_NAME_CLEARANCE + AXIS_NAME_EXTENT + AXIS_NAME_GAP + outer);
 }
 
 export interface PlotOptionInput {
@@ -245,6 +268,11 @@ export interface PlotOptionInput {
    * follows the cursor, or keeps the top-right corner while pinned.
    */
   readoutDock?: ReadoutDock;
+  /**
+   * The x of the drawing rail's right edge when the plot shows the rail
+   * (`plotLayout`'s `railRight`); absent (the Code tab, no rail) is 0.
+   */
+  railRight?: number;
 }
 
 /**
@@ -458,11 +486,12 @@ export function buildPlotOption({
   traceData: precomputed,
   samples: precomputedSamples,
   readoutDock,
+  railRight = 0,
 }: PlotOptionInput) {
   const visibleAxes = plot.axes.filter((a) => a.visible);
   const visibleTraces = plot.traces.filter((t) => t.visible);
   const labels = new Map(plot.traces.map((t) => [t.id, traceLabel(t, plot.traces)]));
-  const { axisIndexMap, sideIndexMap, gridLeft, gridRight } = plotLayout(visibleAxes);
+  const { axisIndexMap, sideIndexMap, gridLeft, gridRight } = plotLayout(visibleAxes, railRight);
 
   // Pin the x-axis extent to the view window (it owns the visible range) so
   // the axis spans it even when archive data is sparse and clusters in a
@@ -593,7 +622,7 @@ export function buildPlotOption({
             // collide when multiple axes share a side. nameGap clears the labels.
             nameLocation: 'middle',
             nameRotate: 90,
-            nameGap: 65,
+            nameGap: AXIS_NAME_GAP,
             position: axis.orientation,
             offset: (sideIndexMap.get(axis.id) ?? 0) * AXIS_OFFSET,
             min: axis.autoScale ? undefined : axis.min,
