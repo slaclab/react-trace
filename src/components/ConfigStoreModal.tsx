@@ -45,6 +45,15 @@ interface ConfigStoreModalProps {
   }) => void;
 }
 
+// What the modal is busy with. Save and every row's Load/Rename/Delete share
+// this one slot, so only one runs at a time: a successful Load closes the
+// modal, which would orphan anything running beside it.
+type BusyOp =
+  | { kind: 'save' }
+  | { kind: 'load' | 'rename' | 'delete'; slug: string; label: string };
+
+const BUSY_VERB = { load: 'Loading', rename: 'Renaming', delete: 'Deleting' } as const;
+
 // One unpaginated page. Truncation is surfaced in the list header rather than
 // silently hidden; real paging is slaclab/react-trace#80.
 const PAGE_SIZE = 200;
@@ -62,6 +71,11 @@ function shareUrl(slug: string): string {
   url.hash = '';
   url.searchParams.set('config', slug);
   return url.toString();
+}
+
+// How a config is named in the status line and the delete confirmation.
+function configLabel(config: ConfigDTO): string {
+  return config.name || config.slug;
 }
 
 function errText(err: unknown): string {
@@ -89,19 +103,36 @@ export function ConfigStoreModal({
 }: ConfigStoreModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [configs, setConfigs] = useState<ConfigDTO[]>([]);
   const [totalCount, setTotalCount] = useState<number | null>(null);
   const [listing, setListing] = useState(false);
-  // Slug currently undergoing a row action (delete/load), to disable its buttons.
-  const [busySlug, setBusySlug] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<ConfigDTO | null>(null);
+
+  // The one operation in flight (see BusyOp). State drives the render; the ref
+  // gives handlers and the close guards the current value without waiting for a
+  // re-render, so a second click in the same tick can't also claim the slot.
+  const [busy, setBusyState] = useState<BusyOp | null>(null);
+  const busyRef = useRef<BusyOp | null>(null);
+  const setBusy = useCallback((op: BusyOp | null) => {
+    busyRef.current = op;
+    setBusyState(op);
+  }, []);
+  const saving = busy?.kind === 'save';
+  const deleting = busy?.kind === 'delete';
+
+  // The config the delete confirmation is asking about. Its ref serves the
+  // close guards, like busyRef.
+  const [deleteTarget, setDeleteTargetState] = useState<ConfigDTO | null>(null);
+  const deleteTargetRef = useRef<ConfigDTO | null>(null);
+  const setDeleteTarget = useCallback((config: ConfigDTO | null) => {
+    deleteTargetRef.current = config;
+    setDeleteTargetState(config);
+  }, []);
   // The row button that opened the delete confirmation, to refocus on close.
   const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
   const storeBodyRef = useRef<HTMLDivElement>(null);
-  const loadAbortRef = useRef<AbortController | null>(null);
+
   // Monotonic refresh id. A Save/Delete fires its own refresh while the open
   // refresh may still be in flight; without this, the slower (older) response
   // could land last and overwrite the newer post-mutation list. Only the latest
@@ -132,17 +163,82 @@ export function ConfigStoreModal({
     }
   }, []);
 
-  useEffect(() => {
-    if (open) void Promise.resolve().then(refresh);
-  }, [open, refresh]);
+  // Each open of the modal is a session. Closing or unmounting ends it and
+  // aborts a pending Load, and an operation applies its result only while its
+  // session is current, so a dismissed Load can't replace the workspace after
+  // the dialog is gone. Save, Rename and Delete block dismissal until their
+  // server call settles, so their session ends before that only if the parent
+  // closes the modal itself or unmounts it. Their outcome is then dropped, apart
+  // from Save's toast, which also outlives a close during the share-link copy.
+  const sessionRef = useRef(0);
+  const loadAbortRef = useRef<AbortController | null>(null);
+  const endSession = useCallback(() => {
+    sessionRef.current++;
+    loadAbortRef.current?.abort();
+    loadAbortRef.current = null;
+  }, []);
+  useEffect(() => endSession, [endSession]);
 
-  useEffect(
-    () => () => {
-      loadAbortRef.current?.abort();
-      loadAbortRef.current = null;
-    },
-    []
-  );
+  // Load the list on open. Nothing resets the form or the slot here: TraceApp
+  // mounts the modal only while it's open, so each open starts from fresh state.
+  useEffect(() => {
+    if (!open) {
+      endSession();
+      return;
+    }
+    void Promise.resolve().then(refresh);
+  }, [open, refresh, endSession]);
+
+  // Carbon's X, Escape and backdrop all call this; returning false keeps the
+  // dialog open. Save, Rename and Delete block dismissal until their server
+  // call settles: the change happens either way, so closing would only hide
+  // its outcome. So does an open delete confirmation. A Load doesn't block;
+  // closing cancels it.
+  // This must read refs, not render state. Carbon registers its Escape listener
+  // once per open and keeps the onClose from that render, when nothing was busy.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+  const requestClose = useCallback(() => {
+    const op = busyRef.current;
+    if (op && op.kind !== 'load') return false;
+    if (deleteTargetRef.current) return false;
+    // The `!open` effect ends the session as well, but only once React has
+    // committed the close; ending it here leaves no gap for a response.
+    endSession();
+    onCloseRef.current();
+  }, [endSession]);
+
+  // The delete confirmation's X, Escape and Cancel. It stays open while the
+  // Delete's server call runs, so a failure can show in it. Reads the slot's
+  // ref for the same reason as requestClose. Closing it drops that failure too,
+  // or the store's banner would show it for a Delete that was cancelled.
+  const requestCancelDelete = useCallback(() => {
+    if (busyRef.current?.kind === 'delete') return false;
+    setError(null);
+    setDeleteTarget(null);
+  }, [setDeleteTarget]);
+
+  // Claim the slot for `op`. Returns the session it runs in, or null if `op`
+  // can't start now.
+  const begin = (op: BusyOp): number | null => {
+    if (busyRef.current) return null;
+    // While the delete confirmation is open, only its own Delete can start. The
+    // store's buttons behind it stay enabled, and an operation started there
+    // would show its error under the confirmation's "Could not delete config",
+    // and a Load would close the store, confirmation and all, on success.
+    if (deleteTargetRef.current && op.kind !== 'delete') return null;
+    setBusy(op);
+    setError(null);
+    return sessionRef.current;
+  };
+  // Release the slot only if `op` still holds it: Save, Rename and Delete free
+  // it before their refresh or copy, so by their `finally` another operation
+  // may have claimed it.
+  const end = (op: BusyOp) => {
+    if (busyRef.current === op) setBusy(null);
+  };
 
   // Return focus to the store when the delete confirmation closes. Otherwise it
   // stays on the hidden confirmation, and the next Tab leaves the store for the
@@ -163,98 +259,130 @@ export function ConfigStoreModal({
   }, [deleteConfirmOpen]);
 
   const handleSave = async () => {
-    setSaving(true);
-    setError(null);
+    const op: BusyOp = { kind: 'save' };
+    const session = begin(op);
+    if (session === null) return;
     try {
       const data = serializeConfigData({ theme, plots });
       const dto = await saveConfig(data, {
         name: name.trim() || undefined,
         description: description.trim() || undefined,
       });
+      // The server call has settled. Neither the refresh nor the clipboard write
+      // is part of the save, so neither holds the slot or blocks closing: a
+      // pending clipboard permission prompt would otherwise lock the dialog.
+      end(op);
+      // The form and the list belong to the session.
+      if (session === sessionRef.current) {
+        setName('');
+        setDescription('');
+        void refresh();
+      }
       // Don't claim a copy that didn't happen: the clipboard API is absent on a
       // non-secure origin and rejects when permission is denied or the document
-      // isn't focused. Show the link itself so it can still be copied by hand.
+      // isn't focused. Show the link itself so it can still be copied by hand,
+      // in a toast that stays until it's dismissed.
       const link = shareUrl(dto.slug);
       const copied = await copyToClipboard(link);
+      // The toast goes out regardless, even if the dialog has closed since: the
+      // config exists and its link is useful.
       onToast({
         kind: 'success',
         title: 'Workspace saved',
         subtitle: copied ? `Share link copied to clipboard (${dto.slug})` : `Share link: ${link}`,
         timeout: copied ? undefined : 0,
       });
-      setName('');
-      setDescription('');
-      await refresh();
     } catch (err) {
-      setError(errText(err));
+      if (session === sessionRef.current) setError(errText(err));
     } finally {
-      setSaving(false);
+      end(op);
     }
   };
 
-  const handleLoad = async (slug: string) => {
-    loadAbortRef.current?.abort();
-    const controller = new AbortController();
-    loadAbortRef.current = controller;
-    setBusySlug(slug);
-    setError(null);
+  const handleLoad = async (config: ConfigDTO) => {
+    const op: BusyOp = { kind: 'load', slug: config.slug, label: configLabel(config) };
+    const session = begin(op);
+    if (session === null) return;
+    const abort = new AbortController();
+    loadAbortRef.current = abort;
     try {
-      const dto = await getConfig(slug, controller.signal);
-      if (controller.signal.aborted || loadAbortRef.current !== controller) return;
+      const dto = await getConfig(config.slug, abort.signal);
+      // Closing aborts the request, but the response may have arrived first.
+      if (session !== sessionRef.current) return;
       const result = deserializeConfigData(dto.data);
       onLoaded(result);
       onToast({
         kind: 'success',
         title: 'Workspace loaded',
         subtitle: [
-          dto.name ? `Loaded "${dto.name}"` : `Loaded config ${slug}`,
+          dto.name ? `Loaded "${dto.name}"` : `Loaded config ${config.slug}`,
           ...result.warnings,
         ].join('\n'),
         timeout: result.warnings.length > 0 ? 0 : undefined,
       });
-      onClose();
+      // Close the way X, Escape and the backdrop do. requestClose can't refuse
+      // here: this Load holds the slot, and begin() turns a Load away while the
+      // delete confirmation is open.
+      requestClose();
     } catch (err) {
-      if (!controller.signal.aborted && loadAbortRef.current === controller) {
-        setError(errText(err));
-      }
+      // A stale session also covers the AbortError from closing.
+      if (session === sessionRef.current) setError(errText(err));
     } finally {
-      if (loadAbortRef.current === controller) {
-        loadAbortRef.current = null;
-        setBusySlug(null);
-      }
+      if (loadAbortRef.current === abort) loadAbortRef.current = null;
+      end(op);
     }
   };
 
   const handleRename = async (config: ConfigDTO) => {
+    // Don't prompt for an action that can't start (see begin).
+    if (busyRef.current || deleteTargetRef.current) return;
     const next = window.prompt('Rename config', config.name ?? '');
     if (next === null) return;
     // No-op a blank rename (Save likewise omits empty names) or an unchanged one.
     const trimmed = next.trim();
     if (trimmed === '' || trimmed === (config.name ?? '')) return;
-    setBusySlug(config.slug);
-    setError(null);
+    const op: BusyOp = { kind: 'rename', slug: config.slug, label: configLabel(config) };
+    const session = begin(op);
+    if (session === null) return;
     try {
       await updateConfig(config.slug, { name: trimmed });
+      if (session !== sessionRef.current) return;
+      end(op);
       await refresh();
     } catch (err) {
-      setError(errText(err));
+      if (session === sessionRef.current) setError(errText(err));
     } finally {
-      setBusySlug(null);
+      end(op);
     }
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setBusySlug(deleteTarget.slug);
+  // A row's Delete opens the confirmation; only its Delete button deletes.
+  const askDelete = (config: ConfigDTO, trigger: HTMLButtonElement) => {
+    // Don't ask about an action that can't start, or switch an open
+    // confirmation to another config.
+    if (busyRef.current || deleteTargetRef.current) return;
+    deleteTriggerRef.current = trigger;
     setError(null);
+    setDeleteTarget(config);
+  };
+
+  const handleDelete = async () => {
+    const config = deleteTargetRef.current;
+    if (!config) return;
+    const op: BusyOp = { kind: 'delete', slug: config.slug, label: configLabel(config) };
+    const session = begin(op);
+    if (session === null) return;
     try {
-      await deleteConfig(deleteTarget.slug);
+      await deleteConfig(config.slug);
+      if (session !== sessionRef.current) return;
       setDeleteTarget(null);
+      end(op);
       await refresh();
     } catch (err) {
-      setError(errText(err));
+      // The confirmation stays open and shows it, so the Delete can be retried.
+      if (session === sessionRef.current) setError(errText(err));
     } finally {
-      setBusySlug(null);
+      end(op);
     }
   };
 
@@ -271,11 +399,9 @@ export function ConfigStoreModal({
     <>
       <ComposedModal
         open={open}
-        onClose={() => {
-          if (saving || deleteTarget) return false;
-          onClose();
-        }}
+        onClose={requestClose}
         size="lg"
+        aria-label="Config store"
         selectorsFloatingMenus={[`.${DELETE_CONFIRM_CLASS}`]}
       >
         <ModalHeader title="Config store" />
@@ -313,7 +439,7 @@ export function ConfigStoreModal({
                 rows={2}
               />
               <div>
-                <Button onClick={handleSave} disabled={saving}>
+                <Button onClick={handleSave} disabled={busy !== null}>
                   {saving ? 'Saving…' : 'Save & copy share link'}
                 </Button>
               </div>
@@ -337,6 +463,10 @@ export function ConfigStoreModal({
                   onClick={() => void refresh()}
                   disabled={listing}
                 />
+                {/* Save shows its progress on its own button. */}
+                {busy && busy.kind !== 'save' && (
+                  <InlineLoading description={`${BUSY_VERB[busy.kind]} "${busy.label}"…`} />
+                )}
               </div>
 
               {listing ? (
@@ -371,8 +501,8 @@ export function ConfigStoreModal({
                             <Button
                               size="sm"
                               kind="tertiary"
-                              onClick={() => void handleLoad(c.slug)}
-                              disabled={busySlug === c.slug}
+                              onClick={() => void handleLoad(c)}
+                              disabled={busy !== null}
                             >
                               Load
                             </Button>
@@ -380,7 +510,7 @@ export function ConfigStoreModal({
                               size="sm"
                               kind="ghost"
                               onClick={() => void handleRename(c)}
-                              disabled={busySlug === c.slug}
+                              disabled={busy !== null}
                             >
                               Rename
                             </Button>
@@ -398,12 +528,10 @@ export function ConfigStoreModal({
                               hasIconOnly
                               iconDescription="Delete"
                               renderIcon={TrashCan}
-                              onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
-                                deleteTriggerRef.current = e.currentTarget;
-                                setError(null);
-                                setDeleteTarget(c);
-                              }}
-                              disabled={busySlug === c.slug}
+                              onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
+                                askDelete(c, e.currentTarget)
+                              }
+                              disabled={busy !== null}
                             />
                           </div>
                         </StructuredListCell>
@@ -419,12 +547,10 @@ export function ConfigStoreModal({
 
       <ComposedModal
         open={Boolean(deleteTarget)}
-        onClose={() => {
-          if (deleteTarget && busySlug === deleteTarget.slug) return false;
-          setDeleteTarget(null);
-        }}
+        onClose={requestCancelDelete}
         size="sm"
         danger
+        aria-label="Delete config?"
         className={DELETE_CONFIRM_CLASS}
       >
         <ModalHeader title="Delete config?" />
@@ -439,8 +565,8 @@ export function ConfigStoreModal({
           )}
           {deleteTarget && (
             <p>
-              Delete <strong>{deleteTarget.name || deleteTarget.slug}</strong>? This will break any
-              shared links to it. This action cannot be undone.
+              Delete <strong>{configLabel(deleteTarget)}</strong>? This will break any shared links
+              to it. This action cannot be undone.
             </p>
           )}
         </ModalBody>
@@ -448,11 +574,9 @@ export function ConfigStoreModal({
           <ModalFooter
             dangerDescription="This will permanently delete the config and break its shared links."
             secondaryButtonText="Cancel"
-            primaryButtonText={busySlug === deleteTarget.slug ? 'Deleting…' : 'Delete'}
-            primaryButtonDisabled={busySlug === deleteTarget.slug}
-            onRequestClose={() => {
-              if (busySlug !== deleteTarget.slug) setDeleteTarget(null);
-            }}
+            primaryButtonText={deleting ? 'Deleting…' : 'Delete'}
+            primaryButtonDisabled={deleting}
+            onRequestClose={requestCancelDelete}
             onRequestSubmit={() => void handleDelete()}
           >
             {null}
