@@ -68,7 +68,13 @@
   outline-offset: -2px;
 }
 
+/* Positioned, so it holds Carbon's visually hidden parts (a toggle's real
+   button, a checkbox's input: 1 px, position absolute). With no positioned
+   ancestor they were placed against the page, below it when the pane was
+   scrolled, and focusing one on a click scrolled the whole page up over an
+   empty band at the bottom. */
 .wb-sidebar__content {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;

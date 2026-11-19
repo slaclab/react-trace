@@ -231,6 +231,35 @@ test('a viewport resize keeps the sidebar px width and writes nothing', async ({
   expect(await readArrangement(page)).toBeNull();
 });
 
+test('a toggle clicked low in the scrolled pane leaves the page where it is', async ({ page }) => {
+  const viewport = { width: VIEWPORT.width, height: 600 };
+  await openTrace(page, { viewport });
+  await openPlotSection(page, 'display');
+  const statistics = await openPlotSection(page, 'statistics');
+  const show = statistics.locator('[data-field="stats-show"]');
+  // Below the fold in the pane's content: Carbon's hidden switch button
+  // (1 px, position absolute) sits that low on the page too, unless the pane
+  // holds it.
+  const contentTop = await show.evaluate(
+    (el) => el.getBoundingClientRect().top + el.closest('.wb-sidebar__content')!.scrollTop
+  );
+  expect(contentTop).toBeGreaterThan(viewport.height);
+  await sidebar(page).content.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+
+  // Carbon's toggle label covers its switch button: the label is what a user clicks.
+  await show.locator('label[for="stats-show"]').click();
+  await expect(show.locator('[role="switch"]')).toHaveAttribute('aria-checked', 'true');
+
+  // Focusing the button scrolled the whole page up when it lay below the page.
+  const root = await page.evaluate(() => ({
+    scrollTop: document.documentElement.scrollTop,
+    overflow: document.documentElement.scrollHeight - window.innerHeight,
+  }));
+  expect(root).toEqual({ scrollTop: 0, overflow: 0 });
+});
+
 // ── Formulas embedded ───────────────────────────────────────────────────────
 
 /**
