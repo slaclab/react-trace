@@ -51,6 +51,31 @@
   white-space: normal;
 }
 
+/* A toggle names itself beside its switch, so its row has no label column:
+ * the switch starts at the row's edge, the dot and reset end the row, and the
+ * note runs under both. */
+.wb-panel .wb-field--toggle {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.wb-panel .wb-field--toggle > :not(.wb-field__head) {
+  grid-column: 1 / -1;
+}
+
+.wb-panel .wb-field--toggle > .wb-field__control {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+.wb-panel .wb-field--toggle > .wb-field__head {
+  grid-row: 1;
+  grid-column: 2;
+}
+
+.wb-panel .wb-field--toggle .wb-field__label {
+  display: none;
+}
+
 .wb-panel .wb-field__head {
   min-inline-size: 0;
 }
