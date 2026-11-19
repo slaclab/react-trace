@@ -64,7 +64,7 @@ jobs:
           stage-config: true
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@42e9df6c59070d114bf90dcd3943a1b8f138b113 # v0.5.20 - v1.0.0 dropped Tauri v1 support; this repo is still on Tauri v1.
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.5.20 - v1.0.0 dropped Tauri v1 support; this repo is still on Tauri v1.
         with:
           args: ${{ matrix.args }}
 
