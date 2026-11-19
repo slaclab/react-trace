@@ -205,17 +205,19 @@
   background-color: var(--cds-layer-hover);
 }
 
+/* Clear of the drawing rail, which ends RAIL_RIGHT (32px) in from the cell's
+   left edge (annotations/railMetrics.ts): 8px past it, then 12px between. */
 .plot-grid__cell-btn--maximize {
   position: absolute;
   top: 8px;
-  left: 8px;
+  left: 40px;
   z-index: 10;
 }
 
 .plot-grid__cell-btn--detach {
   position: absolute;
   top: 8px;
-  left: 44px;
+  left: 76px;
   z-index: 10;
 }
 
