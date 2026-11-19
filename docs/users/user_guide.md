@@ -233,6 +233,37 @@ _Note: Variables can refer only to PV traces on the same plot, not to other form
 
 ---
 
+## Compare with a Time Offset
+
+Overlay a trace's past data on the current time axis to see how a signal has changed. For example, compare today's beam current with the same signal one day or one week ago.
+
+**Workflow:**
+
+1. In the **Layers** panel, hover over a trace row to reveal the clock icon (①).
+2. Click the clock icon to open the offset menu.
+3. Choose a preset (**-1h**, **-1d**, **-7d**, **-30d**) or type a custom offset such as `-2h` or `-3d` and click **Go**.
+
+Trace duplicates the trace, shifts its archive data by the offset, and draws it on the same axis. The offset trace uses a **dashed line** so you can tell it apart from the original, and its name in the legend and tooltip includes the offset, for example **Beam current (−1 d)**.
+
+**How it works:**
+
+- The offset trace fetches archive data from the shifted time window (for example, yesterday's data for a **-1d** offset) and moves the timestamps onto the current axis so the two traces line up.
+- Offset traces are **archive-only** — live data is automatically disabled because live values have no meaningful shifted equivalent.
+- If the original trace has a custom **Display Name**, the offset trace keeps it.
+
+### Edit or Remove an Offset
+
+Select the offset trace in **Layers** and open the **General** tab in **Properties**:
+
+- **Time Offset** — change the offset by typing a new value (for example `-12h`). Invalid values show an error below the field.
+- **Clear the offset** — delete the text in the **Time Offset** field. The trace goes back to normal and live data is re-enabled.
+
+You can also delete the offset trace like any other trace.
+
+_Note: Offset values use the same units as **Span**: `h` (hours), `d` (days), `w` (weeks), and so on. The offset must start with `-` to look into the past._
+
+---
+
 ## Multiple Plots
 
 Add more plots to view different groups of PVs side by side. Each plot has its own axes, traces, time range, and settings.

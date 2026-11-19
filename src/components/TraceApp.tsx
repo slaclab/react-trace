@@ -23,7 +23,7 @@ import { archiveStore } from '../state/archiveStore';
 import { axisEndMs, isFollowing, useAutoScrollTimers } from '../hooks/useAutoScrollTimers';
 import { useFormulaSeries, type FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
-import { resolveTimeWindow } from '../api/time';
+import { resolveTimeWindow, parseOffsetMs, msToNs } from '../api/time';
 import { fetchMetadata } from '@slaclab/canopy-client';
 import { useCanopyConnection } from '@slaclab/canopy-react';
 import {
@@ -57,6 +57,7 @@ import { getConfig } from '../api/magpie';
 import { errorInfo } from '../api/errorInfo';
 import { useElogConfig } from '../hooks/useElogConfig';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useViewHistory, type ViewSnapshot, type AxisSnapshot } from '../hooks/useViewHistory';
 
 function generateMockData(
   points: number,
@@ -68,6 +69,13 @@ function generateMockData(
     time: now - (points - i) * 1000,
     value: baseline + (Math.random() - 0.5) * variance,
   }));
+}
+
+function enforceOffsetArchiveOnly(trace: PVTrace): PVTrace {
+  if (trace.timeOffset && parseOffsetMs(trace.timeOffset) != null) {
+    return { ...trace, useLive: false, useArchive: true };
+  }
+  return trace;
 }
 
 // The app starts with a single empty plot so users begin from a clean slate.
@@ -192,6 +200,10 @@ export function TraceApp() {
   const [viewWindowByPlot, setViewWindowByPlot] = useState<Map<string, TimeWindowNs>>(
     () => new Map()
   );
+  const viewHistory = useViewHistory();
+  const [zoomTargetByPlot, setZoomTargetByPlot] = useState<
+    Map<string, { window: TimeWindowNs | null; generation: number }>
+  >(() => new Map());
   const [workspaceGeneration, setWorkspaceGeneration] = useState(0);
   const leftPanelRef = usePanelRef();
   const rightPanelRef = usePanelRef();
@@ -225,11 +237,27 @@ export function TraceApp() {
     const win =
       viewWindowByPlot.get(plot.id) ?? resolveTimeWindow(plot.xAxis, clock.nowFor(plot.id)).window;
     fetchWindowByPlot.set(plot.id, win);
+    // Quantize the clock to 30s buckets so offset trace windows don't shift
+    // on every autoscroll tick and thrash the archive store with refetches.
+    const OFFSET_BUCKET_MS = 30_000;
+    const quantizedNow = Math.floor(clock.nowFor(plot.id) / OFFSET_BUCKET_MS) * OFFSET_BUCKET_MS;
+    const offsetBaseWin =
+      viewWindowByPlot.get(plot.id) ?? resolveTimeWindow(plot.xAxis, quantizedNow).window;
+
     for (const trace of plot.traces) {
-      if (trace.useArchive) windowByTrace.set(trace.id, win);
+      const offsetMs = trace.timeOffset ? parseOffsetMs(trace.timeOffset) : null;
+      const traceWin =
+        offsetMs != null
+          ? {
+              fromNs: offsetBaseWin.fromNs + msToNs(offsetMs),
+              toNs: offsetBaseWin.toNs + msToNs(offsetMs),
+            }
+          : win;
+
+      if (trace.useArchive) windowByTrace.set(trace.id, traceWin);
       plotArchiverByTrace.set(trace.id, plot.archiver);
       if (trace.kind === 'formula') {
-        windowByTrace.set(trace.id, win);
+        windowByTrace.set(trace.id, traceWin);
         formulaSpecByTrace.set(trace.id, resolveFormulaSpec(trace, plot.traces));
       }
     }
@@ -242,6 +270,13 @@ export function TraceApp() {
   const liveResults = useLiveSeries(allTraces);
   const formulaResults = useFormulaSeries(allTraces, formulaSpecByTrace, windowByTrace);
 
+  const snapshotAxes = (plot: Plot | undefined): Map<string, AxisSnapshot> => {
+    const m = new Map<string, AxisSnapshot>();
+    for (const a of plot?.axes ?? [])
+      m.set(a.id, { min: a.min, max: a.max, autoScale: a.autoScale });
+    return m;
+  };
+
   const handleViewWindowChange = (plotId: string, window: TimeWindowNs) => {
     setViewWindowByPlot((prev) => {
       const next = new Map(prev);
@@ -251,6 +286,11 @@ export function TraceApp() {
     // A manual pan/zoom takes over the window, so stop tracking "now". Picking a
     // time range re-enables it (see updatePlot).
     setPlots((prev) => prev.map((p) => (p.id === plotId ? { ...p, autoScroll: false } : p)));
+    viewHistory.push(plotId, {
+      timeWindow: window,
+      axisRanges: snapshotAxes(plots.find((p) => p.id === plotId)),
+      autoScroll: false,
+    });
   };
 
   // Split the flat result maps per plot. Memoized on (plots, archiveResults,
@@ -392,6 +432,13 @@ export function TraceApp() {
     setPlots((prev) => prev.filter((p) => p.id !== plotId));
     if (poppedOutPlot === plotId) setPoppedOutPlot(null);
     setDetachedPlotIds((prev) => prev.filter((id) => id !== plotId));
+    viewHistory.clear(plotId);
+    setZoomTargetByPlot((prev) => {
+      if (!prev.has(plotId)) return prev;
+      const next = new Map(prev);
+      next.delete(plotId);
+      return next;
+    });
     if (activePlotId === plotId) {
       const remaining = plots.filter((p) => p.id !== plotId);
       setActivePlotId(remaining[0].id);
@@ -455,6 +502,79 @@ export function TraceApp() {
   // A pan/zoom started on a following plot: stop following the same way the
   // Autoscroll toggle does, before the view window is debounced in.
   const handleFollowStop = (plotId: string) => updatePlot(plotId, { autoScroll: false });
+
+  const restoreSnapshot = (plotId: string, snapshot: ViewSnapshot) => {
+    if (snapshot.timeWindow) {
+      setViewWindowByPlot((prev) => {
+        const next = new Map(prev);
+        next.set(plotId, snapshot.timeWindow!);
+        return next;
+      });
+    } else {
+      clearViewWindow(plotId);
+    }
+    setPlots((prev) =>
+      prev.map((p) => {
+        if (p.id !== plotId) return p;
+        return {
+          ...p,
+          autoScroll: snapshot.autoScroll,
+          axes: p.axes.map((a) => {
+            const saved = snapshot.axisRanges.get(a.id);
+            if (!saved) return a;
+            return { ...a, min: saved.min, max: saved.max, autoScale: saved.autoScale };
+          }),
+        };
+      })
+    );
+    setZoomTargetByPlot((prev) => {
+      const next = new Map(prev);
+      const gen = (prev.get(plotId)?.generation ?? 0) + 1;
+      next.set(plotId, { window: snapshot.timeWindow, generation: gen });
+      return next;
+    });
+    if (snapshot.autoScroll && !snapshot.timeWindow) {
+      clock.resync([plotId]);
+    }
+  };
+
+  const handleViewBack = (plotId: string) => {
+    const snapshot = viewHistory.goBack(plotId);
+    if (snapshot) restoreSnapshot(plotId, snapshot);
+  };
+
+  const handleViewForward = (plotId: string) => {
+    const snapshot = viewHistory.goForward(plotId);
+    if (snapshot) restoreSnapshot(plotId, snapshot);
+  };
+
+  const handleResetZoom = (plotId: string) => {
+    const plot = plots.find((p) => p.id === plotId);
+    viewHistory.push(plotId, {
+      timeWindow: viewWindowByPlot.get(plotId) ?? null,
+      axisRanges: snapshotAxes(plot),
+      autoScroll: plot?.autoScroll !== false,
+    });
+    clearViewWindow(plotId);
+    setPlots((prev) =>
+      prev.map((p) =>
+        p.id !== plotId
+          ? p
+          : {
+              ...p,
+              autoScroll: true,
+              axes: p.axes.map((a) => ({ ...a, autoScale: true, min: undefined, max: undefined })),
+            }
+      )
+    );
+    clock.resync([plotId]);
+    setZoomTargetByPlot((prev) => {
+      const next = new Map(prev);
+      const gen = (prev.get(plotId)?.generation ?? 0) + 1;
+      next.set(plotId, { window: null, generation: gen });
+      return next;
+    });
+  };
 
   // ── Trace operations ─────────────────────────────────────────────────────────
 
@@ -593,13 +713,38 @@ export function TraceApp() {
     if (selectedItem?.id === traceId && selectedItem.plotId === plotId) setSelectedItem(null);
   };
 
+  const duplicateTraceWithOffset = (plotId: string, sourceTraceId: string, offset: string) => {
+    const plot = plots.find((p) => p.id === plotId);
+    const source = plot?.traces.find((t) => t.id === sourceTraceId);
+    if (!plot || !source) return;
+    const id = makeId('trace');
+    const newTrace: PVTrace = enforceOffsetArchiveOnly({
+      ...source,
+      id,
+      color: colorForIndex(getPalette(paletteId), plot.traces.length),
+      displayName: source.displayName,
+      timeOffset: offset,
+      lineStyle: 'dashed',
+      data: [],
+    });
+    setPlots((prev) =>
+      prev.map((p) => (p.id === plotId ? { ...p, traces: [...p.traces, newTrace] } : p))
+    );
+    selectItem({ type: 'trace', id, plotId });
+  };
+
   const updateTrace = (traceId: string, updates: Partial<PVTrace>) => {
+    if ('timeOffset' in updates && !updates.timeOffset) {
+      updates = { ...updates, useLive: true };
+    }
     setPlots((prev) =>
       prev.map((p) =>
         p.id === activePlotId
           ? {
               ...p,
-              traces: p.traces.map((t) => (t.id === traceId ? { ...t, ...updates } : t)),
+              traces: p.traces.map((t) =>
+                t.id === traceId ? enforceOffsetArchiveOnly({ ...t, ...updates }) : t
+              ),
             }
           : p
       )
@@ -800,16 +945,24 @@ export function TraceApp() {
   // plot (grid cells and popouts aren't necessarily the active plot), so route
   // by the plot id rather than assuming activePlotId.
   const updateAxisInPlot = (plotId: string, axisId: string, updates: Partial<Axis>) => {
-    setPlots((prev) =>
-      prev.map((p) =>
+    setPlots((prev) => {
+      const next = prev.map((p) =>
         p.id === plotId
           ? {
               ...p,
               axes: p.axes.map((a) => (a.id === axisId ? { ...a, ...updates } : a)),
             }
           : p
-      )
-    );
+      );
+      const plot = next.find((p) => p.id === plotId);
+      const axisRanges = snapshotAxes(plot);
+      viewHistory.push(plotId, {
+        timeWindow: viewWindowByPlot.get(plotId) ?? null,
+        axisRanges,
+        autoScroll: plot?.autoScroll !== false,
+      });
+      return next;
+    });
   };
 
   const liveCount = activePlot.traces.filter((t) => t.useLive).length;
@@ -835,7 +988,7 @@ export function TraceApp() {
         throw new Error('Workspace contains no plots');
       }
       abortUnitLookups();
-      setPlots(result.plots);
+      setPlots(result.plots.map((p) => ({ ...p, traces: p.traces.map(enforceOffsetArchiveOnly) })));
       setWorkspaceGeneration((generation) => generation + 1);
       setActivePlotId(result.plots[0].id);
       resyncClock(result.plots.map((p) => p.id));
@@ -1071,6 +1224,9 @@ export function TraceApp() {
     onPostElog: elogConfig?.enabled ? openElogPost : undefined,
     onDataInsight: () => openInsight(),
     onToggleTheme: toggleTheme,
+    onViewBack: () => handleViewBack(activePlotId),
+    onViewForward: () => handleViewForward(activePlotId),
+    onResetZoom: () => handleResetZoom(activePlotId),
   });
 
   return (
@@ -1121,6 +1277,7 @@ export function TraceApp() {
                 onAddTrace={addTrace}
                 onAddFormula={addFormula}
                 onDeleteTrace={deleteTrace}
+                onDuplicateWithOffset={duplicateTraceWithOffset}
                 onAddAxis={addAxis}
                 onSearchPvs={openPvSearch}
                 onDeleteAxis={deleteAxis}
@@ -1166,6 +1323,12 @@ export function TraceApp() {
                     onAxisRangesChange={handleAxisRangesChange}
                     onUpdateAxis={updateAxisInPlot}
                     onChartInstance={handleChartInstance}
+                    onViewBack={handleViewBack}
+                    onViewForward={handleViewForward}
+                    onResetZoom={handleResetZoom}
+                    canGoBack={viewHistory.canGoBack}
+                    canGoForward={viewHistory.canGoForward}
+                    zoomTargetByPlot={zoomTargetByPlot}
                   />
                 </ErrorBoundary>
               </div>
@@ -1335,6 +1498,8 @@ export function TraceApp() {
                       archiveResults={archiveResultsByPlot.get(plot.id) ?? new Map()}
                       liveResults={liveResultsByPlot.get(plot.id) ?? new Map()}
                       formulaResults={formulaResultsByPlot.get(plot.id) ?? new Map()}
+                      onViewWindowChange={(w) => handleViewWindowChange(plot.id, w)}
+                      initialViewWindowNs={viewWindowByPlot.get(plot.id)}
                       // eslint-disable-next-line react-hooks/refs -- ref is written from ECharts' finished event, not during render
                       onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
                       onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
@@ -1342,6 +1507,7 @@ export function TraceApp() {
                         // eslint-disable-next-line react-hooks/refs -- ref is written on mount/unmount, not during render
                         handleChartInstance(plot.id, inst, active, true)
                       }
+                      zoomTarget={zoomTargetByPlot.get(plot.id)}
                     />
                   </ErrorBoundary>
                 </div>
@@ -1443,6 +1609,7 @@ export function TraceApp() {
                     onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
                     onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
                     onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
+                    zoomTarget={zoomTargetByPlot.get(plot.id)}
                   />
                 </ErrorBoundary>
               </div>

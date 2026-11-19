@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -24,8 +24,10 @@ import {
   Archive,
   TrashCan,
   Function as FunctionIcon,
+  Time,
 } from '@carbon/icons-react';
 import { Button, Tag } from '@carbon/react';
+import { parseOffsetMs } from '../api/time';
 import type { Plot, PVTrace, Axis } from '../types';
 import { traceLabel } from '../traceLabel';
 import type { SelectedItem } from './TraceApp';
@@ -56,6 +58,7 @@ interface LeftPanelProps {
   onAddTrace: (plotId: string, axisId: string) => void;
   onAddFormula: (plotId: string, axisId: string) => void;
   onDeleteTrace: (plotId: string, traceId: string) => void;
+  onDuplicateWithOffset: (plotId: string, sourceTraceId: string, offset: string) => void;
   onAddAxis: (plotId: string) => void;
   onSearchPvs: (plotId: string) => void;
   onDeleteAxis: (plotId: string, axisId: string) => void;
@@ -104,6 +107,104 @@ function ArchiveStatusChip({ result }: { result: ArchiveSeriesResult | undefined
   return null;
 }
 
+const OFFSET_PRESETS = ['-1h', '-1d', '-7d', '-30d'];
+
+function OffsetPopover({
+  onSelect,
+  onClose,
+}: {
+  onSelect: (offset: string) => void;
+  onClose: () => void;
+}) {
+  const [custom, setCustom] = useState('');
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const validCustom = !!custom && parseOffsetMs(custom) != null;
+  const submitCustom = () => {
+    if (validCustom) {
+      onSelect(custom);
+      onClose();
+    }
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    const onClick = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onClick);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onClick);
+    };
+  }, [onClose]);
+
+  const navigateMenu = (e: React.KeyboardEvent) => {
+    const items = popoverRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]');
+    if (!items?.length) return;
+    const list = Array.from(items);
+    const idx = list.indexOf(e.target as HTMLElement);
+    let next: number | null = null;
+    if (e.key === 'ArrowDown') next = idx < list.length - 1 ? idx + 1 : 0;
+    else if (e.key === 'ArrowUp') next = idx > 0 ? idx - 1 : list.length - 1;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = list.length - 1;
+    if (next != null) {
+      e.preventDefault();
+      list[next].focus();
+    }
+  };
+
+  return (
+    <div
+      ref={popoverRef}
+      role="menu"
+      className="offset-popover"
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={navigateMenu}
+    >
+      <div className="offset-popover__heading">Compare with</div>
+      {OFFSET_PRESETS.map((preset, i) => (
+        <button
+          key={preset}
+          role="menuitem"
+          tabIndex={i === 0 ? 0 : -1}
+          className="offset-popover__preset"
+          onClick={() => {
+            onSelect(preset);
+            onClose();
+          }}
+        >
+          {preset}
+        </button>
+      ))}
+      <div className="offset-popover__custom-row">
+        <input
+          type="text"
+          className="offset-popover__input"
+          placeholder="-2h, -3d…"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submitCustom();
+          }}
+        />
+        <button className="offset-popover__submit" disabled={!validCustom} onClick={submitCustom}>
+          Go
+        </button>
+      </div>
+    </div>
+  );
+}
+
 interface TraceRowProps {
   trace: PVTrace;
   label: string;
@@ -112,6 +213,7 @@ interface TraceRowProps {
   isSelected: boolean;
   onSelect: () => void;
   onDelete: () => void;
+  onDuplicateWithOffset?: (offset: string) => void;
 }
 
 function TraceRow({
@@ -122,7 +224,9 @@ function TraceRow({
   isSelected,
   onSelect,
   onDelete,
+  onDuplicateWithOffset,
 }: TraceRowProps) {
+  const [showOffsetPopover, setShowOffsetPopover] = useState(false);
   const data: DragData = { plotId, axisId: trace.axisId, traceId: trace.id };
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `${plotId}::${trace.id}`,
@@ -133,6 +237,8 @@ function TraceRow({
     transform: CSS.Transform.toString(transform),
     transition,
   };
+
+  const canDuplicate = onDuplicateWithOffset && trace.kind !== 'formula' && !!trace.pvName;
 
   return (
     <div
@@ -160,6 +266,26 @@ function TraceRow({
         )}
         <ArchiveStatusChip result={archiveResult} />
       </div>
+      {canDuplicate && (
+        <div style={{ position: 'relative' }} onPointerDown={(e) => e.stopPropagation()}>
+          <button
+            className="layer-row__offset-trigger"
+            title="Duplicate with time offset"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowOffsetPopover((v) => !v);
+            }}
+          >
+            <Time size={12} />
+          </button>
+          {showOffsetPopover && (
+            <OffsetPopover
+              onSelect={(offset) => onDuplicateWithOffset!(offset)}
+              onClose={() => setShowOffsetPopover(false)}
+            />
+          )}
+        </div>
+      )}
       <button
         className="layer-row__delete"
         title="Delete trace"
@@ -211,6 +337,7 @@ interface AxisSectionProps {
   onDeleteAxis: () => void;
   onSelectTrace: (traceId: string) => void;
   onDeleteTrace: (traceId: string) => void;
+  onDuplicateWithOffset: (traceId: string, offset: string) => void;
   onAddTrace: () => void;
   onAddFormula: () => void;
 }
@@ -230,6 +357,7 @@ function AxisSection({
   onDeleteAxis,
   onSelectTrace,
   onDeleteTrace,
+  onDuplicateWithOffset,
   onAddTrace,
   onAddFormula,
 }: AxisSectionProps) {
@@ -341,6 +469,7 @@ function AxisSection({
                 }
                 onSelect={() => onSelectTrace(trace.id)}
                 onDelete={() => onDeleteTrace(trace.id)}
+                onDuplicateWithOffset={(offset) => onDuplicateWithOffset(trace.id, offset)}
               />
             ))}
           </SortableContext>
@@ -392,6 +521,7 @@ interface PlotAxesProps {
   onAddTrace: (plotId: string, axisId: string) => void;
   onAddFormula: (plotId: string, axisId: string) => void;
   onDeleteTrace: (plotId: string, traceId: string) => void;
+  onDuplicateWithOffset: (plotId: string, traceId: string, offset: string) => void;
   onDeleteAxis: (plotId: string, axisId: string) => void;
 }
 
@@ -407,6 +537,7 @@ function PlotAxes({
   onAddTrace,
   onAddFormula,
   onDeleteTrace,
+  onDuplicateWithOffset,
   onDeleteAxis,
 }: PlotAxesProps) {
   return (
@@ -434,6 +565,7 @@ function PlotAxes({
             onDeleteAxis={() => onDeleteAxis(plot.id, axis.id)}
             onSelectTrace={(id) => onSelectItem({ type: 'trace', id, plotId: plot.id })}
             onDeleteTrace={(id) => onDeleteTrace(plot.id, id)}
+            onDuplicateWithOffset={(id, offset) => onDuplicateWithOffset(plot.id, id, offset)}
             onAddTrace={() => onAddTrace(plot.id, axis.id)}
             onAddFormula={() => onAddFormula(plot.id, axis.id)}
           />
@@ -454,6 +586,7 @@ export function LeftPanel({
   onAddTrace,
   onAddFormula,
   onDeleteTrace,
+  onDuplicateWithOffset,
   onAddAxis,
   onSearchPvs,
   onDeleteAxis,
@@ -553,6 +686,7 @@ export function LeftPanel({
                 onAddTrace={onAddTrace}
                 onAddFormula={onAddFormula}
                 onDeleteTrace={onDeleteTrace}
+                onDuplicateWithOffset={onDuplicateWithOffset}
                 onDeleteAxis={onDeleteAxis}
               />
 

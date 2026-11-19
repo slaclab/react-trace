@@ -67,6 +67,7 @@ function panel(plots: Plot[]) {
       onAddTrace={vi.fn()}
       onAddFormula={vi.fn()}
       onDeleteTrace={vi.fn()}
+      onDuplicateWithOffset={vi.fn()}
       onAddAxis={vi.fn()}
       onSearchPvs={vi.fn()}
       onDeleteAxis={vi.fn()}

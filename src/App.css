@@ -271,6 +271,97 @@
   transition: background-color 0.15s;
 }
 
+/* Clock button (duplicate-with-offset trigger) */
+.layer-row__offset-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--cds-text-helper);
+  cursor: pointer;
+  padding: 0;
+  border-radius: 2px;
+  transition: background-color 0.15s;
+}
+
+.layer-row__offset-trigger:hover {
+  background-color: var(--cds-layer-hover);
+}
+
+/* Offset popover */
+.offset-popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 100;
+  background: var(--cds-layer);
+  border: 1px solid var(--cds-border-subtle);
+  border-radius: 4px;
+  padding: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  min-width: 140px;
+}
+
+.offset-popover__heading {
+  font-size: 11px;
+  color: var(--cds-text-helper);
+  margin-bottom: 4px;
+}
+
+.offset-popover__preset {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--cds-text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background-color 0.15s;
+}
+
+.offset-popover__preset:hover {
+  background-color: var(--cds-layer-hover);
+}
+
+.offset-popover__custom-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.offset-popover__input {
+  flex: 1;
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid var(--cds-border-strong);
+  border-radius: 2px;
+  background: var(--cds-field);
+  color: var(--cds-text-primary);
+  min-width: 0;
+}
+
+.offset-popover__submit {
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid var(--cds-border-strong);
+  border-radius: 2px;
+  background: var(--cds-button-tertiary);
+  color: var(--cds-text-inverse);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.offset-popover__submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .axis-drop-zone {
   border-radius: 2px;
   transition: background-color 0.15s;
@@ -397,6 +488,19 @@
   color: var(--cds-text-primary);
 }
 
+.view-mode-btn:disabled {
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+.plot-tab-bar__separator {
+  width: 1px;
+  height: 16px;
+  background-color: var(--cds-border-subtle);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
 .plot-content {
   flex: 1;
   overflow: hidden;
@@ -443,6 +547,13 @@
   position: absolute;
   top: 8px;
   left: 44px;
+  z-index: 10;
+}
+
+.plot-grid__cell-btn--reset {
+  position: absolute;
+  top: 8px;
+  left: 80px;
   z-index: 10;
 }
 

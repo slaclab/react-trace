@@ -1,6 +1,7 @@
 import type { PVTrace } from './types';
+import { parseOffsetMs, formatOffsetLabel } from './api/time';
 
-type TraceNames = Pick<PVTrace, 'id' | 'displayName' | 'pvName'>;
+type TraceNames = Pick<PVTrace, 'id' | 'displayName' | 'pvName' | 'timeOffset'>;
 
 // Stable numbering for unnamed traces. Once a trace ID is assigned a number it
 // keeps it for the session, so deleting a sibling doesn't shift labels.
@@ -12,13 +13,20 @@ let nextNumber = 1;
 // displayName stays empty until the user types one, so a trace's label follows
 // its PV automatically until renamed.
 export function traceLabel(trace: TraceNames, siblings?: readonly TraceNames[]): string {
-  if (trace.displayName) return trace.displayName;
-  if (trace.pvName) return trace.pvName;
-  if (siblings) {
+  let base: string;
+  if (trace.displayName) base = trace.displayName;
+  else if (trace.pvName) base = trace.pvName;
+  else if (siblings) {
     if (!assignedNumbers.has(trace.id)) {
       assignedNumbers.set(trace.id, nextNumber++);
     }
-    return `New Trace ${assignedNumbers.get(trace.id)}`;
+    base = `New Trace ${assignedNumbers.get(trace.id)}`;
+  } else {
+    base = 'New Trace';
   }
-  return 'New Trace';
+  if (trace.timeOffset) {
+    const ms = parseOffsetMs(trace.timeOffset);
+    if (ms != null) return `${base} (${formatOffsetLabel(ms)})`;
+  }
+  return base;
 }
