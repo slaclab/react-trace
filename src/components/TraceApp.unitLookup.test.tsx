@@ -5,6 +5,7 @@
 // started in the outgoing workspace must not land on the incoming one.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
+import { WithCanopy } from '../test/canopy';
 import {
   alertMock,
   axis,
@@ -29,7 +30,8 @@ const { metadataCalls } = vi.hoisted(() => ({ metadataCalls: [] as MetadataCall[
 
 // Signature-agnostic (pv, archiver, signal are the last three arguments), so it
 // survives a leading connection argument.
-vi.mock('../api/mole', () => ({
+vi.mock('@slaclab/canopy-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@slaclab/canopy-client')>()),
   fetchMetadata: (...args: unknown[]) => {
     const [pv, , signal] = args.slice(-3) as [string, unknown, AbortSignal];
     return new Promise((resolve, reject) => {
@@ -84,7 +86,7 @@ function layout() {
 beforeEach(() => {
   resetHarness();
   metadataCalls.length = 0;
-  render(<TraceApp />);
+  render(<TraceApp />, { wrapper: WithCanopy });
 });
 
 afterEach(() => cleanup());

@@ -7,6 +7,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { RightPanel } from './RightPanel';
 import type { Plot, PVTrace } from '../types';
+import { WithCanopy } from '../test/canopy';
 
 // Carbon's Tabs query media features; jsdom doesn't implement matchMedia.
 vi.stubGlobal('matchMedia', (query: string) => ({
@@ -16,8 +17,18 @@ vi.stubGlobal('matchMedia', (query: string) => ({
   removeEventListener: () => {},
 }));
 
+// Carbon's Tabs also observes its own size; jsdom has no ResizeObserver.
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+);
+
 // An empty expression shows every help example (including the "Add a {var}"
-// hint) and skips the Fox validation request.
+// hint) and skips the Formula Engine validation request.
 const formulaTrace: PVTrace = {
   id: 't1',
   kind: 'formula',
@@ -88,7 +99,8 @@ describe('formula help text', () => {
         onCollapse={vi.fn()}
         onExpand={vi.fn()}
         getAxisRange={() => undefined}
-      />
+      />,
+      { wrapper: WithCanopy }
     );
     const examples = ['{x1}', '{x1} + {x2}', '{var}'];
     const colours = examples.map(

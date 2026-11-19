@@ -1,0 +1,62 @@
+name: Build Release Artifact
+
+# On a published GitHub release, build the Linux RPM (version stamped from the
+# tag) and attach it to the release. This workflow only builds and publishes;
+# deploys live in an internal deploy repo, which pulls this RPM by release
+# tag.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # build-dev.yml's dev-<sha> and dev-latest prereleases are published
+    # releases too. They're created with GITHUB_TOKEN, which doesn't start
+    # workflows, but a token change or one published by hand would otherwise
+    # build here and attach a second RPM to dev-latest.
+    if: ${{ !startsWith(github.event.release.tag_name, 'dev-') }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Compute version from tag
+        id: ver
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        # The RPM version comes from the tag (v1.2.3 or 1.2.3), so anything
+        # that isn't semver stops here instead of reaching the Tauri build.
+        run: |
+          version=${TAG#v}
+          if ! [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Release tag $TAG isn't a version like v1.2.3; not building an RPM."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+
+      - name: Set up Tauri build
+        uses: ./.github/actions/setup-tauri
+        with:
+          # Pinned for reproducible release artifacts.
+          rust-toolchain: 1.93.1
+          # Release RPMs are built from a clean target directory rather than
+          # one restored from a cache written by an earlier run.
+          rust-cache: false
+          stage-config: true
+
+      - name: Build Tauri RPM
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: >-
+            --bundles rpm
+            --config {"package":{"version":"${{ steps.ver.outputs.version }}"}}
+
+      - name: Attach RPM to release
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+        with:
+          files: src-tauri/target/release/bundle/rpm/*.rpm

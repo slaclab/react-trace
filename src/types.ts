@@ -2,7 +2,7 @@ export interface PVTrace {
   id: string;
   // Curve data source. 'pv' (the default when undefined, for back-compat with
   // saved workspaces) reads a live/archive PV; 'formula' evaluates an expression
-  // over other curves via Fox.
+  // over other curves via the Formula Engine.
   kind?: 'pv' | 'formula';
   pvName: string;
   displayName: string;
@@ -28,10 +28,10 @@ export interface PVTrace {
   // are shifted back onto the plot's axis. Implies archive-only (no live).
   timeOffset?: string;
   // ── Formula curves (kind === 'formula') ──────────────────────────────────
-  // Fox expression with {var} placeholders, e.g. "{x1} + {x2}".
+  // Formula Engine expression with {var} placeholders, e.g. "{x1} + {x2}".
   expression?: string;
   // Variable name -> referenced trace id (a curve on the same plot). Resolved to
-  // that trace's pvName when building the Fox request. Only PV-backed curves may
+  // that trace's pvName when building the Formula Engine request. Only PV-backed curves may
   // be referenced for now (formula-to-formula references are deferred).
   bindings?: Record<string, string>;
   lineWidth: number;

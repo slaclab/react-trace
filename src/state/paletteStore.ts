@@ -3,7 +3,7 @@ import { DEFAULT_PALETTE_ID, getPalette } from '../palettes';
 
 // Global default palette id — the palette new curves are colored from
 // cyclically. Persisted to localStorage so the choice survives reloads, in the
-// same lightweight external-store style as themeStore.ts.
+// same lightweight external-store style as the canopy-shell color-mode store.
 
 const STORAGE_KEY = 'trace.palette';
 

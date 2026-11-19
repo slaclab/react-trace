@@ -16,22 +16,23 @@ import {
   resetHarness,
   workspace,
 } from '../test/traceAppHarness';
+import { WithCanopy } from '../test/canopy';
 import { TraceApp } from './TraceApp';
 
-interface FoxCall {
+interface EngineCall {
   expression: string;
   settled: boolean;
   resolve: (value: number) => void;
 }
 
-const { foxCalls, plotAreaLifecycle } = vi.hoisted(() => ({
-  foxCalls: [] as FoxCall[],
+const { engineCalls, plotAreaLifecycle } = vi.hoisted(() => ({
+  engineCalls: [] as EngineCall[],
   plotAreaLifecycle: { mounts: 0, unmounts: 0 },
 }));
 
 // Signature-agnostic (spec, t0, t1, signal are the last four arguments), so it
 // survives a leading connection argument. Calls stay pending until resolved.
-vi.mock('../api/fox', () => ({
+vi.mock('../api/formulaEngine', () => ({
   evaluateFormula: (...args: unknown[]) => {
     const [spec, , t1Ns, signal] = args.slice(-4) as [
       { expression: string },
@@ -40,7 +41,7 @@ vi.mock('../api/fox', () => ({
       AbortSignal,
     ];
     return new Promise((resolve, reject) => {
-      const call: FoxCall = {
+      const call: EngineCall = {
         expression: spec.expression,
         settled: false,
         resolve: (value) => {
@@ -57,7 +58,7 @@ vi.mock('../api/fox', () => ({
           });
         },
       };
-      foxCalls.push(call);
+      engineCalls.push(call);
       signal.addEventListener('abort', () => {
         call.settled = true;
         reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
@@ -104,7 +105,7 @@ function legacyLike(
 }
 
 async function resolvePending(expression: string, value: number) {
-  const call = foxCalls.filter((c) => c.expression === expression && !c.settled).pop();
+  const call = engineCalls.filter((c) => c.expression === expression && !c.settled).pop();
   if (!call) throw new Error(`no pending evaluation of ${expression}`);
   await act(async () => {
     call.resolve(value);
@@ -121,10 +122,10 @@ function formulaFrames(from: number) {
 
 beforeEach(async () => {
   resetHarness();
-  foxCalls.length = 0;
+  engineCalls.length = 0;
   plotAreaLifecycle.mounts = 0;
   plotAreaLifecycle.unmounts = 0;
-  render(<TraceApp />);
+  render(<TraceApp />, { wrapper: WithCanopy });
   await loadWorkspace(legacyLike('A:PV', '{x1}*2'));
   await resolvePending('{x1}*2', 7);
   expect(formulaFrames(renders.plotArea.length - 1)[0]).toMatchObject({

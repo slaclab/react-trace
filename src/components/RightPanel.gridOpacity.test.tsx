@@ -8,11 +8,12 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { RightPanel } from './RightPanel';
 import type { Plot } from '../types';
+import { WithCanopy } from '../test/canopy';
 
 // ArchiverPicker fetches the archiver list on mount; keep it pending so the
 // test needs no backend.
-vi.mock('../api/mole', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../api/mole')>()),
+vi.mock('@slaclab/canopy-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@slaclab/canopy-client')>()),
   listArchivers: () => new Promise(() => {}),
 }));
 
@@ -23,6 +24,16 @@ vi.stubGlobal('matchMedia', (query: string) => ({
   addEventListener: () => {},
   removeEventListener: () => {},
 }));
+
+// Carbon's Tabs also observes its own size; jsdom has no ResizeObserver.
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+);
 
 function makePlot(gridOpacity: number): Plot {
   return {
@@ -79,14 +90,14 @@ describe('Gridline Opacity slider', () => {
   afterAll(() => vi.unstubAllGlobals());
 
   it('hides the number input that overflowed the panel', () => {
-    const { container } = render(plotSettingsPanel(makePlot(0.4)));
+    const { container } = render(plotSettingsPanel(makePlot(0.4)), { wrapper: WithCanopy });
     const input = container.querySelector('#grid-opacity-input-for-slider');
     expect(input).not.toBeNull();
     expect(input!.getAttribute('type')).toBe('hidden');
   });
 
   it('shows the current value in the label', () => {
-    const { rerender } = render(plotSettingsPanel(makePlot(0.4)));
+    const { rerender } = render(plotSettingsPanel(makePlot(0.4)), { wrapper: WithCanopy });
     expect(screen.getByRole('slider', { name: 'Gridline Opacity (40%)' })).toBeTruthy();
 
     rerender(plotSettingsPanel(makePlot(0.75)));

@@ -1,0 +1,3 @@
+# Check out text files with LF everywhere (Prettier enforces endOfLine: lf; Windows
+# checkouts with core.autocrlf=true would otherwise fail format:check).
+* text=auto eol=lf

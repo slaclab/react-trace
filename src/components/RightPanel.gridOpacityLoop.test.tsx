@@ -14,11 +14,12 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { RightPanel } from './RightPanel';
 import type { Plot } from '../types';
+import { WithCanopy } from '../test/canopy';
 
 // ArchiverPicker fetches the archiver list on mount; keep it pending so the
 // test needs no backend.
-vi.mock('../api/mole', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../api/mole')>()),
+vi.mock('@slaclab/canopy-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@slaclab/canopy-client')>()),
   listArchivers: () => new Promise(() => {}),
 }));
 
@@ -29,6 +30,16 @@ vi.stubGlobal('matchMedia', (query: string) => ({
   addEventListener: () => {},
   removeEventListener: () => {},
 }));
+
+// Carbon's Tabs also observes its own size; jsdom has no ResizeObserver.
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+);
 
 function makePlot(gridOpacity: number): Plot {
   return {
@@ -132,7 +143,7 @@ describe('Gridline Opacity slider', () => {
 
   it('settles when a keypress renders together with the previous store update', () => {
     const updates: number[] = [];
-    render(<Harness updates={updates} secondKey="with-store-update" />);
+    render(<Harness updates={updates} secondKey="with-store-update" />, { wrapper: WithCanopy });
     fireEvent.keyDown(screen.getByRole('slider'), { key: 'ArrowLeft' });
 
     expect(updates).toEqual([0.55, 0.5]);
@@ -143,7 +154,7 @@ describe('Gridline Opacity slider', () => {
 
   it("keeps a keypress that lands before the slider's effects for a store update", () => {
     const updates: number[] = [];
-    render(<Harness updates={updates} secondKey="after-store-commit" />);
+    render(<Harness updates={updates} secondKey="after-store-commit" />, { wrapper: WithCanopy });
     fireEvent.keyDown(screen.getByRole('slider'), { key: 'ArrowLeft' });
 
     expect(updates).toEqual([0.55, 0.5]);
@@ -154,7 +165,7 @@ describe('Gridline Opacity slider', () => {
 
   it('follows a change made outside the slider', () => {
     const updates: number[] = [];
-    render(<Harness updates={updates} />);
+    render(<Harness updates={updates} />, { wrapper: WithCanopy });
     fireEvent.keyDown(screen.getByRole('slider'), { key: 'ArrowLeft' });
     expect(screen.getByRole('slider').getAttribute('aria-valuenow')).toBe('55');
 
