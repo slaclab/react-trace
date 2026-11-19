@@ -106,7 +106,11 @@ function renderModal(props: Partial<ComponentProps<typeof PVSearchModal>> = {}) 
 }
 
 async function typePattern(text: string) {
-  fireEvent.change(screen.getByLabelText('Pattern'), { target: { value: text } });
+  // Carbon's Search now sets aria-labelledby on the outer role="search" div
+  // too, so an unscoped query matches both it and the input.
+  fireEvent.change(screen.getByLabelText('Pattern', { selector: 'input' }), {
+    target: { value: text },
+  });
   await act(async () => {
     vi.advanceTimersByTime(300);
   });
@@ -308,7 +312,9 @@ describe('PVSearchModal', () => {
     fireEvent.click(screen.getByRole('option', { name: 'Plot 2' }));
     expect(screen.queryByText('KLYS:A')).toBeNull();
     expect(addButton().disabled).toBe(true);
-    expect((screen.getByLabelText('Pattern') as HTMLInputElement).value).toBe('KLYS');
+    expect(
+      (screen.getByLabelText('Pattern', { selector: 'input' }) as HTMLInputElement).value
+    ).toBe('KLYS');
 
     await act(async () => {
       vi.advanceTimersByTime(300);

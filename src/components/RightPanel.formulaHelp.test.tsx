@@ -17,6 +17,16 @@ vi.stubGlobal('matchMedia', (query: string) => ({
   removeEventListener: () => {},
 }));
 
+// Carbon's Tabs also observes its own size; jsdom has no ResizeObserver.
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+);
+
 // An empty expression shows every help example (including the "Add a {var}"
 // hint) and skips the Formula Engine validation request.
 const formulaTrace: PVTrace = {

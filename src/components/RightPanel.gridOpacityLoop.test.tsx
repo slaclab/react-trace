@@ -31,6 +31,16 @@ vi.stubGlobal('matchMedia', (query: string) => ({
   removeEventListener: () => {},
 }));
 
+// Carbon's Tabs also observes its own size; jsdom has no ResizeObserver.
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+);
+
 function makePlot(gridOpacity: number): Plot {
   return {
     id: 'p1',
