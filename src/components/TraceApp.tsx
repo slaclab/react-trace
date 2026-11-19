@@ -63,6 +63,13 @@ function generateMockData(
   }));
 }
 
+function enforceOffsetArchiveOnly(trace: PVTrace): PVTrace {
+  if (trace.timeOffset && parseOffsetMs(trace.timeOffset) != null) {
+    return { ...trace, useLive: false, useArchive: true };
+  }
+  return trace;
+}
+
 // The app starts with a single empty plot so users begin from a clean slate.
 const INITIAL_PLOTS: Plot[] = [
   {
@@ -649,17 +656,15 @@ export function TraceApp() {
     const source = plot?.traces.find((t) => t.id === sourceTraceId);
     if (!plot || !source) return;
     const id = makeId('trace');
-    const newTrace: PVTrace = {
+    const newTrace: PVTrace = enforceOffsetArchiveOnly({
       ...source,
       id,
       color: colorForIndex(getPalette(paletteId), plot.traces.length),
-      displayName: '',
+      displayName: source.displayName,
       timeOffset: offset,
       lineStyle: 'dashed',
-      useLive: false,
-      useArchive: true,
       data: [],
-    };
+    });
     setPlots((prev) =>
       prev.map((p) => (p.id === plotId ? { ...p, traces: [...p.traces, newTrace] } : p))
     );
@@ -667,15 +672,17 @@ export function TraceApp() {
   };
 
   const updateTrace = (traceId: string, updates: Partial<PVTrace>) => {
-    if (updates.timeOffset && parseOffsetMs(updates.timeOffset) != null) {
-      updates = { ...updates, useLive: false, useArchive: true };
+    if ('timeOffset' in updates && !updates.timeOffset) {
+      updates = { ...updates, useLive: true };
     }
     setPlots((prev) =>
       prev.map((p) =>
         p.id === activePlotId
           ? {
               ...p,
-              traces: p.traces.map((t) => (t.id === traceId ? { ...t, ...updates } : t)),
+              traces: p.traces.map((t) =>
+                t.id === traceId ? enforceOffsetArchiveOnly({ ...t, ...updates }) : t
+              ),
             }
           : p
       )
@@ -908,7 +915,7 @@ export function TraceApp() {
         throw new Error('Workspace contains no plots');
       }
       abortUnitLookups();
-      setPlots(result.plots);
+      setPlots(result.plots.map((p) => ({ ...p, traces: p.traces.map(enforceOffsetArchiveOnly) })));
       setWorkspaceGeneration((generation) => generation + 1);
       setActivePlotId(result.plots[0].id);
       resyncClock(result.plots.map((p) => p.id));

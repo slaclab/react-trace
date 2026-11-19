@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -115,6 +115,7 @@ function OffsetPopover({
   onClose: () => void;
 }) {
   const [custom, setCustom] = useState('');
+  const popoverRef = useRef<HTMLDivElement>(null);
   const validCustom = !!custom && parseOffsetMs(custom) != null;
   const submitCustom = () => {
     if (validCustom) {
@@ -123,93 +124,78 @@ function OffsetPopover({
     }
   };
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    const onClick = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onClick);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onClick);
+    };
+  }, [onClose]);
+
+  const navigateMenu = (e: React.KeyboardEvent) => {
+    const items = popoverRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]');
+    if (!items?.length) return;
+    const list = Array.from(items);
+    const idx = list.indexOf(e.target as HTMLElement);
+    let next: number | null = null;
+    if (e.key === 'ArrowDown') next = idx < list.length - 1 ? idx + 1 : 0;
+    else if (e.key === 'ArrowUp') next = idx > 0 ? idx - 1 : list.length - 1;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = list.length - 1;
+    if (next != null) {
+      e.preventDefault();
+      list[next].focus();
+    }
+  };
+
   return (
     <div
+      ref={popoverRef}
       role="menu"
       className="offset-popover"
       onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onClose();
-      }}
-      style={{
-        position: 'absolute',
-        top: '100%',
-        right: 0,
-        zIndex: 100,
-        background: 'var(--cds-layer)',
-        border: '1px solid var(--cds-border-subtle)',
-        borderRadius: 4,
-        padding: 8,
-        boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-        minWidth: 140,
-      }}
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={navigateMenu}
     >
-      <div style={{ fontSize: 11, color: 'var(--cds-text-helper)', marginBottom: 4 }}>
-        Compare with
-      </div>
-      {OFFSET_PRESETS.map((preset) => (
+      <div className="offset-popover__heading">Compare with</div>
+      {OFFSET_PRESETS.map((preset, i) => (
         <button
           key={preset}
+          role="menuitem"
+          tabIndex={i === 0 ? 0 : -1}
+          className="offset-popover__preset"
           onClick={() => {
             onSelect(preset);
             onClose();
-          }}
-          style={{
-            display: 'block',
-            width: '100%',
-            textAlign: 'left',
-            padding: '4px 8px',
-            border: 'none',
-            background: 'transparent',
-            color: 'var(--cds-text-primary)',
-            fontSize: 12,
-            cursor: 'pointer',
-            borderRadius: 2,
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--cds-layer-hover)';
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent';
           }}
         >
           {preset}
         </button>
       ))}
-      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+      <div className="offset-popover__custom-row">
         <input
           type="text"
+          className="offset-popover__input"
           placeholder="-2h, -3d…"
           value={custom}
           onChange={(e) => setCustom(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') submitCustom();
           }}
-          style={{
-            flex: 1,
-            fontSize: 11,
-            padding: '2px 4px',
-            border: '1px solid var(--cds-border-strong)',
-            borderRadius: 2,
-            background: 'var(--cds-field)',
-            color: 'var(--cds-text-primary)',
-            minWidth: 0,
-          }}
         />
-        <button
-          disabled={!validCustom}
-          onClick={submitCustom}
-          style={{
-            fontSize: 11,
-            padding: '2px 6px',
-            border: '1px solid var(--cds-border-strong)',
-            borderRadius: 2,
-            background: 'var(--cds-button-tertiary)',
-            color: 'var(--cds-text-inverse)',
-            cursor: validCustom ? 'pointer' : 'not-allowed',
-            opacity: validCustom ? 1 : 0.5,
-          }}
-        >
+        <button className="offset-popover__submit" disabled={!validCustom} onClick={submitCustom}>
           Go
         </button>
       </div>
@@ -279,32 +265,13 @@ function TraceRow({
         <ArchiveStatusChip result={archiveResult} />
       </div>
       {canDuplicate && (
-        <div style={{ position: 'relative' }}>
+        <div style={{ position: 'relative' }} onPointerDown={(e) => e.stopPropagation()}>
           <button
+            className="layer-row__offset-trigger"
             title="Duplicate with time offset"
             onClick={(e) => {
               e.stopPropagation();
               setShowOffsetPopover((v) => !v);
-            }}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 20,
-              height: 20,
-              border: 'none',
-              background: 'transparent',
-              color: 'var(--cds-text-helper)',
-              cursor: 'pointer',
-              padding: 0,
-              borderRadius: 2,
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor =
-                'var(--cds-layer-hover)';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent';
             }}
           >
             <Time size={12} />
