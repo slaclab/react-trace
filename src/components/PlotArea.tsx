@@ -15,7 +15,18 @@ import {
 } from '@slaclab/canopy-charts';
 import { effectiveBackground } from '../plotBackground';
 import { registerPlotChart } from '../capturePlot';
-import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize, Redo, Undo, ZoomReset } from '@carbon/icons-react';
+import {
+  Add,
+  Close,
+  ColumnDependency,
+  Grid,
+  Launch,
+  Login,
+  Maximize,
+  Redo,
+  Undo,
+  ZoomReset,
+} from '@carbon/icons-react';
 import type { Axis, Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
@@ -649,7 +660,7 @@ export function SinglePlot({
       programmaticZoomRef.current = false;
     }, 0);
     return () => window.clearTimeout(clearTimer);
-  }, [zoomTarget?.generation]);
+  }, [zoomTarget, liveChart]);
 
   // Chart event handlers get the chart that fired the event. CanopyChart drops
   // events from a disposed chart before they reach us; both handlers also
@@ -667,7 +678,6 @@ export function SinglePlot({
     },
     [onAxisRangesChange, visibleAxes]
   );
-
 
   const handleDataZoom = useCallback(
     (_params: unknown, chart: ECharts) => {
