@@ -48,7 +48,6 @@ function trace(pvName: string): PVTrace {
     visible: true,
     axisId: 'axis-1',
     useLive: false,
-    updateRate: 'monitor',
     useArchive: false,
     lineWidth: 2,
     lineType: 'step',
@@ -79,11 +78,11 @@ function makePlot(id: string, title: string, extra: Partial<Plot> = {}): Plot {
   };
 }
 
-// Plot 1 already shows KLYS:B.
-const plot1 = makePlot('plot-1', 'Plot 1', { archiver: 'lcls', traces: [trace('KLYS:B')] });
-const plot2 = makePlot('plot-2', 'Plot 2', { archiver: 'facet' });
+// Plot 1 already shows SIMPV:B.
+const plot1 = makePlot('plot-1', 'Plot 1', { archiver: 'primary', traces: [trace('SIMPV:B')] });
+const plot2 = makePlot('plot-2', 'Plot 2', { archiver: 'secondary' });
 // Plot 3 reads the same archiver as plot 1.
-const plot3 = makePlot('plot-3', 'Plot 3', { archiver: 'lcls' });
+const plot3 = makePlot('plot-3', 'Plot 3', { archiver: 'primary' });
 
 function renderModal(props: Partial<ComponentProps<typeof PVSearchModal>> = {}) {
   const onAdd = vi.fn();
@@ -155,21 +154,21 @@ describe('PVSearchModal', () => {
     renderModal();
     // Nothing to tick until there are matches: no list, no select-all.
     expect(screen.queryByRole('checkbox')).toBeNull();
-    await typePattern('KLYS');
-    expect(searchCalls[0].pattern).toBe('.*(?:KLYS).*');
-    expect(searchCalls[0].options).toEqual({ archiver: 'lcls', limit: PV_SEARCH_LIMIT });
+    await typePattern('SIMPV');
+    expect(searchCalls[0].pattern).toBe('.*(?:SIMPV).*');
+    expect(searchCalls[0].options).toEqual({ archiver: 'primary', limit: PV_SEARCH_LIMIT });
 
-    await resolveSearch(0, ['KLYS:A', 'KLYS:B', 'KLYS:C']);
+    await resolveSearch(0, ['SIMPV:A', 'SIMPV:B', 'SIMPV:C']);
     // The status line is a live region, so the count is announced.
     expect(screen.getByRole('status').textContent).toBe('3 matches');
-    expect(listed()).toEqual(['KLYS:A', 'KLYS:B', 'KLYS:C']);
+    expect(listed()).toEqual(['SIMPV:A', 'SIMPV:B', 'SIMPV:C']);
   });
 
   it('lists matches alphabetically, with numbers in numeric order', async () => {
     renderModal();
-    await typePattern('KLYS');
-    await resolveSearch(0, ['KLYS:A', 'KLYS:11', 'KLYS:2']);
-    expect(listed()).toEqual(['KLYS:2', 'KLYS:11', 'KLYS:A']);
+    await typePattern('SIMPV');
+    await resolveSearch(0, ['SIMPV:A', 'SIMPV:11', 'SIMPV:2']);
+    expect(listed()).toEqual(['SIMPV:2', 'SIMPV:11', 'SIMPV:A']);
 
     await typePattern('NOPE');
     await resolveSearch(1, []);
@@ -179,17 +178,17 @@ describe('PVSearchModal', () => {
 
   it('adds the ticked matches in the order ticked', async () => {
     const { onAdd, onClose } = renderModal();
-    await typePattern('KLYS');
-    await resolveSearch(0, ['KLYS:A', 'KLYS:B', 'KLYS:C']);
+    await typePattern('SIMPV');
+    await resolveSearch(0, ['SIMPV:A', 'SIMPV:B', 'SIMPV:C']);
     expect(addButton().textContent).toContain('Add PVs');
     expect(addButton().disabled).toBe(true);
 
-    tick('KLYS:C');
-    tick('KLYS:A');
+    tick('SIMPV:C');
+    tick('SIMPV:A');
     expect(addButton().textContent).toContain('Add 2 PVs');
     fireEvent.click(addButton());
 
-    expect(onAdd).toHaveBeenCalledWith('plot-1', ['KLYS:C', 'KLYS:A']);
+    expect(onAdd).toHaveBeenCalledWith('plot-1', ['SIMPV:C', 'SIMPV:A']);
     // Closing is the parent's call, after it has added the traces.
     expect(onClose).not.toHaveBeenCalled();
   });
@@ -200,8 +199,8 @@ describe('PVSearchModal', () => {
     await resolveSearch(0, ['ROOM:X']);
     tick('ROOM:X');
 
-    await typePattern('KLYS');
-    await resolveSearch(1, ['KLYS:A', 'KLYS:B']);
+    await typePattern('SIMPV');
+    await resolveSearch(1, ['SIMPV:A', 'SIMPV:B']);
     fireEvent.click(screen.getByLabelText('Select all'));
     expect(addButton().textContent).toContain('Add 3 PVs');
     fireEvent.click(screen.getByLabelText('Select all'));
@@ -209,59 +208,59 @@ describe('PVSearchModal', () => {
 
     fireEvent.click(screen.getByLabelText('Select all'));
     fireEvent.click(addButton());
-    expect(onAdd).toHaveBeenCalledWith('plot-1', ['ROOM:X', 'KLYS:A', 'KLYS:B']);
+    expect(onAdd).toHaveBeenCalledWith('plot-1', ['ROOM:X', 'SIMPV:A', 'SIMPV:B']);
   });
 
   it('adds the selection together with the double-clicked match', async () => {
     const { onAdd } = renderModal();
     // A selected name also shows in the strip, so target the row's checkbox.
-    await typePattern('KLYS');
-    await resolveSearch(0, ['KLYS:A', 'KLYS:B']);
+    await typePattern('SIMPV');
+    await resolveSearch(0, ['SIMPV:A', 'SIMPV:B']);
 
-    fireEvent.doubleClick(screen.getByLabelText('KLYS:B'));
-    expect(onAdd).toHaveBeenLastCalledWith('plot-1', ['KLYS:B']);
+    fireEvent.doubleClick(screen.getByLabelText('SIMPV:B'));
+    expect(onAdd).toHaveBeenLastCalledWith('plot-1', ['SIMPV:B']);
 
-    tick('KLYS:A');
-    fireEvent.doubleClick(screen.getByLabelText('KLYS:B'));
-    expect(onAdd).toHaveBeenLastCalledWith('plot-1', ['KLYS:A', 'KLYS:B']);
+    tick('SIMPV:A');
+    fireEvent.doubleClick(screen.getByLabelText('SIMPV:B'));
+    expect(onAdd).toHaveBeenLastCalledWith('plot-1', ['SIMPV:A', 'SIMPV:B']);
     // Already selected: no duplicate.
-    fireEvent.doubleClick(screen.getByLabelText('KLYS:A'));
-    expect(onAdd).toHaveBeenLastCalledWith('plot-1', ['KLYS:A']);
+    fireEvent.doubleClick(screen.getByLabelText('SIMPV:A'));
+    expect(onAdd).toHaveBeenLastCalledWith('plot-1', ['SIMPV:A']);
   });
 
   it('marks PVs already on the target plot', async () => {
     renderModal();
-    await typePattern('KLYS');
-    await resolveSearch(0, ['KLYS:A', 'KLYS:B']);
+    await typePattern('SIMPV');
+    await resolveSearch(0, ['SIMPV:A', 'SIMPV:B']);
 
     expect(screen.getAllByText('on plot')).toHaveLength(1);
-    expect(screen.getByText('KLYS:B').closest('li')?.textContent).toContain('on plot');
-    expect(screen.getByText('KLYS:A').closest('li')?.textContent).not.toContain('on plot');
+    expect(screen.getByText('SIMPV:B').closest('li')?.textContent).toContain('on plot');
+    expect(screen.getByText('SIMPV:A').closest('li')?.textContent).not.toContain('on plot');
   });
 
   it('keeps ticks across searches in the Selected strip, with remove and clear', async () => {
     const { onAdd } = renderModal();
     expect(screen.queryByText(/^Selected/)).toBeNull();
-    await typePattern('KLYS');
-    await resolveSearch(0, ['KLYS:A', 'KLYS:B']);
-    tick('KLYS:A');
-    tick('KLYS:B');
+    await typePattern('SIMPV');
+    await resolveSearch(0, ['SIMPV:A', 'SIMPV:B']);
+    tick('SIMPV:A');
+    tick('SIMPV:B');
 
     await typePattern('ROOM');
     await resolveSearch(1, ['ROOM:X']);
     expect(screen.getByText('Selected (2)')).toBeTruthy();
     expect(addButton().textContent).toContain('Add 2 PVs');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Remove KLYS:A' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove SIMPV:A' }));
     expect(addButton().textContent).toContain('Add 1 PV');
     fireEvent.click(addButton());
-    expect(onAdd).toHaveBeenCalledWith('plot-1', ['KLYS:B']);
+    expect(onAdd).toHaveBeenCalledWith('plot-1', ['SIMPV:B']);
 
     // Back on the first pattern the surviving tick shows in the list again.
-    await typePattern('KLYS');
-    await resolveSearch(2, ['KLYS:A', 'KLYS:B']);
-    expect((screen.getByLabelText('KLYS:B') as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByLabelText('KLYS:A') as HTMLInputElement).checked).toBe(false);
+    await typePattern('SIMPV');
+    await resolveSearch(2, ['SIMPV:A', 'SIMPV:B']);
+    expect((screen.getByLabelText('SIMPV:B') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText('SIMPV:A') as HTMLInputElement).checked).toBe(false);
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
     expect(addButton().disabled).toBe(true);
@@ -270,14 +269,14 @@ describe('PVSearchModal', () => {
 
   it('reports a failed search and says when the list is cut off', async () => {
     renderModal();
-    await typePattern('KLYS');
+    await typePattern('SIMPV');
     await act(async () => searchCalls[0].reject(new Error('archiver unreachable')));
     expect(screen.getByText('Search failed: archiver unreachable')).toBeTruthy();
 
-    await typePattern('KLYS:');
+    await typePattern('SIMPV:');
     await resolveSearch(
       1,
-      Array.from({ length: PV_SEARCH_LIMIT }, (_, i) => `KLYS:${i}`)
+      Array.from({ length: PV_SEARCH_LIMIT }, (_, i) => `SIMPV:${i}`)
     );
     expect(screen.getByText(/Showing the first 500 matches/)).toBeTruthy();
   });
@@ -290,43 +289,43 @@ describe('PVSearchModal', () => {
     fireEvent.click(screen.getByRole('option', { name: 'Plot 2' }));
     expect(screen.getByText('Add to Plot 2')).toBeTruthy();
 
-    await typePattern('KLYS');
-    expect(searchCalls[0].options.archiver).toBe('facet');
-    await resolveSearch(0, ['KLYS:A']);
-    tick('KLYS:A');
+    await typePattern('SIMPV');
+    expect(searchCalls[0].options.archiver).toBe('secondary');
+    await resolveSearch(0, ['SIMPV:A']);
+    tick('SIMPV:A');
     fireEvent.click(addButton());
-    expect(onAdd).toHaveBeenCalledWith('plot-2', ['KLYS:A']);
+    expect(onAdd).toHaveBeenCalledWith('plot-2', ['SIMPV:A']);
   });
 
   it("drops the matches and ticks, but keeps the pattern, when the new target's archiver differs", async () => {
     const { onAdd } = renderModal({ plots: [plot1, plot2] });
-    await typePattern('KLYS');
-    await resolveSearch(0, ['KLYS:A', 'KLYS:B']);
-    tick('KLYS:A');
+    await typePattern('SIMPV');
+    await resolveSearch(0, ['SIMPV:A', 'SIMPV:B']);
+    tick('SIMPV:A');
 
     fireEvent.click(screen.getByRole('combobox'));
     fireEvent.click(screen.getByRole('option', { name: 'Plot 2' }));
-    expect(screen.queryByText('KLYS:A')).toBeNull();
+    expect(screen.queryByText('SIMPV:A')).toBeNull();
     expect(addButton().disabled).toBe(true);
-    expect((screen.getByLabelText('Pattern') as HTMLInputElement).value).toBe('KLYS');
+    expect((screen.getByLabelText('Pattern') as HTMLInputElement).value).toBe('SIMPV');
 
     await act(async () => {
       vi.advanceTimersByTime(300);
     });
-    expect(searchCalls[1].options.archiver).toBe('facet');
-    await resolveSearch(1, ['KLYS:A', 'KLYS:F']);
-    // KLYS:A exists on both archivers, but the earlier tick is gone.
+    expect(searchCalls[1].options.archiver).toBe('secondary');
+    await resolveSearch(1, ['SIMPV:A', 'SIMPV:F']);
+    // SIMPV:A exists on both archivers, but the earlier tick is gone.
     expect(addButton().disabled).toBe(true);
-    tick('KLYS:F');
+    tick('SIMPV:F');
     fireEvent.click(addButton());
-    expect(onAdd).toHaveBeenCalledWith('plot-2', ['KLYS:F']);
+    expect(onAdd).toHaveBeenCalledWith('plot-2', ['SIMPV:F']);
   });
 
   it('does not bring the ticks back when the target returns to the first archiver', async () => {
     renderModal({ plots: [plot1, plot2] });
-    await typePattern('KLYS');
-    await resolveSearch(0, ['KLYS:A', 'KLYS:B']);
-    tick('KLYS:A');
+    await typePattern('SIMPV');
+    await resolveSearch(0, ['SIMPV:A', 'SIMPV:B']);
+    tick('SIMPV:A');
 
     fireEvent.click(screen.getByRole('combobox'));
     fireEvent.click(screen.getByRole('option', { name: 'Plot 2' }));
@@ -338,30 +337,30 @@ describe('PVSearchModal', () => {
 
   it('drops the ticks when the target plot itself moves to another archiver', async () => {
     const { onAdd, rerender } = renderModal();
-    await typePattern('KLYS');
-    await resolveSearch(0, ['KLYS:A', 'KLYS:B']);
-    tick('KLYS:A');
+    await typePattern('SIMPV');
+    await resolveSearch(0, ['SIMPV:A', 'SIMPV:B']);
+    tick('SIMPV:A');
     expect(addButton().textContent).toContain('Add 1 PV');
 
-    rerender({ plots: [makePlot('plot-1', 'Plot 1', { archiver: 'facet' })] });
+    rerender({ plots: [makePlot('plot-1', 'Plot 1', { archiver: 'secondary' })] });
     expect(addButton().disabled).toBe(true);
     expect(screen.queryByText(/^Selected/)).toBeNull();
 
     await act(async () => {
       vi.advanceTimersByTime(300);
     });
-    await resolveSearch(1, ['KLYS:A']);
-    expect((screen.getByLabelText('KLYS:A') as HTMLInputElement).checked).toBe(false);
-    tick('KLYS:A');
+    await resolveSearch(1, ['SIMPV:A']);
+    expect((screen.getByLabelText('SIMPV:A') as HTMLInputElement).checked).toBe(false);
+    tick('SIMPV:A');
     fireEvent.click(addButton());
-    expect(onAdd).toHaveBeenCalledWith('plot-1', ['KLYS:A']);
+    expect(onAdd).toHaveBeenCalledWith('plot-1', ['SIMPV:A']);
   });
 
   it("keeps the matches and ticks when the new target's archiver is the same", async () => {
     const { onAdd } = renderModal({ plots: [plot1, plot3] });
-    await typePattern('KLYS');
-    await resolveSearch(0, ['KLYS:A', 'KLYS:B']);
-    tick('KLYS:A');
+    await typePattern('SIMPV');
+    await resolveSearch(0, ['SIMPV:A', 'SIMPV:B']);
+    tick('SIMPV:A');
 
     fireEvent.click(screen.getByRole('combobox'));
     fireEvent.click(screen.getByRole('option', { name: 'Plot 3' }));
@@ -370,7 +369,7 @@ describe('PVSearchModal', () => {
     // The "on plot" marks follow the target: plot 3 has nothing on it.
     expect(screen.queryByText('on plot')).toBeNull();
     fireEvent.click(addButton());
-    expect(onAdd).toHaveBeenCalledWith('plot-3', ['KLYS:A']);
+    expect(onAdd).toHaveBeenCalledWith('plot-3', ['SIMPV:A']);
   });
 
   it('has no target picker with a single plot', () => {

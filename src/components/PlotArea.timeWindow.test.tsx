@@ -10,28 +10,43 @@ import { SinglePlot } from './PlotArea';
 import { axisEndMs } from '../hooks/useAutoScrollTimers';
 import type { Plot } from '../types';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
-import { chartStub, fireChartEvent } from '../test/chartStub';
+import { chartStub } from '../test/chartStub';
 
-const captured: {
-  option: {
-    xAxis: { min: number; max: number };
-    series: { id: string; data: Float64Array }[];
-  } | null;
-} = { option: null };
-const fakeInstance = {
-  isDisposed: () => false,
-  dispatchAction: vi.fn(),
-  getModel: () => ({
-    getComponent: () => ({ axis: { scale: { getExtent: (): [number, number] => [0, 1] } } }),
-  }),
-};
+const { captured, fakeInstance } = vi.hoisted(() => {
+  const captured: {
+    option: {
+      xAxis: { min: number; max: number };
+      series: { id: string; data: Float64Array }[];
+    } | null;
+    onEvents: Record<string, unknown>;
+  } = { option: null, onEvents: {} };
+  // The members SinglePlot's projection, gestures and capture reach for.
+  const fakeInstance = {
+    getDom: () => ({}),
+    isDisposed: () => false,
+    getWidth: () => 800,
+    getHeight: () => 400,
+    getZr: () => ({ setCursorStyle: () => {}, on: () => {}, off: () => {} }),
+    convertToPixel: () => 0,
+    convertFromPixel: () => 0,
+    getDataURL: () => '',
+    on: () => {},
+    off: () => {},
+    dispatchAction: vi.fn(),
+    getModel: () => ({
+      getComponent: () => ({ axis: { scale: { getExtent: (): [number, number] => [0, 1] } } }),
+    }),
+  };
+  return { captured, fakeInstance };
+});
 
 vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
   (await import('../test/chartStub')).mockCanopyCharts(importOriginal)
 );
 chartStub.instance = fakeInstance;
 chartStub.onRender = (props) => {
-  captured.option = props.option as typeof captured.option;
+  captured.option = props.option as unknown as typeof captured.option;
+  captured.onEvents = props.onEvents ?? {};
 };
 
 const T0 = new Date('2026-10-15T12:00:00Z').getTime();
@@ -50,7 +65,6 @@ function makePlot(overrides: Partial<Plot> = {}): Plot {
         visible: true,
         axisId: 'ax1',
         useLive: true,
-        updateRate: 'monitor',
         useArchive: false,
         lineWidth: 1,
         lineType: 'step',
@@ -105,20 +119,20 @@ function liveBatch(latestMs: number): Map<string, LiveSeriesResult> {
 }
 
 // Mounts the plot the way TraceApp does: the axis end is worked out from the
-// clock and live data by axisEndMs and passed in.
+// clock and live data by axisEndMs and passed in. (A pan or zoom that stops a
+// following plot goes through TraceApp's view-window writer; see
+// TraceApp.fetchWindow.test.tsx.)
 function plotEl(
   plot: Plot,
   nowMs: number,
   live: Map<string, LiveSeriesResult>,
-  following = plot.autoScroll !== false,
-  onFollowStop?: () => void
+  following = plot.autoScroll !== false
 ) {
   return (
     <SinglePlot
       plot={plot}
       endMs={axisEndMs(plot, nowMs, following, live)}
       following={following}
-      onFollowStop={onFollowStop}
       archiveResults={new Map()}
       liveResults={live}
       formulaResults={new Map()}
@@ -211,106 +225,6 @@ describe('SinglePlot time axis', () => {
     vi.setSystemTime(T0 + 60_000);
     rerender(plotEl(plot, T0, liveBatch(T0 - 1000)));
     expect(xAxis().max).toBe(T0);
-    unmount();
-  });
-});
-
-describe('SinglePlot zoom reset', () => {
-  beforeEach(() => fakeInstance.dispatchAction.mockClear());
-  afterEach(() => vi.useRealTimers());
-
-  const RESET = { type: 'dataZoom', start: 0, end: 100 };
-
-  it('does not reset on mount', () => {
-    const { unmount } = render(plotEl(makePlot(), T0, new Map(), true));
-    expect(fakeInstance.dispatchAction).not.toHaveBeenCalled();
-    unmount();
-  });
-
-  it('resets when the plot resumes following, not when it stops', () => {
-    const plot = makePlot();
-    const { rerender, unmount } = render(plotEl(plot, T0, new Map(), true));
-    // Stops following (pan or Autoscroll off): the user's zoom must survive.
-    rerender(plotEl({ ...plot, autoScroll: false }, T0, new Map(), false));
-    expect(fakeInstance.dispatchAction).not.toHaveBeenCalled();
-    // Autoscroll back on: back to the full range.
-    rerender(plotEl(plot, T0 + 1000, new Map(), true));
-    expect(fakeInstance.dispatchAction).toHaveBeenCalledTimes(1);
-    expect(fakeInstance.dispatchAction).toHaveBeenCalledWith(RESET);
-    unmount();
-  });
-
-  it('resets when a new time range is picked', () => {
-    const plot = makePlot();
-    const { rerender, unmount } = render(plotEl(plot, T0, new Map(), true));
-    rerender(plotEl({ ...plot, xAxis: { timeRange: '-4h' } }, T0, new Map(), true));
-    expect(fakeInstance.dispatchAction).toHaveBeenCalledTimes(1);
-    expect(fakeInstance.dispatchAction).toHaveBeenCalledWith(RESET);
-    unmount();
-  });
-
-  // Issue 109: a pan's view window is debounced. Resuming before it lands must
-  // drop it, or it re-freezes the plot at the pan right after the reset.
-  it('drops a pan still waiting to be recorded when it resets', () => {
-    vi.useFakeTimers();
-    const onViewWindowChange = vi.fn();
-    const el = (p: Plot, following: boolean) => (
-      <SinglePlot
-        plot={p}
-        endMs={T0}
-        following={following}
-        onFollowStop={() => {}}
-        onViewWindowChange={onViewWindowChange}
-        archiveResults={new Map()}
-        liveResults={new Map()}
-        formulaResults={new Map()}
-      />
-    );
-    const plot = makePlot();
-    const { rerender, unmount } = render(el(plot, true));
-    fireChartEvent('datazoom');
-    rerender(el({ ...plot, autoScroll: false }, false));
-    // Autoscroll back on (or the span re-committed) within the debounce.
-    rerender(el(plot, true));
-    expect(fakeInstance.dispatchAction).toHaveBeenCalledWith(RESET);
-    vi.advanceTimersByTime(1000);
-    expect(onViewWindowChange).not.toHaveBeenCalled();
-    unmount();
-  });
-});
-
-describe('SinglePlot pan while following', () => {
-  beforeEach(() => fakeInstance.dispatchAction.mockClear());
-
-  it('stops following on the first genuine pan', () => {
-    const onFollowStop = vi.fn();
-    const plot = makePlot({ refreshIntervalS: 5 });
-    const { unmount } = render(plotEl(plot, T0, liveBatch(T0 + 2000), true, onFollowStop));
-    fireChartEvent('datazoom');
-    // The app freezes the plot at the end it passed in.
-    expect(onFollowStop).toHaveBeenCalledTimes(1);
-    unmount();
-  });
-
-  it('ignores the programmatic zoom reset', () => {
-    const onFollowStop = vi.fn();
-    const plot = makePlot({ autoScroll: false });
-    const { rerender, unmount } = render(plotEl(plot, T0, new Map(), false, onFollowStop));
-    // Resume: SinglePlot dispatches its own reset, whose datazoom event must
-    // not count as a user pan.
-    rerender(plotEl({ ...plot, autoScroll: true }, T0, new Map(), true, onFollowStop));
-    expect(fakeInstance.dispatchAction).toHaveBeenCalledTimes(1);
-    fireChartEvent('datazoom');
-    expect(onFollowStop).not.toHaveBeenCalled();
-    unmount();
-  });
-
-  it('does nothing for a plot that is not following', () => {
-    const onFollowStop = vi.fn();
-    const plot = makePlot({ autoScroll: false });
-    const { unmount } = render(plotEl(plot, T0, new Map(), false, onFollowStop));
-    fireChartEvent('datazoom');
-    expect(onFollowStop).not.toHaveBeenCalled();
     unmount();
   });
 });
@@ -409,27 +323,13 @@ describe('SinglePlot smooth scrolling', () => {
     unmount();
   });
 
-  it("gives a frozen plot's extension anchors dense enough to survive a zoom", () => {
+  it("runs a frozen plot's extension as two points too: the axis spans exactly its window", () => {
     const plot = makePlot({ xAxis: { timeRange: '-30s' }, autoScroll: false });
     const { unmount } = render(plotEl(plot, T0, liveBatch(T0 - 1000), false));
-    const ext = points('t1-extension');
-    expect(ext).toHaveLength(2048);
-    expect(ext[0]).toEqual([T0 - 1000, 2]);
-    expect(ext.at(-1)).toEqual([T0, 2]);
-    expect(ext[1][0] - ext[0][0]).toBeCloseTo(1000 / 2047, 3);
-    unmount();
-  });
-
-  it('stops following on a pan after scrolling past the last clock tick', () => {
-    const onFollowStop = vi.fn();
-    const plot = makePlot({ xAxis: { timeRange: '-30s' } });
-    const { unmount } = render(plotEl(plot, T0, new Map(), true, onFollowStop));
-    frameAt(T0 + 1200);
-    expect(xAxis().max).toBe(T0 + 1200);
-    // TraceApp freezes the plot at the current time or later (see
-    // freezeAtDisplayedEnd), so the axis doesn't jump back to the tick.
-    fireChartEvent('datazoom');
-    expect(onFollowStop).toHaveBeenCalledTimes(1);
+    expect(points('t1-extension')).toEqual([
+      [T0 - 1000, 2],
+      [T0, 2],
+    ]);
     unmount();
   });
 });

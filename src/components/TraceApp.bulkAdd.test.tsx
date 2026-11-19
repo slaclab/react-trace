@@ -4,17 +4,28 @@
 // plot, every chosen PV becomes a trace in one update, and each trace then
 // moves to its units axis through the same lookup a PV picked in Properties
 // gets, including the guard against an answer that lands after the user moved
-// the trace.
+// the trace. The dialog opens from the actions bar and from the Signals pane's
+// add row; the Signals pane shows the active plot, so "a chosen plot" is the
+// one made active first.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import {
+  actionButton,
   captured,
   currentPlots,
   flushMicrotasks,
+  loadWorkspace,
+  moveCurve,
+  plot,
+  axis,
   renders,
   resetHarness,
+  signalsSearchPvs,
+  workspace,
 } from '../test/traceAppHarness';
 import { WithCanopy } from '../test/canopy';
+import { colorForIndex, getPalette } from '../palettes';
+import { PV_CURVE_ITEM_KIND } from '../tools/trace/schema/curve';
 import { TraceApp } from './TraceApp';
 
 interface MetadataCall {
@@ -41,12 +52,15 @@ vi.mock('@slaclab/canopy-client', async (importOriginal) => ({
     });
   },
   fetchData: () => new Promise(() => {}),
+  listArchivers: () => new Promise(() => {}),
   searchPVs: () => new Promise(() => {}),
 }));
-vi.mock('./Toolbar', async () => (await import('../test/traceAppHarness')).mocks.Toolbar);
-vi.mock('./LeftPanel', async () => (await import('../test/traceAppHarness')).mocks.LeftPanel);
-vi.mock('./PlotArea', async () => (await import('../test/traceAppHarness')).mocks.PlotArea);
-vi.mock('./RightPanel', async () => (await import('../test/traceAppHarness')).mocks.RightPanel);
+vi.mock('./PlotArea', async (importOriginal) =>
+  (await import('../test/traceAppHarness')).mocks.PlotArea(await importOriginal())
+);
+vi.mock('../workbench/WorkbenchLayout', async (importOriginal) =>
+  (await import('../test/traceAppHarness')).mocks.WorkbenchLayout(await importOriginal())
+);
 vi.mock(
   './PVSearchModal',
   async () => (await import('../test/traceAppHarness')).mocks.PVSearchModal
@@ -79,6 +93,19 @@ function layout() {
   };
 }
 
+// The workbench selection (what Properties shows).
+const selected = () => captured.layout!.selection.get().selection;
+
+// A plot setting written through the tool's writer, as a Properties field does.
+function setPlot(plotId: string, patch: { archiver?: string; palette?: string }) {
+  act(() =>
+    captured.layout!.update((s) => ({
+      ...s,
+      plots: s.plots.map((p) => (p.id === plotId ? { ...p, ...patch } : p)),
+    }))
+  );
+}
+
 beforeEach(() => {
   resetHarness();
   metadataCalls.length = 0;
@@ -93,26 +120,27 @@ afterEach(() => {
 });
 
 describe('TraceApp bulk add from the Search PVs dialog', () => {
-  it('opens for the active plot from the toolbar and for a chosen plot from Layers', () => {
+  it('opens for the active plot from the actions bar and from the Signals add row', () => {
     expect(captured.pvSearchModal!.open).toBe(false);
 
     act(() => captured.plotArea!.onAddPlot());
     const newPlotId = currentPlots()[1].id;
 
-    act(() => captured.toolbar!.onSearchPvs());
+    fireEvent.click(actionButton('Search PVs'));
     expect(captured.pvSearchModal!.open).toBe(true);
     expect(captured.pvSearchModal!.initialPlotId).toBe(newPlotId);
 
     act(() => captured.pvSearchModal!.onClose());
     expect(captured.pvSearchModal!.open).toBe(false);
 
-    act(() => captured.leftPanel!.onSearchPvs('plot-1'));
+    act(() => captured.plotArea!.onSetActivePlot('plot-1'));
+    fireEvent.click(signalsSearchPvs());
     expect(captured.pvSearchModal!.open).toBe(true);
     expect(captured.pvSearchModal!.initialPlotId).toBe('plot-1');
   });
 
   it('adds every chosen PV as a trace in one update, selects the last, and closes', () => {
-    act(() => captured.toolbar!.onSearchPvs());
+    fireEvent.click(actionButton('Search PVs'));
     const rendersBefore = renders.plotArea.length;
     addPvs('plot-1', ['PV:A', 'PV:B', 'PV:C']);
 
@@ -134,18 +162,15 @@ describe('TraceApp bulk add from the Search PVs dialog', () => {
     expect(traceCounts).not.toContain(2);
 
     expect(captured.pvSearchModal!.open).toBe(false);
-    expect(captured.rightPanel!.selectedItem).toEqual({
-      type: 'trace',
-      id: p.traces[2].id,
-      plotId: 'plot-1',
-    });
+    expect(captured.plotArea!.activePlotId).toBe('plot-1');
+    expect(selected()).toEqual({ level: 'item', kind: PV_CURVE_ITEM_KIND, id: p.traces[2].id });
     expect(metadataCalls.map((c) => c.pv)).toEqual(['PV:A', 'PV:B', 'PV:C']);
   });
 
   it("looks units up on the plot's archiver", () => {
-    act(() => captured.rightPanel!.onUpdatePlot({ archiver: 'facet' }));
+    setPlot('plot-1', { archiver: 'arch-b' });
     addPvs('plot-1', ['PV:A']);
-    expect(metadataCalls[0].archiver).toBe('facet');
+    expect(metadataCalls[0].archiver).toBe('arch-b');
   });
 
   it('ignores blank and repeated names', () => {
@@ -173,9 +198,9 @@ describe('TraceApp bulk add from the Search PVs dialog', () => {
 
   it('leaves a trace where the user moved it when its lookup lands later', async () => {
     addPvs('plot-1', ['PV:A', 'PV:B']);
-    act(() => captured.leftPanel!.onAddAxis('plot-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add axis' }));
     const p = currentPlots()[0];
-    act(() => captured.leftPanel!.onMoveTrace('plot-1', p.traces[0].id, 'plot-1', p.axes[1].id));
+    moveCurve(p.traces[0].id, p.axes[1].id);
 
     await resolveLookup(0, 'mA');
     await resolveLookup(1, 'mA');
@@ -192,5 +217,32 @@ describe('TraceApp bulk add from the Search PVs dialog', () => {
       await flushMicrotasks();
     });
     expect(layout()).toEqual({ axes: ['Y-Axis 1'], traces: ['PV:A@Y-Axis 1'] });
+  });
+
+  it("adds to a plot that is not the active one: that plot's palette, then it is activated and its last curve selected", () => {
+    setPlot('plot-1', { palette: 'viridis' });
+    act(() => captured.plotArea!.onAddPlot());
+    expect(captured.plotArea!.activePlotId).not.toBe('plot-1');
+
+    addPvs('plot-1', ['PV:A', 'PV:B']);
+    const [p1, p2] = currentPlots();
+    expect(p1.traces.map((t) => t.pvName)).toEqual(['PV:A', 'PV:B']);
+    expect(p2.traces).toEqual([]);
+    const viridis = getPalette('viridis');
+    expect(p1.traces.map((t) => t.color)).toEqual([
+      colorForIndex(viridis, 0),
+      colorForIndex(viridis, 1),
+    ]);
+    expect(captured.plotArea!.activePlotId).toBe('plot-1');
+    // Activating a plot resets the selection; the queued select lands after it.
+    expect(selected()).toEqual({ level: 'item', kind: PV_CURVE_ITEM_KIND, id: p1.traces[1].id });
+  });
+
+  it('aborts the units lookups of the added traces when a workspace loads', async () => {
+    addPvs('plot-1', ['PV:A', 'PV:B']);
+    expect(metadataCalls.map((c) => c.signal.aborted)).toEqual([false, false]);
+
+    await loadWorkspace(workspace([plot('plot-1', [axis('axis-1', 'Y')], [])]));
+    expect(metadataCalls.map((c) => c.signal.aborted)).toEqual([true, true]);
   });
 });

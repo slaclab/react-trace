@@ -1,0 +1,4 @@
+{
+  "$comment": "Site defaults for this deployment (docs/site-defaults.md; every key in config.example.json). Empty: the built-in defaults. A deployment mounts its own file here.",
+  "version": 1
+}

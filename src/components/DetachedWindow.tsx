@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CARBON_THEME, useColorMode, type ColorMode } from '@slaclab/canopy-shell';
+import {
+  CARBON_THEME,
+  applyHostSheetFallback,
+  useColorMode,
+  type ColorMode,
+} from '@slaclab/canopy-shell';
 
 interface DetachedWindowProps {
   /** Stable window name; reused so re-opening targets the same browsing context. */
@@ -47,8 +52,9 @@ function cloneStyles(dest: Document): Promise<void> {
 // syncDocumentColorMode does for the opener's: `data-theme` for plain CSS, and
 // the Carbon class (cds--g10/cds--g100), which gives the popup page its
 // background and native color-scheme (scrollbars, form controls). The content
-// inside the popup takes its tokens from the ColorModeTheme wrapper the parent
-// renders around it. syncDocumentColorMode only writes to the global document,
+// inside the popup takes its tokens from the theme zone the parent renders
+// around it (TraceApp's DetachedRoot, also the popup's host-theme anchor, which
+// writes the same data-theme). syncDocumentColorMode only writes to the global document,
 // hence this copy; DetachedWindow.test.tsx fails if the two drift apart.
 function syncPopupTheme(doc: Document, mode: ColorMode): void {
   const html = doc.documentElement;
@@ -86,6 +92,15 @@ export function DetachedWindow({
     }
     popup.document.title = title;
     popup.document.body.style.margin = '0';
+    // The page theme (data-theme and the Carbon class) is set by the colour-mode
+    // effect below, which runs right after this one and before the root mounts.
+    // A hosted opener hands its marker on; one that already fell back to the
+    // standalone theme (its host stylesheet did not load) has none to hand on.
+    const hostMarker = document.documentElement.dataset.canopyHost;
+    if (hostMarker !== undefined) popup.document.documentElement.dataset.canopyHost = hostMarker;
+    // The body lies outside every theme zone, and its colour shows until the
+    // cloned stylesheets load: start from the opener's.
+    popup.document.body.style.background = getComputedStyle(document.body).backgroundColor;
 
     const mount = popup.document.createElement('div');
     mount.style.height = '100vh';
@@ -97,6 +112,9 @@ export function DetachedWindow({
       // The user may have closed the popup or reattached before stylesheets
       // resolved — don't mount into a torn-down window.
       if (cancelled) return;
+      // A host stylesheet that did not load in this window drops the marker
+      // here, before the root mounts and reads the host contract.
+      applyHostSheetFallback(popup.document);
       setContainer(mount);
     });
 

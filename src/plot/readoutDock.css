@@ -1,0 +1,35 @@
+/* The plot's data read-out (the chart tooltip): a grip on its left edge drags
+   it. The grip is drawn here so it works whatever the tool's formatter writes;
+   readoutDock.ts hit-tests presses against the same column (the box itself
+   takes no pointer events). Colours inherit the tooltip's own text colour. */
+.plot-readout {
+  padding-left: 18px !important;
+}
+.plot-readout::before {
+  content: '⋮⋮';
+  position: absolute;
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: -3px;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.45;
+}
+.plot-readout-grip-hover .plot-readout::before {
+  opacity: 0.9;
+}
+.plot-readout-grip-hover,
+.plot-readout-grip-hover canvas,
+.plot-readout-grip-hover svg {
+  cursor: grab !important;
+}
+.plot-readout.plot-readout--dragging,
+.plot-readout.plot-readout--dragging::before {
+  cursor: grabbing;
+  transition: none !important;
+}

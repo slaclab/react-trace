@@ -37,8 +37,8 @@ lerna-debug.log*
 *.sln
 *.sw?
 
-# MkDocs
-site/
+# MkDocs / Zensical build output (the repo root's site/ only)
+/site/
 
 # Tauri
 src-tauri/target/

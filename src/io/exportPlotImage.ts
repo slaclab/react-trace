@@ -1,4 +1,4 @@
-import { captureChartPng, dataUrlToBlob } from '@slaclab/canopy-charts';
+import { dataUrlToBlob } from '@slaclab/canopy-charts';
 
 // Capture ECharts plots as PNG blobs for e-log attachments. We only need the
 // `getDataURL` slice of the ECharts instance, so we type against that to avoid
@@ -8,7 +8,7 @@ export interface PngSource {
     type?: 'png' | 'jpeg' | 'svg';
     pixelRatio?: number;
     backgroundColor?: string;
-  }): string;
+  }): Promise<string>;
 }
 
 export interface CapturedPlot {
@@ -17,18 +17,33 @@ export interface CapturedPlot {
   dataUrl: string;
 }
 
-// Capture each plot as its own PNG data URL (canopy-charts' captureChartPng:
-// pixel ratio 2, the given background baked in). Skips plots that yield no
-// image (detached/unmounted, disposed, not yet rendered, or an ECharts error)
-// rather than aborting the batch or attaching a broken image.
-export function capturePlots(
+const PIXEL_RATIO = 2;
+
+// Capture each plot as its own PNG data URL: pixel ratio 2, the given
+// background baked in, the plot's drawings composed on top by its source.
+// Skips plots that yield no image (detached/unmounted, disposed, not yet
+// rendered, or an ECharts error) rather than aborting the batch or attaching
+// a broken image, the rule canopy-charts' captureChartPng applies to a bare
+// chart.
+export async function capturePlots(
   plots: { id: string; title: string; instance: PngSource | null | undefined }[],
   backgroundColor: string
-): CapturedPlot[] {
+): Promise<CapturedPlot[]> {
   const out: CapturedPlot[] = [];
   for (const p of plots) {
-    const dataUrl = captureChartPng(p.instance, { background: backgroundColor });
-    if (!dataUrl) continue;
+    if (!p.instance) continue;
+    let dataUrl: string;
+    try {
+      dataUrl = await p.instance.getDataURL({
+        type: 'png',
+        pixelRatio: PIXEL_RATIO,
+        backgroundColor,
+      });
+    } catch {
+      continue;
+    }
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:') || !dataUrl.includes(','))
+      continue;
     out.push({ id: p.id, title: p.title, dataUrl });
   }
   return out;

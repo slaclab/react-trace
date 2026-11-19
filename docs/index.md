@@ -12,13 +12,36 @@ This guide is intended for:
 
 Open Trace in a web browser. No installation is needed.
 
-Trace remembers your light/dark mode and color palette choices in the browser. To keep a set of plots, save it as a workspace (see [Save and Open Workspaces](users/user_guide.md#save-and-open-workspaces)).
+Trace remembers your light/dark mode in the browser. To keep a set of plots, save it as a workspace (see [Save and Open Workspaces](users/user_guide.md#save-and-open-workspaces)).
+
+## Tools
+
+Trace comes as three tools that share one layout: a canvas, an actions bar
+above it and a properties panel beside it.
+
+- **Trace**: PVs over time, from the archiver and live.
+- **Correlation**: one PV against others, as a scatter or a density plot.
+- **Waveform**: array PVs drawn element by element, live.
+
+These pages describe them:
+
+- [The properties panel](workbench.md): signals and cards, the plot-wide
+  sections, the modified dot and reset, More, the chart source, collapsing
+  and resizing, and where the actions are.
+- [Waveform](waveform.md): its lists, Snapshot → reference, Δ, persistence
+  and averaging, the X-axis PV rule and what its statistics compute over.
+- [Correlation](correlation.md): its built-in metrics, variables and units.
+- [Statistics](statistics.md): the panel every tool docks under its chart,
+  the Metrics list, writing your own metric, the function reference and the
+  URL grammar.
+- [Drawing tools](drawing-tools.md): time and axis gestures, range controls,
+  drawing and measuring on a plot, keys, and how drawings are saved.
 
 ## Support and Contact Information
 
 ### Feedback/Issue Reporting
 
-Users can submit feedback or report issues by clicking the bug icon in Trace's header.
+Users can submit feedback or report issues by clicking the bug icon in Trace's actions bar.
 
 Please include as much detail as possible, such as:
 

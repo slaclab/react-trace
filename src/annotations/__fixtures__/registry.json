@@ -1,0 +1,68 @@
+{
+  "format": 1,
+  "tools": [
+    {
+      "kind": "hline",
+      "code": 0,
+      "key": "h",
+      "label": "Horizontal line",
+      "shortLabel": "H-line",
+      "icon": "Subtract"
+    },
+    {
+      "kind": "vline",
+      "code": 1,
+      "key": "v",
+      "label": "Vertical line",
+      "shortLabel": "V-line",
+      "icon": "SplitScreen"
+    },
+    {
+      "kind": "trend",
+      "code": 3,
+      "key": "l",
+      "label": "Trend line",
+      "shortLabel": "Trend",
+      "icon": "ChartLine"
+    },
+    {
+      "kind": "trange",
+      "code": 2,
+      "key": "r",
+      "label": "Time range",
+      "shortLabel": "Range",
+      "icon": "ColumnInsert"
+    },
+    {
+      "kind": "box",
+      "code": 4,
+      "key": "b",
+      "label": "Box",
+      "shortLabel": "Box",
+      "icon": "Checkbox"
+    },
+    {
+      "kind": "note",
+      "code": 5,
+      "key": "n",
+      "label": "Note",
+      "shortLabel": "Note",
+      "icon": "StringText"
+    },
+    {
+      "kind": "measure",
+      "code": 6,
+      "key": "m",
+      "label": "Measure",
+      "shortLabel": "Measure",
+      "icon": "Ruler"
+    }
+  ],
+  "toggles": [
+    { "toggle": "magnet", "label": "Magnet", "icon": "CenterSquare" },
+    { "toggle": "tooltip", "label": "Tooltip", "icon": "Chat" },
+    { "toggle": "stay", "label": "Stay in drawing mode", "icon": "Pin" },
+    { "toggle": "hide", "label": "Hide all drawings", "icon": "View" },
+    { "toggle": "drag", "label": "Zoom box", "icon": "ZoomArea" }
+  ]
+}

@@ -46,7 +46,6 @@ function makeTrace(over: Partial<PVTrace> = {}): PVTrace {
     visible: true,
     axisId: 'ax1',
     useLive: false,
-    updateRate: '1s',
     useArchive: true,
     lineWidth: 2,
     lineType: 'direct',
@@ -210,9 +209,11 @@ describe('PlotArea: option loads in ECharts with typed-array series data', () =>
       [at(20), 2],
       [at(30), 3],
     ]);
-    // A frozen plot's extension: dense anchors from the last sample to the edge.
+    // A frozen plot's extension: from the last sample to the edge. The x axis
+    // spans exactly the view window (there is no inside dataZoom to zoom into
+    // the line), so its two ends are its whole data.
     const ext = stored(c, 't1-extension');
-    expect(ext).toHaveLength(2048);
+    expect(ext).toHaveLength(2);
     expect(ext[0]).toEqual([at(30), 3]);
     expect(ext.at(-1)).toEqual([TO_MS, 3]);
     expect(ext.every(([, v]) => v === 3)).toBe(true);

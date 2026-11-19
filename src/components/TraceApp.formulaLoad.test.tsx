@@ -66,23 +66,24 @@ vi.mock('../api/formulaEngine', () => ({
     });
   },
 }));
-vi.mock('./Toolbar', async () => (await import('../test/traceAppHarness')).mocks.Toolbar);
-vi.mock('./LeftPanel', async () => (await import('../test/traceAppHarness')).mocks.LeftPanel);
-vi.mock('./PlotArea', async () => {
+// The harness's recording PlotArea, wrapped to count mounts, so a test can tell
+// a remount of the plot subtree from a re-render.
+vi.mock('./PlotArea', async (importOriginal) => {
   const React = await import('react');
   const harness = await import('../test/traceAppHarness');
-  function MockPlotArea(props: React.ComponentProps<typeof import('./PlotArea').PlotArea>) {
+  const mocked = harness.mocks.PlotArea(await importOriginal<typeof import('./PlotArea')>());
+  const RecordingPlotArea = mocked.PlotArea;
+  function MockPlotArea(props: React.ComponentProps<typeof RecordingPlotArea>) {
     React.useEffect(() => {
       plotAreaLifecycle.mounts++;
       return () => {
         plotAreaLifecycle.unmounts++;
       };
     }, []);
-    return harness.mocks.PlotArea.PlotArea(props);
+    return RecordingPlotArea(props);
   }
-  return { ...harness.mocks.PlotArea, PlotArea: MockPlotArea };
+  return { ...mocked, PlotArea: MockPlotArea };
 });
-vi.mock('./RightPanel', async () => (await import('../test/traceAppHarness')).mocks.RightPanel);
 vi.mock(
   '../hooks/useElogConfig',
   async () => (await import('../test/traceAppHarness')).mocks.useElogConfig

@@ -1,0 +1,645 @@
+// Trace's binding half.
+//
+// Outline of the active plot only: sections are its Y-axes (id = axis
+// id, kind `axis`, the axis's unit text as the unit tag — the Unit override,
+// else the stamped EGU — a hidden axis muted, no capacity), rows are its
+// curves on that axis (kind `curve` or `formula`). Switching the active plot
+// re-roots the Outline; the selection reset that goes with it lives in
+// `tool.ts`.
+//
+// Row status dots replace the struck Live/Archive header counts. A PV
+// curve's dot is the worst of its enabled sources — Live connecting or
+// waiting for a value, Archive loading: pending; Live disconnected, Archive
+// error: error — and a curve with no PV yet is pending. A formula is pending
+// until evaluated and error when the evaluation failed. An error row carries
+// each failing source's line with its full detail as its text, which the dot
+// shows on hover (`../curveStatus`): "Live: Disconnected — <message>", an
+// archive error's short name ("Archiver down", "Timeout", "Bad response",
+// "Auth error", "Offline", "Not archived", "No archiver") or else
+// "Archive: <code>", then "— <detail>".
+//
+// Ops. `add(axisId, pv)` appends a curve with that PV onto that axis of the
+// active plot, coloured by its position in the palette, and resolves at once;
+// the unit lookup then runs behind it, as the PV-name field's does, and moves
+// the curve onto its unit's axis (creating one) unless it was moved or given
+// another PV meanwhile (`assignCurveToUnitAxis`). Lookups are registered in
+// the model's `unitLookups`, which the owner aborts when a workspace loads. `remove` drops a
+// curve. `move` retargets a curve to another axis of the same plot; there is
+// no cross-plot move between sections. `move`, the drag's drop check and the
+// Y-axis field's options share one rule, `traceMoveRefusal`.
+//
+// Move to another plot (R6): `ops.drop(item, plotId)` moves a curve to the
+// plot whose tab or grid cell it was dropped on (`[data-workbench-drop]`,
+// PlotArea). `moveCurveToPlot` lands it as a unit lookup would
+// (`assignCurveToUnitAxis`: the target's axis with the source axis's unit,
+// else a new axis with that unit, else the target's first axis). The curve
+// keeps its id, so the selection and its live buffer follow, and every
+// per-curve setting travels; a colour still on the source palette takes the
+// target palette's slot, a user-set colour stays. `moveToPlotRefusal`
+// refuses it while a formula binds the curve, the curve is a formula with
+// bindings, or a drawing is attached to it. After a move the source plot
+// stays active and the owner says so (`onMovedToPlot`).
+//
+// Drawings: after the axis sections, a Drawings section (no
+// add row, header eye on `ui`) lists the active plot's drawings by `objName`,
+// status ok, or stale with "Axis hidden" when a value-bearing drawing's axis
+// is hidden. It is appended only while the plot holds a drawing. `remove` and
+// `moveRefusal` resolve an id against the active plot's drawings first: a
+// drawing is removed through `withAnnotations` (undo comes from the owner's
+// history-wrapped `update`) and never moves (`DRAWING_STAYS_REASON`).
+//
+// Footer: Add formula (onto the selected axis, or the selected curve's axis,
+// else the first axis; selected so its expression can be typed) and Add axis
+// (selected). Formula controls are never hidden.
+//
+// Search PVs: given `searchPvs`, every add row carries a Search PVs button
+// (`add.browse`) that opens the bulk dialog for the active plot. The dialog's
+// Add goes through `addPvCurves`: one write appends a curve per PV to the
+// target plot's first axis, coloured on from that plot's palette, and each
+// then takes the unit lookup an add-row curve takes (`reassignUnitAxis`).
+//
+// Rate rule: `outline` returns the previous view-model object while nothing
+// it shows changed, so a data tick re-renders no Outline.
+
+import { Add, Function as FunctionIcon, Search } from '@carbon/icons-react';
+import { fetchMetadata } from '@slaclab/canopy-client';
+import { canopyConnection } from '../../api/connection';
+import { axisUnitText, newAxis } from '../../embed/plotConfig';
+import { newSiteFormula, newSiteTrace } from './defaults';
+import type { ArchiveSeriesResult } from '../../hooks/useArchiveSeries';
+import type { FormulaSeriesResult } from '../../hooks/useFormulaSeries';
+import type { LiveSeriesResult } from '../../hooks/useLiveSeries';
+import { drawingsSection } from '../../annotations/host/workbench';
+import { BUILTIN_CATALOG } from '../../annotations/catalog';
+import { TIME_X_AXIS } from '../../annotations/catalog/xAxis';
+import { hasValueAxisIn } from '../../annotations/model';
+import { DRAWING_STAYS_REASON } from '../shared/drawingOutline';
+import { makeId } from '../../id';
+import { colorForIndex, paletteOf, paletteSlot } from '../../palettes';
+import type { PvSearch } from '../../pvSearch';
+import { traceLabel } from '../../traceLabel';
+import type { Axis, Plot, PVTrace } from '../../types';
+import type {
+  Action,
+  AddRefusal,
+  OutlineAddBrowse,
+  OutlineRow,
+  OutlineSection,
+  OutlineViewModel,
+  RowStatus,
+  Selection,
+  ToolBinding,
+} from '../../workbench/types';
+import { sameOutline } from '../../workbench/outlineCompare';
+import { archiveRowText, liveRowText } from './curveStatus';
+import { activePlot, type TraceDotState } from './dots';
+import { removeAnnotation } from './schema/annotation';
+import { AXIS_SECTION_KIND } from './schema/axis';
+import {
+  PV_CURVE_ITEM_KIND,
+  assignCurveToUnitAxis,
+  patchCurve,
+  plotHoldingCurve,
+  UnitLookups,
+  type TraceCurveModel,
+} from './schema/curve';
+import { FORMULA_CURVE_ITEM_KIND } from './schema/formula';
+
+/** The add row's placeholder in every axis section. */
+export const ADD_PV_PLACEHOLDER = 'Add PV';
+export const ADD_FORMULA_ACTION_ID = 'add-formula';
+/** The add rows' button that opens the Search PVs dialog. */
+export const SEARCH_PVS_LABEL = 'Search PVs';
+export const ADD_AXIS_ACTION_ID = 'add-axis';
+
+export const NO_PLOT_REASON = 'There is no plot to add to.';
+export const NOT_ACTIVE_AXIS_REASON = 'That axis is not on the active plot.';
+export const UNKNOWN_CURVE_REASON = 'That curve no longer exists.';
+export const UNKNOWN_AXIS_REASON = 'That axis no longer exists.';
+export const CROSS_PLOT_REASON = 'A curve moves only between axes of its own plot.';
+export const UNKNOWN_PLOT_REASON = 'That plot no longer exists.';
+export const SAME_PLOT_REASON = 'The curve is already on that plot.';
+export const FORMULA_BINDS_REASON = 'A formula on its plot uses this curve.';
+export const FORMULA_BINDINGS_REASON = 'A formula moves only with the curves it uses.';
+export const DRAWING_ATTACHED_REASON = 'A drawing is attached to this curve.';
+/** The stale hint of a drawing row whose axis is hidden. */
+export const AXIS_HIDDEN_HINT = 'Axis hidden';
+
+/** Looks up a PV's engineering unit; `undefined` when it has none. */
+export type UnitLookup = (
+  pv: string,
+  archiver: string | undefined,
+  signal: AbortSignal
+) => Promise<string | undefined>;
+
+/** The Mole metadata lookup the PV-name field uses. */
+export const moleUnitLookup: UnitLookup = async (pv, archiver, signal) => {
+  const meta = await fetchMetadata(canopyConnection, pv, archiver, signal);
+  return meta.units?.trim() || undefined;
+};
+
+/** What the binding needs from the tool's owner (TraceApp). */
+export interface TraceBindingInput<S extends TraceDotState, M extends TraceCurveModel> {
+  /** The latest state: an add, the footer and the unit lookup commit against it. */
+  getState(): S;
+  /** The latest model (the palette a new curve is coloured from). */
+  getModel(): M;
+  /** The tool's single writer. */
+  update(fn: (state: S) => S): void;
+  /** Selects what the footer created (the workbench selection, user origin). */
+  select?(selection: Selection): void;
+  /** The current workbench selection: Add formula lands on the axis it names. */
+  getSelection?(): Selection;
+  /** The add rows' PV search; the workbench default when absent. */
+  search?: PvSearch;
+  /** The unit lookup after an add; Mole's metadata by default. */
+  lookupUnit?: UnitLookup;
+  /** Opens the Search PVs dialog for the active plot; no add-row button when absent. */
+  searchPvs?(): void;
+  /** Told after a curve moved to another plot (`label` as it read on its source plot). */
+  onMovedToPlot?(label: string, plot: Plot): void;
+}
+
+// ------------------------------------------------------------- move rule --
+
+function plotHoldingAxis(state: TraceDotState, axisId: string): Plot | undefined {
+  return state.plots.find((p) => p.axes.some((a) => a.id === axisId));
+}
+
+/** True iff `id` is a drawing of the active plot (the Outline lists only those). */
+function isActiveDrawing(state: TraceDotState, id: string): boolean {
+  return activePlot(state)?.annotations?.some((a) => a.id === id) ?? false;
+}
+
+/**
+ * Why the curve `itemId` cannot move onto the axis `sectionId`, or `null`: the
+ * one rule the row drag, `ops.move` and the Y-axis field's options share (the
+ * field lists only the holding plot's axes). There is no cross-plot move.
+ */
+export function traceMoveRefusal(
+  state: TraceDotState,
+  itemId: string,
+  sectionId: string
+): string | null {
+  // Drawings first: a drawing never moves, whichever section it is dropped on.
+  if (isActiveDrawing(state, itemId)) return DRAWING_STAYS_REASON;
+  const from = plotHoldingCurve(state, itemId);
+  if (!from) return UNKNOWN_CURVE_REASON;
+  const to = plotHoldingAxis(state, sectionId);
+  if (!to) return UNKNOWN_AXIS_REASON;
+  if (to.id !== from.id) return CROSS_PLOT_REASON;
+  return null;
+}
+
+// ------------------------------------------------------------- transforms --
+
+function mapPlot<S extends TraceDotState>(state: S, plotId: string, fn: (p: Plot) => Plot): S {
+  return { ...state, plots: state.plots.map((p) => (p.id === plotId ? fn(p) : p)) };
+}
+
+/** `state` with `curve` appended to the plot holding its axis; unchanged when none does. */
+export function appendCurve<S extends TraceDotState>(state: S, curve: PVTrace): S {
+  const plot = plotHoldingAxis(state, curve.axisId);
+  if (!plot || plot.traces.some((t) => t.id === curve.id)) return state;
+  return mapPlot(state, plot.id, (p) => ({ ...p, traces: [...p.traces, curve] }));
+}
+
+/** `state` with `curves` appended to the plot `plotId` in one write; unchanged when there is none. */
+export function appendCurves<S extends TraceDotState>(
+  state: S,
+  plotId: string,
+  curves: readonly PVTrace[]
+): S {
+  if (curves.length === 0 || !state.plots.some((p) => p.id === plotId)) return state;
+  return mapPlot(state, plotId, (p) => ({ ...p, traces: [...p.traces, ...curves] }));
+}
+
+/** `state` without the curve `id`; unchanged when no plot holds it. */
+export function removeCurve<S extends TraceDotState>(state: S, id: string): S {
+  const plot = plotHoldingCurve(state, id);
+  if (!plot) return state;
+  return mapPlot(state, plot.id, (p) => ({ ...p, traces: p.traces.filter((t) => t.id !== id) }));
+}
+
+/** `state` with the curve `id` on the axis `axisId`, when the shared rule allows it. */
+export function moveCurve<S extends TraceDotState>(state: S, id: string, axisId: string): S {
+  if (traceMoveRefusal(state, id, axisId) !== null) return state;
+  const plot = plotHoldingCurve(state, id);
+  if (plot?.traces.find((t) => t.id === id)?.axisId === axisId) return state;
+  return patchCurve(state, id, { axisId });
+}
+
+/**
+ * Why the curve `id` cannot move to the plot `plotId`, or `null`. A formula
+ * binding or an attached drawing ties a curve to its plot.
+ */
+export function moveToPlotRefusal(state: TraceDotState, id: string, plotId: string): string | null {
+  if (isActiveDrawing(state, id)) return DRAWING_STAYS_REASON;
+  const from = plotHoldingCurve(state, id);
+  const curve = from?.traces.find((t) => t.id === id);
+  if (!from || !curve) return UNKNOWN_CURVE_REASON;
+  const to = state.plots.find((p) => p.id === plotId);
+  if (!to) return UNKNOWN_PLOT_REASON;
+  if (to.id === from.id) return SAME_PLOT_REASON;
+  if (to.axes.length === 0) return UNKNOWN_AXIS_REASON;
+  if (curve.kind === 'formula' && Object.keys(curve.bindings ?? {}).length > 0) {
+    return FORMULA_BINDINGS_REASON;
+  }
+  const bound = from.traces.some(
+    (t) => t.kind === 'formula' && Object.values(t.bindings ?? {}).includes(id)
+  );
+  if (bound) return FORMULA_BINDS_REASON;
+  if ((from.annotations ?? []).some((a) => a.traceId === id)) return DRAWING_ATTACHED_REASON;
+  return null;
+}
+
+/**
+ * `state` with the curve `id` moved to the plot `plotId`, appended to its
+ * curves: on the axis with the source axis's unit, else a new axis
+ * `newAxisId` with that unit, else the first axis. Same id and settings; a
+ * colour still on the source palette takes the target palette's slot for its
+ * new position. Unchanged when `moveToPlotRefusal` refuses.
+ */
+export function moveCurveToPlot<S extends TraceDotState>(
+  state: S,
+  id: string,
+  plotId: string,
+  newAxisId: string
+): S {
+  if (moveToPlotRefusal(state, id, plotId) !== null) return state;
+  const from = plotHoldingCurve(state, id)!;
+  const to = state.plots.find((p) => p.id === plotId)!;
+  const curve = from.traces.find((t) => t.id === id)!;
+  const firstAxisId = to.axes[0].id;
+  const color =
+    paletteSlot(curve.color, paletteOf(from)) >= 0
+      ? colorForIndex(paletteOf(to), to.traces.length)
+      : curve.color;
+  const moved: PVTrace = { ...curve, axisId: firstAxisId, color };
+  const next: S = {
+    ...state,
+    plots: state.plots.map((p) => {
+      if (p.id === from.id) return { ...p, traces: p.traces.filter((t) => t.id !== id) };
+      if (p.id === to.id) return { ...p, traces: [...p.traces, moved] };
+      return p;
+    }),
+  };
+  const unit = from.axes.find((a) => a.id === curve.axisId)?.units?.trim();
+  return unit ? assignCurveToUnitAxis(next, id, unit, firstAxisId, newAxisId) : next;
+}
+
+/** `state` with `axis` appended to the plot `plotId`. */
+export function appendAxis<S extends TraceDotState>(state: S, plotId: string, axis: Axis): S {
+  if (!state.plots.some((p) => p.id === plotId)) return state;
+  return mapPlot(state, plotId, (p) => ({ ...p, axes: [...p.axes, axis] }));
+}
+
+// ----------------------------------------------------------------- status --
+
+const SEVERITY: Record<RowStatus, number> = { ok: 0, pending: 1, stale: 2, refused: 3, error: 4 };
+
+function worst(a: RowStatus, b: RowStatus): RowStatus {
+  return SEVERITY[b] > SEVERITY[a] ? b : a;
+}
+
+function liveStatus(result: LiveSeriesResult | undefined): RowStatus {
+  switch (result?.status) {
+    case 'connected':
+      return result.connected ? 'ok' : 'pending';
+    case 'disconnected':
+      return 'error';
+    default:
+      return 'pending';
+  }
+}
+
+function archiveStatus(result: ArchiveSeriesResult | undefined): RowStatus {
+  switch (result?.status) {
+    case 'ready':
+      return 'ok';
+    case 'error':
+      return 'error';
+    default:
+      return 'pending';
+  }
+}
+
+function formulaStatus(result: FormulaSeriesResult | undefined): RowStatus {
+  if (result?.status === 'ready') return 'ok';
+  if (result?.status === 'error') return 'error';
+  return 'pending';
+}
+
+/** Results of one curve, as the plot's result maps hold them (by curve id). */
+export interface CurveResults {
+  live?: LiveSeriesResult;
+  archive?: ArchiveSeriesResult;
+  formula?: FormulaSeriesResult;
+}
+
+/** A curve row's status dot and, for an error, its text. */
+export function curveRowStatus(
+  curve: PVTrace,
+  results: CurveResults
+): { status: RowStatus; refusal?: string } {
+  if (curve.kind === 'formula') {
+    const status = formulaStatus(results.formula);
+    if (status !== 'error') return { status };
+    const error = results.formula?.error;
+    return { status, refusal: `Formula: ${error?.detail || error?.code || 'Error'}` };
+  }
+  if (!curve.pvName) return { status: 'pending' };
+  let status: RowStatus = 'ok';
+  const errors: string[] = [];
+  if (curve.useLive) {
+    const live = liveStatus(results.live);
+    status = worst(status, live);
+    if (live === 'error') errors.push(liveRowText(curve, results.live));
+  }
+  if (curve.useArchive) {
+    const archive = archiveStatus(results.archive);
+    status = worst(status, archive);
+    if (archive === 'error') errors.push(archiveRowText(results.archive));
+  }
+  return errors.length > 0 ? { status, refusal: errors.join(' · ') } : { status };
+}
+
+// ---------------------------------------------------------------- outline --
+
+function itemKind(curve: PVTrace): string {
+  return curve.kind === 'formula' ? FORMULA_CURVE_ITEM_KIND : PV_CURVE_ITEM_KIND;
+}
+
+/** The Outline view-model of the active plot. */
+export function traceOutline<S extends TraceDotState, M extends TraceCurveModel>(
+  state: S,
+  model: M,
+  search?: PvSearch,
+  browse?: OutlineAddBrowse
+): OutlineViewModel {
+  const plot = activePlot(state);
+  if (!plot) return { sections: [] };
+  const input = model.fragmentInput(plot);
+  const sections = plot.axes.map((axis): OutlineSection => {
+    const curves = plot.traces.filter((t) => t.axisId === axis.id);
+    const rows = curves.map((curve): OutlineRow => {
+      const out: OutlineRow = {
+        id: curve.id,
+        kind: itemKind(curve),
+        label: traceLabel(curve, plot.traces),
+        ...curveRowStatus(curve, {
+          live: input.liveResults.get(curve.id),
+          archive: input.archiveResults.get(curve.id),
+          formula: input.formulaResults.get(curve.id),
+        }),
+      };
+      return out;
+    });
+    const add: NonNullable<OutlineSection['add']> = { placeholder: ADD_PV_PLACEHOLDER };
+    if (search !== undefined) add.search = search;
+    if (browse !== undefined) add.browse = browse;
+    const section: OutlineSection = {
+      id: axis.id,
+      kind: AXIS_SECTION_KIND,
+      title: axis.name,
+      count: rows.length,
+      rows,
+      add,
+    };
+    const unit = axisUnitText(axis);
+    if (unit) section.unit = unit;
+    if (!axis.visible) section.muted = true;
+    return section;
+  });
+  const drawings = plot.annotations ?? [];
+  if (drawings.length > 0) sections.push(annotationsSection(plot));
+  return { sections };
+}
+
+/**
+ * The Drawings section of `plot`: the generic drawings section over
+ * its drawings, a value-bearing drawing on a hidden axis dimmed with "Axis
+ * hidden".
+ */
+function annotationsSection(plot: Plot): OutlineSection {
+  return drawingsSection(
+    plot.annotations ?? [],
+    plot.axes,
+    (a) => {
+      const axis = plot.axes.find((x) => x.id === a.axisId);
+      return hasValueAxisIn(BUILTIN_CATALOG, a.kind) && axis !== undefined && !axis.visible
+        ? AXIS_HIDDEN_HINT
+        : null;
+    },
+    { catalog: BUILTIN_CATALOG, xAxis: TIME_X_AXIS }
+  );
+}
+
+// ------------------------------------------------------------- unit lookup --
+
+/** What a unit lookup after an add writes through and registers in. */
+export interface UnitAxisIo<S extends TraceDotState> {
+  update(fn: (state: S) => S): void;
+  /** The owner's registry, so a workspace load or an unmount aborts the lookup. */
+  lookups: UnitLookups;
+  lookupUnit: UnitLookup;
+}
+
+/**
+ * Looks up `pv`'s unit and moves the curve `curveId` onto that unit's axis
+ * (creating one), unless it left `axisId` or got another PV meanwhile
+ * (`assignCurveToUnitAxis`). No unit, a failed lookup or an abort leave the
+ * curve where it was added.
+ */
+export async function reassignUnitAxis<S extends TraceDotState>(
+  io: UnitAxisIo<S>,
+  curveId: string,
+  pv: string,
+  axisId: string,
+  archiver?: string
+): Promise<void> {
+  const controller = io.lookups.start(curveId);
+  let unit: string | undefined;
+  try {
+    unit = await io.lookupUnit(pv, archiver, controller.signal);
+  } catch {
+    return; // no metadata (or aborted): the curve stays where it was added
+  } finally {
+    io.lookups.settle(curveId, controller);
+  }
+  if (controller.signal.aborted || !unit) return;
+  const found = unit;
+  const newAxisId = makeId('axis');
+  io.update((state) => assignCurveToUnitAxis(state, curveId, found, axisId, newAxisId, pv));
+}
+
+/**
+ * The Search PVs dialog's Add: one curve per PV (trimmed, blanks and repeats
+ * dropped), from the shared new-curve defaults, on the first axis of the plot
+ * `plotId`, coloured on from that plot's palette, all in one write. Each new
+ * curve then asks for its unit's axis on the plot's archiver, so PVs with the
+ * same unit end up sharing one. Returns the new curves' ids in order; none
+ * when there is no such plot, it has no axis, or no name is left.
+ */
+export function addPvCurves<S extends TraceDotState>(
+  io: UnitAxisIo<S> & { getState(): S },
+  plotId: string,
+  pvNames: readonly string[]
+): string[] {
+  const plot = io.getState().plots.find((p) => p.id === plotId);
+  const axisId = plot?.axes[0]?.id;
+  const names = [...new Set(pvNames.map((name) => name.trim()).filter(Boolean))];
+  if (!plot || !axisId || names.length === 0) return [];
+  const palette = paletteOf(plot);
+  // displayName stays '': the row label follows the PV.
+  const curves = names.map((pv, i) =>
+    newSiteTrace(makeId('trace'), pv, axisId, colorForIndex(palette, plot.traces.length + i), [])
+  );
+  io.update((state) => appendCurves(state, plotId, curves));
+  for (const curve of curves) {
+    void reassignUnitAxis(io, curve.id, curve.pvName, axisId, plot.archiver);
+  }
+  return curves.map((curve) => curve.id);
+}
+
+// ---------------------------------------------------------------- binding --
+
+/**
+ * Trace's `ToolBinding`; rebuild it when `update`, `select`, `search`,
+ * `lookupUnit` or `searchPvs` change.
+ */
+export function traceBinding<S extends TraceDotState, M extends TraceCurveModel>(
+  input: TraceBindingInput<S, M>
+): ToolBinding<S, M> {
+  const { getState, getModel, update, select, search } = input;
+  const lookupUnit = input.lookupUnit ?? moleUnitLookup;
+  let last: OutlineViewModel | null = null;
+
+  // One unit lookup in flight per curve; removing the curve aborts it. The
+  // owner's registry when the model carries one, so a workspace load or an
+  // unmount aborts these too.
+  const ownLookups = new UnitLookups();
+  const lookups = () => getModel().unitLookups ?? ownLookups;
+
+  // One add-row button for every section, kept for the binding's life so the
+  // view-model compares equal while nothing else changed.
+  const { searchPvs } = input;
+  const browse: OutlineAddBrowse | undefined = searchPvs
+    ? { label: SEARCH_PVS_LABEL, icon: Search, onClick: () => searchPvs() }
+    : undefined;
+
+  async function add(sectionId: string, raw: string): Promise<AddRefusal | void> {
+    const pv = raw.trim();
+    if (pv === '') return;
+    const plot = activePlot(getState());
+    if (!plot) return { message: NO_PLOT_REASON };
+    if (!plot.axes.some((a) => a.id === sectionId)) return { message: NOT_ACTIVE_AXIS_REASON };
+    const id = makeId('trace');
+    // displayName stays '': the row label follows the PV.
+    const curve = newSiteTrace(
+      id,
+      pv,
+      sectionId,
+      colorForIndex(getModel().palette, plot.traces.length),
+      []
+    );
+    update((state) => appendCurve(state, curve));
+    void reassignUnitAxis(
+      { update, lookups: lookups(), lookupUnit },
+      id,
+      pv,
+      sectionId,
+      plot.archiver
+    );
+  }
+
+  // The axis of the active plot the selection names: a selected axis, or a
+  // selected curve's axis.
+  function selectedAxis(plot: Plot): Axis | undefined {
+    const selection = input.getSelection?.();
+    if (!selection) return undefined;
+    let axisId: string | undefined;
+    if (selection.level === 'section' && selection.kind === AXIS_SECTION_KIND) {
+      axisId = selection.id;
+    } else if (selection.level === 'item') {
+      axisId = plot.traces.find((t) => t.id === selection.id)?.axisId;
+    }
+    return plot.axes.find((a) => a.id === axisId);
+  }
+
+  function addFormula(): void {
+    const plot = activePlot(getState());
+    const axis = plot && (selectedAxis(plot) ?? plot.axes[0]);
+    if (!plot || !axis) return;
+    const id = makeId('formula');
+    const formula = newSiteFormula(
+      id,
+      axis.id,
+      colorForIndex(getModel().palette, plot.traces.length)
+    );
+    update((state) => appendCurve(state, formula));
+    select?.({ level: 'item', kind: FORMULA_CURVE_ITEM_KIND, id });
+  }
+
+  // A curve to another plot; the source plot stays active and the owner is told.
+  function moveToPlot(itemId: string, plotId: string): void {
+    const state = getState();
+    if (moveToPlotRefusal(state, itemId, plotId) !== null) return;
+    const from = plotHoldingCurve(state, itemId)!;
+    const curve = from.traces.find((t) => t.id === itemId)!;
+    const target = state.plots.find((p) => p.id === plotId)!;
+    const label = traceLabel(curve, from.traces);
+    lookups().abort(itemId);
+    const newAxisId = makeId('axis');
+    update((s) => moveCurveToPlot(s, itemId, plotId, newAxisId));
+    input.onMovedToPlot?.(label, target);
+  }
+
+  function addAxis(): void {
+    const plot = activePlot(getState());
+    if (!plot) return;
+    const id = makeId('axis');
+    const axis = newAxis(id, plot.axes.length);
+    update((state) => appendAxis(state, plot.id, axis));
+    select?.({ level: 'section', kind: AXIS_SECTION_KIND, id });
+  }
+
+  const footer: Action[] = [
+    {
+      id: ADD_FORMULA_ACTION_ID,
+      label: 'Add formula',
+      icon: FunctionIcon,
+      kind: 'button',
+      onClick: addFormula,
+    },
+    { id: ADD_AXIS_ACTION_ID, label: 'Add axis', icon: Add, kind: 'button', onClick: addAxis },
+  ];
+
+  return {
+    outline(state, model) {
+      const next = traceOutline(state, model, search, browse);
+      if (last !== null && sameOutline(last, next)) return last;
+      last = next;
+      return next;
+    },
+    ops: {
+      add,
+      remove(itemId) {
+        if (isActiveDrawing(getState(), itemId)) {
+          update((state) => removeAnnotation(state, itemId));
+          return;
+        }
+        lookups().abort(itemId);
+        update((state) => removeCurve(state, itemId));
+      },
+      move(itemId, sectionId) {
+        if (traceMoveRefusal(getState(), itemId, sectionId) !== null) return;
+        update((state) => moveCurve(state, itemId, sectionId));
+      },
+      drop: moveToPlot,
+    },
+    moveRefusal: (itemId, sectionId) => traceMoveRefusal(getState(), itemId, sectionId),
+    dropRefusal: (itemId, plotId) => moveToPlotRefusal(getState(), itemId, plotId),
+    footer,
+  };
+}

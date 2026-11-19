@@ -1,0 +1,31 @@
+// Carbon, compiled from source. The precompiled @carbon/styles CSS loads IBM
+// Plex from IBM's CDN (s81c.com), which Canopy deployments without internet
+// access cannot reach. Compiled from Sass, Carbon's own @font-face rules point
+// at local files instead: with `$use-per-family-plex` the URLs resolve into the
+// @ibm/plex-sans and @ibm/plex-mono packages, and vite bundles the files under
+// ./assets.
+//
+// Carbon's rules keep `font-display: swap` (text shows in a fallback font while
+// Plex loads) and emit split woff2 subsets only, so no .woff file is bundled.
+// They cover Plex Sans and Plex Mono in light, regular and semibold, upright
+// and italic. Plex Serif is switched off: Trace does not use it and its
+// package is not a dependency. The CDN CSS also declared Serif and the Arabic,
+// Devanagari, Hebrew and Thai families; Trace uses none of them.
+@use '@carbon/styles' with (
+  $font-path: '@ibm/plex',
+  $use-per-family-plex: true,
+  $fonts: (
+    IBM-Plex-Serif: false,
+  )
+);
+@use '@carbon/styles/scss/fonts/sans';
+
+// Carbon's Plex Sans faces leave out the Greek subset, but Trace's own chrome
+// prints Greek (the measure readout's Δt, Δy and σ, the Statistics σ guides),
+// so add it for the same weights and styles through Carbon's mixins. Plex
+// Mono ships no Greek letters at all (π is already in its Pi subset), so
+// Greek in mono text falls back to the system font whatever is declared.
+// (A single name is a one-element list in Sass.)
+@include sans.light($unicode-ranges: Greek);
+@include sans.regular($unicode-ranges: Greek);
+@include sans.semibold($unicode-ranges: Greek);

@@ -3,7 +3,7 @@ import { createChartRegistry } from './chartRegistry';
 import type { PngSource } from './exportPlotImage';
 
 function source(name: string): PngSource {
-  return { getDataURL: () => `data:image/png;base64,${name}` };
+  return { getDataURL: async () => `data:image/png;base64,${name}` };
 }
 
 describe('createChartRegistry', () => {

@@ -1,23 +1,25 @@
+import { DASH_LABELS, LINE_TYPE_LABELS } from './tools/vocabulary';
 import type { PVTrace } from './types';
 
-// Curve appearance options, mirroring the Python `trace` project's
-// curve_settings.py (Line Type / Style / Symbol Shape) so the two front-ends
-// expose the same choices. Values are kept ECharts-friendly; labels match the
-// reference UI wording.
+// Curve appearance options: the same choices as the Python `trace` project's
+// curve_settings.py (Line Type / Style / Symbol Shape), with ECharts-friendly
+// values. The line type and dash labels are the properties panel's shared
+// words (tools/vocabulary), so they differ from the Python labels.
 
+// Step is the default line type (stepMode="right" in Python → ECharts 'end');
+// the menu lists the plain line first, as every tool does.
 export const LINE_TYPE_OPTIONS: { value: PVTrace['lineType']; label: string }[] = [
-  // Step is the default to match the reference (stepMode="right" → ECharts 'end').
-  { value: 'step', label: 'Step' },
-  { value: 'direct', label: 'Direct' },
+  { value: 'direct', label: LINE_TYPE_LABELS.direct },
+  { value: 'step', label: LINE_TYPE_LABELS.step },
 ];
 
 export const LINE_STYLE_OPTIONS: { value: PVTrace['lineStyle']; label: string }[] = [
-  { value: 'none', label: 'NoLine' },
-  { value: 'solid', label: 'Solid' },
-  { value: 'dashed', label: 'Dash' },
-  { value: 'dotted', label: 'Dot' },
-  { value: 'dashDot', label: 'DashDot' },
-  { value: 'dashDotDot', label: 'DashDotDot' },
+  { value: 'none', label: DASH_LABELS.none },
+  { value: 'solid', label: DASH_LABELS.solid },
+  { value: 'dashed', label: DASH_LABELS.dashed },
+  { value: 'dotted', label: DASH_LABELS.dotted },
+  { value: 'dashDot', label: DASH_LABELS.dashDot },
+  { value: 'dashDotDot', label: DASH_LABELS.dashDotDot },
 ];
 
 export const SYMBOL_OPTIONS: { value: PVTrace['symbolShape']; label: string }[] = [

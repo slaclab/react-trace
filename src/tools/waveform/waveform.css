@@ -1,0 +1,67 @@
+/*
+ * Waveform canvas chrome: the plot box, the
+ * canvas state message over the chart and the health line; the statistics
+ * panel is the shared one (src/statistics/statistics.css). Chrome tokens only (var(--cds-*)), no colour or font literals
+ * (scripts/check-chrome-literals.mjs guards this file).
+ */
+
+.waveform-plot {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background-color: var(--cds-background);
+  color: var(--cds-text-primary);
+}
+
+.waveform-health {
+  margin: 0 8px 8px;
+  padding: 6px 8px;
+  min-height: 32px;
+  box-sizing: border-box;
+  border-left: 3px solid var(--cds-support-success);
+  background-color: var(--cds-layer-01);
+  color: var(--cds-text-primary);
+}
+
+.waveform-health[data-kind='idle'],
+.waveform-health[data-kind='connecting'] {
+  border-left-color: var(--cds-support-info);
+}
+
+.waveform-health[data-kind='disconnected'] {
+  border-left-color: var(--cds-support-warning);
+}
+
+.waveform-plot__stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.waveform-plot__chart {
+  position: absolute;
+  inset: 0;
+}
+
+.waveform-plot__message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  pointer-events: none;
+  text-align: center;
+}
+
+.waveform-plot__message-text {
+  margin: 0;
+  color: var(--cds-text-secondary);
+}
+
+.waveform-plot__message-counts {
+  margin: 0;
+  color: var(--cds-text-helper);
+}

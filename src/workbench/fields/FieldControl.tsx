@@ -1,0 +1,483 @@
+// One control per field kind. `FieldControl` is the bare control: the properties panel wraps
+// it in `Field`'s label/dot/reset chrome, the Outline renders a row slot
+// (`row: 'swatch' | 'eye'`) or a section header field with it directly.
+//
+// Every control reads through `field.get(ctx)` and writes through
+// `field.set(ctx, value)`; nothing here knows a default. Hooks follow the
+// placement (`fieldHooks`): `#id` on the Properties rendering only, a header
+// field's `data-testid=<field id>`, nothing on a row slot. A `disabled(ctx)`
+// reason disables the control (the chrome shows the reason). Each control
+// carries its own accessible name, so the chrome's label is visual only.
+
+import {
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
+import { Button, Select, SelectItem, TextInput, Toggle } from '@carbon/react';
+import { Copy, View, ViewOff } from '@carbon/icons-react';
+import type { FieldDef, FieldOption, ToolContext, ToolUi } from '../types';
+import { disabledReason, parseNumber } from './logic';
+import { ColourSwatch } from './ColourSwatch';
+import { PvFieldControl } from './PvFieldControl';
+import { fieldHooks, type FieldPlacement } from './hooks';
+
+export interface FieldControlProps<S, M, U extends ToolUi = ToolUi> {
+  field: FieldDef<S, M, U>;
+  ctx: ToolContext<S, M, U>;
+  placement?: FieldPlacement;
+  /** Appended to the `#id` of a repeated block's copy; see `fieldHooks`. */
+  idSuffix?: string;
+  /** The id of the chrome's note (disabled reason or help), set as `aria-describedby`. */
+  describedBy?: string;
+}
+
+export function FieldControl<S, M, U extends ToolUi = ToolUi>({
+  field,
+  ctx,
+  placement = 'properties',
+  idSuffix,
+  describedBy,
+}: FieldControlProps<S, M, U>): ReactNode {
+  const { id, testId } = fieldHooks(field, placement, idSuffix);
+  const generatedId = useId();
+  const controlId = id ?? generatedId;
+  const disabled = disabledReason(field, ctx) !== false;
+  const small = placement === 'row';
+  // Carbon's Select writes its own `aria-describedby` (its helper text, here
+  // none) over a passed one, so the note is set on the element itself.
+  const selectRef = useRef<HTMLSelectElement>(null);
+  useLayoutEffect(() => {
+    const select = selectRef.current;
+    if (!select) return;
+    if (describedBy) select.setAttribute('aria-describedby', describedBy);
+    else select.removeAttribute('aria-describedby');
+  }, [describedBy]);
+
+  switch (field.kind) {
+    case 'text':
+      return (
+        <TextInput
+          id={controlId}
+          labelText={field.label}
+          hideLabel
+          size="sm"
+          placeholder={field.placeholder}
+          value={field.get(ctx)}
+          disabled={disabled}
+          aria-describedby={describedBy}
+          data-testid={testId}
+          onChange={(e) => field.set(ctx, e.target.value)}
+        />
+      );
+    case 'number':
+      return (
+        <NumberControl
+          id={controlId}
+          label={field.label}
+          value={field.get(ctx)}
+          min={field.min}
+          max={field.max}
+          step={field.step}
+          unit={field.unit}
+          disabled={disabled}
+          describedBy={describedBy}
+          testId={testId}
+          onChange={(value) => field.set(ctx, value)}
+        />
+      );
+    case 'select':
+      return (
+        <Select
+          ref={selectRef}
+          id={controlId}
+          labelText={field.label}
+          hideLabel
+          size="sm"
+          value={field.get(ctx)}
+          disabled={disabled}
+          data-testid={testId}
+          onChange={(e) => field.set(ctx, e.target.value)}
+        >
+          {field.options(ctx).map((option) => (
+            <SelectItem
+              key={option.value}
+              value={option.value}
+              text={option.disabled ? `${option.label} (${option.disabled})` : option.label}
+              disabled={option.disabled !== undefined}
+              title={option.disabled}
+            />
+          ))}
+        </Select>
+      );
+    case 'segmented':
+      return (
+        <Segmented
+          id={id}
+          label={field.label}
+          value={field.get(ctx)}
+          options={field.options(ctx)}
+          disabled={disabled}
+          describedBy={describedBy}
+          testId={testId}
+          onChange={(value) => field.set(ctx, value)}
+        />
+      );
+    case 'toggle': {
+      const on = field.get(ctx);
+      if (field.row === 'eye' && placement !== 'properties') {
+        const name = `${on ? 'Hide' : 'Show'} ${field.label.toLowerCase()}`;
+        return (
+          <button
+            type="button"
+            className={`wb-eye${on ? '' : ' wb-eye--off'}`}
+            aria-label={name}
+            title={name}
+            aria-pressed={on}
+            disabled={disabled}
+            data-testid={testId}
+            onClick={() => field.set(ctx, !on)}
+          >
+            {on ? <View size={16} /> : <ViewOff size={16} />}
+          </button>
+        );
+      }
+      return (
+        <Toggle
+          id={controlId}
+          labelText={field.label}
+          hideLabel
+          // The panel's switch is Carbon's standard one; a row keeps
+          // the small switch at its compact density.
+          size={small ? 'sm' : 'md'}
+          toggled={on}
+          disabled={disabled}
+          aria-describedby={describedBy}
+          data-testid={testId}
+          onToggle={(checked: boolean) => field.set(ctx, checked)}
+        />
+      );
+    }
+    case 'colour':
+      return (
+        <ColourSwatch
+          value={field.get(ctx)}
+          label={field.label}
+          disabled={disabled}
+          describedBy={describedBy}
+          testId={testId}
+          small={small}
+          onChange={(colour) => field.set(ctx, colour)}
+        />
+      );
+    case 'pv':
+      return (
+        <PvFieldControl
+          id={id}
+          value={field.get(ctx)}
+          label={field.label}
+          disabled={disabled}
+          testId={testId}
+          search={field.search}
+          onCommit={(pv) => field.set(ctx, pv)}
+        />
+      );
+    case 'readonly':
+      return (
+        <output
+          id={id}
+          className="wb-field__readonly"
+          data-testid={testId}
+          aria-label={field.label}
+          aria-describedby={describedBy}
+        >
+          {field.get(ctx)}
+        </output>
+      );
+    case 'code':
+      return <CodeBlock id={id} label={field.label} text={field.get(ctx)} testId={testId} />;
+    case 'custom':
+      return (
+        <span className="wb-field__custom" data-testid={testId}>
+          {field.render({
+            ctx,
+            value: field.get(ctx),
+            onChange: (value: unknown) => field.set(ctx, value),
+            id,
+            describedBy,
+          })}
+        </span>
+      );
+    case 'action':
+      return (
+        <Button
+          id={id}
+          kind="tertiary"
+          size="sm"
+          disabled={disabled}
+          aria-describedby={describedBy}
+          data-testid={testId}
+          onClick={() => field.run(ctx)}
+        >
+          {field.label}
+        </Button>
+      );
+  }
+}
+
+// ------------------------------------------------------------------ number --
+
+function rangeText(min?: number, max?: number): string {
+  if (min !== undefined && max !== undefined) return `Between ${min} and ${max}`;
+  if (min !== undefined) return `At least ${min}`;
+  if (max !== undefined) return `At most ${max}`;
+  return 'A number';
+}
+
+/** The number of decimals `value` is written with. */
+function decimals(value: number): number {
+  const text = String(value);
+  const exponent = /e-(\d+)$/.exec(text);
+  if (exponent) return Number(exponent[1]);
+  const dot = text.indexOf('.');
+  return dot === -1 ? 0 : text.length - dot - 1;
+}
+
+/** `from` (else `min`, else 0) moved by `by`, clamped to the bounds, without float noise. */
+function stepped(from: number | null, by: number, min?: number, max?: number): number {
+  const base = from ?? min ?? 0;
+  const places = Math.min(Math.max(decimals(base), decimals(by)), 15);
+  let next = Number((base + by).toFixed(places));
+  if (min !== undefined) next = Math.max(min, next);
+  if (max !== undefined) next = Math.min(max, next);
+  return next;
+}
+
+function NumberControl({
+  id,
+  label,
+  value,
+  min,
+  max,
+  step,
+  unit,
+  disabled,
+  describedBy,
+  testId,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: number | null;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  disabled: boolean;
+  describedBy?: string;
+  testId?: string;
+  onChange(value: number | null): void;
+}) {
+  // The typed text is a draft: a half-typed "1." or "-" survives a render (a
+  // text input: a number input sanitises "-" to ""), and nothing is written
+  // while typing. Blur or Enter commits a parsable value inside the bounds;
+  // Escape puts the stored value back. Typing "1800" therefore never passes
+  // through 1, 18 and 180. A new value from outside (a reset, another
+  // selection) replaces the text.
+  // A value that is not a finite number (NaN from a getter) shows as empty
+  // and compares as null: NaN !== NaN would reset the text on every render.
+  const current = value !== null && Number.isFinite(value) ? value : null;
+  const stored = current === null ? '' : String(current);
+  const [text, setText] = useState(stored);
+  const [prevValue, setPrevValue] = useState(current);
+  // Set by a commit, cleared by typing: an empty commit the tool ignored.
+  const [committed, setCommitted] = useState(false);
+  if (current !== prevValue) {
+    setPrevValue(current);
+    if (parseNumber(text) !== current) setText(stored);
+  }
+  const parsed = parseNumber(text, { min, max });
+  // Emptied and committed, but the tool kept its value (it refuses null): a
+  // required field, not a blank that silently keeps the old number.
+  const missing = committed && parsed === null && current !== null;
+  const invalid = parsed === undefined || missing;
+  const commit = () => {
+    setCommitted(true);
+    if (parsed === undefined) return;
+    if (parsed !== current || (parsed === null && current !== null)) onChange(parsed);
+  };
+  return (
+    <span className="wb-field__number">
+      <TextInput
+        id={id}
+        labelText={label}
+        hideLabel
+        size="sm"
+        inputMode="decimal"
+        value={text}
+        invalid={invalid}
+        invalidText={missing ? 'Required' : rangeText(min, max)}
+        disabled={disabled}
+        aria-describedby={describedBy}
+        data-testid={testId}
+        onChange={(e) => {
+          setText(e.target.value);
+          setCommitted(false);
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            commit();
+            return;
+          }
+          if (e.key === 'Escape') {
+            // A draft: revert it and keep the key from the card (the
+            // workbench's root Escape). A clean field lets it through.
+            if (parseNumber(text) === current) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setText(stored);
+            setCommitted(false);
+            return;
+          }
+          // A text input has no steppers: ArrowUp/ArrowDown step by `step`
+          // and commit each press.
+          const direction = e.key === 'ArrowUp' ? 1 : e.key === 'ArrowDown' ? -1 : 0;
+          if (direction === 0 || step === undefined || !(step > 0)) return;
+          e.preventDefault();
+          const next = stepped(parseNumber(text) ?? current, direction * step, min, max);
+          setText(String(next));
+          setCommitted(false);
+          if (next !== current) onChange(next);
+        }}
+      />
+      {unit !== undefined && <span className="wb-field__unit">{unit}</span>}
+    </span>
+  );
+}
+
+// --------------------------------------------------------------- segmented --
+
+function Segmented({
+  id,
+  label,
+  value,
+  options,
+  disabled,
+  describedBy,
+  testId,
+  onChange,
+}: {
+  id?: string;
+  label: string;
+  value: string;
+  options: FieldOption[];
+  disabled: boolean;
+  describedBy?: string;
+  testId?: string;
+  onChange(value: string): void;
+}) {
+  // Radio-group keyboard: one tab stop (the checked option, else the first
+  // enabled one); the arrows move to the next enabled option, wrapping, and
+  // select it.
+  const enabled = (option: FieldOption) => !disabled && option.disabled === undefined;
+  const checkedIndex = options.findIndex((option) => option.value === value && enabled(option));
+  const stopIndex = checkedIndex !== -1 ? checkedIndex : options.findIndex(enabled);
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const step =
+      e.key === 'ArrowRight' || e.key === 'ArrowDown'
+        ? 1
+        : e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+          ? -1
+          : 0;
+    if (step === 0) return;
+    const buttons = Array.from(
+      e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+    );
+    const from = buttons.indexOf(e.target as HTMLButtonElement);
+    if (from === -1) return;
+    e.preventDefault();
+    for (let n = 1; n < options.length; n++) {
+      const next = (from + step * n + options.length) % options.length;
+      if (!enabled(options[next])) continue;
+      buttons[next]?.focus();
+      if (options[next].value !== value) onChange(options[next].value);
+      return;
+    }
+  };
+  return (
+    <div
+      id={id}
+      role="radiogroup"
+      aria-label={label}
+      aria-describedby={describedBy}
+      className="wb-segmented"
+      data-testid={testId}
+      onKeyDown={onKeyDown}
+    >
+      {options.map((option, index) => {
+        const checked = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={checked}
+            tabIndex={index === stopIndex ? 0 : -1}
+            className={`wb-segmented__option${checked ? ' wb-segmented__option--checked' : ''}`}
+            disabled={disabled || option.disabled !== undefined}
+            title={option.disabled}
+            onClick={() => {
+              if (!checked) onChange(option.value);
+            }}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------- code --
+
+function CodeBlock({
+  id,
+  label,
+  text,
+  testId,
+}: {
+  id?: string;
+  label: string;
+  text: string;
+  testId?: string;
+}) {
+  const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied('copied');
+    } catch {
+      setCopied('failed');
+    }
+  };
+  return (
+    <div className="wb-code">
+      <pre id={id} className="wb-code__text" aria-label={label} data-testid={testId}>
+        <code>{text}</code>
+      </pre>
+      <Button
+        kind="ghost"
+        size="sm"
+        renderIcon={Copy}
+        className="wb-code__copy"
+        onClick={() => void copy()}
+      >
+        {copied === 'copied' ? 'Copied' : copied === 'failed' ? 'Copy failed' : 'Copy'}
+      </Button>
+    </div>
+  );
+}

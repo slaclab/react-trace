@@ -58,7 +58,7 @@ describe('grid view label', () => {
         detachedPlotIds={plots.map((p) => p.id)}
         onDetachPlot={vi.fn()}
         onReattachPlot={vi.fn()}
-        viewWindowByPlot={new Map()}
+        displayWindowByPlotId={new Map()}
         axisEndFor={() => 0}
       />
     );

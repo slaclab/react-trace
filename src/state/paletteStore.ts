@@ -1,45 +1,31 @@
-import { useSyncExternalStore } from 'react';
-import { DEFAULT_PALETTE_ID, getPalette } from '../palettes';
+import { isPaletteId } from '../palettes';
 
-// Global default palette id — the palette new curves are colored from
-// cyclically. Persisted to localStorage so the choice survives reloads, in the
-// same lightweight external-store style as the canopy-shell color-mode store.
+// The user's palette, as on main: the palette last picked in a plot's Palette
+// field, kept under this localStorage key. Palettes are per plot, and this is
+// the one a fresh tab (no `plot=`) and every added plot open in. Only an
+// explicit pick writes it: a file's palette, a link's or a reset of a plot's
+// Palette dot leave the user's choice as it was.
 
-const STORAGE_KEY = 'trace.palette';
+export const LEGACY_PALETTE_KEY = 'trace.palette';
 
-function readInitial(): string {
-  if (typeof window === 'undefined') return DEFAULT_PALETTE_ID;
-  const stored = window.localStorage.getItem(STORAGE_KEY);
-  // Validate against the known palettes; getPalette falls back to the default
-  // for anything unrecognized, so reuse it to normalize.
-  return stored ? getPalette(stored).id : DEFAULT_PALETTE_ID;
+/** The palette id the per-user key names, when it is a known palette. */
+export function readLegacyPaletteId(): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  let stored: string | null;
+  try {
+    stored = window.localStorage.getItem(LEGACY_PALETTE_KEY);
+  } catch {
+    return undefined;
+  }
+  return isPaletteId(stored) ? stored : undefined;
 }
 
-let current: string = readInitial();
-const listeners = new Set<() => void>();
-
-function publish() {
-  for (const l of listeners) l();
-}
-
-export function getDefaultPaletteId(): string {
-  return current;
-}
-
-export function setDefaultPaletteId(id: string): void {
-  const next = getPalette(id).id;
-  if (next === current) return;
-  current = next;
-  if (typeof window !== 'undefined') window.localStorage.setItem(STORAGE_KEY, next);
-  publish();
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
-export function usePaletteId(): { paletteId: string; setPaletteId: (id: string) => void } {
-  const paletteId = useSyncExternalStore(subscribe, getDefaultPaletteId, getDefaultPaletteId);
-  return { paletteId, setPaletteId: setDefaultPaletteId };
+/** Remember `id` as the user's palette; an unknown id, or no storage, is ignored. */
+export function rememberPaletteId(id: string): void {
+  if (typeof window === 'undefined' || !isPaletteId(id)) return;
+  try {
+    window.localStorage.setItem(LEGACY_PALETTE_KEY, id);
+  } catch {
+    // Storage blocked (private window, quota): the pick still applies to the plot.
+  }
 }

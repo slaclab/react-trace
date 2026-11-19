@@ -1,0 +1,89 @@
+{
+  "$comment": "Site defaults: every key, at the built-in value (the links are placeholders). Copy the keys you want to change into the config.json next to the app; leave the rest out so later built-in changes still reach you. Shown on public pages: never put a secret here. See docs/site-defaults.md.",
+  "version": 1,
+  "header": {
+    "$comment": "Trace's heading, standalone only. prefix shows before the product name; brand paints both in the shell's brand color. The links open from the help menu of every tool (http or https only; built in: the build's VITE_BUG_REPORT_URL and VITE_DOCS_URL, else this project's issues and docs).",
+    "prefix": "",
+    "brand": false,
+    "bugReportUrl": "https://example.org/report-a-bug",
+    "docsUrl": "https://example.org/trace-docs/"
+  },
+  "plot": {
+    "$comment": "The plot behavior of all three tools; a tool's own plot section overrides it. wheel: x (the wheel zooms X only, Alt+wheel X and every Y) or xy (X and every Y, Alt+wheel the primary Y). yAxisDrag: pan or stretch (Shift or Alt does the other). doubleClick: reset (every axis of the plot) or none (a double-click on an axis still resets that axis). tooltip: cursor or docked (in Trace, whether a new plot's Dock data tooltip is on). The values here are Correlation's and Waveform's built-ins; Trace's are in trace.plot.",
+    "wheel": "xy",
+    "yAxisDrag": "stretch",
+    "doubleClick": "reset",
+    "tooltip": "docked"
+  },
+  "trace": {
+    "plot": {
+      "$comment": "What a new Trace plot opens with: Add plot, a fresh tab, and a link or host query that names PVs or a range but carries no plot settings. Also takes the plot-behavior keys; Trace's own built-in values for them are below. timeRange is a relative range (-1h, -30m). archiver is the plot's default archiver; null means Canopy's default, and a name that does not exist leaves every new plot without archive data. palette is a palette id; a user's own palette pick wins.",
+      "wheel": "x",
+      "yAxisDrag": "pan",
+      "tooltip": "cursor",
+      "showCrosshair": true,
+      "dragMode": "zoom",
+      "showLegend": true,
+      "showXGridlines": true,
+      "showYGridlines": true,
+      "gridStyle": "solid",
+      "gridOpacity": 1,
+      "tickFontSize": 11,
+      "refreshIntervalS": 5,
+      "palette": "default",
+      "timeRange": "-1h",
+      "archiver": null,
+      "showDrawingTools": true
+    },
+    "trace": {
+      "$comment": "What a new Trace curve opens with. lineType: step or direct (formulas stay direct and take the width and symbols only).",
+      "lineWidth": 2,
+      "lineType": "step",
+      "showSymbol": false
+    }
+  },
+  "correlation": {
+    "$comment": "What a fresh Correlation view opens with (no state beyond its PVs). lookback: 1m to 24h. dt: the Timer period in seconds, at least 0.1. metrics: the statistics columns, in order, as the link's m= tokens (a leading - lists a metric but leaves it out of the table).",
+    "plot": {},
+    "lookback": "1h",
+    "dt": 1,
+    "metrics": [
+      "n",
+      "mean",
+      "std",
+      "r",
+      "slope",
+      "-r2",
+      "-intercept",
+      "-min",
+      "-max",
+      "-p2p",
+      "-rms",
+      "-xmean",
+      "-xstd"
+    ],
+    "drawingTools": true
+  },
+  "waveform": {
+    "$comment": "What a fresh Waveform view opens with (no state beyond its PVs). rollS: the Rolling mean window, 1 to 3600 s. metrics as in Correlation.",
+    "plot": {},
+    "rollS": 60,
+    "metrics": [
+      "n",
+      "mean",
+      "std",
+      "rms",
+      "p2p",
+      "-min",
+      "-max",
+      "-median",
+      "-peak",
+      "-trough",
+      "-devrms",
+      "-devmax",
+      "-devsig",
+      "-worst"
+    ],
+    "drawingTools": true
+  }
+}

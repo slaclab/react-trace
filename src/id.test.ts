@@ -7,6 +7,7 @@ describe('makeId', () => {
     expect(makeId('trace')).toMatch(/^trace-/);
     expect(makeId('axis')).toMatch(/^axis-/);
     expect(makeId('formula')).toMatch(/^formula-/);
+    expect(makeId('annotation')).toMatch(/^annotation-/);
   });
 
   it('never collides, even for many ids created in the same millisecond', () => {

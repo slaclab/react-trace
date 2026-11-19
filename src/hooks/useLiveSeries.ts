@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
-import { liveStore } from '../state/liveStore';
-import type { LiveEntry, LiveError, LivePoint, LiveStatus } from '../state/liveStore';
+import { liveStore, resolveLiveRetentionMs } from '../state/liveStore';
+import type { LiveEntry, LiveError, LivePoint, LiveResume, LiveStatus } from '../state/liveStore';
 import type { PVTrace } from '../types';
 
-export const LIVE_RETENTION_DEFAULT_MS = 5 * 60_000;
+// The default retention, and the longest retention the trace settings accept
+// (also the cap on any automatic retention). Defined beside the retention derivation
+// in liveStore.ts.
+export {
+  LIVE_RETENTION_DEFAULT_MS,
+  LIVE_RETENTION_MAX_S,
+  LIVE_RETENTION_MAX_MS,
+} from '../state/liveStore';
 
-export type { LivePoint, LiveStatus, LiveError } from '../state/liveStore';
+export type { LivePoint, LiveResume, LiveStatus, LiveError } from '../state/liveStore';
 
 export interface LiveSeriesResult {
   status: LiveStatus;
@@ -14,6 +21,12 @@ export interface LiveSeriesResult {
   latest: LiveEntry['latest'];
   error: LiveError | null;
   points: readonly LivePoint[];
+  // Recorded Hare disconnects (ms, ascending), each at the time it was seen
+  // (never before the last point + 1 ms); absent = none.
+  breaks?: readonly number[];
+  // Where the line resumes after a break (`LiveEntry.resumes`). Drawing only:
+  // never a sample, so only the chart's line and extension read it.
+  resumes?: readonly LiveResume[];
 }
 
 const IDLE_RESULT: LiveSeriesResult = {
@@ -23,6 +36,8 @@ const IDLE_RESULT: LiveSeriesResult = {
   latest: null,
   error: null,
   points: [],
+  breaks: [],
+  resumes: [],
 };
 
 const EMPTY_SERIES = new Map<string, LiveSeriesResult>();
@@ -48,19 +63,29 @@ function entryToResult(entry: LiveEntry): LiveSeriesResult {
     latest: entry.latest,
     error: entry.error,
     points: entry.points,
+    breaks: entry.breaks,
+    resumes: entry.resumes,
   };
   resultCache.set(entry, result);
   return result;
 }
 
-export function useLiveSeries(traces: PVTrace[]): Map<string, LiveSeriesResult> {
+// `rangeSpanMsByTrace` gives each curve's time range span (ms), from which an
+// automatic retention (undefined `liveRetentionMs`) is derived; a curve with no
+// span derives the default. Automatic retention never decreases while the curve
+// stays watched (`resolveLiveRetentionMs`), and every retention change is
+// applied in place by the store, so the buffer survives it.
+export function useLiveSeries(
+  traces: PVTrace[],
+  rangeSpanMsByTrace?: ReadonlyMap<string, number>
+): Map<string, LiveSeriesResult> {
   // Stable signature mirroring the archive hook's pattern: traces churn every
   // render, the signature collapses identical input shapes into a string so
   // the effect only fires when something live-relevant actually changed.
   const signature = traces
     .map((t) => {
       if (!t.useLive || !t.pvName) return `${t.id}:off`;
-      const retention = t.liveRetentionMs ?? LIVE_RETENTION_DEFAULT_MS;
+      const retention = t.liveRetentionMs ?? `auto:${rangeSpanMsByTrace?.get(t.id) ?? ''}`;
       return `${t.id}:${t.pvName}|${retention}`;
     })
     .join('||');
@@ -70,7 +95,12 @@ export function useLiveSeries(traces: PVTrace[]): Map<string, LiveSeriesResult> 
     for (const trace of traces) {
       if (!trace.useLive || !trace.pvName) continue;
       wanted.add(trace.id);
-      liveStore.watch(trace.id, trace.pvName, trace.liveRetentionMs ?? LIVE_RETENTION_DEFAULT_MS);
+      const retentionMs = resolveLiveRetentionMs(
+        trace.liveRetentionMs,
+        liveStore.retentionOf(trace.id),
+        rangeSpanMsByTrace?.get(trace.id)
+      );
+      liveStore.watch(trace.id, trace.pvName, retentionMs);
     }
     for (const id of liveStore.getSnapshot().keys()) {
       if (!wanted.has(id)) liveStore.release(id);

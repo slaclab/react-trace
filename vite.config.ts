@@ -1,8 +1,18 @@
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
-import { loadEnv, type ProxyOptions } from 'vite';
+import { loadEnv, type Plugin, type ProxyOptions } from 'vite';
 import react from '@vitejs/plugin-react';
 import { canopyDevProxy, type CanopyDevProxyOptions } from '@slaclab/canopy-vite';
 import { normalizeBasePath } from './src/api/basePath';
+
+// VITE_CANOPY_BASE_PATH for the dev proxy. '..' (the page's parent directory,
+// src/api/connection.ts) is a deployed layout; the dev server serves the page at
+// the root, so there it means the per-module paths.
+function devBasePath(env: Record<string, string>): string {
+  const basePath = normalizeBasePath(env.VITE_CANOPY_BASE_PATH);
+  return basePath === '..' ? '' : basePath;
+}
 
 // The Canopy modules Trace calls, as same-origin per-module paths.
 export const CANOPY_MODULES = ['/mole', '/hare', '/formula-engine', '/magpie', '/vole'];
@@ -24,7 +34,7 @@ export const ELOG_APP_PATH = '/elog/v1/apps/trace';
 // - VITE_CANOPY_BASE_PATH set (the deployed layout, e.g. /trace/api/canopy):
 //   that one prefix, stripped before forwarding, like the container's nginx.
 export function canopyProxyOptions(env: Record<string, string>): CanopyDevProxyOptions {
-  const basePath = normalizeBasePath(env.VITE_CANOPY_BASE_PATH);
+  const basePath = devBasePath(env);
   return {
     target: env.CANOPY_BASE_URL,
     apiKey: env.CANOPY_API_KEY,
@@ -46,7 +56,7 @@ export function canopyProxyOptions(env: Record<string, string>): CanopyDevProxyO
 // CANOPY_BASE_URL has one (Canopy mounted under a prefix), so the check allows
 // for it.
 export function elogProxy(env: Record<string, string>): Record<string, ProxyOptions> {
-  const basePath = normalizeBasePath(env.VITE_CANOPY_BASE_PATH);
+  const basePath = devBasePath(env);
   const routes = canopyDevProxy({
     target: env.CANOPY_BASE_URL,
     apiKey: env.CANOPY_ELOG_API_KEY || env.CANOPY_API_KEY,
@@ -88,13 +98,54 @@ function targetPath(target: ProxyOptions['target']): string {
   }
 }
 
+import { assertSinglePackageDirs } from './vite.dupGuard.ts';
+
+// Three pages in one build: Trace (index.html), the correlation plot
+// (correlation.html) and the Waveform tool (waveform.html). They share
+// dist/assets/.
+const pages = {
+  main: fileURLToPath(new URL('./index.html', import.meta.url)),
+  correlation: fileURLToPath(new URL('./correlation.html', import.meta.url)),
+  waveform: fileURLToPath(new URL('./waveform.html', import.meta.url)),
+};
+
+// Fail the build when react, react-dom or @carbon/react is bundled from more
+// than one directory: the resolve block below is what keeps them single, and a
+// second copy breaks hooks and context only at runtime.
+function dupGuard(): Plugin {
+  return {
+    name: 'trace-dup-guard',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const ids = Object.values(bundle).flatMap((file) =>
+        file.type === 'chunk' ? file.moduleIds : []
+      );
+      assertSinglePackageDirs(ids, realpathSync);
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   return {
     base: env.VITE_BASE_PATH || '/',
-    plugins: [react()],
+    plugins: [react(), dupGuard()],
+    // Force react and @carbon/react to this app's single copy; a dependency
+    // that brings its own (the @slaclab SDK packages do) would otherwise bundle
+    // a second React/Carbon.
+    resolve: {
+      dedupe: ['react', 'react-dom'],
+      alias: {
+        '@carbon/react': fileURLToPath(new URL('./node_modules/@carbon/react', import.meta.url)),
+      },
+    },
+    build: {
+      rolldownOptions: {
+        input: pages,
+      },
+    },
     server: {
       // The e-log route first: Vite uses the first matching key, and under
       // VITE_CANOPY_BASE_PATH the Canopy route's prefix covers it too.
@@ -102,7 +153,9 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       passWithNoTests: true,
-      setupFiles: ['./src/test/setup.ts'],
+      // Node >= 25 ships a global localStorage that shadows jsdom's; turn it
+      // off in the test workers so the tests see jsdom's Storage.
+      execArgv: ['--no-experimental-webstorage'],
     },
   };
 });

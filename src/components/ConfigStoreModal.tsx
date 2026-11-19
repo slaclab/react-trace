@@ -300,7 +300,7 @@ export function ConfigStoreModal({
                 labelText="Name"
                 value={name}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
-                placeholder="e.g. LI22 klystron overview"
+                placeholder="e.g. Beam position overview"
                 maxLength={255}
               />
               <TextArea

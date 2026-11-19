@@ -2,7 +2,7 @@
 // caller-supplied "now". Relative ranges are spans like "-30s"/"-1h"/"-90m";
 // "custom" resolves the plot's absolute From/To datetime-local fields.
 
-import { msToNs } from '@slaclab/canopy-client';
+import { msToNs, nsToMs } from '@slaclab/canopy-client';
 
 // Epoch-ns helpers come from the SDK; re-exported so callers keep one import.
 export { msToNs, nowNs, nsToMs } from '@slaclab/canopy-client';
@@ -92,4 +92,59 @@ export function resolveTimeWindow(xAxis: XAxisLike, nowMs: number): ResolvedTime
   const spanMs = relativeRangeMs(xAxis.timeRange) ?? ONE_HOUR_MS;
   const toNs = msToNs(nowMs);
   return { window: { fromNs: toNs - msToNs(spanMs), toNs } };
+}
+
+/** An epoch-ms window, as the range gestures and `allLoadedWindow` produce it. */
+export interface TimeWindowMs {
+  from: number;
+  to: number;
+}
+
+export function windowMsToNs(w: TimeWindowMs): TimeWindowNs {
+  return { fromNs: msToNs(w.from), toNs: msToNs(w.to) };
+}
+
+export function windowNsToMs(w: TimeWindowNs): TimeWindowMs {
+  return { from: nsToMs(w.fromNs), to: nsToMs(w.toNs) };
+}
+
+// Below this a window cannot be written as a relative range.
+const RELATIVE_SPAN_FLOOR_MS = 1000;
+const SECONDS_PER_MINUTE = 60;
+const SECONDS_PER_HOUR = 60 * 60;
+const SECONDS_PER_DAY = 24 * 60 * 60;
+
+// The relative range ("-40s", "-1.5s", "-40m", "-6h") whose span is the
+// window's width, for writing a follow-live window back as `xAxis.timeRange`.
+// Whole seconds are promoted to `m`/`h`/`d` only when exact; anything else is
+// seconds with up to three decimals. `'up'` rounds up to the millisecond so the
+// span never comes out shorter than the window (All keeps its earliest
+// sample). Null below a 1 s floor or for an empty window.
+export function relativeSpanFor(
+  window: TimeWindowMs,
+  round: 'nearest' | 'up' = 'nearest'
+): string | null {
+  const spanMs = window.to - window.from;
+  if (!Number.isFinite(spanMs) || spanMs < RELATIVE_SPAN_FLOOR_MS) return null;
+  const ms = round === 'up' ? Math.ceil(spanMs) : Math.round(spanMs);
+  if (ms % 1000 === 0) {
+    const seconds = ms / 1000;
+    if (seconds % SECONDS_PER_DAY === 0) return `-${seconds / SECONDS_PER_DAY}d`;
+    if (seconds % SECONDS_PER_HOUR === 0) return `-${seconds / SECONDS_PER_HOUR}h`;
+    if (seconds % SECONDS_PER_MINUTE === 0) return `-${seconds / SECONDS_PER_MINUTE}m`;
+    return `-${seconds}s`;
+  }
+  const whole = Math.floor(ms / 1000);
+  const frac = String(ms % 1000)
+    .padStart(3, '0')
+    .replace(/0+$/, '');
+  return `-${whole}.${frac}s`;
+}
+
+// True when the window ends at "now": no earlier than one refresh interval
+// (`intervalMs`, see refreshIntervalMs) before `nowMs`, since a following plot's
+// clock moves only once per interval. A stretch of such a window keeps
+// following.
+export function isAtNow(window: TimeWindowMs, nowMs: number, intervalMs: number): boolean {
+  return window.to >= nowMs - intervalMs;
 }

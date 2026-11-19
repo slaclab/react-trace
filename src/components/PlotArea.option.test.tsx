@@ -42,7 +42,6 @@ function makeTrace(values: number[]): PVTrace {
     visible: true,
     axisId: 'ax1',
     useLive: false,
-    updateRate: '1s',
     useArchive: false,
     lineWidth: 1,
     lineType: 'direct',
@@ -87,10 +86,10 @@ function renderPlot(plot: Plot) {
   return render(
     <SinglePlot
       plot={plot}
+      endMs={0}
       archiveResults={new Map()}
       liveResults={new Map()}
       formulaResults={new Map()}
-      endMs={NOW}
     />
   );
 }

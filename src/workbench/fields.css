@@ -1,0 +1,230 @@
+/* The workbench's fields: label, modified dot and reset, the
+ * control, then the disabled reason or help line; the panel lays them out
+ * (panel.css). Chrome
+ * tokens only: colours from the Carbon theme variables and the canopy accent,
+ * no hex or font literal. Imported by workbench.css. */
+
+.wb-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.wb-field__head {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 1.25rem;
+}
+
+.wb-field__label {
+  color: var(--cds-text-secondary);
+  font-size: var(--canopy-text-sm);
+}
+
+/* The modified dot: the field no longer follows its automatic value. */
+.wb-field__dot {
+  flex: none;
+  inline-size: 0.375rem;
+  block-size: 0.375rem;
+  border-radius: 50%;
+  background-color: var(--canopy-accent, var(--cds-interactive));
+}
+
+.wb-field__reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-inline-start: auto;
+  padding: 0.125rem;
+  border: 0;
+  background: transparent;
+  color: var(--cds-icon-secondary);
+  cursor: pointer;
+}
+
+.wb-field__reset:hover {
+  color: var(--cds-icon-primary);
+  background-color: var(--cds-layer-hover);
+}
+
+.wb-field__reset:focus-visible,
+.wb-eye:focus-visible,
+.wb-segmented__option:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+
+.wb-field__note {
+  color: var(--cds-text-helper);
+  font-size: var(--canopy-text-sm);
+}
+
+.wb-field__note--reason {
+  color: var(--cds-text-secondary);
+  font-style: italic;
+}
+
+.wb-field__number {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+}
+
+.wb-field__number > :first-child {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+.wb-field__unit {
+  line-height: var(--canopy-control-h-sm);
+  color: var(--cds-text-secondary);
+  font-size: var(--canopy-text-sm);
+}
+
+/* Control density: a field's control takes the shell's small
+ * control recipe -- control-h-sm tall, text at Carbon's contract size (text-md)
+ * -- from the contract tokens, so a host that re-sizes its controls re-sizes
+ * these too. Carbon's own size
+ * class resolves through its layout variables, which a host may leave at the
+ * 40 px default; these rules pin the height to the contract instead. A
+ * toggle's switch sits centred in a row of the same height, with its state
+ * label at text-sm. */
+.wb-field .cds--text-input,
+.wb-field .cds--select-input,
+.wb-field .cds--btn {
+  block-size: var(--canopy-control-h-sm);
+  min-block-size: var(--canopy-control-h-sm);
+}
+
+.wb-field .cds--select-input {
+  line-height: var(--canopy-control-h-sm);
+}
+
+.wb-field .cds--btn {
+  align-items: center;
+  padding-block: 0;
+}
+
+.wb-field .cds--toggle__label {
+  min-block-size: var(--canopy-control-h-sm);
+  display: flex;
+  align-items: center;
+}
+
+.wb-field .cds--toggle__text {
+  font-size: var(--canopy-text-sm);
+}
+
+.wb-field__readonly {
+  display: block;
+  color: var(--cds-text-primary);
+  font-size: var(--canopy-text-md);
+}
+
+/* Segmented: one row of radio buttons. */
+.wb-segmented {
+  display: inline-flex;
+  border: 1px solid var(--cds-border-strong);
+}
+
+.wb-segmented__option {
+  padding: 0.25rem 0.75rem;
+  border: 0;
+  background: var(--cds-layer);
+  color: var(--cds-text-secondary);
+  font-size: var(--canopy-text-md);
+  cursor: pointer;
+}
+
+.wb-segmented__option + .wb-segmented__option {
+  border-inline-start: 1px solid var(--cds-border-subtle);
+}
+
+.wb-segmented__option--checked {
+  background: var(--cds-layer-selected);
+  color: var(--cds-text-primary);
+}
+
+.wb-segmented__option:disabled {
+  color: var(--cds-text-disabled);
+  cursor: not-allowed;
+}
+
+/* Colour: a swatch in front of the invisible native colour input. */
+.wb-swatch-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.wb-swatch {
+  position: relative;
+  display: block;
+  inline-size: 36px;
+  block-size: var(--canopy-control-h-sm);
+  padding: 0;
+  border: 1px solid var(--cds-border-subtle);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.wb-swatch-wrap--small .wb-swatch {
+  inline-size: 0.875rem;
+  block-size: 0.875rem;
+}
+
+.wb-swatch:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: 1px;
+}
+
+.wb-swatch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* The row / header visibility eye. */
+.wb-eye {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.125rem;
+  border: 0;
+  background: transparent;
+  color: var(--cds-icon-primary);
+  cursor: pointer;
+}
+
+.wb-eye--off {
+  color: var(--cds-icon-secondary);
+}
+
+/* The shared PV field, its label carried by the chrome. */
+.wb-pv-field .pv-combo--bare .cds--label {
+  display: none;
+}
+
+/* Code: the source text with its Copy button. */
+.wb-code {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.wb-code__text {
+  margin: 0;
+  padding: 0.5rem;
+  overflow: auto;
+  max-block-size: 20rem;
+  background: var(--cds-field);
+  color: var(--cds-text-primary);
+  font-family: var(--canopy-font-mono);
+  font-size: var(--canopy-text-sm);
+  white-space: pre;
+}
+
+.wb-code__copy {
+  align-self: flex-end;
+}
