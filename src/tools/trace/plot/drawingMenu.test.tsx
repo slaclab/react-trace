@@ -5,7 +5,7 @@
 // opens its card), Lock / Unlock and Delete, each written through the plot's
 // drawing writer as one commit. A right-click beside it still opens the
 // point menu, whose "Add note here" opens the new note's text box, focused,
-// as placing a note with the tool does.
+// as placing a note with the tool does; Escape there removes the empty note.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, within } from '@testing-library/react';
 import { useMemo, useState } from 'react';
@@ -183,6 +183,27 @@ describe('Add note here', () => {
       </ContextMenuProvider>
     );
   }
+
+  it('Escape on the note just added leaves no empty note behind', () => {
+    const original = fakeInstance.convertFromPixel;
+    fakeInstance.convertFromPixel = (finder: object, px: number) =>
+      'xAxisIndex' in finder ? px * 10 : 400 - px;
+    try {
+      const { container } = render(<Stateful />);
+      const wrap = container.querySelector('[data-plot-id]') as HTMLElement;
+      rightClick(wrap);
+      click('Add note here');
+      const editor = container.querySelector<HTMLInputElement>('input[data-annotation-editor]')!;
+      expect(container.querySelector('[data-annotation-id]')).not.toBeNull();
+      act(() => {
+        fireEvent.keyDown(editor, { key: 'Escape' });
+      });
+      expect(container.querySelector('input[data-annotation-editor]')).toBeNull();
+      expect(container.querySelector('[data-annotation-id]')).toBeNull();
+    } finally {
+      fakeInstance.convertFromPixel = original;
+    }
+  });
 
   it('adds the note and opens its text box, focused; Enter keeps the text', () => {
     // A linear fake: t = 10 * x on the time axis, v = 400 - y on every Y axis.

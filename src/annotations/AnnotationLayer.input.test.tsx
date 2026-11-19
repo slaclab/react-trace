@@ -355,7 +355,7 @@ describe('AnnotationLayer input: note text in place', () => {
     expect(editor(h)).toBeNull();
   });
 
-  it('Escape closes the editor without a commit', () => {
+  it('Escape closes the editor without committing the typed text; the empty new note goes', () => {
     const h = mountLayer({ prefs: { tool: 'note' } });
     h.fire(h.root(), 'pointerdown', 200, 100);
     h.fire(h.root(), 'pointerup', 200, 100);
@@ -363,8 +363,42 @@ describe('AnnotationLayer input: note text in place', () => {
     fireEvent.change(input, { target: { value: 'draft' } });
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(editor(h)).toBeNull();
-    expect(h.onCommit).toHaveBeenCalledTimes(1);
-    expect(h.state.annotations[0].text).toBe('');
+    // The add, then its one undoable delete; never a text commit.
+    expect(h.onCommit).toHaveBeenCalledTimes(2);
+    expect(h.onCommit.mock.calls[1][1]).toBe('Delete Note');
+    expect(h.state.annotations).toEqual([]);
+  });
+
+  it('Escape on a reopened note keeps it as it was, empty or not', () => {
+    const empty = ann({ id: 'n0', kind: 'note', points: [{ t: 1000, v: 100 }], text: '' });
+    const note = ann({ id: 'n1', kind: 'note', points: [{ t: 2000, v: 100 }], text: 'old' });
+    const h = mountLayer({ annotations: [empty, note] });
+    for (const id of ['n0', 'n1']) {
+      fireEvent.doubleClick(hitOf(h.q, id));
+      const input = editor(h)!;
+      fireEvent.change(input, { target: { value: 'draft' } });
+      fireEvent.keyDown(input, { key: 'Escape' });
+      expect(editor(h)).toBeNull();
+    }
+    expect(h.onCommit).not.toHaveBeenCalled();
+    expect(h.state.annotations.map((a) => [a.id, a.text])).toEqual([
+      ['n0', ''],
+      ['n1', 'old'],
+    ]);
+  });
+
+  it('a new note that was given text keeps it when reopened and closed with Escape', () => {
+    const h = mountLayer({ prefs: { tool: 'note' } });
+    h.fire(h.root(), 'pointerdown', 200, 100);
+    h.fire(h.root(), 'pointerup', 200, 100);
+    fireEvent.change(editor(h)!, { target: { value: 'kept' } });
+    fireEvent.keyDown(editor(h)!, { key: 'Enter' });
+    const id = h.state.annotations[0].id;
+    fireEvent.doubleClick(hitOf(h.q, id));
+    fireEvent.change(editor(h)!, { target: { value: 'draft' } });
+    fireEvent.keyDown(editor(h)!, { key: 'Escape' });
+    expect(h.onCommit).toHaveBeenCalledTimes(2);
+    expect(h.state.annotations.map((a) => a.text)).toEqual(['kept']);
   });
 
   it('leaving the field saves; typed keys never reach the drawing shortcuts', () => {

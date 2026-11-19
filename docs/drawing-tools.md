@@ -86,8 +86,9 @@ Pick a tool, then:
   without picking the tool; see [Measuring](#measuring).)
 
 A new note opens its text box right on the plot: type, then press Enter or
-click elsewhere to keep it, or Escape to leave it as it was. Double-click a
-note to change its text later. A locked note keeps its text.
+click elsewhere to keep it. Escape on a new note removes it (⌘Z / Ctrl+Z
+brings it back); on a note you reopen, Escape leaves it as it was.
+Double-click a note to change its text later. A locked note keeps its text.
 
 Drawings look like the marks in a printed figure: a fine line in ink (dark on
 a light plot, light on a dark one), labels in a small italic serif, and no

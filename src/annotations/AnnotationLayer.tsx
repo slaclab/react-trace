@@ -394,7 +394,11 @@ export function AnnotationLayer(props: AnnotationLayerProps) {
   const pressHitRef = useRef<ToolHit>(NO_HIT);
   // The note whose text is being typed in place, and the draft text. A note
   // just placed opens it (the reducer's `edit`); double-click reopens it.
-  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
+  // `fresh`: the note was just added (placed, or added from the menu), not
+  // reopened; Escape on it while it has no text yet removes it.
+  const [editing, setEditing] = useState<{ id: string; text: string; fresh?: boolean } | null>(
+    null
+  );
   // Each measure readout's drag offset from its default place, by drawing id,
   // and the grip drag in progress.
   const [readoutOffsets, setReadoutOffsets] = useState<
@@ -524,7 +528,7 @@ export function AnnotationLayer(props: AnnotationLayerProps) {
     if (result.commit) cur.onCommit?.(result.commit.fn, result.commit.label);
     if (result.select !== undefined) cur.onSelectAnnotation?.(result.select);
     if (result.prefs) cur.onPrefs?.(result.prefs);
-    if (result.edit) setEditing({ id: result.edit, text: '' });
+    if (result.edit) setEditing({ id: result.edit, text: '', fresh: true });
     return result;
   };
 
@@ -584,7 +588,7 @@ export function AnnotationLayer(props: AnnotationLayerProps) {
       return { consumed: run({ type: 'keyDelete', target }).consumed === true };
     },
     editText(id) {
-      setEditing({ id, text: '' });
+      setEditing({ id, text: '', fresh: true });
     },
   };
   useImperativeHandle(overlayRef, () => handle);
@@ -729,16 +733,24 @@ export function AnnotationLayer(props: AnnotationLayerProps) {
     setEditing({ id: hit.annotation.id, text: hit.annotation.text });
   };
   // Ends the edit once (Enter, Escape and the blur that follows them): a
-  // changed text is one commit, labelled like the Properties edit.
+  // changed text is one commit, labelled like the Properties edit. Escape
+  // leaves the note as it was, except a note just added that has no text
+  // yet: it goes, as one undoable delete, so no empty note is left behind.
   const finishEdit = (save: boolean) => {
     const cur = editing;
     if (!cur) return;
     setEditing(null);
-    if (!save) return;
-    const text = cur.text.trim().slice(0, MAX_ANNOTATION_TEXT);
     const before = latest.current.props.annotations.find((a) => a.id === cur.id);
+    const noun = before ? (catalogNow().byKind(before.kind)?.label.short ?? before.kind) : '';
+    if (!save) {
+      if (!cur.fresh || !before || before.text !== '') return;
+      const { onCommit, onSelectAnnotation, selectedId: sel } = latest.current.props;
+      onCommit?.((list) => list.filter((a) => a.id !== cur.id), `Delete ${noun}`);
+      if (sel === cur.id) onSelectAnnotation?.(null);
+      return;
+    }
+    const text = cur.text.trim().slice(0, MAX_ANNOTATION_TEXT);
     if (!before || before.text === text) return;
-    const noun = catalogNow().byKind(before.kind)?.label.short ?? before.kind;
     latest.current.props.onCommit?.(
       (list) => list.map((a) => (a.id === cur.id ? { ...a, text } : a)),
       `Edit ${noun}`
@@ -806,7 +818,7 @@ export function AnnotationLayer(props: AnnotationLayerProps) {
         text={editing.text}
         grid={editedGrid}
         theme={theme}
-        onChange={(text) => setEditing({ id: edited.id, text })}
+        onChange={(text) => setEditing({ ...editing, id: edited.id, text })}
         onFinish={finishEdit}
       />
     ) : null;
