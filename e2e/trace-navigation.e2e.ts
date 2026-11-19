@@ -40,10 +40,14 @@ const PVS = [MOLE_PV, OTHER_PV];
 const RANGE = '-10m';
 const PAGE = `/?embedded=true&${PVS.map((pv) => `pv=${encodeURIComponent(pv)}`).join('&')}&range=${RANGE}`;
 
-/** Grid insets of a plot with one left axis (PlotArea `plotLayout`). */
+/**
+ * Grid insets of a plot with one left axis and the drawing rail
+ * (plotOption `plotLayout`): the rail's gutter moves the grid from 70 to 115
+ * px, so the axis name clears the rail.
+ */
 const GRID_TOP = 40;
 const GRID_BOTTOM = 60;
-const GRID_LEFT = 70;
+const GRID_LEFT = 115;
 /** Y tick labels sit left of the grid, right-aligned; wider labels widen the grid's margin. */
 const Y_LABEL_MAX_X = 200;
 /** Height of the time-label strip under the grid (axisHitTest `X_BAND_PX`). */
