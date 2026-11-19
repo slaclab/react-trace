@@ -9,14 +9,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { SinglePlot } from './PlotArea';
+import { plotLayout } from './plotOption';
 import type { Axis, Plot } from '../types';
 import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs } from '../api/time';
 import { chartStub } from '../test/chartStub';
 
 // 800x400 canvas. One left axis (manual) + one right axis (auto) gives grid
-// insets top 40 / bottom 60 / left 70 / right 70: interior x 70..730 (660 px),
-// y 40..340 (300 px). Every axis reports the extent [0, 100] over px 340..40.
+// insets top 40 / bottom 60 and the plot's left and right ones for those axes
+// and no rail (83 / 70): interior x 83..730 (647 px), y 40..340 (300 px).
+// Every axis reports the extent [0, 100] over px 340..40.
 const { fakeInstance } = vi.hoisted(() => {
   const HEIGHT = 400;
   const BOTTOM = 60;
@@ -40,7 +42,6 @@ vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
 );
 chartStub.instance = fakeInstance;
 
-const GRID_WIDTH = 660;
 const NOW_MS = 1_800_000_000_000;
 const SPAN_MS = 600_000;
 const WINDOW = { from: NOW_MS - 3_600_000 - SPAN_MS, to: NOW_MS - 3_600_000 };
@@ -67,6 +68,8 @@ const auto: Axis = {
   logScale: false,
   visible: true,
 };
+const LAYOUT = plotLayout([manual, auto]);
+const GRID_WIDTH = 800 - LAYOUT.gridLeft - LAYOUT.gridRight;
 
 function makePlot(axes: Axis[] = [manual, auto]): Plot {
   return {

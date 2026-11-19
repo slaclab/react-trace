@@ -28,9 +28,12 @@ import { chartStub } from '../test/chartStub';
 import type { ECharts } from 'echarts';
 import type { ChartEventHandler } from '@slaclab/canopy-charts';
 
-// 800x400 canvas, grid insets top 40 / bottom 60 / left 70 / right 20: the
-// grid is x 70..780 for times T0..T1 and y 340..40 for values 0..100.
-const { fakeInstance, chart, T0, T1 } = vi.hoisted(() => {
+// 800x400 canvas, grid insets top 40 / bottom 60 / left 83 / right 20 (the
+// plot's layout for one left axis and no rail): the grid is x 83..780 for
+// times T0..T1 and y 340..40 for values 0..100.
+const { fakeInstance, chart, T0, T1, LEFT, WIDTH } = vi.hoisted(() => {
+  const LEFT = 83;
+  const WIDTH = 697;
   const T0 = 1_000_000;
   const T1 = 1_710_000;
   const chart = {
@@ -49,11 +52,11 @@ const { fakeInstance, chart, T0, T1 } = vi.hoisted(() => {
       getComponent: () => ({ axis: { scale: { getExtent: (): [number, number] => [0, 100] } } }),
     }),
     convertToPixel: (f: unknown, v: number) =>
-      isX(f) ? 70 + ((v - T0) / (T1 - T0)) * 710 : 340 - (v / 100) * 300,
+      isX(f) ? LEFT + ((v - T0) / (T1 - T0)) * WIDTH : 340 - (v / 100) * 300,
     convertFromPixel: (f: unknown, px: number) =>
-      isX(f) ? T0 + ((px - 70) / 710) * (T1 - T0) : ((340 - px) / 300) * 100,
+      isX(f) ? T0 + ((px - LEFT) / WIDTH) * (T1 - T0) : ((340 - px) / 300) * 100,
   };
-  return { fakeInstance, chart, T0, T1 };
+  return { fakeInstance, chart, T0, T1, LEFT, WIDTH };
 });
 
 vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
@@ -159,11 +162,11 @@ describe('SinglePlot projection store', () => {
     expect(p).not.toBe(before);
     const tMid = (T0 + T1) / 2;
     expect(p!.tToX(tMid)).toBe(fakeInstance.convertToPixel({ xAxisIndex: 0 }, tMid));
-    expect(p!.tToX(T0)).toBe(70);
-    expect(p!.xToT(780)).toBe(T1);
+    expect(p!.tToX(T0)).toBe(LEFT);
+    expect(p!.xToT(LEFT + WIDTH)).toBe(T1);
     expect(p!.vToY(50, 'ax1')).toBe(190);
     expect(p!.yToV(40, 'ax1')).toBe(100);
-    expect(p!.gridRect).toEqual({ left: 70, top: 40, width: 710, height: 300 });
+    expect(p!.gridRect).toEqual({ left: LEFT, top: 40, width: WIDTH, height: 300 });
   });
 
   it('republishes when CanopyChart reports a new instance ready', () => {
@@ -172,7 +175,7 @@ describe('SinglePlot projection store', () => {
     projection.subscribe(seen);
     act(() => chartStub.props!.onReady!(fakeInstance as unknown as ECharts));
     expect(seen).toHaveBeenCalledTimes(1);
-    expect(projection.get()!.tToX(T0)).toBe(70);
+    expect(projection.get()!.tToX(T0)).toBe(LEFT);
   });
 
   it('bumps on finished even when no one listens for axis ranges', () => {

@@ -2,20 +2,22 @@
 //
 // Trace's shipped plot gestures (src/site/builtins.ts, C1-C4), on a whole
 // plot with no site defaults. The harness is PlotArea.wheelRouter.test.tsx's:
-// interior x 70..780 (1 px = 1 s), y 40..340 with Y 0..100 up it; the Y
-// axis band is left of x 70.
+// interior x GRID_LEFT..780 (1 px = 1 s), y 40..340 with Y 0..100 up it; the
+// Y axis band is left of GRID_LEFT.
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { fireMouse } from '../plot/testUtils';
 import { render } from '@testing-library/react';
 import { SinglePlot } from './PlotArea';
+import { plotLayout } from './plotOption';
 import type { Axis, Plot } from '../types';
 import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs } from '../api/time';
 import { chartStub } from '../test/chartStub';
 
-// 800x400 canvas, grid insets top 40 / bottom 60 / left 70 / right 20 (one
-// left axis): the interior spans x 70..780 (710 px) and y 40..340; the time
-// band is the tick-label strip y 340..366.
+// 800x400 canvas, grid insets top 40 / bottom 60, left and right as the plot
+// lays them out for one left axis and no rail (83 / 20): the interior spans
+// x GRID_LEFT..780 and y 40..340; the time band is the tick-label strip
+// y 340..366.
 const { fakeInstance } = vi.hoisted(() => {
   const HEIGHT = 400;
   const BOTTOM = 60;
@@ -39,7 +41,9 @@ vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
 );
 chartStub.instance = fakeInstance;
 
-const GRID_WIDTH = 710;
+const LAYOUT = plotLayout([axis('ax1', 'left')]);
+const GRID_LEFT = LAYOUT.gridLeft;
+const GRID_WIDTH = 800 - LAYOUT.gridLeft - LAYOUT.gridRight;
 // 1 px of grid = 1000 ms; small epoch values keep the ns conversion exact.
 const FROM_MS = 1_000_000;
 const TO_MS = FROM_MS + GRID_WIDTH * 1000;
@@ -131,9 +135,9 @@ function wheel(target: Element, init: WheelEventInit & { clientX: number; client
 describe('C1: the left-drag and the time pans', () => {
   it('a left-drag in the plot draws a zoom box: the window and the Y axis zoom to it', () => {
     const { wrap, onUpdateAxis, onViewWindowChange } = mountPlot();
-    fireMouse(wrap, 'mousedown', { x: 170, y: 100 });
-    fireMouse(window, 'mousemove', { x: 370, y: 250 });
-    fireMouse(window, 'mouseup', { x: 370, y: 250 });
+    fireMouse(wrap, 'mousedown', { x: GRID_LEFT + 100, y: 100 });
+    fireMouse(window, 'mousemove', { x: GRID_LEFT + 300, y: 250 });
+    fireMouse(window, 'mouseup', { x: GRID_LEFT + 300, y: 250 });
     flushFrames();
     const w = onViewWindowChange.mock.calls.at(-1)![0] as TimeWindowNs;
     expect(nsToMs(w.fromNs)).toBeCloseTo(FROM_MS + 100_000, -1);

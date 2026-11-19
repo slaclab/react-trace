@@ -23,9 +23,11 @@ const TRACE_LAYER = { catalog: BUILTIN_CATALOG, xAxis: TIME_X_AXIS };
 
 // ---------------------------------------------------------------------------
 // SinglePlot fixture: 800x400 canvas, left manual + right auto axis -> grid
-// x 70..730 (660 px), y 40..340 (300 px). x maps WINDOW linearly; every y axis
-// maps [0, 100] over px 340..40.
-const { fakeInstance, WIN } = vi.hoisted(() => {
+// x 83..730 (647 px; the plot's layout for those axes and no rail), y 40..340
+// (300 px). x maps WINDOW linearly; every y axis maps [0, 100] over px 340..40.
+const { fakeInstance, WIN, LEFT } = vi.hoisted(() => {
+  const LEFT = 83;
+  const WIDTH = 647;
   const WIN = { from: 1_800_000_000_000 - 4_200_000, to: 1_800_000_000_000 - 3_600_000 };
   const span = WIN.to - WIN.from;
   const isX = (f: unknown) => typeof f === 'object' && f !== null && 'xAxisIndex' in f;
@@ -39,12 +41,12 @@ const { fakeInstance, WIN } = vi.hoisted(() => {
       getComponent: () => ({ axis: { scale: { getExtent: (): [number, number] => [0, 100] } } }),
     }),
     convertToPixel: (f: unknown, v: number) =>
-      isX(f) ? 70 + ((v - WIN.from) / span) * 660 : 340 - (v / 100) * 300,
+      isX(f) ? LEFT + ((v - WIN.from) / span) * WIDTH : 340 - (v / 100) * 300,
     convertFromPixel: (f: unknown, px: number) =>
-      isX(f) ? WIN.from + ((px - 70) / 660) * span : ((340 - px) / 300) * 100,
+      isX(f) ? WIN.from + ((px - LEFT) / WIDTH) * span : ((340 - px) / 300) * 100,
     dispatchAction: vi.fn(),
   };
-  return { fakeInstance, WIN };
+  return { fakeInstance, WIN, LEFT };
 });
 
 vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
@@ -639,7 +641,7 @@ describe('SinglePlot drawing input', () => {
     const p = mountPlot();
     const svg = p.root();
     expect(svg).not.toBeNull();
-    expect(svg.style.left).toBe('70px');
+    expect(svg.style.left).toBe(`${LEFT}px`);
     expect(svg.style.top).toBe('40px');
     expect(svg.style.pointerEvents).toBe('none');
   });

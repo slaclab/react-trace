@@ -1,18 +1,17 @@
 // @vitest-environment jsdom
 //
 // The drawing rail floats over the plot's left gutter (2 to 32 px in), where
-// Trace draws its left Y axes' names. Without room for it, the outermost
-// name sat about 5 px in, under the rail. While the plot shows the rail, the
-// left gutter widens until that name clears it, for one left axis or
-// several; without the rail (Drawing tools off, the Code tab) the grid keeps
-// its old inset. Measured on the chart ECharts lays out.
+// Trace draws its left Y axes' names. While the plot shows the rail, the
+// left gutter widens until the outermost name clears it, for one left axis
+// or several. Without the rail (Drawing tools off, the Code tab) it clears
+// the plot's left edge instead: the old 70 px inset put it 6 px past that
+// edge, half cut off. Measured on the chart ECharts lays out.
 import { describe, expect, it } from 'vitest';
 import * as echarts from 'echarts';
 import { drawingThemeFor } from '../annotationTheme';
 import { RAIL_RIGHT } from '../annotations/railMetrics';
 import type { Axis, Plot } from '../types';
 import { buildPlotOption, plotLayout } from './plotOption';
-import { AXIS_OFFSET } from './axisHitTest';
 
 function axis(i: number, orientation: 'left' | 'right' = 'left'): Axis {
   return {
@@ -81,12 +80,17 @@ describe('the outermost left axis name and the drawing rail', () => {
     expect(nameLeft(plot(axes), RAIL_RIGHT, `Axis name ${n}`)).toBeGreaterThanOrEqual(RAIL_RIGHT);
   });
 
-  it('was under the rail without the gutter', () => {
+  it.each([1, 2, 3])('clears the plot’s left edge without the rail, with %i left axes', (n) => {
+    const axes = Array.from({ length: n }, (_, i) => axis(i + 1));
+    expect(nameLeft(plot(axes), 0, `Axis name ${n}`)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('would sit under the rail with the inset it has without one', () => {
     expect(nameLeft(plot([axis(1)]), 0, 'Axis name 1')).toBeLessThan(RAIL_RIGHT);
   });
 
-  it('keeps the old inset without the rail or without a left axis', () => {
-    expect(plotLayout([axis(1), axis(2)]).gridLeft).toBe(70 + AXIS_OFFSET);
+  it('keeps the 70 px inset without a left axis', () => {
+    expect(plotLayout([axis(1, 'right')]).gridLeft).toBe(70);
     expect(plotLayout([axis(1, 'right')], RAIL_RIGHT).gridLeft).toBe(70);
   });
 

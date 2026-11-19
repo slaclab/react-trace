@@ -18,9 +18,11 @@ import { createProjectionStore, type Projection } from '../../../plot/geometry';
 import { projectionOf } from '../../../plot/testUtils';
 import { chartStub } from '../../../test/chartStub';
 
-// 800x400 canvas, grid insets top 40 / bottom 60 / left 70 / right 20 (one
-// left axis): the y-axis spans pixels 340 (value 0) to 40 (value 100).
-const { fakeInstance } = vi.hoisted(() => {
+// 800x400 canvas, grid insets top 40 / bottom 60 / left 83 / right 20 (the
+// plot's layout for one left axis and no rail): the y-axis spans pixels 340
+// (value 0) to 40 (value 100).
+const { fakeInstance, LEFT } = vi.hoisted(() => {
+  const LEFT = 83;
   const isX = (f: unknown) => typeof f === 'object' && f !== null && 'xAxisIndex' in f;
   const fakeInstance = {
     getWidth: () => 800,
@@ -32,10 +34,10 @@ const { fakeInstance } = vi.hoisted(() => {
       getComponent: () => ({ axis: { scale: { getExtent: (): [number, number] => [0, 100] } } }),
     }),
     getDataURL: () => 'data:image/png;base64,FAKE',
-    convertToPixel: (f: unknown, v: number) => (isX(f) ? 70 + v : 340 - (v / 100) * 300),
-    convertFromPixel: (f: unknown, px: number) => (isX(f) ? px - 70 : ((340 - px) / 300) * 100),
+    convertToPixel: (f: unknown, v: number) => (isX(f) ? LEFT + v : 340 - (v / 100) * 300),
+    convertFromPixel: (f: unknown, px: number) => (isX(f) ? px - LEFT : ((340 - px) / 300) * 100),
   };
-  return { fakeInstance };
+  return { fakeInstance, LEFT };
 });
 
 vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
@@ -148,8 +150,8 @@ describe('badge visibility', () => {
     expect(badges).toHaveLength(1);
     expect(badges[0].dataset.axisBadge).toBe('ax1');
     expect(badges[0].textContent).toBe('A');
-    // Axis line at grid left (70); badge sits above grid top (40).
-    expect(badges[0].style.left).toBe(`${70 - AXIS_BADGE_SIZE / 2}px`);
+    // Axis line at grid left (LEFT); badge sits above grid top (40).
+    expect(badges[0].style.left).toBe(`${LEFT - AXIS_BADGE_SIZE / 2}px`);
     expect(parseFloat(badges[0].style.top)).toBeLessThan(40);
     unmount();
   });

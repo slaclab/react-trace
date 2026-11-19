@@ -8,13 +8,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { SinglePlot } from './PlotArea';
+import { plotLayout } from './plotOption';
 import type { Axis, Plot } from '../types';
 import { msToNs, nsToMs, type TimeWindowNs } from '../api/time';
 import { fireMouse } from '../plot/testUtils';
 import { chartStub } from '../test/chartStub';
 
-// 800x400 canvas, grid x 70..780 (710 px), y 40..340 (300 px); every Y axis
-// maps [0, 100] up the grid.
+// 800x400 canvas, grid x GRID_LEFT..780 (the plot's layout for one left axis
+// and no rail), y 40..340 (300 px); every Y axis maps [0, 100] up the grid.
 const { fakeInstance } = vi.hoisted(() => {
   const fakeInstance = {
     getWidth: () => 800,
@@ -35,10 +36,6 @@ vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
 );
 chartStub.instance = fakeInstance;
 
-const FROM_MS = 1_000_000;
-const TO_MS = FROM_MS + 710 * 1000; // 1 px = 1 s
-const WINDOW: TimeWindowNs = { fromNs: msToNs(FROM_MS), toNs: msToNs(TO_MS) };
-
 const axis: Axis = {
   id: 'ax1',
   name: 'ax1',
@@ -47,6 +44,12 @@ const axis: Axis = {
   logScale: false,
   visible: true,
 };
+
+const LAYOUT = plotLayout([axis]);
+const GRID_LEFT = LAYOUT.gridLeft;
+const FROM_MS = 1_000_000;
+const TO_MS = FROM_MS + (800 - LAYOUT.gridLeft - LAYOUT.gridRight) * 1000; // 1 px = 1 s
+const WINDOW: TimeWindowNs = { fromNs: msToNs(FROM_MS), toNs: msToNs(TO_MS) };
 
 function makePlot(over: Partial<Plot> = {}): Plot {
   return {
@@ -121,8 +124,9 @@ describe('Trace drag mode', () => {
     ['with a stored zoom', { dragMode: 'zoom' as const }],
   ])('zooms %s: the box zooms the window and the Y axis to it', (_name, over) => {
     const p = mount(makePlot(over));
-    // x 170..370 is 100 s..300 s into the window; y 100..250 is 80..30.
-    drag(p.wrap, [170, 100], [370, 250]);
+    // 100 px..300 px into the grid is 100 s..300 s into the window; y 100..250
+    // is 80..30.
+    drag(p.wrap, [GRID_LEFT + 100, 100], [GRID_LEFT + 300, 250]);
     expect(p.wrap.querySelector('[data-zoom-box]')).toBeNull();
     expect(p.onViewWindowChange).toHaveBeenCalledTimes(1);
     const w = p.onViewWindowChange.mock.calls[0][0] as TimeWindowNs;

@@ -10,15 +10,17 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { render } from '@testing-library/react';
 import { SinglePlot } from './PlotArea';
+import { plotLayout } from './plotOption';
 import type { Axis, Plot } from '../types';
 import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs } from '../api/time';
 import { wheelFactor } from '../plot/geometry';
 import { chartStub } from '../test/chartStub';
 
-// 800x400 canvas, grid insets top 40 / bottom 60 / left 70 / right 20 (one
-// left axis): the interior spans x 70..780 (710 px) and y 40..340; the time
-// band is the tick-label strip y 340..366.
+// 800x400 canvas, grid insets top 40 / bottom 60, left and right as the plot
+// lays them out for one left axis and no rail (83 / 20): the interior spans
+// x GRID_LEFT..780 and y 40..340; the time band is the tick-label strip
+// y 340..366.
 const { fakeInstance } = vi.hoisted(() => {
   const HEIGHT = 400;
   const BOTTOM = 60;
@@ -42,8 +44,9 @@ vi.mock('@slaclab/canopy-charts', async (importOriginal) =>
 );
 chartStub.instance = fakeInstance;
 
-const GRID_LEFT = 70;
-const GRID_WIDTH = 710;
+const LAYOUT = plotLayout([axis('ax1', 'left')]);
+const GRID_LEFT = LAYOUT.gridLeft;
+const GRID_WIDTH = 800 - LAYOUT.gridLeft - LAYOUT.gridRight;
 // 1 px of grid = 1000 ms; small epoch values keep the ns conversion exact.
 const FROM_MS = 1_000_000;
 const TO_MS = FROM_MS + GRID_WIDTH * 1000;
@@ -144,7 +147,7 @@ const timeAt = (w: { from: number; to: number }, x: number) =>
 describe('grid-interior wheel', () => {
   it('flushes exactly one onViewWindowChange with a narrower window around the cursor', () => {
     const { wrap, onViewWindowChange, onUpdateAxis, unmount } = mountPlot();
-    const x = 141; // 71 px into the grid
+    const x = GRID_LEFT + 71; // 71 px into the grid
     const ev = wheel(wrap, { clientX: x, clientY: 200, deltaY: -100 });
     expect(ev.defaultPrevented).toBe(true);
     // Nothing until the frame flushes.
