@@ -11,6 +11,11 @@ updates:
       github-actions:
         patterns:
           - "*"
+    ignore:
+      # v1.0.0 dropped support for Tauri v1; this repo is still on Tauri v1.
+      # Remove once the desktop app migrates to Tauri v2.
+      - dependency-name: "tauri-apps/tauri-action"
+        update-types: ["version-update:semver-major"]
 
   # package.json and pnpm-lock.yaml. Minor and patch updates share one PR;
   # each major version gets its own, so one breaking major doesn't hold up the rest.
