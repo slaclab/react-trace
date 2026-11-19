@@ -222,29 +222,30 @@ describe('Trace: Display › Drawings and the rail’s hide-all', () => {
   it('agree in both directions', () => {
     const { live, hideButton, toggle } = mount(makePlot());
     const drawings = () => toggle('show-drawings');
-    expect(drawings().getAttribute('aria-checked')).toBe('true');
+    // While the rail is shown, its button is the only one.
+    expect(drawings()).toBeNull();
     expect(hideButton()?.getAttribute('aria-pressed')).toBe('false');
 
-    // The rail's button hides: the Display toggle reads off.
+    // The rail's button hides; with the rail off, the Display toggle reads off.
     act(() => {
       fireEvent.click(hideButton()!);
     });
     expect(live.hidden.has('p1')).toBe(true);
+    act(() => {
+      fireEvent.click(toggle('show-drawing-tools'));
+    });
     expect(drawings().getAttribute('aria-checked')).toBe('false');
 
-    // The Display toggle shows: the rail's button reads shown.
+    // The Display toggle shows; with the rail back, its button reads shown.
     act(() => {
       fireEvent.click(drawings());
     });
     expect(live.hidden.has('p1')).toBe(false);
-    expect(hideButton()?.getAttribute('aria-pressed')).toBe('false');
-
-    // And the other way round.
     act(() => {
-      fireEvent.click(drawings());
+      fireEvent.click(toggle('show-drawing-tools'));
     });
-    expect(live.hidden.has('p1')).toBe(true);
-    expect(hideButton()?.getAttribute('aria-pressed')).toBe('true');
+    expect(drawings()).toBeNull();
+    expect(hideButton()?.getAttribute('aria-pressed')).toBe('false');
   });
 
   it('keeps hiding drawings possible while the rail is hidden', () => {

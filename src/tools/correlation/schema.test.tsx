@@ -259,21 +259,23 @@ describe('Correlation schema — plot sections', () => {
   });
 
   it('Display lists what to draw, then the shared toggles, in order', () => {
+    const shared = ['view', 'fit-line', 'fade', 'legend', 'grid', 'crosshair', 'drawing-tools'];
     mount(makeState());
+    expect(fieldIds(plotSection('display'))).toEqual(shared);
+    expect(
+      within(plotSection('display')).getByRole('radiogroup', { name: 'Plot as' })
+    ).toBeTruthy();
+    cleanup();
+
+    // The rail's Data tooltip, Mouse drag and Drawings follow it once it is off.
+    mount(makeState({ drawingTools: false }));
     expect(fieldIds(plotSection('display'))).toEqual([
-      'view',
-      'fit-line',
-      'fade',
-      'legend',
-      'grid',
-      'crosshair',
+      ...shared,
       'tooltip',
       'drag',
-      'drawing-tools',
       'drawings-shown',
     ]);
     const display = plotSection('display');
-    expect(within(display).getByRole('radiogroup', { name: 'Plot as' })).toBeTruthy();
     expect(within(display).getByRole('radiogroup', { name: 'Mouse drag' })).toBeTruthy();
     expect(display.querySelector('[data-field="tooltip"] .wb-field__label')?.textContent).toBe(
       'Data tooltip'
@@ -354,7 +356,8 @@ describe('Correlation schema — plot sections', () => {
   });
 
   it('writes every Display toggle and Mouse drag without a dot; Show statistics is not there', () => {
-    const store = mount(makeState());
+    // The rail off, so Data tooltip and Mouse drag are listed.
+    const store = mount(makeState({ drawingTools: false }));
     const display = plotSection('display');
     expect(display.querySelector('#stats-show')).toBeNull();
     for (const id of ['legend', 'grid', 'crosshair', 'fade', 'tooltip']) {

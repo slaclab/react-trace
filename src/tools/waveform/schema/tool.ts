@@ -8,7 +8,7 @@ import { WAVEFORM_METRICS } from '../metrics';
 import { apply } from '../edit';
 import { toolCodeFragment } from '../plotOption';
 import { LABELS, PLOT_SECTIONS, onFlags, summary } from '../../vocabulary';
-import type { FieldDef, ObjectSchema } from '../../../workbench/types';
+import type { FieldDef, ObjectSchema, ToolContext } from '../../../workbench/types';
 
 import {
   type S,
@@ -31,23 +31,12 @@ export function toolSchema<M extends WaveformSchemaModel, U extends WaveformUi>(
   const axes = axesFields<M, U>();
 
   const displayTab = PLOT_SECTIONS.display.id;
+  // Drawing tools off: the plot has no rail.
+  const railOff = (ctx: ToolContext<S, M, U>) => ctx.state.drawingTools === false;
   const display: FieldDef<S, M, U>[] = [
     toggle<M, U>('legend', LABELS.legend, 'legend', displayTab),
     toggle<M, U>('grid', LABELS.grid, 'grid', displayTab),
     toggle<M, U>('crosshair', LABELS.crosshair, 'crosshair', displayTab),
-    toggle<M, U>('tooltip', LABELS.tooltip, 'tooltip', displayTab),
-    {
-      id: 'drag',
-      label: LABELS.drag,
-      kind: 'segmented',
-      tab: displayTab,
-      level: 'L2',
-      options: () => DRAG_MODES.map((m) => ({ value: m, label: DRAG_MODE_LABEL[m] })),
-      get: (ctx) => ctx.state.drag,
-      set: (ctx, value) => {
-        if (isDragMode(value)) ctx.update((state) => apply(state, (s) => ({ ...s, drag: value })));
-      },
-    },
     {
       // The drawing rail and its arm keys; only off is stored (`rail=0`).
       id: 'drawing-tools',
@@ -61,6 +50,22 @@ export function toolSchema<M extends WaveformSchemaModel, U extends WaveformUi>(
           apply(state, (s) => ({ ...s, drawingTools: on ? undefined : false }))
         ),
     },
+    // The rail's view toggles and hide-all, here only while the rail is off:
+    // with it shown, its own buttons set them.
+    { ...toggle<M, U>('tooltip', LABELS.tooltip, 'tooltip', displayTab), when: railOff },
+    {
+      id: 'drag',
+      label: LABELS.drag,
+      kind: 'segmented',
+      tab: displayTab,
+      level: 'L2',
+      when: railOff,
+      options: () => DRAG_MODES.map((m) => ({ value: m, label: DRAG_MODE_LABEL[m] })),
+      get: (ctx) => ctx.state.drag,
+      set: (ctx, value) => {
+        if (isDragMode(value)) ctx.update((state) => apply(state, (s) => ({ ...s, drag: value })));
+      },
+    },
     {
       // The plot's hide-all: the rail's hide button and the Annotations
       // eye, on the `ui` record (session only, never in the link).
@@ -69,6 +74,7 @@ export function toolSchema<M extends WaveformSchemaModel, U extends WaveformUi>(
       kind: 'toggle',
       tab: displayTab,
       level: 'L2',
+      when: railOff,
       get: (ctx) => ctx.ui?.drawingsHidden !== true,
       set: (ctx, on) =>
         drawingsUiWriter(

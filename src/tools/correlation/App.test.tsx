@@ -720,18 +720,21 @@ describe('CorrelationApp Display › Drawing tools and Drawings', () => {
     await ready();
     openDisplay();
     const drawings = () => toggle('drawings-shown');
-    expect(drawings().getAttribute('aria-checked')).toBe('true');
+    // While the rail is shown, its button is the only one.
+    expect(drawings()).toBeNull();
     expect(hideButton()?.getAttribute('aria-pressed')).toBe('false');
 
+    // The rail's button hides; with the rail off, the Display toggle reads off.
     fireEvent.click(hideButton()!);
     expect(hideButton()?.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(toggle('drawing-tools'));
     expect(drawings().getAttribute('aria-checked')).toBe('false');
 
+    // The Display toggle shows; with the rail back, its button reads shown.
     fireEvent.click(drawings());
     expect(drawings().getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(toggle('drawing-tools'));
+    expect(drawings()).toBeNull();
     expect(hideButton()?.getAttribute('aria-pressed')).toBe('false');
-
-    fireEvent.click(drawings());
-    expect(hideButton()?.getAttribute('aria-pressed')).toBe('true');
   });
 });

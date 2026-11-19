@@ -229,8 +229,8 @@ describe('plot schema — sections, levels, summaries', () => {
     expect(headings).toEqual(['X axis']);
   });
 
-  it('orders Display: Title, Legend … Data tooltip at L1, then Mouse drag, Status line, Pin data window', () => {
-    mount();
+  it('orders Display: Title, Legend … Crosshair at L1, then Status line … Drawing tools', () => {
+    const store = mount();
     const main = [
       'plot-title',
       'show-legend',
@@ -238,20 +238,31 @@ describe('plot schema — sections, levels, summaries', () => {
       'show-x-gridlines',
       'show-y-gridlines',
       'show-crosshair',
-      'show-tooltip',
     ];
     const second = [
-      'drag-mode',
       'show-status-line',
       'pin-data-window',
       // C7: docking the data tooltip is a Display setting.
       'dock-readout',
       'show-drawing-tools',
-      'show-drawings',
     ];
     expect(fieldsIn('display')).toEqual([...main, ...second]);
     for (const id of main) expect(fieldEl(id)?.getAttribute('data-level')).toBe('L1');
     for (const id of second) expect(fieldEl(id)?.getAttribute('data-level')).toBe('L2');
+
+    // The rail's Data tooltip, Mouse drag and Drawings follow it once it is off.
+    fireEvent.click(byId('show-drawing-tools') as HTMLElement);
+    expect(plotOf(store, 'p1').showDrawingTools).toBe(false);
+    expect(fieldsIn('display')).toEqual([
+      ...main,
+      ...second,
+      'show-tooltip',
+      'drag-mode',
+      'show-drawings',
+    ]);
+    for (const id of ['show-tooltip', 'drag-mode', 'show-drawings']) {
+      expect(fieldEl(id)?.getAttribute('data-level')).toBe('L2');
+    }
     expect(fieldEl('show-tooltip')?.textContent).toContain('Data tooltip');
     expect(fieldEl('drag-mode')?.textContent).toContain('Mouse drag');
   });
@@ -454,7 +465,8 @@ describe('plot schema — Display', () => {
   });
 
   it('Mouse drag is a Zoom box / Pan choice: zoom by default, only pan is stored', () => {
-    const store = mount();
+    // Listed with the rail off; with it on, the rail's own button sets it.
+    const store = mount([plot('p1', 0, { showDrawingTools: false }), plot('p2', 1)]);
     const group = byId('drag-mode') as HTMLElement;
     expect(group.getAttribute('role')).toBe('radiogroup');
     const option = (name: string) => within(group).getByRole('radio', { name });
@@ -469,7 +481,7 @@ describe('plot schema — Display', () => {
   });
 
   it('reads a stored zoom as the default choice', () => {
-    mount([plot('p1', 0, { dragMode: 'zoom' })]);
+    mount([plot('p1', 0, { dragMode: 'zoom', showDrawingTools: false })]);
     const group = byId('drag-mode') as HTMLElement;
     expect(
       within(group).getByRole('radio', { name: 'Zoom box' }).getAttribute('aria-checked')

@@ -477,7 +477,8 @@ describe('Waveform schema — plot-wide sections', () => {
   });
 
   it('Display: Legend, Grid, Crosshair, Data tooltip, Mouse drag — written without a dot', () => {
-    const store = mount(makeState());
+    // The rail off, so Data tooltip and Mouse drag are listed.
+    const store = mount(makeState({ drawingTools: false }));
     const display = document.querySelector('.wb-plot-section[data-section="display"]')!;
     expect(Array.from(display.querySelectorAll('[id]')).map((e) => e.id)).toEqual(
       expect.arrayContaining(['legend', 'grid', 'crosshair', 'tooltip', 'drag'])

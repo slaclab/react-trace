@@ -637,20 +637,24 @@ describe('WaveformApp Display › Drawing tools and Drawings', () => {
 
   it('Drawings and the rail’s hide-all agree in both directions', () => {
     ready();
-    const drawings = () => toggle('drawings-shown');
-    expect(drawings().getAttribute('aria-checked')).toBe('true');
+    const drawings = () => document.getElementById('drawings-shown');
+    // While the rail is shown, its button is the only one.
+    toggle('drawing-tools');
+    expect(drawings()).toBeNull();
     expect(hideButton()?.getAttribute('aria-pressed')).toBe('false');
 
+    // The rail's button hides; with the rail off, the Display toggle reads off.
     fireEvent.click(hideButton()!);
     expect(hideButton()?.getAttribute('aria-pressed')).toBe('true');
-    expect(drawings().getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(toggle('drawing-tools'));
+    expect(drawings()?.getAttribute('aria-checked')).toBe('false');
 
-    fireEvent.click(drawings());
-    expect(drawings().getAttribute('aria-checked')).toBe('true');
+    // The Display toggle shows; with the rail back, its button reads shown.
+    fireEvent.click(drawings()!);
+    expect(drawings()?.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(toggle('drawing-tools'));
+    expect(drawings()).toBeNull();
     expect(hideButton()?.getAttribute('aria-pressed')).toBe('false');
-
-    fireEvent.click(drawings());
-    expect(hideButton()?.getAttribute('aria-pressed')).toBe('true');
   });
 });
 

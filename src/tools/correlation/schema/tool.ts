@@ -10,7 +10,7 @@ import { CORRELATION_METRICS } from '../metrics';
 import { CORRELATION_AXES, MAX_N, densityY } from '../query';
 import { optionalPath } from '../../dotHelpers';
 import { AXES, LABELS, PLOT_SECTIONS, onFlags, summary } from '../../vocabulary';
-import type { FieldDef, ObjectSchema } from '../../../workbench/types';
+import type { FieldDef, ObjectSchema, ToolContext } from '../../../workbench/types';
 import { LookbackControl } from '../fields/lookback';
 import { statisticsFields } from '../../../statistics/fields';
 import { siteDefaults } from '../../../site/store';
@@ -88,6 +88,8 @@ export function toolSchema<
 
   // What to draw first, then the plot-wide toggles every tool shares.
   const displayTab = PLOT_SECTIONS.display.id;
+  // Drawing tools off: the plot has no rail.
+  const railOff = (ctx: ToolContext<S, M, U>) => ctx.state.drawingTools === false;
   const display: FieldDef<S, M, U>[] = [
     {
       id: 'view',
@@ -128,19 +130,6 @@ export function toolSchema<
     toggle<M, U>('legend', LABELS.legend, 'legend', displayTab, 'L1'),
     toggle<M, U>('grid', LABELS.grid, 'grid', displayTab, 'L1'),
     toggle<M, U>('crosshair', LABELS.crosshair, 'crosshair', displayTab, 'L1'),
-    toggle<M, U>('tooltip', LABELS.tooltip, 'tooltip', displayTab, 'L2'),
-    {
-      id: 'drag',
-      label: LABELS.drag,
-      kind: 'segmented',
-      tab: displayTab,
-      level: 'L2',
-      options: () => DRAG_MODES.map((m) => ({ value: m, label: DRAG_MODE_LABEL[m] })),
-      get: (ctx) => ctx.state.drag,
-      set: (ctx, value) => {
-        if (isDragMode(value)) ctx.update((state) => apply(state, (s) => ({ ...s, drag: value })));
-      },
-    },
     {
       // The drawing rail and its arm keys; only off is stored (`rail=0`).
       id: 'drawing-tools',
@@ -154,6 +143,22 @@ export function toolSchema<
           apply(state, (s) => ({ ...s, drawingTools: on ? undefined : false }))
         ),
     },
+    // The rail's view toggles and hide-all, here only while the rail is off:
+    // with it shown, its own buttons set them.
+    { ...toggle<M, U>('tooltip', LABELS.tooltip, 'tooltip', displayTab, 'L2'), when: railOff },
+    {
+      id: 'drag',
+      label: LABELS.drag,
+      kind: 'segmented',
+      tab: displayTab,
+      level: 'L2',
+      when: railOff,
+      options: () => DRAG_MODES.map((m) => ({ value: m, label: DRAG_MODE_LABEL[m] })),
+      get: (ctx) => ctx.state.drag,
+      set: (ctx, value) => {
+        if (isDragMode(value)) ctx.update((state) => apply(state, (s) => ({ ...s, drag: value })));
+      },
+    },
     {
       // The plot's hide-all: the rail's hide button and the Annotations
       // eye, on the `ui` record (session only, never in the link).
@@ -162,6 +167,7 @@ export function toolSchema<
       kind: 'toggle',
       tab: displayTab,
       level: 'L2',
+      when: railOff,
       get: (ctx) => (ctx.ui as CorrelationUi | undefined)?.drawingsHidden !== true,
       set: (ctx, on) =>
         (ctx.ui as CorrelationUi | undefined)?.setUi?.((ui) =>

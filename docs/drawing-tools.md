@@ -122,15 +122,14 @@ do nothing. The drawings you already have stay on the plot: open them from
 their cards under **Drawings**, or right-click one, to edit, lock or delete
 them.
 
-**Drawings**, in the same section, shows or hides the plot's drawings. It is
-the rail's **Hide all drawings** button under another name, so the two always
-agree, and it still works while the rail is hidden.
-
-The rail's other toggles have a home in **Display** too: **Data tooltip**,
-and **Mouse drag** for the zoom box. **Magnet** and **Keep drawing** have
-none: they only matter while drawing, and they keep their last setting while
-the rail is hidden (the magnet still applies to **Add … here** and to dragging
-a drawing's handles).
+While the rail is hidden, **Display** lists three of its toggles in its
+place: **Data tooltip**, **Mouse drag** for the zoom box, and **Drawings**,
+which shows or hides the plot's drawings. **Drawings** is the rail's **Hide
+all drawings** button under another name, so the two always agree. While the
+rail is shown, only the rail has them. **Magnet** and **Keep drawing** have
+no place in **Display**: they only matter while drawing, and they keep their
+last setting while the rail is hidden (the magnet still applies to **Add …
+here** and to dragging a drawing's handles).
 
 A vertical line and a time range span the whole height of the plot; every
 other drawing belongs to one Y axis.

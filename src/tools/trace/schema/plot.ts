@@ -11,9 +11,9 @@
 //               Autoscroll (session state; relative ranges only); the
 //               Y axes follow as the axis sections' sub-blocks
 //   Display     Title (stamped dot) · Legend · Live value in legend · X/Y
-//               gridlines · Crosshair · Data tooltip (L1); Mouse drag ·
-//               Status line · Pin data window · Dock data tooltip ·
-//               Drawing tools · Drawings
+//               gridlines · Crosshair (L1); Status line · Pin data window ·
+//               Dock data tooltip · Drawing tools, then, with the rail off,
+//               Data tooltip · Mouse drag · Drawings
 //               (session: the plot's hide-all) (L2); More: Grid style ·
 //               Grid opacity · Tick font size · Background colour · Palette
 //               (custom, `plot.palette`)
@@ -188,6 +188,8 @@ export function createPlotSchema<
     ctx.update((state) => updateBoundPlot(state, target, (p) => ({ ...p, ...change })));
   };
   const isRelative = (ctx: Ctx) => read(ctx, (p) => p.xAxis.timeRange !== 'custom', true);
+  // Drawing tools off: the plot has no rail.
+  const railOff = (ctx: Ctx) => read(ctx, (p) => p.showDrawingTools === false, false);
   const flag = (
     id: string,
     label: string,
@@ -321,37 +323,6 @@ export function createPlotSchema<
     flag('show-y-gridlines', 'Y gridlines', 'showYGridlines'),
     flag('show-crosshair', LABELS.crosshair, 'showCrosshair'),
     {
-      id: 'show-tooltip',
-      label: LABELS.tooltip,
-      kind: 'toggle',
-      tab: PLOT_TABS.display,
-      level: 'L1',
-      // On by default (the strip's tooltip toggle), so only "off" is stored.
-      get: (ctx) => read(ctx, (p) => p.showTooltip !== false, true),
-      set: (ctx, on) => patch(ctx, { showTooltip: on ? undefined : false }),
-      ...plotOptional<S, M, U>('showTooltip'),
-    },
-    {
-      id: 'drag-mode',
-      label: LABELS.drag,
-      kind: 'segmented',
-      tab: PLOT_TABS.display,
-      level: 'L2',
-      // The strip's zoom/pan toggle; only the mode off Trace's default is stored.
-      options: () => DRAG_MODES.map((m) => ({ value: m, label: DRAG_MODE_LABEL[m] })),
-      get: (ctx) => read(ctx, (p) => p.dragMode ?? TRACE_DEFAULT_DRAG, TRACE_DEFAULT_DRAG),
-      set: (ctx, value) => {
-        if (isDragMode(value)) {
-          patch(ctx, { dragMode: value === TRACE_DEFAULT_DRAG ? undefined : value });
-        }
-      },
-      ...plotSiteDot<S, M, U, DragMode>({
-        value: (p) => p.dragMode ?? TRACE_DEFAULT_DRAG,
-        site: () => siteDefaults().trace.plot.dragMode,
-        store: (mode) => ({ dragMode: mode === TRACE_DEFAULT_DRAG ? undefined : mode }),
-      }),
-    },
-    {
       id: 'show-status-line',
       label: 'Status line',
       kind: 'toggle',
@@ -411,6 +382,41 @@ export function createPlotSchema<
         store: (on) => ({ showDrawingTools: on ? undefined : false }),
       }),
     },
+    // The rail's view toggles and hide-all, here only while the rail is off:
+    // with it shown, its own buttons set them.
+    {
+      id: 'show-tooltip',
+      label: LABELS.tooltip,
+      kind: 'toggle',
+      tab: PLOT_TABS.display,
+      level: 'L2',
+      when: railOff,
+      // On by default (the strip's tooltip toggle), so only "off" is stored.
+      get: (ctx) => read(ctx, (p) => p.showTooltip !== false, true),
+      set: (ctx, on) => patch(ctx, { showTooltip: on ? undefined : false }),
+      ...plotOptional<S, M, U>('showTooltip'),
+    },
+    {
+      id: 'drag-mode',
+      label: LABELS.drag,
+      kind: 'segmented',
+      tab: PLOT_TABS.display,
+      level: 'L2',
+      when: railOff,
+      // The strip's zoom/pan toggle; only the mode off Trace's default is stored.
+      options: () => DRAG_MODES.map((m) => ({ value: m, label: DRAG_MODE_LABEL[m] })),
+      get: (ctx) => read(ctx, (p) => p.dragMode ?? TRACE_DEFAULT_DRAG, TRACE_DEFAULT_DRAG),
+      set: (ctx, value) => {
+        if (isDragMode(value)) {
+          patch(ctx, { dragMode: value === TRACE_DEFAULT_DRAG ? undefined : value });
+        }
+      },
+      ...plotSiteDot<S, M, U, DragMode>({
+        value: (p) => p.dragMode ?? TRACE_DEFAULT_DRAG,
+        site: () => siteDefaults().trace.plot.dragMode,
+        store: (mode) => ({ dragMode: mode === TRACE_DEFAULT_DRAG ? undefined : mode }),
+      }),
+    },
     {
       // The plot's drawings shown: the rail's hide-all and the Drawings
       // section's eye, on the tool's `ui` record (session only, never saved).
@@ -419,6 +425,7 @@ export function createPlotSchema<
       kind: 'toggle',
       tab: PLOT_TABS.display,
       level: 'L2',
+      when: railOff,
       get: (ctx) => {
         const plotId = boundPlot(ctx.state, ctx.target)?.id;
         if (plotId === undefined) return true;
