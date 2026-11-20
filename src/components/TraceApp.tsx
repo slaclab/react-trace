@@ -494,6 +494,14 @@ export function TraceApp() {
     updatePlot(plotId, { autoScroll: false });
   };
 
+  const canReset = (plotId: string): boolean => {
+    if (viewWindowByPlot.has(plotId)) return true;
+    const plot = plots.find((p) => p.id === plotId);
+    if (!plot) return false;
+    if (plot.autoScroll === false) return true;
+    return plot.axes.some((a) => !a.autoScale || a.min !== undefined || a.max !== undefined);
+  };
+
   const restoreSnapshot = (plotId: string, snapshot: ViewSnapshot) => {
     if (snapshot.timeWindow) {
       setViewWindowByPlot((prev) => {
@@ -1304,6 +1312,7 @@ export function TraceApp() {
                     onResetZoom={handleResetZoom}
                     canGoBack={viewHistory.canGoBack}
                     canGoForward={viewHistory.canGoForward}
+                    canReset={canReset}
                     zoomTargetByPlot={zoomTargetByPlot}
                   />
                 </ErrorBoundary>

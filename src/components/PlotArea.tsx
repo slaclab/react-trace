@@ -120,6 +120,7 @@ interface PlotAreaProps {
   onResetZoom?: (plotId: string) => void;
   canGoBack?: (plotId: string) => boolean;
   canGoForward?: (plotId: string) => boolean;
+  canReset?: (plotId: string) => boolean;
   /** Per-plot zoom target for programmatic navigation (back/forward/reset). */
   zoomTargetByPlot?: Map<string, { window: TimeWindowNs | null; generation: number }>;
 }
@@ -1202,6 +1203,7 @@ export function PlotArea({
   onResetZoom,
   canGoBack,
   canGoForward,
+  canReset,
   zoomTargetByPlot,
 }: PlotAreaProps) {
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
@@ -1291,6 +1293,7 @@ export function PlotArea({
             className="view-mode-btn"
             title={`Reset zoom (${formatShortcut('alt', '0')})`}
             aria-label="Reset zoom"
+            disabled={!canReset?.(activePlot.id)}
             onClick={() => onResetZoom?.(activePlot.id)}
           >
             <ZoomReset size={16} />
@@ -1390,6 +1393,7 @@ export function PlotArea({
                   className="plot-grid__cell-btn plot-grid__cell-btn--reset"
                   title="Reset zoom"
                   aria-label="Reset zoom"
+                  disabled={!canReset?.(plot.id)}
                   onClick={() => onResetZoom?.(plot.id)}
                 >
                   <ZoomReset size={14} />
