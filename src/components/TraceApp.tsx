@@ -57,6 +57,7 @@ import { getConfig } from '../api/magpie';
 import { errorInfo } from '../api/errorInfo';
 import { useElogConfig } from '../hooks/useElogConfig';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useViewHistory, type ViewSnapshot, type AxisSnapshot } from '../hooks/useViewHistory';
 
 function generateMockData(
   points: number,
@@ -192,6 +193,10 @@ export function TraceApp() {
   const [viewWindowByPlot, setViewWindowByPlot] = useState<Map<string, TimeWindowNs>>(
     () => new Map()
   );
+  const viewHistory = useViewHistory();
+  const [zoomTargetByPlot, setZoomTargetByPlot] = useState<
+    Map<string, { window: TimeWindowNs | null; generation: number }>
+  >(() => new Map());
   const [workspaceGeneration, setWorkspaceGeneration] = useState(0);
   const leftPanelRef = usePanelRef();
   const rightPanelRef = usePanelRef();
@@ -242,7 +247,24 @@ export function TraceApp() {
   const liveResults = useLiveSeries(allTraces);
   const formulaResults = useFormulaSeries(allTraces, formulaSpecByTrace, windowByTrace);
 
+  const snapshotAxes = (plot: Plot | undefined): Map<string, AxisSnapshot> => {
+    const m = new Map<string, AxisSnapshot>();
+    for (const a of plot?.axes ?? [])
+      m.set(a.id, { min: a.min, max: a.max, autoScale: a.autoScale });
+    return m;
+  };
+
+  const currentSnapshot = (plotId: string): ViewSnapshot => {
+    const plot = plots.find((p) => p.id === plotId);
+    return {
+      timeWindow: viewWindowByPlot.get(plotId) ?? null,
+      axisRanges: snapshotAxes(plot),
+      autoScroll: plot?.autoScroll !== false,
+    };
+  };
+
   const handleViewWindowChange = (plotId: string, window: TimeWindowNs) => {
+    const baseline = currentSnapshot(plotId);
     setViewWindowByPlot((prev) => {
       const next = new Map(prev);
       next.set(plotId, window);
@@ -251,6 +273,11 @@ export function TraceApp() {
     // A manual pan/zoom takes over the window, so stop tracking "now". Picking a
     // time range re-enables it (see updatePlot).
     setPlots((prev) => prev.map((p) => (p.id === plotId ? { ...p, autoScroll: false } : p)));
+    viewHistory.push(
+      plotId,
+      { timeWindow: window, axisRanges: baseline.axisRanges, autoScroll: false },
+      baseline
+    );
   };
 
   // Split the flat result maps per plot. Memoized on (plots, archiveResults,
@@ -392,6 +419,13 @@ export function TraceApp() {
     setPlots((prev) => prev.filter((p) => p.id !== plotId));
     if (poppedOutPlot === plotId) setPoppedOutPlot(null);
     setDetachedPlotIds((prev) => prev.filter((id) => id !== plotId));
+    viewHistory.clear(plotId);
+    setZoomTargetByPlot((prev) => {
+      if (!prev.has(plotId)) return prev;
+      const next = new Map(prev);
+      next.delete(plotId);
+      return next;
+    });
     if (activePlotId === plotId) {
       const remaining = plots.filter((p) => p.id !== plotId);
       setActivePlotId(remaining[0].id);
@@ -452,9 +486,98 @@ export function TraceApp() {
     }
   };
 
-  // A pan/zoom started on a following plot: stop following the same way the
-  // Autoscroll toggle does, before the view window is debounced in.
-  const handleFollowStop = (plotId: string) => updatePlot(plotId, { autoScroll: false });
+  // A pan/zoom started on a following plot: capture the baseline while the plot
+  // is still following (autoScroll: true) so "Back" restores the full state,
+  // then stop following.
+  const handleFollowStop = (plotId: string) => {
+    viewHistory.seedBaseline(plotId, currentSnapshot(plotId));
+    updatePlot(plotId, { autoScroll: false });
+  };
+
+  const canReset = (plotId: string): boolean => {
+    if (viewWindowByPlot.has(plotId)) return true;
+    const plot = plots.find((p) => p.id === plotId);
+    if (!plot) return false;
+    if (plot.autoScroll === false) return true;
+    return plot.axes.some((a) => !a.autoScale || a.min !== undefined || a.max !== undefined);
+  };
+
+  const restoreSnapshot = (plotId: string, snapshot: ViewSnapshot) => {
+    if (snapshot.timeWindow) {
+      setViewWindowByPlot((prev) => {
+        const next = new Map(prev);
+        next.set(plotId, snapshot.timeWindow!);
+        return next;
+      });
+    } else {
+      clearViewWindow(plotId);
+    }
+    setPlots((prev) =>
+      prev.map((p) => {
+        if (p.id !== plotId) return p;
+        return {
+          ...p,
+          autoScroll: snapshot.autoScroll,
+          axes: p.axes.map((a) => {
+            const saved = snapshot.axisRanges.get(a.id);
+            if (!saved) return a;
+            return { ...a, min: saved.min, max: saved.max, autoScale: saved.autoScale };
+          }),
+        };
+      })
+    );
+    setZoomTargetByPlot((prev) => {
+      const next = new Map(prev);
+      const gen = (prev.get(plotId)?.generation ?? 0) + 1;
+      next.set(plotId, { window: snapshot.timeWindow, generation: gen });
+      return next;
+    });
+    if (snapshot.autoScroll && !snapshot.timeWindow) {
+      clock.resync([plotId]);
+    }
+  };
+
+  const handleViewBack = (plotId: string) => {
+    const snapshot = viewHistory.goBack(plotId);
+    if (snapshot) restoreSnapshot(plotId, snapshot);
+  };
+
+  const handleViewForward = (plotId: string) => {
+    const snapshot = viewHistory.goForward(plotId);
+    if (snapshot) restoreSnapshot(plotId, snapshot);
+  };
+
+  const handleResetZoom = (plotId: string) => {
+    const baseline = currentSnapshot(plotId);
+    clearViewWindow(plotId);
+    setPlots((prev) =>
+      prev.map((p) =>
+        p.id !== plotId
+          ? p
+          : {
+              ...p,
+              autoScroll: true,
+              axes: p.axes.map((a) => ({ ...a, autoScale: true, min: undefined, max: undefined })),
+            }
+      )
+    );
+    clock.resync([plotId]);
+    const resetAxes = new Map<string, AxisSnapshot>();
+    for (const [id] of baseline.axisRanges) {
+      resetAxes.set(id, { min: undefined, max: undefined, autoScale: true });
+    }
+    viewHistory.push(
+      plotId,
+      { timeWindow: null, axisRanges: resetAxes, autoScroll: true },
+      baseline
+    );
+    setZoomTargetByPlot((prev) => {
+      const next = new Map(prev);
+      const gen = (prev.get(plotId)?.generation ?? 0) + 1;
+      next.set(plotId, { window: null, generation: gen });
+      return next;
+    });
+  };
 
   // ── Trace operations ─────────────────────────────────────────────────────────
 
@@ -800,15 +923,28 @@ export function TraceApp() {
   // plot (grid cells and popouts aren't necessarily the active plot), so route
   // by the plot id rather than assuming activePlotId.
   const updateAxisInPlot = (plotId: string, axisId: string, updates: Partial<Axis>) => {
+    const baseline = currentSnapshot(plotId);
     setPlots((prev) =>
       prev.map((p) =>
         p.id === plotId
-          ? {
-              ...p,
-              axes: p.axes.map((a) => (a.id === axisId ? { ...a, ...updates } : a)),
-            }
+          ? { ...p, axes: p.axes.map((a) => (a.id === axisId ? { ...a, ...updates } : a)) }
           : p
       )
+    );
+    const plot = plots.find((p) => p.id === plotId);
+    const updatedAxes = new Map<string, AxisSnapshot>();
+    for (const a of plot?.axes ?? []) {
+      const merged = a.id === axisId ? { ...a, ...updates } : a;
+      updatedAxes.set(a.id, { min: merged.min, max: merged.max, autoScale: merged.autoScale });
+    }
+    viewHistory.push(
+      plotId,
+      {
+        timeWindow: viewWindowByPlot.get(plotId) ?? null,
+        axisRanges: updatedAxes,
+        autoScroll: plot?.autoScroll !== false,
+      },
+      baseline
     );
   };
 
@@ -851,8 +987,10 @@ export function TraceApp() {
       setSelectedItem(null);
       setInsight((prev) => ({ ...prev, pv: undefined }));
       axisRangesRef.current.clear();
+      viewHistory.clearAll();
+      setZoomTargetByPlot(new Map());
     },
-    [abortUnitLookups, resyncClock]
+    [abortUnitLookups, resyncClock, viewHistory]
   );
 
   // Shareable-link bootstrap: ?config=<slug> loads a saved workspace from the
@@ -1071,6 +1209,9 @@ export function TraceApp() {
     onPostElog: elogConfig?.enabled ? openElogPost : undefined,
     onDataInsight: () => openInsight(),
     onToggleTheme: toggleTheme,
+    onViewBack: () => handleViewBack(activePlotId),
+    onViewForward: () => handleViewForward(activePlotId),
+    onResetZoom: () => handleResetZoom(activePlotId),
   });
 
   return (
@@ -1166,6 +1307,13 @@ export function TraceApp() {
                     onAxisRangesChange={handleAxisRangesChange}
                     onUpdateAxis={updateAxisInPlot}
                     onChartInstance={handleChartInstance}
+                    onViewBack={handleViewBack}
+                    onViewForward={handleViewForward}
+                    onResetZoom={handleResetZoom}
+                    canGoBack={viewHistory.canGoBack}
+                    canGoForward={viewHistory.canGoForward}
+                    canReset={canReset}
+                    zoomTargetByPlot={zoomTargetByPlot}
                   />
                 </ErrorBoundary>
               </div>
@@ -1342,6 +1490,7 @@ export function TraceApp() {
                         // eslint-disable-next-line react-hooks/refs -- ref is written on mount/unmount, not during render
                         handleChartInstance(plot.id, inst, active, true)
                       }
+                      zoomTarget={zoomTargetByPlot.get(plot.id)}
                     />
                   </ErrorBoundary>
                 </div>
@@ -1443,6 +1592,7 @@ export function TraceApp() {
                     onAxisRangesChange={(r) => handleAxisRangesChange(plot.id, r)}
                     onUpdateAxis={(id, u) => updateAxisInPlot(plot.id, id, u)}
                     onChartInstance={(inst, active) => handleChartInstance(plot.id, inst, active)}
+                    zoomTarget={zoomTargetByPlot.get(plot.id)}
                   />
                 </ErrorBoundary>
               </div>

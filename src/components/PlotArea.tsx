@@ -13,15 +13,27 @@ import {
   formatValue,
   useChartTheme,
 } from '@slaclab/canopy-charts';
+import {
+  Add,
+  Close,
+  ColumnDependency,
+  Grid,
+  Launch,
+  Login,
+  Maximize,
+  Redo,
+  Undo,
+  ZoomReset,
+} from '@carbon/icons-react';
 import { effectiveBackground } from '../plotBackground';
 import { registerPlotChart } from '../capturePlot';
-import { Add, Close, ColumnDependency, Grid, Launch, Login, Maximize } from '@carbon/icons-react';
 import type { Axis, Plot, PVTrace } from '../types';
 import type { ArchiveSeriesResult } from '../hooks/useArchiveSeries';
 import type { LiveSeriesResult } from '../hooks/useLiveSeries';
 import type { FormulaSeriesResult } from '../hooks/useFormulaSeries';
 import type { TimeWindowNs } from '../api/time';
 import { msToNs, nsToMs, resolveTimeWindow } from '../api/time';
+import { formatShortcut, isMac } from '../hooks/useKeyboardShortcuts';
 import { echartsLineType, echartsSymbol } from '../curveStyle';
 import { isFollowing } from '../hooks/useAutoScrollTimers';
 import { useFollowNow } from '../hooks/useFollowNow';
@@ -103,6 +115,14 @@ interface PlotAreaProps {
   onUpdateAxis?: (plotId: string, axisId: string, updates: Partial<Axis>) => void;
   /** Publishes each plot's ECharts instance for PNG capture (active=false on unmount). */
   onChartInstance?: (plotId: string, instance: PngSource, active: boolean) => void;
+  onViewBack?: (plotId: string) => void;
+  onViewForward?: (plotId: string) => void;
+  onResetZoom?: (plotId: string) => void;
+  canGoBack?: (plotId: string) => boolean;
+  canGoForward?: (plotId: string) => boolean;
+  canReset?: (plotId: string) => boolean;
+  /** Per-plot zoom target for programmatic navigation (back/forward/reset). */
+  zoomTargetByPlot?: Map<string, { window: TimeWindowNs | null; generation: number }>;
 }
 
 // Shown in the main window where a detached plot's chart would otherwise be.
@@ -166,6 +186,8 @@ interface SinglePlotProps {
    * match by identity (a plot can be mounted twice, e.g. grid + fullscreen).
    */
   onChartInstance?: (instance: PngSource, active: boolean) => void;
+  /** When generation bumps, programmatically zoom to window (null = full range). */
+  zoomTarget?: { window: TimeWindowNs | null; generation: number };
 }
 
 function formatCrosshairTime(ms: number): string {
@@ -301,6 +323,7 @@ export function SinglePlot({
   onUpdateAxis,
   fullscreen,
   onChartInstance,
+  zoomTarget,
 }: SinglePlotProps) {
   // Carbon g10/g100 chart colors for the current canopy-shell color mode.
   const theme = useChartTheme();
@@ -598,6 +621,32 @@ export function SinglePlot({
           endValue: nsToMs(initialViewWindowNs.toNs),
         }
       : null;
+
+  // Navigate to a specific view when the parent bumps `zoomTarget.generation`
+  // (back/forward/reset). Uses the same programmaticZoomRef guard so the
+  // resulting datazoom event isn't mistaken for a user pan.
+  const zoomGenRef = useRef(zoomTarget?.generation ?? 0);
+  useEffect(() => {
+    if (!zoomTarget || zoomTarget.generation === zoomGenRef.current) return;
+    zoomGenRef.current = zoomTarget.generation;
+    const inst = liveChart();
+    if (!inst) return;
+    programmaticZoomRef.current = true;
+    if (zoomTarget.window) {
+      inst.dispatchAction({
+        type: 'dataZoom',
+        startValue: nsToMs(zoomTarget.window.fromNs),
+        endValue: nsToMs(zoomTarget.window.toNs),
+      });
+    } else {
+      inst.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+    }
+    const clearTimer = window.setTimeout(() => {
+      programmaticZoomRef.current = false;
+    }, 0);
+    return () => window.clearTimeout(clearTimer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only on generation bump, not on window content changes
+  }, [zoomTarget?.generation, liveChart]);
 
   // Chart event handlers get the chart that fired the event. CanopyChart drops
   // events from a disposed chart before they reach us; both handlers also
@@ -1149,6 +1198,13 @@ export function PlotArea({
   onAxisRangesChange,
   onUpdateAxis,
   onChartInstance,
+  onViewBack,
+  onViewForward,
+  onResetZoom,
+  canGoBack,
+  canGoForward,
+  canReset,
+  zoomTargetByPlot,
 }: PlotAreaProps) {
   const activePlot = plots.find((p) => p.id === activePlotId) ?? plots[0];
   const isDetached = (id: string) => detachedPlotIds.includes(id);
@@ -1216,6 +1272,34 @@ export function PlotArea({
 
         <div className="plot-tab-bar__controls">
           <button
+            className="view-mode-btn"
+            title={`Back (${isMac ? formatShortcut('alt', '←') : formatShortcut('primary', '[')})`}
+            aria-label="Back"
+            disabled={!canGoBack?.(activePlot.id)}
+            onClick={() => onViewBack?.(activePlot.id)}
+          >
+            <Undo size={16} />
+          </button>
+          <button
+            className="view-mode-btn"
+            title={`Forward (${isMac ? formatShortcut('alt', '→') : formatShortcut('primary', ']')})`}
+            aria-label="Forward"
+            disabled={!canGoForward?.(activePlot.id)}
+            onClick={() => onViewForward?.(activePlot.id)}
+          >
+            <Redo size={16} />
+          </button>
+          <button
+            className="view-mode-btn"
+            title={`Reset zoom (${formatShortcut('alt', '0')})`}
+            aria-label="Reset zoom"
+            disabled={!canReset?.(activePlot.id)}
+            onClick={() => onResetZoom?.(activePlot.id)}
+          >
+            <ZoomReset size={16} />
+          </button>
+          <div className="plot-tab-bar__separator" />
+          <button
             className={`view-mode-btn${viewMode === 'tabs' ? ' view-mode-btn--active' : ''}`}
             title="Tab view"
             onClick={() => onSetViewMode('tabs')}
@@ -1275,6 +1359,7 @@ export function PlotArea({
                     ? (inst, active) => onChartInstance(activePlot.id, inst, active)
                     : undefined
                 }
+                zoomTarget={zoomTargetByPlot?.get(activePlot.id)}
               />
             </ErrorBoundary>
           )
@@ -1303,6 +1388,15 @@ export function PlotArea({
                   }
                 >
                   {isDetached(plot.id) ? <Login size={14} /> : <Launch size={14} />}
+                </button>
+                <button
+                  className="plot-grid__cell-btn plot-grid__cell-btn--reset"
+                  title="Reset zoom"
+                  aria-label="Reset zoom"
+                  disabled={!canReset?.(plot.id)}
+                  onClick={() => onResetZoom?.(plot.id)}
+                >
+                  <ZoomReset size={14} />
                 </button>
                 {plots.length > 1 && (
                   <button
@@ -1343,6 +1437,7 @@ export function PlotArea({
                           ? (inst, active) => onChartInstance(plot.id, inst, active)
                           : undefined
                       }
+                      zoomTarget={zoomTargetByPlot?.get(plot.id)}
                     />
                   </ErrorBoundary>
                 )}
