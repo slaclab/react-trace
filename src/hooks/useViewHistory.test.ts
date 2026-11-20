@@ -262,6 +262,80 @@ describe('useViewHistory', () => {
     expect(restored!.timeWindow).toEqual({ fromNs: 0, toNs: 100 });
   });
 
+  it('seedBaseline seeds once on an empty history', () => {
+    const { result } = renderHook(() => useViewHistory());
+    const baseline = snap({ autoScroll: true, timeWindow: { fromNs: 0, toNs: 100 } });
+
+    act(() => {
+      result.current.seedBaseline('p1', baseline);
+    });
+
+    // Baseline is entry 0 — nothing to go back to yet
+    expect(result.current.canGoBack('p1')).toBe(false);
+
+    // Push a zoom; going back should return the seeded baseline
+    act(() => {
+      result.current.push('p1', snapAt(50, 75));
+      vi.advanceTimersByTime(300);
+    });
+
+    let restored: ViewSnapshot | null = null;
+    act(() => {
+      restored = result.current.goBack('p1');
+    });
+    expect(restored!.timeWindow).toEqual({ fromNs: 0, toNs: 100 });
+    expect(restored!.autoScroll).toBe(true);
+  });
+
+  it('seedBaseline is a no-op when history already exists', () => {
+    const { result } = renderHook(() => useViewHistory());
+
+    act(() => {
+      result.current.push('p1', snapAt(0, 100));
+      vi.advanceTimersByTime(300);
+    });
+
+    // Attempt to seed after history exists — should be ignored
+    act(() => {
+      result.current.seedBaseline(
+        'p1',
+        snap({ autoScroll: true, timeWindow: { fromNs: 999, toNs: 1000 } })
+      );
+    });
+
+    let restored: ViewSnapshot | null = null;
+    act(() => {
+      restored = result.current.goBack('p1');
+    });
+    // No second entry was added, so goBack returns null
+    expect(restored).toBeNull();
+  });
+
+  it('seedBaseline is a no-op when a pending push exists', () => {
+    const { result } = renderHook(() => useViewHistory());
+
+    // Push without waiting for coalesce — creates a pending entry
+    act(() => {
+      result.current.push('p1', snapAt(50, 75));
+    });
+
+    // seedBaseline should be skipped because pending exists
+    act(() => {
+      result.current.seedBaseline(
+        'p1',
+        snap({ autoScroll: true, timeWindow: { fromNs: 0, toNs: 100 } })
+      );
+    });
+
+    // Let the coalesce timer fire
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    // Only one entry (the pushed one), no baseline was added
+    expect(result.current.canGoBack('p1')).toBe(false);
+  });
+
   it('does not seed baseline when history already exists', () => {
     const { result } = renderHook(() => useViewHistory());
 

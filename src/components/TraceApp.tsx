@@ -486,9 +486,13 @@ export function TraceApp() {
     }
   };
 
-  // A pan/zoom started on a following plot: stop following the same way the
-  // Autoscroll toggle does, before the view window is debounced in.
-  const handleFollowStop = (plotId: string) => updatePlot(plotId, { autoScroll: false });
+  // A pan/zoom started on a following plot: capture the baseline while the plot
+  // is still following (autoScroll: true) so "Back" restores the full state,
+  // then stop following.
+  const handleFollowStop = (plotId: string) => {
+    viewHistory.seedBaseline(plotId, currentSnapshot(plotId));
+    updatePlot(plotId, { autoScroll: false });
+  };
 
   const restoreSnapshot = (plotId: string, snapshot: ViewSnapshot) => {
     if (snapshot.timeWindow) {

@@ -39,6 +39,7 @@ function snapshotsEqual(a: ViewSnapshot, b: ViewSnapshot): boolean {
 
 export interface ViewHistoryAPI {
   push(plotId: string, snapshot: ViewSnapshot, baseline?: ViewSnapshot): void;
+  seedBaseline(plotId: string, baseline: ViewSnapshot): void;
   goBack(plotId: string): ViewSnapshot | null;
   goForward(plotId: string): ViewSnapshot | null;
   canGoBack(plotId: string): boolean;
@@ -104,18 +105,20 @@ export function useViewHistory(): ViewHistoryAPI {
     [getOrCreate, updateNav]
   );
 
+  const seedBaseline = useCallback(
+    (plotId: string, baseline: ViewSnapshot) => {
+      const h = getOrCreate(plotId);
+      if (h.stack.length > 0 || pendingRef.current.has(plotId)) return;
+      h.stack.push(baseline);
+      h.cursor = 0;
+      updateNav(plotId, h);
+    },
+    [getOrCreate, updateNav]
+  );
+
   const push = useCallback(
     (plotId: string, snapshot: ViewSnapshot, baseline?: ViewSnapshot) => {
-      // When a plot has no history yet, seed the pre-change state so the first
-      // action can be undone. The baseline bypasses the coalesce timer.
-      if (baseline) {
-        const h = getOrCreate(plotId);
-        if (h.stack.length === 0 && !pendingRef.current.has(plotId)) {
-          h.stack.push(baseline);
-          h.cursor = 0;
-          updateNav(plotId, h);
-        }
-      }
+      if (baseline) seedBaseline(plotId, baseline);
 
       pendingRef.current.set(plotId, snapshot);
 
@@ -130,7 +133,7 @@ export function useViewHistory(): ViewHistoryAPI {
         }, COALESCE_MS)
       );
     },
-    [commitPending, getOrCreate, updateNav]
+    [commitPending, seedBaseline]
   );
 
   const goBack = useCallback(
@@ -208,5 +211,5 @@ export function useViewHistory(): ViewHistoryAPI {
     setNav(new Map());
   }, []);
 
-  return { push, goBack, goForward, canGoBack, canGoForward, clear, clearAll };
+  return { push, seedBaseline, goBack, goForward, canGoBack, canGoForward, clear, clearAll };
 }
