@@ -370,7 +370,9 @@ export function ConfigStoreModal({
                 <InlineLoading description="Loading configs…" />
               ) : configs.length === 0 ? (
                 <p style={{ color: 'var(--cds-text-secondary)' }}>
-                  {debouncedSearch ? 'No configs match your search.' : 'No saved configs yet.'}
+                  {debouncedSearch.trim()
+                    ? 'No configs match your search.'
+                    : 'No saved configs yet.'}
                 </p>
               ) : (
                 <StructuredListWrapper isCondensed>
