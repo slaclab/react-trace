@@ -292,6 +292,46 @@ describe('ConfigStoreModal', () => {
     );
   });
 
+  it('debounces search input into a server-side listConfigs search query', async () => {
+    vi.mocked(listConfigs).mockResolvedValue({
+      results: [listedConfig],
+      continuationToken: null,
+      totalCount: 1,
+    });
+    renderModal();
+    await screen.findByText('test-config');
+    vi.mocked(listConfigs).mockClear();
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search saved configs' }), {
+      target: { value: 'klystron' },
+    });
+
+    await waitFor(() =>
+      expect(listConfigs).toHaveBeenCalledWith(expect.objectContaining({ search: 'klystron' }))
+    );
+  });
+
+  it('shows a search-specific empty state when a query has no matches', async () => {
+    vi.mocked(listConfigs).mockResolvedValueOnce({
+      results: [listedConfig],
+      continuationToken: null,
+      totalCount: 1,
+    });
+    renderModal();
+    await screen.findByText('test-config');
+
+    vi.mocked(listConfigs).mockResolvedValue({
+      results: [],
+      continuationToken: null,
+      totalCount: 0,
+    });
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search saved configs' }), {
+      target: { value: 'no-such-config' },
+    });
+
+    await screen.findByText('No configs match your search.');
+  });
+
   it('aborts a pending load when the modal unmounts', async () => {
     vi.mocked(listConfigs).mockResolvedValue({
       results: [listedConfig],

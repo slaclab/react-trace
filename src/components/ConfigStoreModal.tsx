@@ -14,6 +14,7 @@ import {
   StructuredListBody,
   StructuredListRow,
   StructuredListCell,
+  Search,
 } from '@carbon/react';
 import { Copy, TrashCan, Renew } from '@carbon/icons-react';
 
@@ -48,6 +49,10 @@ interface ConfigStoreModalProps {
 // One unpaginated page. Truncation is surfaced in the list header rather than
 // silently hidden; real paging is slaclab/react-trace#80.
 const PAGE_SIZE = 200;
+
+// Delay before a search keystroke triggers a refetch, so typing doesn't fire
+// a request per character.
+const SEARCH_DEBOUNCE_MS = 300;
 
 // Marks the delete confirmation, which opens as a second modal over the store.
 // The store's Carbon focus wrap treats focus leaving for an element outside it
@@ -95,6 +100,9 @@ export function ConfigStoreModal({
   const [configs, setConfigs] = useState<ConfigDTO[]>([]);
   const [totalCount, setTotalCount] = useState<number | null>(null);
   const [listing, setListing] = useState(false);
+  const [search, setSearch] = useState('');
+  // Debounced so `refresh` (and the fetch it fires) doesn't recreate on every keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   // Slug currently undergoing a row action (delete/load), to disable its buttons.
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ConfigDTO | null>(null);
@@ -113,7 +121,10 @@ export function ConfigStoreModal({
     setError(null);
     setListing(true);
     try {
-      const page = await listConfigs({ pageSize: PAGE_SIZE });
+      const page = await listConfigs({
+        pageSize: PAGE_SIZE,
+        search: debouncedSearch.trim() || undefined,
+      });
       if (gen !== refreshGen.current) return;
       // Magpie orders by its (random UUID) primary key, so sort here to get a
       // predictable newest-first list. See slaclab/canopy#90 for the server-side
@@ -130,11 +141,17 @@ export function ConfigStoreModal({
     } finally {
       if (gen === refreshGen.current) setListing(false);
     }
-  }, []);
+  }, [debouncedSearch]);
 
   useEffect(() => {
     if (open) void Promise.resolve().then(refresh);
   }, [open, refresh]);
+
+  // Debounce search keystrokes before they reach `debouncedSearch` (and thus `refresh`).
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   useEffect(
     () => () => {
@@ -339,10 +356,24 @@ export function ConfigStoreModal({
                 />
               </div>
 
+              <Search
+                id="config-search"
+                labelText="Search saved configs"
+                placeholder="Search by name…"
+                size="sm"
+                value={search}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
+                onClear={() => setSearch('')}
+              />
+
               {listing ? (
                 <InlineLoading description="Loading configs…" />
               ) : configs.length === 0 ? (
-                <p style={{ color: 'var(--cds-text-secondary)' }}>No saved configs yet.</p>
+                <p style={{ color: 'var(--cds-text-secondary)' }}>
+                  {debouncedSearch.trim()
+                    ? 'No configs match your search.'
+                    : 'No saved configs yet.'}
+                </p>
               ) : (
                 <StructuredListWrapper isCondensed>
                   <StructuredListHead>

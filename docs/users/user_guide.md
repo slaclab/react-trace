@@ -304,6 +304,22 @@ _Note: Importing replaces the current workspace without asking. Save first if yo
 
 ---
 
+## Config Store
+
+The config store saves a workspace to the server and gives you a link to share it, instead of a `.trc.json` file.
+
+- Click the **Config Store** icon in the header to open it.
+- **Save & copy share link** saves the current workspace and copies a link to your clipboard. Anyone with the link gets the same plots, axes, traces, styles, time ranges, and theme.
+- **Saved configs** lists what's been saved, newest first. Use **Search** to filter the list by name. Each row has **Load**, **Rename**, copy-link, and delete actions.
+
+<div style="text-align:center; margin:1.5rem 0;">
+  <a class="glightbox" href="../images/config_store.png"><img src="../images/config_store.png" alt="The Config Store modal, with the search field above the saved configs list" style="width:70%; border-radius:0.5rem;"></a>
+</div>
+
+_Note: The list shows at most 200 configs. If there are more, the header says so (e.g. "showing 200 of 340") — use **Search** to find a config past that cutoff._
+
+---
+
 ## Export and Print
 
 - **Export CSV** — downloads one CSV file per plot, named after the plot title. Each row has the PV name, the time (in nanoseconds and as a date), and the value. Archive and formula data are included; traces with only live data are not. For ranges longer than 30 minutes, the archive values are the averaged bins shown on the plot.
