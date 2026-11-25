@@ -42,7 +42,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@slaclab/canopy-vite": "^0.3.0",
-    "@tauri-apps/cli": "^1.6.3",
+    "@tauri-apps/cli": "^2.12.6",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "github:testing-library/jest-dom",
     "@testing-library/react": "^16.3.3",
